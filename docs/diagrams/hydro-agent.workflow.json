@@ -2,7 +2,7 @@
   "schema_version": 2,
   "diagram_type": "workflow",
   "meta": {
-    "title": "Hydro-Agent 水文预报方案工作流",
+    "title": "Hydro-Agent 水文预报方案流程",
     "locale": "zh-CN",
     "animation": "trace",
     "visual_preset": "signal-flow",
@@ -10,68 +10,116 @@
     "views": [
       {
         "id": "main-flow",
-        "label": "主流程",
-        "focus": ["task", "check", "forecast", "diagnose", "keep", "freeze", "replay", "evaluate", "report"],
-        "note": "从任务配置到最终评价的主流程。"
-      },
-      {
-        "id": "adapt-loop",
-        "label": "异常处理闭环",
-        "focus": ["diagnose", "repair", "rebuild", "adapt", "forecast", "compare", "freeze"],
-        "note": "当结果存在持续问题时，智能体选择合适的处理动作并重新验证。"
+        "label": "一图看懂",
+        "focus": ["task", "check", "forecast", "diagnose", "act", "finish"],
+        "note": "沿主线理解 Hydro-Agent：输入任务、检查资料、运行模型、智能诊断、执行动作、冻结回放并评价。"
       }
     ]
   },
   "lanes": [
-    {"id": "user", "label": "研究者 / 任务"},
-    {"id": "agent", "label": "智能体：判断下一步"},
-    {"id": "tools", "label": "专业工具：检查 / 诊断 / 比较"},
-    {"id": "model", "label": "水文模型：计算流量 / 有限适配"}
+    {"id": "user", "label": "研究者 / 最终结果"},
+    {"id": "agent", "label": "智能体：判断下一步做什么"},
+    {"id": "tools", "label": "专业工具：检查、处理、验证"},
+    {"id": "model", "label": "水文模型：计算未来流量"}
   ],
   "phases": [
-    {"id": "build", "label": "B：方案构建与历史适配", "fromCol": 0, "toCol": 3, "variant": "emphasis"},
-    {"id": "forecast_replay", "label": "F：冻结方案回放", "fromCol": 4, "toCol": 4, "variant": "dashed"},
-    {"id": "eval", "label": "E：只读评价", "fromCol": 5, "toCol": 5, "variant": "dashed"}
+    {"id": "build", "label": "B：方案构建与历史适配", "fromCol": 0, "toCol": 4, "variant": "emphasis"},
+    {"id": "replay_eval", "label": "F / E：冻结回放与最终评价", "fromCol": 5, "toCol": 5, "variant": "dashed"}
   ],
-  "groups": [
-    {"id": "decision-loop", "label": "发现问题后：选动作 → 执行 → 再验证", "lane": "agent", "fromCol": 2, "toCol": 4, "variant": "emphasis"}
-  ],
-  "mainPath": ["task", "check", "forecast", "diagnose", "keep", "freeze", "replay", "evaluate", "report"],
+  "mainPath": ["task", "check", "forecast", "diagnose", "act", "finish"],
   "nodes": [
-    {"id": "task", "lane": "user", "col": 0, "type": "external", "label": "1. 配置预报任务", "sublabel": "流域 / 时间 / 数据 / 模型", "width": 150},
-    {"id": "check", "lane": "tools", "col": 1, "type": "database", "label": "2. 检查资料与方案", "sublabel": "A01–A04：缺测、时间、单位、起报条件", "width": 175},
-    {"id": "forecast", "lane": "model", "col": 2, "type": "backend", "label": "3. 运行水文模型", "sublabel": "A05：模型只负责计算未来流量", "tag": "Forecast 算子", "width": 170},
-    {"id": "diagnose", "lane": "agent", "col": 3, "type": "backend", "label": "4. 判断结果为什么不好", "sublabel": "A06：数据？时间？状态？forcing？模型？", "tag": "智能体做判断", "width": 190},
-    {"id": "keep", "lane": "agent", "col": 4, "type": "backend", "label": "结果正常：保持方案", "sublabel": "KEEP / 不干预", "width": 155, "yOffset": -44},
-    {"id": "repair", "lane": "tools", "col": 3, "type": "messagebus", "label": "修资料", "sublabel": "A02：有依据地补取 / 纠正", "width": 145, "yOffset": -38},
-    {"id": "rebuild", "lane": "tools", "col": 3, "type": "messagebus", "label": "重建起报条件", "sublabel": "A04：历史窗口 / 状态不一致", "width": 155, "yOffset": 38},
-    {"id": "adapt", "lane": "model", "col": 3, "type": "backend", "label": "小范围参数适配", "sublabel": "A07：仅在证据充分时调用", "tag": "Optimizer + Trainer", "width": 165, "yOffset": 40},
-    {"id": "compare", "lane": "tools", "col": 4, "type": "database", "label": "5. 比较并决定", "sublabel": "A08–A09：采用 / 撤销 / 保持 / 受阻", "width": 175, "yOffset": 38},
-    {"id": "freeze", "lane": "agent", "col": 4, "type": "security", "label": "6. 冻结最终方案", "sublabel": "A10：模型、配置、规则全部锁定", "tag": "B 阶段结束", "width": 165, "yOffset": 42},
-    {"id": "replay", "lane": "model", "col": 4, "type": "backend", "label": "7. 自动连续起报", "sublabel": "A11：冻结方案历史回放", "tag": "禁止看测试真值调参", "width": 170, "yOffset": -38},
-    {"id": "evaluate", "lane": "tools", "col": 5, "type": "database", "label": "8. 最终只读评价", "sublabel": "A12：NSE / KGE / Bias / 洪峰等", "width": 170},
-    {"id": "report", "lane": "user", "col": 5, "type": "frontend", "label": "9. 输出结果与报告", "sublabel": "预报结果 + 动作记录 + 评价 + 工时", "width": 170}
+    {
+      "id": "task",
+      "lane": "user",
+      "col": 0,
+      "type": "external",
+      "label": "1. 配置预报任务",
+      "sublabel": "一次性选定流域、时间、数据和模型",
+      "width": 165
+    },
+    {
+      "id": "check",
+      "lane": "tools",
+      "col": 1,
+      "type": "database",
+      "label": "2. 检查资料与方案",
+      "sublabel": "A01–A04：缺测、时间、单位、起报条件",
+      "width": 175
+    },
+    {
+      "id": "forecast",
+      "lane": "model",
+      "col": 2,
+      "type": "backend",
+      "label": "3. 运行水文模型",
+      "sublabel": "A05：模型负责真正计算未来流量",
+      "tag": "Forecast 算子",
+      "width": 175
+    },
+    {
+      "id": "diagnose",
+      "lane": "agent",
+      "col": 3,
+      "type": "backend",
+      "label": "4. 智能体判断怎么办",
+      "sublabel": "A06：KEEP / 修资料 / 重建状态 / 有限适配",
+      "tag": "看证据后选动作",
+      "width": 195
+    },
+    {
+      "id": "act",
+      "lane": "tools",
+      "col": 4,
+      "type": "messagebus",
+      "label": "5. 执行动作并重新验证",
+      "sublabel": "A07–A09：工具执行；需要时才小范围调优",
+      "tag": "通过则保留，不通过则撤销 / 受阻",
+      "width": 205
+    },
+    {
+      "id": "finish",
+      "lane": "user",
+      "col": 5,
+      "type": "frontend",
+      "label": "6. 冻结 → 回放 → 评价 → 报告",
+      "sublabel": "A10 冻结；A11 自动起报；A12 只读评价",
+      "tag": "输出预测、过程记录和评价结果",
+      "width": 210
+    }
   ],
   "edges": [
     {"id": "task-check", "from": "task", "to": "check", "label": "开始", "variant": "default"},
     {"id": "check-forecast", "from": "check", "to": "forecast", "label": "资料可用", "variant": "emphasis"},
     {"id": "forecast-diagnose", "from": "forecast", "to": "diagnose", "label": "预测结果", "variant": "emphasis"},
-    {"id": "diagnose-keep", "from": "diagnose", "to": "keep", "label": "正常 / 无充分干预依据", "variant": "emphasis", "role": "branch"},
-    {"id": "diagnose-repair", "from": "diagnose", "to": "repair", "label": "数据问题", "variant": "dashed", "role": "branch"},
-    {"id": "diagnose-rebuild", "from": "diagnose", "to": "rebuild", "label": "状态 / 历史窗口问题", "variant": "dashed", "role": "branch"},
-    {"id": "diagnose-adapt", "from": "diagnose", "to": "adapt", "label": "持续模型偏差", "variant": "dashed", "role": "branch"},
-    {"id": "repair-forecast", "from": "repair", "to": "forecast", "label": "修复后重跑", "variant": "dashed", "role": "return"},
-    {"id": "rebuild-forecast", "from": "rebuild", "to": "forecast", "label": "重建后重跑", "variant": "dashed", "role": "return"},
-    {"id": "adapt-compare", "from": "adapt", "to": "compare", "label": "候选方案", "variant": "default"},
-    {"id": "compare-forecast", "from": "compare", "to": "forecast", "label": "需要再验证", "variant": "dashed", "role": "return"},
-    {"id": "keep-freeze", "from": "keep", "to": "freeze", "label": "保持", "variant": "emphasis"},
-    {"id": "compare-freeze", "from": "compare", "to": "freeze", "label": "通过门槛", "variant": "emphasis"},
-    {"id": "freeze-replay", "from": "freeze", "to": "replay", "label": "进入 F 阶段", "variant": "security"},
-    {"id": "replay-evaluate", "from": "replay", "to": "evaluate", "label": "冻结预测结果", "variant": "emphasis"},
-    {"id": "evaluate-report", "from": "evaluate", "to": "report", "label": "评价完成", "variant": "emphasis"}
+    {"id": "diagnose-act", "from": "diagnose", "to": "act", "label": "选择处理动作", "variant": "emphasis"},
+    {"id": "act-finish", "from": "act", "to": "finish", "label": "方案通过验证", "variant": "emphasis"}
   ],
   "cards": [
-    {"dot": "cyan", "title": "一句话理解", "items": ["智能体负责判断下一步做什么", "专业工具负责检查、计算和验证", "水文模型只是被调用的 Forecast / Adapt 算子"]},
-    {"dot": "rose", "title": "参数优化不是必选项", "items": ["只有证据指向持续模型偏差时才进入有限适配", "正常任务正确选择 KEEP / 不干预同样是成功"]}
+    {
+      "dot": "cyan",
+      "title": "智能体到底做什么？",
+      "items": [
+        "它像调度员：读取证据，然后决定下一步调用哪个专业工具",
+        "它不直接计算 NSE/KGE，也不直接生成神经网络权重"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "参数优化在哪里？",
+      "items": [
+        "参数优化只是第 5 步中的一种可选动作",
+        "只有持续模型偏差且其他问题排除后，才调用受约束的 Optimizer + Trainer",
+        "正常情况下选择 KEEP / 不干预同样是正确结果"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "三个阶段",
+      "items": [
+        "B：允许用历史资料构建、诊断并有限适配方案",
+        "F：方案冻结后自动连续起报，不看测试真值调参",
+        "E：最后才读取测试真值做只读评价与报告"
+      ]
+    }
   ]
 }
