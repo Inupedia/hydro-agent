@@ -35,7 +35,7 @@
     {"id": "decide", "lane": "agent", "col": 2, "type": "backend", "label": "3. 判断下一步做什么", "sublabel": "KEEP / 查资料 / 重建状态 / 预报 / 优化 / 比较 / BLOCK", "tag": "Agent DECIDE", "width": 225},
     {"id": "followup", "lane": "agent", "col": 4, "type": "security", "label": "6. 继续还是结束？", "sublabel": "问题解决了吗？有新证据吗？还有预算吗？阶段允许吗？", "tag": "needs_follow_up", "width": 220},
     {"id": "freeze", "lane": "agent", "col": 5, "type": "security", "label": "冻结方案 / 受阻收尾", "sublabel": "ACCEPT / KEEP → 冻结；BLOCK → 保存现场和未解决条件", "tag": "TERMINAL", "width": 220},
-    {"id": "observe", "lane": "tools", "col": 1, "type": "database", "label": "2. 汇总当前证据", "sublabel": "数据质量 · 当前方案 · 预报表现 · forcing · 相似过程 · 已尝试动作", "tag": "OBSERVE", "width": 230},
+    {"id": "observe", "lane": "tools", "col": 1, "type": "database", "label": "2. 汇总当前证据", "sublabel": "数据质量 · 当前方案 · 预报表现 · forcing · 相似过程 · 已尝试动作", "tag": "OBSERVE", "width": 250},
     {"id": "action", "lane": "tools", "col": 3, "type": "messagebus", "label": "4. 调用一个专业工具", "sublabel": "A01–A12 是 Action Space；执行前检查权限、能力、策略和预算", "tag": "TOOL CALL", "width": 230},
     {"id": "evidence", "lane": "tools", "col": 4, "type": "database", "label": "5. 查看工具结果", "sublabel": "结果 · 指标 · Gate · 副作用 · 成本 → 形成新的 EvidencePacket", "tag": "TOOL OUTPUT", "width": 230},
     {"id": "optimizer", "lane": "model", "col": 3, "type": "backend", "label": "模型内数值优化循环", "sublabel": "XAJ：有界参数率定；OHN：冻结候选训练。Agent 不直接给连续参数", "tag": "INNER LOOP", "width": 235}
@@ -51,7 +51,7 @@
     {"id": "followup-observe", "from": "followup", "to": "observe", "label": "YES：有新证据，重新观察与判断", "variant": "dashed", "role": "return", "fromSide": "top", "toSide": "left", "via": [[816.1, 260], [30, 260], [30, 647]], "labelSegment": 1},
     {"id": "followup-freeze", "from": "followup", "to": "freeze", "label": "NO：ACCEPT / KEEP / BLOCK", "variant": "emphasis", "role": "branch"},
     {"id": "freeze-replay", "from": "freeze", "to": "replay", "label": "冻结方案进入 F", "variant": "security"},
-    {"id": "replay-report", "from": "replay", "to": "report", "label": "回放结束进入 E", "variant": "emphasis"}
+    {"id": "replay-report", "from": "replay", "to": "report", "label": "回放结束进入 E", "variant": "emphasis", "route": "straight", "fromSide": "bottom", "toSide": "top"}
   ],
   "cards": [
     {"dot": "cyan", "title": "最重要：A01–A12 不是固定步骤", "items": ["它们是 Agent 可以选择的业务动作空间；每一轮通常只选一个最有价值的动作", "工具返回什么，会直接改变下一轮 Agent 看到的证据和可能采取的动作"]},
