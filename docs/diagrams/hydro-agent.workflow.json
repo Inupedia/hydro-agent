@@ -54,7 +54,7 @@
     {"id": "followup-observe", "from": "followup", "to": "observe", "label": "YES：下一轮", "variant": "dashed", "role": "return", "route": "up-channel", "fromSide": "top", "toSide": "top", "labelSegment": 1},
     {"id": "followup-freeze", "from": "followup", "to": "freeze", "label": "NO：收尾", "variant": "emphasis", "role": "branch"},
     {"id": "freeze-replay", "from": "freeze", "to": "replay", "label": "进入 F", "variant": "security"},
-    {"id": "replay-report", "from": "replay", "to": "report", "label": "进入 E", "variant": "emphasis", "fromSide": "bottom", "toSide": "top"}
+    {"id": "replay-report", "from": "replay", "to": "report", "label": "进入 E", "variant": "emphasis"}
   ],
   "cards": [
     {"dot": "cyan", "title": "A01–A12 是动作空间", "items": ["不是 A01→A12 固定流水线", "每轮只选当前最有价值的动作"]},
