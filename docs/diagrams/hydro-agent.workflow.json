@@ -43,7 +43,6 @@
     {"id": "outer_loop", "label": "外层闭环：Observe → Decide → Tool → Evidence → Follow-up", "lane": "agent", "fromCol": 1, "toCol": 4, "variant": "emphasis"},
     {"id": "inner_loop", "label": "内层数值优化：只负责搜索具体参数 / 候选", "lane": "model", "fromCol": 3, "toCol": 4, "variant": "dashed"}
   ],
-  "mainPath": ["task", "observe", "decide", "action", "evidence", "followup", "freeze", "replay", "report"],
   "nodes": [
     {"id": "task", "lane": "ui", "col": 0, "type": "external", "label": "1. 创建预报任务", "sublabel": "流域 · 日期 · 指定模型 · 是否允许优化 · 总预算", "tag": "一次性配置", "width": 205},
     {"id": "replay", "lane": "ui", "col": 5, "type": "database", "label": "7. 冻结方案回放", "sublabel": "F 阶段只运行已冻结方案，不根据测试真值再调参", "tag": "A11 · F", "width": 220, "yOffset": -45},
@@ -64,7 +63,7 @@
     {"id": "action-optimizer", "from": "action", "to": "optimizer", "label": "仅 CALIBRATE / ADAPT", "variant": "dashed", "role": "branch"},
     {"id": "optimizer-evidence", "from": "optimizer", "to": "evidence", "label": "候选 + 搜索轨迹 + 统一评价", "variant": "default"},
     {"id": "evidence-followup", "from": "evidence", "to": "followup", "label": "写回任务状态", "variant": "emphasis"},
-    {"id": "followup-observe", "from": "followup", "to": "observe", "label": "YES：有新证据，重新观察与判断", "variant": "dashed", "role": "return", "route": "bottom-channel"},
+    {"id": "followup-observe", "from": "followup", "to": "observe", "label": "YES：有新证据，重新观察与判断", "variant": "dashed", "role": "return", "route": "return-left", "fromSide": "left", "toSide": "left"},
     {"id": "followup-freeze", "from": "followup", "to": "freeze", "label": "NO：ACCEPT / KEEP / BLOCK", "variant": "emphasis", "role": "branch"},
     {"id": "freeze-replay", "from": "freeze", "to": "replay", "label": "冻结方案进入 F", "variant": "security"},
     {"id": "replay-report", "from": "replay", "to": "report", "label": "回放结束进入 E", "variant": "emphasis"}
