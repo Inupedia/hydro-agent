@@ -2,104 +2,64 @@
   "schema_version": 2,
   "diagram_type": "workflow",
   "meta": {
-    "title": "Hydro-Agent：证据反馈式自主查询循环",
+    "title": "Hydro-Agent：证据反馈式水文预报方案构建闭环",
     "locale": "zh-CN",
     "animation": "trace",
     "visual_preset": "signal-flow",
     "quality_profile": "showcase",
     "views": [
-      {
-        "id": "main-flow",
-        "label": "Hydro-Agent 主循环",
-        "focus": ["task", "state", "agent", "action_space", "execute", "evidence", "follow_up", "freeze", "replay", "report"],
-        "note": "参考 Codex 的 iterative tool-use loop：Agent 每轮观察当前状态，选择一个允许动作；工具执行后返回结构化 EvidencePacket，再决定继续下一轮还是结束。"
-      },
-      {
-        "id": "agent-loop",
-        "label": "外层 Agent Loop",
-        "focus": ["state", "agent", "action_space", "evidence", "follow_up"],
-        "note": "A01–A12 是 action space，不是固定流水线。每个工具结果都写回 TaskState；needs_follow_up=true 时重新采样并决定下一动作。"
-      },
-      {
-        "id": "optimizer-loop",
-        "label": "内层数值优化",
-        "focus": ["action_space", "execute", "evidence"],
-        "note": "XAJ 率定器与 OpenHydroNet Optimizer/Trainer 可以内部搜索多个数值候选，但它们是确定性/受约束 Tool，不替代外层 Agent 决策。"
-      }
-    ]
+      {"id": "main-flow", "label": "主流程", "focus": ["task", "observe", "decide", "action", "evidence", "followup", "freeze", "replay", "report"], "note": "看证据 → 判断下一步 → 调工具 → 看结果 → 继续或结束。"},
+      {"id": "agent-loop", "label": "Agent Loop", "focus": ["observe", "decide", "action", "evidence", "followup"], "note": "工具结果会成为下一轮的新证据；有新证据、问题未解决且预算允许时继续。"},
+      {"id": "optimizer-loop", "label": "Optimizer Loop", "focus": ["action", "optimizer", "evidence"], "note": "Agent 决定是否优化；XAJ/OHN 优化器负责具体数值搜索。"}
+    ],
+    "output": "docs/diagrams/hydro-agent.workflow.html"
   },
   "lanes": [
-    {"id": "ui", "label": "任务配置与最终交付"},
-    {"id": "agent", "label": "Agent Runtime：观察、决策、停止"},
-    {"id": "tools", "label": "Hydrology Tools：A01–A12 Action Space"},
-    {"id": "model", "label": "数值模型与 Optimizer"}
+    {"id": "ui", "label": "任务与交付"},
+    {"id": "agent", "label": "Hydro Agent"},
+    {"id": "tools", "label": "专业工具与证据"},
+    {"id": "model", "label": "模型与优化器"}
   ],
   "phases": [
-    {"id": "build", "label": "B：方案构建与历史适配（允许 bounded Agent Loop）", "fromCol": 0, "toCol": 7, "variant": "emphasis"},
-    {"id": "frozen", "label": "F / E：冻结回放与只读评价", "fromCol": 8, "toCol": 9, "variant": "dashed"}
+    {"id": "build", "label": "B：方案构建与历史适配", "fromCol": 0, "toCol": 4, "variant": "emphasis"},
+    {"id": "frozen", "label": "F / E：冻结测试", "fromCol": 5, "toCol": 5, "variant": "dashed"}
   ],
   "groups": [
-    {"id": "outer_loop", "label": "外层：Observe → Decide → Act → Evidence → Follow-up", "lane": "agent", "fromCol": 1, "toCol": 6, "variant": "emphasis"},
-    {"id": "inner_loop", "label": "内层：模型专属有限数值搜索", "lane": "model", "fromCol": 4, "toCol": 5, "variant": "dashed"}
+    {"id": "agent_core", "label": "证据反馈决策", "lane": "agent", "fromCol": 2, "toCol": 4, "variant": "emphasis"},
+    {"id": "inner_loop", "label": "内层数值优化", "lane": "model", "fromCol": 3, "toCol": 4, "variant": "dashed"}
   ],
-  "mainPath": ["task", "state", "agent", "action_space", "execute", "evidence", "follow_up", "freeze", "replay", "report"],
   "nodes": [
-    {"id": "task", "lane": "ui", "col": 0, "type": "external", "label": "创建预报任务", "sublabel": "流域 · 日期 · 模型 · 预算 · 是否允许优化", "tag": "一次性配置", "width": 190},
-    {"id": "state", "lane": "agent", "col": 1, "type": "database", "label": "读取 TaskState", "sublabel": "当前方案 · Evidence · 已尝试动作 · 剩余预算", "tag": "OBSERVE", "width": 205},
-    {"id": "agent", "lane": "agent", "col": 2, "type": "backend", "label": "主 Agent 选择下一动作", "sublabel": "更新假设并决定下一次有信息价值的操作", "tag": "DECIDE", "width": 218},
-    {"id": "action_space", "lane": "tools", "col": 3, "type": "messagebus", "label": "A01–A12 Action Space", "sublabel": "检查 / 修复 / 预报 / 诊断 / 率定 / 适配 / 比较 / 恢复", "tag": "不是 A01→A12 流水线", "width": 236},
-    {"id": "execute", "lane": "model", "col": 4, "type": "backend", "label": "确定性工具 / 数值执行", "sublabel": "XAJ / OpenHydroNet / Optimizer / Evaluator", "tag": "ACT", "width": 218},
-    {"id": "evidence", "lane": "tools", "col": 5, "type": "database", "label": "返回 EvidencePacket", "sublabel": "产物 · 指标 · Gate · 新证据 · 成本 · 失败原因", "tag": "TOOL OUTPUT", "width": 226},
-    {"id": "follow_up", "lane": "agent", "col": 6, "type": "security", "label": "是否需要下一轮？", "sublabel": "needs_follow_up + 新证据 + 预算 + 阶段权限", "tag": "VERIFY / STOP", "width": 218},
-    {"id": "freeze", "lane": "agent", "col": 7, "type": "security", "label": "冻结开发期方案", "sublabel": "ACCEPT / KEEP；BLOCK 则保存现场而不伪装完成", "tag": "A10", "width": 220},
-    {"id": "replay", "lane": "ui", "col": 8, "type": "backend", "label": "冻结方案连续起报", "sublabel": "F：只运行冻结方案，禁止依据测试真值适配", "tag": "A11", "width": 226},
-    {"id": "report", "lane": "ui", "col": 9, "type": "frontend", "label": "只读评价与报告", "sublabel": "E：统一读取测试观测，生成指标、成本与结论", "tag": "A12", "width": 220}
+    {"id": "task", "lane": "ui", "col": 0, "type": "external", "label": "1. 创建任务", "sublabel": "流域 · 日期 · 模型 · 优化权限", "tag": "CONFIG", "width": 165},
+    {"id": "replay", "lane": "ui", "col": 5, "type": "database", "label": "7. 冻结回放", "sublabel": "F：只运行，不再调参", "tag": "A11", "width": 170, "yOffset": -60},
+    {"id": "report", "lane": "ui", "col": 5, "type": "frontend", "label": "8. 最终报告", "sublabel": "E：只读评价与交付", "tag": "A12", "width": 170, "yOffset": 70},
+
+    {"id": "decide", "lane": "agent", "col": 2, "type": "backend", "label": "3. 判断下一步", "sublabel": "查询 / 预报 / 优化 / KEEP / BLOCK", "tag": "DECIDE", "width": 180},
+    {"id": "followup", "lane": "agent", "col": 4, "type": "security", "label": "6. 继续？", "sublabel": "新证据 · 未解决 · 有预算", "tag": "FOLLOW-UP", "width": 170},
+    {"id": "freeze", "lane": "agent", "col": 5, "type": "security", "label": "冻结 / 受阻收尾", "sublabel": "ACCEPT · KEEP · BLOCK", "tag": "TERMINAL", "width": 175},
+
+    {"id": "observe", "lane": "tools", "col": 1, "type": "database", "label": "2. 汇总证据", "sublabel": "数据 · 表现 · forcing · 历史动作", "tag": "OBSERVE", "width": 180},
+    {"id": "action", "lane": "tools", "col": 3, "type": "messagebus", "label": "4. 调一个工具", "sublabel": "A01–A12 中选择一个动作", "tag": "TOOL CALL", "width": 180},
+    {"id": "evidence", "lane": "tools", "col": 4, "type": "database", "label": "5. 读取结果", "sublabel": "指标 · Gate · 副作用 · 成本", "tag": "EVIDENCE", "width": 175},
+
+    {"id": "optimizer", "lane": "model", "col": 3, "type": "backend", "label": "模型内优化", "sublabel": "XAJ 率定 / OHN 候选训练", "tag": "INNER LOOP", "width": 185}
   ],
   "edges": [
-    {"id": "task-state", "from": "task", "to": "state", "label": "初始化", "variant": "default"},
-    {"id": "state-agent", "from": "state", "to": "agent", "label": "当前可见证据", "variant": "emphasis"},
-    {"id": "agent-action", "from": "agent", "to": "action_space", "label": "选择一个允许动作", "variant": "emphasis"},
-    {"id": "action-execute", "from": "action_space", "to": "execute", "label": "Tool Call", "variant": "default"},
-    {"id": "execute-evidence", "from": "execute", "to": "evidence", "label": "结构化结果", "variant": "default"},
-    {"id": "action-evidence", "from": "action_space", "to": "evidence", "label": "无需模型的工具结果", "variant": "dashed", "role": "branch"},
-    {"id": "evidence-follow", "from": "evidence", "to": "follow_up", "label": "写回 TaskState", "variant": "emphasis"},
-    {"id": "follow-agent", "from": "follow_up", "to": "agent", "label": "needs_follow_up = true", "variant": "dashed", "role": "return", "route": "bottom-channel"},
-    {"id": "follow-freeze", "from": "follow_up", "to": "freeze", "label": "开发任务完成：ACCEPT / KEEP", "variant": "emphasis", "role": "branch"},
-    {"id": "freeze-replay", "from": "freeze", "to": "replay", "label": "进入冻结回放", "variant": "security"},
-    {"id": "replay-report", "from": "replay", "to": "report", "label": "回放结束后开放测试真值", "variant": "emphasis"}
+    {"id": "task-observe", "from": "task", "to": "observe", "label": "初始化", "variant": "default"},
+    {"id": "observe-decide", "from": "observe", "to": "decide", "label": "证据", "variant": "emphasis"},
+    {"id": "decide-action", "from": "decide", "to": "action", "label": "next_action", "variant": "emphasis"},
+    {"id": "action-evidence", "from": "action", "to": "evidence", "label": "Tool Output", "variant": "default"},
+    {"id": "action-optimizer", "from": "action", "to": "optimizer", "label": "CALIBRATE / ADAPT", "variant": "dashed", "role": "branch"},
+    {"id": "optimizer-evidence", "from": "optimizer", "to": "evidence", "label": "候选 + 评价", "variant": "default"},
+    {"id": "evidence-followup", "from": "evidence", "to": "followup", "label": "写回状态", "variant": "emphasis"},
+    {"id": "followup-observe", "from": "followup", "to": "observe", "label": "YES：下一轮", "variant": "dashed", "role": "return", "route": "up-channel", "fromSide": "top", "toSide": "top", "labelSegment": 1},
+    {"id": "followup-freeze", "from": "followup", "to": "freeze", "label": "NO：收尾", "variant": "emphasis", "role": "branch"},
+    {"id": "freeze-replay", "from": "freeze", "to": "replay", "label": "进入 F", "variant": "security"},
+    {"id": "replay-report", "from": "replay", "to": "report", "variant": "emphasis", "route": "straight", "fromSide": "bottom", "toSide": "top"}
   ],
   "cards": [
-    {
-      "dot": "cyan",
-      "title": "最关键的变化：A01–A12 是动作空间",
-      "items": [
-        "Agent 不按 A01→A12 顺序机械执行，而是每轮根据 TaskState 选择当前最有信息价值的一个动作",
-        "工具输出成为下一轮的新证据；没有新证据时不得重复同一动作"
-      ]
-    },
-    {
-      "dot": "violet",
-      "title": "外层 Agent Loop 与内层 Optimizer Loop 分开",
-      "items": [
-        "外层 Agent 决定 what/when/why：下一步查什么、是否率定/适配、失败后改假设还是停止",
-        "内层 Optimizer 决定数值候选：XAJ 参数向量或 OHN 冻结超参数集合中的具体搜索"
-      ]
-    },
-    {
-      "dot": "amber",
-      "title": "Bounded，而不是无限试到验证集变好",
-      "items": [
-        "受 max_agent_rounds、max_optimization_cycles、候选/函数评价次数、时间和费用共同约束",
-        "重复 hypothesis + action + strategy 且没有新 Evidence 时必须停止；F/E 阶段禁止进入参数更新"
-      ]
-    },
-    {
-      "dot": "rose",
-      "title": "P 与 A 的研究差异",
-      "items": [
-        "P 按事先冻结的固定分支和优化顺序执行",
-        "A 可以依据每轮 EvidencePacket 改变假设、动作顺序或决定不再优化；两者仍共享同一工具、候选空间和总预算"
-      ]
-    }
+    {"dot": "cyan", "title": "A01–A12 是动作空间", "items": ["不是 A01→A12 固定流水线", "每轮只选当前最有价值的动作"]},
+    {"dot": "violet", "title": "外层 Agent Loop", "items": ["Tool Output 变成下一轮 Evidence", "失败可以触发换策略、查 forcing 或 KEEP"]},
+    {"dot": "amber", "title": "内层 Optimizer Loop", "items": ["Agent 决定是否优化", "具体参数由 XAJ/OHN 数值优化器搜索"]},
+    {"dot": "rose", "title": "循环有边界", "items": ["轮次与数值预算跨轮共享", "F/E 阶段禁止参数更新"]}
   ]
 }
