@@ -45,7 +45,7 @@
     { "id": "xaj_branch", "label": "概念模型能力", "lane": "xaj", "fromCol": 3, "toCol": 5, "variant": "emphasis" },
     { "id": "ohn_branch", "label": "数据驱动模型能力", "lane": "ohn", "fromCol": 3, "toCol": 5, "variant": "dashed" }
   ],
-  "mainPath": [],
+  "mainPath": ["task", "model_select", "data_check", "forecast_dispatch", "xaj_forecast", "diagnose", "compare", "freeze", "report"],
   "nodes": [
     { "id": "task", "lane": "ui", "col": 0, "type": "external", "label": "创建预报任务", "sublabel": "流域 · 日期 · 预报时长", "width": 150 },
     { "id": "model_select", "lane": "ui", "col": 1, "type": "frontend", "label": "指定水文模型", "sublabel": "XAJ / OpenHydroNet", "tag": "用户选模型", "width": 154 },
