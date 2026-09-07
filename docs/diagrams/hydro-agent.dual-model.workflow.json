@@ -80,7 +80,7 @@
     { "id": "xaj-opt-compare", "from": "xaj_opt", "to": "compare", "label": "候选方案", "variant": "default" },
     { "id": "ohn-opt-compare", "from": "ohn_opt", "to": "compare", "label": "候选方案", "variant": "default" },
 
-    { "id": "compare-diagnose", "from": "compare", "to": "diagnose", "label": "未通过 / 再判断", "variant": "dashed", "role": "return", "route": "return-left" },
+    { "id": "compare-diagnose", "from": "compare", "to": "diagnose", "label": "未通过 / 再判断", "variant": "dashed", "role": "return", "fromSide": "bottom", "toSide": "bottom", "route": "bottom-channel" },
     { "id": "compare-freeze", "from": "compare", "to": "freeze", "label": "通过门槛", "variant": "security" },
     { "id": "freeze-report", "from": "freeze", "to": "report", "label": "F/E 回放评价", "variant": "emphasis" }
   ],
