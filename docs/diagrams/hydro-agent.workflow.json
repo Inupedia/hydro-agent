@@ -1,1 +1,105 @@
-{"schema_version":2,"diagram_type":"workflow","meta":{"title":"Hydro-Agent 水文预报方案构建与优化流程","locale":"zh-CN","animation":"trace","visual_preset":"signal-flow","quality_profile":"showcase","views":[{"id":"main-flow","label":"完整业务流程","focus":["task","check_data","prepare_scheme","forecast","check_output","diagnose","freeze","final_eval","report"],"note":"先看主线：准备任务 → 检查资料 → 运行模型 → 分析问题 → 处理并验证 → 冻结 → 回放与评价 → 报告。"},{"id":"decision-loop","label":"智能诊断与处理闭环","focus":["check_output","diagnose","act","compare","forecast"],"note":"当结果存在问题时，智能体先判断原因，再从修资料、重建历史条件和有限参数优化中选择处理方式，执行后重新验证。"}]},"lanes":[{"id":"user","label":"任务阶段 / 最终输出"},{"id":"agent","label":"智能体：分析问题、选择下一步"},{"id":"tools","label":"专业工具：检查、处理、评价"},{"id":"model","label":"水文模型 / 优化器：数值计算"}],"phases":[{"id":"build","label":"B：构建与历史适配（允许诊断和有限调优）","fromCol":0,"toCol":4,"variant":"emphasis"},{"id":"frozen","label":"F / E：冻结回放与最终评价","fromCol":5,"toCol":5,"variant":"dashed"}],"groups":[{"id":"agent_loop","label":"核心闭环：发现问题 → 判断原因 → 选择动作 → 再验证","lane":"agent","fromCol":3,"toCol":4,"variant":"emphasis"}],"mainPath":["task","check_data","prepare_scheme","forecast","check_output","diagnose","freeze","final_eval","report"],"nodes":[{"id":"task","lane":"user","col":0,"type":"external","label":"1. 配置一个预报任务","sublabel":"选择流域、日期范围、数据源和水文模型","tag":"一次性配置","width":178},{"id":"check_data","lane":"tools","col":1,"type":"database","label":"2. 检查数据能不能用于预报","sublabel":"缺测？单位和时间对不对？资料是否齐全？","tag":"A01–A02","width":190,"yOffset":-40},{"id":"prepare_scheme","lane":"tools","col":1,"type":"messagebus","label":"3. 准备可运行的预报方案","sublabel":"校验配置、模型、历史窗口和起报条件","tag":"A03–A04","width":190,"yOffset":40},{"id":"forecast","lane":"model","col":2,"type":"backend","label":"4. 运行水文模型","sublabel":"用历史条件和气象预报计算未来流量","tag":"A05 · Forecast","width":180},{"id":"check_output","lane":"tools","col":2,"type":"database","label":"5. 先检查预测结果是否正常","sublabel":"结果完整？时间对齐？数值和文件是否异常？","tag":"A05","width":198},{"id":"diagnose","lane":"agent","col":3,"type":"backend","label":"6. 分析问题可能出在哪里","sublabel":"数据 / 时间 / 状态 / 气象 / 模型 / 不确定","tag":"A06 · 智能体判断","width":215},{"id":"act","lane":"tools","col":4,"type":"messagebus","label":"7. 选择并执行处理动作","sublabel":"修资料 / 重建条件 / 有限调优","tag":"A02 / A04 / A07","width":215,"yOffset":-42},{"id":"compare","lane":"tools","col":4,"type":"database","label":"8. 重新运行并比较结果","sublabel":"改善了吗？是否引入新退化？结果交回智能体再判断","tag":"A08–A09","width":215,"yOffset":42},{"id":"freeze","lane":"agent","col":4,"type":"security","label":"9. 冻结最终预报方案","sublabel":"无需干预或处理通过验证后，锁定模型、配置和规则","tag":"A10 · B 阶段结束","width":205,"yOffset":60},{"id":"final_eval","lane":"user","col":5,"type":"database","label":"10. 冻结后自动回放并最终评价","sublabel":"F：只运行冻结方案；E：结束后才读取真值统一评价","tag":"A11–A12 · F / E 严格隔离","width":230,"yOffset":-40},{"id":"report","lane":"user","col":5,"type":"frontend","label":"11. 输出结果与报告","sublabel":"预报结果 + 问题处理记录 + 评价指标 + 减负证据","tag":"最终交付","width":205,"yOffset":40}],"edges":[{"id":"task-check","from":"task","to":"check_data","label":"开始","variant":"default"},{"id":"check-prepare","from":"check_data","to":"prepare_scheme","label":"资料可用 / 已修复","variant":"emphasis"},{"id":"prepare-forecast","from":"prepare_scheme","to":"forecast","label":"方案可运行","variant":"emphasis"},{"id":"forecast-output","from":"forecast","to":"check_output","label":"预测结果","variant":"default"},{"id":"output-diagnose","from":"check_output","to":"diagnose","label":"发现异常或需进一步判断","variant":"emphasis"},{"id":"diagnose-freeze","from":"diagnose","to":"freeze","label":"正常 / 无需干预 / 已验证通过","variant":"emphasis","role":"branch"},{"id":"diagnose-act","from":"diagnose","to":"act","label":"需要处理","variant":"dashed","role":"branch"},{"id":"act-compare","from":"act","to":"compare","label":"处理后重跑","variant":"default"},{"id":"compare-diagnose","from":"compare","to":"diagnose","label":"验证结果回传","variant":"dashed","role":"return","route":"bottom-channel"},{"id":"freeze-final","from":"freeze","to":"final_eval","label":"进入冻结回放","variant":"security"},{"id":"final-report","from":"final_eval","to":"report","label":"评价完成","variant":"emphasis"}],"cards":[{"dot":"cyan","title":"先这样理解智能体","items":["智能体像“水文预报调度员”：它看证据、判断问题，再决定下一步调用哪个工具","数据检查、指标计算、模型运行和参数搜索仍由确定性程序执行"]},{"dot":"rose","title":"第 7 步里有哪些处理动作？","items":["数据或时间有问题：修复资料后重新运行","历史窗口或状态有问题：重建合法起报条件","只有持续模型偏差且其他原因基本排除后：才进入有限参数优化","证据不足时可以不干预或停止并交给人工"]},{"dot":"violet","title":"A01–A12 怎么看","items":["编号只是与详细设计文档对应的内部动作编号，不要求小组成员先记住","看图时优先看每个框的大标题；需要深入实现时再用 A01–A12 回查动作契约"]},{"dot":"amber","title":"F 和 E 为什么放在同一个框？","items":["这是为了让主图好读，不代表两个阶段合并","F 阶段只用冻结方案连续起报，禁止用测试真值调参；回放结束后才进入 E 阶段读取真值做只读评价"]}]}
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Hydro-Agent：证据反馈式自主查询循环",
+    "locale": "zh-CN",
+    "animation": "trace",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "main-flow",
+        "label": "Hydro-Agent 主循环",
+        "focus": ["task", "state", "agent", "action_space", "execute", "evidence", "follow_up", "freeze", "replay", "report"],
+        "note": "参考 Codex 的 iterative tool-use loop：Agent 每轮观察当前状态，选择一个允许动作；工具执行后返回结构化 EvidencePacket，再决定继续下一轮还是结束。"
+      },
+      {
+        "id": "agent-loop",
+        "label": "外层 Agent Loop",
+        "focus": ["state", "agent", "action_space", "evidence", "follow_up"],
+        "note": "A01–A12 是 action space，不是固定流水线。每个工具结果都写回 TaskState；needs_follow_up=true 时重新采样并决定下一动作。"
+      },
+      {
+        "id": "optimizer-loop",
+        "label": "内层数值优化",
+        "focus": ["action_space", "execute", "evidence"],
+        "note": "XAJ 率定器与 OpenHydroNet Optimizer/Trainer 可以内部搜索多个数值候选，但它们是确定性/受约束 Tool，不替代外层 Agent 决策。"
+      }
+    ]
+  },
+  "lanes": [
+    {"id": "ui", "label": "任务配置与最终交付"},
+    {"id": "agent", "label": "Agent Runtime：观察、决策、停止"},
+    {"id": "tools", "label": "Hydrology Tools：A01–A12 Action Space"},
+    {"id": "model", "label": "数值模型与 Optimizer"}
+  ],
+  "phases": [
+    {"id": "build", "label": "B：方案构建与历史适配（允许 bounded Agent Loop）", "fromCol": 0, "toCol": 7, "variant": "emphasis"},
+    {"id": "frozen", "label": "F / E：冻结回放与只读评价", "fromCol": 8, "toCol": 9, "variant": "dashed"}
+  ],
+  "groups": [
+    {"id": "outer_loop", "label": "外层：Observe → Decide → Act → Evidence → Follow-up", "lane": "agent", "fromCol": 1, "toCol": 6, "variant": "emphasis"},
+    {"id": "inner_loop", "label": "内层：模型专属有限数值搜索", "lane": "model", "fromCol": 4, "toCol": 5, "variant": "dashed"}
+  ],
+  "mainPath": ["task", "state", "agent", "action_space", "execute", "evidence", "follow_up", "freeze", "replay", "report"],
+  "nodes": [
+    {"id": "task", "lane": "ui", "col": 0, "type": "external", "label": "创建预报任务", "sublabel": "流域 · 日期 · 模型 · 预算 · 是否允许优化", "tag": "一次性配置", "width": 190},
+    {"id": "state", "lane": "agent", "col": 1, "type": "database", "label": "读取 TaskState", "sublabel": "当前方案 · Evidence · 已尝试动作 · 剩余预算", "tag": "OBSERVE", "width": 205},
+    {"id": "agent", "lane": "agent", "col": 2, "type": "backend", "label": "主 Agent 选择下一动作", "sublabel": "更新假设并决定下一次有信息价值的操作", "tag": "DECIDE", "width": 218},
+    {"id": "action_space", "lane": "tools", "col": 3, "type": "messagebus", "label": "A01–A12 Action Space", "sublabel": "检查 / 修复 / 预报 / 诊断 / 率定 / 适配 / 比较 / 恢复", "tag": "不是 A01→A12 流水线", "width": 236},
+    {"id": "execute", "lane": "model", "col": 4, "type": "backend", "label": "确定性工具 / 数值执行", "sublabel": "XAJ / OpenHydroNet / Optimizer / Evaluator", "tag": "ACT", "width": 218},
+    {"id": "evidence", "lane": "tools", "col": 5, "type": "database", "label": "返回 EvidencePacket", "sublabel": "产物 · 指标 · Gate · 新证据 · 成本 · 失败原因", "tag": "TOOL OUTPUT", "width": 226},
+    {"id": "follow_up", "lane": "agent", "col": 6, "type": "security", "label": "是否需要下一轮？", "sublabel": "needs_follow_up + 新证据 + 预算 + 阶段权限", "tag": "VERIFY / STOP", "width": 218},
+    {"id": "freeze", "lane": "agent", "col": 7, "type": "security", "label": "冻结开发期方案", "sublabel": "ACCEPT / KEEP；BLOCK 则保存现场而不伪装完成", "tag": "A10", "width": 220},
+    {"id": "replay", "lane": "ui", "col": 8, "type": "backend", "label": "冻结方案连续起报", "sublabel": "F：只运行冻结方案，禁止依据测试真值适配", "tag": "A11", "width": 226},
+    {"id": "report", "lane": "ui", "col": 9, "type": "frontend", "label": "只读评价与报告", "sublabel": "E：统一读取测试观测，生成指标、成本与结论", "tag": "A12", "width": 220}
+  ],
+  "edges": [
+    {"id": "task-state", "from": "task", "to": "state", "label": "初始化", "variant": "default"},
+    {"id": "state-agent", "from": "state", "to": "agent", "label": "当前可见证据", "variant": "emphasis"},
+    {"id": "agent-action", "from": "agent", "to": "action_space", "label": "选择一个允许动作", "variant": "emphasis"},
+    {"id": "action-execute", "from": "action_space", "to": "execute", "label": "Tool Call", "variant": "default"},
+    {"id": "execute-evidence", "from": "execute", "to": "evidence", "label": "结构化结果", "variant": "default"},
+    {"id": "action-evidence", "from": "action_space", "to": "evidence", "label": "无需模型的工具结果", "variant": "dashed", "role": "branch"},
+    {"id": "evidence-follow", "from": "evidence", "to": "follow_up", "label": "写回 TaskState", "variant": "emphasis"},
+    {"id": "follow-agent", "from": "follow_up", "to": "agent", "label": "needs_follow_up = true", "variant": "dashed", "role": "return", "route": "bottom-channel"},
+    {"id": "follow-freeze", "from": "follow_up", "to": "freeze", "label": "开发任务完成：ACCEPT / KEEP", "variant": "emphasis", "role": "branch"},
+    {"id": "freeze-replay", "from": "freeze", "to": "replay", "label": "进入冻结回放", "variant": "security"},
+    {"id": "replay-report", "from": "replay", "to": "report", "label": "回放结束后开放测试真值", "variant": "emphasis"}
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "最关键的变化：A01–A12 是动作空间",
+      "items": [
+        "Agent 不按 A01→A12 顺序机械执行，而是每轮根据 TaskState 选择当前最有信息价值的一个动作",
+        "工具输出成为下一轮的新证据；没有新证据时不得重复同一动作"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "外层 Agent Loop 与内层 Optimizer Loop 分开",
+      "items": [
+        "外层 Agent 决定 what/when/why：下一步查什么、是否率定/适配、失败后改假设还是停止",
+        "内层 Optimizer 决定数值候选：XAJ 参数向量或 OHN 冻结超参数集合中的具体搜索"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Bounded，而不是无限试到验证集变好",
+      "items": [
+        "受 max_agent_rounds、max_optimization_cycles、候选/函数评价次数、时间和费用共同约束",
+        "重复 hypothesis + action + strategy 且没有新 Evidence 时必须停止；F/E 阶段禁止进入参数更新"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "P 与 A 的研究差异",
+      "items": [
+        "P 按事先冻结的固定分支和优化顺序执行",
+        "A 可以依据每轮 EvidencePacket 改变假设、动作顺序或决定不再优化；两者仍共享同一工具、候选空间和总预算"
+      ]
+    }
+  ]
+}
