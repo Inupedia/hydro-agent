@@ -1,0 +1,113 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Hydro-Agent 双模型水文预报方案构建与优化",
+    "locale": "zh-CN",
+    "animation": "trace",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "main-flow",
+        "label": "完整业务流程",
+        "focus": ["task", "model_select", "data_check", "forecast_dispatch", "xaj_forecast", "ohn_forecast", "diagnose", "xaj_opt", "ohn_opt", "compare", "freeze", "report"],
+        "note": "用户选择任务与模型；Agent 负责诊断和选择动作；两类模型平行执行，最后统一比较、冻结和交付。"
+      },
+      {
+        "id": "model-branches",
+        "label": "双模型平行能力",
+        "focus": ["model_select", "forecast_dispatch", "xaj_forecast", "ohn_forecast", "xaj_opt", "ohn_opt", "compare"],
+        "note": "XAJ 与 OpenHydroNet 是平行能力提供者：XAJ 提供参数率定，OpenHydroNet 提供局部适配。"
+      },
+      {
+        "id": "agent-loop",
+        "label": "智能诊断与优化闭环",
+        "focus": ["diagnose", "xaj_opt", "ohn_opt", "compare", "freeze"],
+        "note": "Agent 决定是否干预和采用哪类冻结策略；具体参数搜索、训练和指标计算由确定性程序完成。"
+      }
+    ],
+    "output": "docs/diagrams/hydro-agent.dual-model.workflow.html"
+  },
+  "lanes": [
+    { "id": "ui", "label": "任务配置与最终交付" },
+    { "id": "agent", "label": "Hydro Agent 决策" },
+    { "id": "tools", "label": "共同专业工具" },
+    { "id": "xaj", "label": "XAJ 新安江模型" },
+    { "id": "ohn", "label": "OpenHydroNet" }
+  ],
+  "phases": [
+    { "id": "intake", "label": "任务配置", "fromCol": 0, "toCol": 1 },
+    { "id": "prepare", "label": "资料检查 + 模型执行", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "decision", "label": "诊断 + 优化 + 冻结", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "groups": [
+    { "id": "xaj_branch", "label": "概念模型能力", "lane": "xaj", "fromCol": 3, "toCol": 5, "variant": "emphasis" },
+    { "id": "ohn_branch", "label": "数据驱动模型能力", "lane": "ohn", "fromCol": 3, "toCol": 5, "variant": "dashed" }
+  ],
+  "mainPath": [],
+  "nodes": [
+    { "id": "task", "lane": "ui", "col": 0, "type": "external", "label": "创建预报任务", "sublabel": "流域 · 日期 · 预报时长", "width": 150 },
+    { "id": "model_select", "lane": "ui", "col": 1, "type": "frontend", "label": "指定水文模型", "sublabel": "XAJ / OpenHydroNet", "tag": "用户选模型", "width": 154 },
+    { "id": "report", "lane": "ui", "col": 5, "type": "frontend", "label": "结果与报告", "sublabel": "预测 · 方案 · 评价 · 成本", "width": 158 },
+
+    { "id": "diagnose", "lane": "agent", "col": 4, "type": "backend", "label": "证据驱动诊断", "sublabel": "判断问题并选择下一步", "tag": "Agent 选动作", "width": 166 },
+    { "id": "freeze", "lane": "agent", "col": 5, "type": "security", "label": "冻结最终方案", "sublabel": "锁定模型 · 参数/权重 · 配置", "width": 168 },
+
+    { "id": "data_check", "lane": "tools", "col": 2, "type": "database", "label": "资料与方案检查", "sublabel": "数据 · 时间 · 暖机 · 状态", "tag": "A01–A04", "width": 166 },
+    { "id": "forecast_dispatch", "lane": "tools", "col": 3, "type": "messagebus", "label": "统一 forecast 接口", "sublabel": "按已指定模型路由", "tag": "A05", "width": 164 },
+    { "id": "compare", "lane": "tools", "col": 5, "type": "database", "label": "统一比较与质量门槛", "sublabel": "ACCEPT / ROLLBACK / KEEP", "tag": "A08", "width": 184 },
+
+    { "id": "xaj_forecast", "lane": "xaj", "col": 3, "type": "backend", "label": "XAJ 预报", "sublabel": "概念水文模型计算", "width": 150 },
+    { "id": "xaj_opt", "lane": "xaj", "col": 5, "type": "backend", "label": "XAJ 参数率定", "sublabel": "率定器搜索有界参数", "tag": "calibrate", "width": 164 },
+
+    { "id": "ohn_forecast", "lane": "ohn", "col": 3, "type": "backend", "label": "OpenHydroNet 预报", "sublabel": "数据驱动模型计算", "width": 166 },
+    { "id": "ohn_opt", "lane": "ohn", "col": 5, "type": "backend", "label": "OpenHydroNet 局部适配", "sublabel": "Trainer 更新允许模块", "tag": "adapt", "width": 182 }
+  ],
+  "edges": [
+    { "id": "task-model", "from": "task", "to": "model_select", "label": "配置", "variant": "default" },
+    { "id": "model-data", "from": "model_select", "to": "data_check", "label": "模型固定", "variant": "emphasis" },
+    { "id": "data-dispatch", "from": "data_check", "to": "forecast_dispatch", "label": "可运行", "variant": "emphasis" },
+
+    { "id": "dispatch-xaj", "from": "forecast_dispatch", "to": "xaj_forecast", "label": "model = XAJ", "variant": "default", "role": "branch" },
+    { "id": "dispatch-ohn", "from": "forecast_dispatch", "to": "ohn_forecast", "label": "model = OHN", "variant": "default", "role": "branch" },
+    { "id": "xaj-diagnose", "from": "xaj_forecast", "to": "diagnose", "label": "预测 + 证据", "variant": "emphasis" },
+    { "id": "ohn-diagnose", "from": "ohn_forecast", "to": "diagnose", "label": "预测 + 证据", "variant": "emphasis" },
+
+    { "id": "diagnose-xaj-opt", "from": "diagnose", "to": "xaj_opt", "label": "XAJ 且需优化", "variant": "dashed", "role": "branch" },
+    { "id": "diagnose-ohn-opt", "from": "diagnose", "to": "ohn_opt", "label": "OHN 且需优化", "variant": "dashed", "role": "branch" },
+    { "id": "diagnose-compare", "from": "diagnose", "to": "compare", "label": "KEEP / 修复后验证", "variant": "default", "role": "branch" },
+    { "id": "xaj-opt-compare", "from": "xaj_opt", "to": "compare", "label": "候选方案", "variant": "default" },
+    { "id": "ohn-opt-compare", "from": "ohn_opt", "to": "compare", "label": "候选方案", "variant": "default" },
+
+    { "id": "compare-diagnose", "from": "compare", "to": "diagnose", "label": "未通过 / 再判断", "variant": "dashed", "role": "return", "route": "return-left" },
+    { "id": "compare-freeze", "from": "compare", "to": "freeze", "label": "通过门槛", "variant": "security" },
+    { "id": "freeze-report", "from": "freeze", "to": "report", "label": "F/E 回放评价", "variant": "emphasis" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "前端只选择目标和模型",
+      "items": [
+        "用户选择流域、日期、XAJ 或 OpenHydroNet，以及是否允许优化",
+        "不让用户逐项点击 forecast / calibrate / adapt"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "两个模型是平行能力",
+      "items": [
+        "XAJ：forecast + calibrate；OpenHydroNet：forecast + adapt",
+        "首期任务内模型固定，失败时不静默切换到另一个模型"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Agent 的核心价值",
+      "items": [
+        "Agent 判断是否干预、优先处理什么以及选择哪种冻结策略",
+        "参数搜索、网络训练、指标计算和质量门槛由确定性程序完成"
+      ]
+    }
+  ]
+}
