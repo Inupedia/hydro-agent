@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - docs/hydro-agent-archify-flowchart
+  pull_request:
+    paths:
+      - 'docs/diagrams/**'
+      - '.github/workflows/render-archify-flowchart.yml'
   workflow_dispatch:
 
 jobs:
