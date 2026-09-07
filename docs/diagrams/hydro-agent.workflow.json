@@ -30,8 +30,8 @@
   ],
   "nodes": [
     {"id": "task", "lane": "ui", "col": 0, "type": "external", "label": "1. 创建任务", "sublabel": "流域 · 日期 · 模型 · 优化权限", "tag": "CONFIG", "width": 165},
-    {"id": "replay", "lane": "ui", "col": 5, "type": "database", "label": "7. 冻结回放", "sublabel": "F：只运行，不再调参", "tag": "A11", "width": 170, "yOffset": -42},
-    {"id": "report", "lane": "ui", "col": 5, "type": "frontend", "label": "8. 最终报告", "sublabel": "E：只读评价与交付", "tag": "A12", "width": 170, "yOffset": 50},
+    {"id": "replay", "lane": "ui", "col": 5, "type": "database", "label": "7. 冻结回放", "sublabel": "F：只运行，不再调参", "tag": "A11", "width": 170, "yOffset": -60},
+    {"id": "report", "lane": "ui", "col": 5, "type": "frontend", "label": "8. 最终报告", "sublabel": "E：只读评价与交付", "tag": "A12", "width": 170, "yOffset": 70},
 
     {"id": "decide", "lane": "agent", "col": 2, "type": "backend", "label": "3. 判断下一步", "sublabel": "查询 / 预报 / 优化 / KEEP / BLOCK", "tag": "DECIDE", "width": 180},
     {"id": "followup", "lane": "agent", "col": 4, "type": "security", "label": "6. 继续？", "sublabel": "新证据 · 未解决 · 有预算", "tag": "FOLLOW-UP", "width": 170},
@@ -54,7 +54,7 @@
     {"id": "followup-observe", "from": "followup", "to": "observe", "label": "YES：下一轮", "variant": "dashed", "role": "return", "route": "up-channel", "fromSide": "top", "toSide": "top", "labelSegment": 1},
     {"id": "followup-freeze", "from": "followup", "to": "freeze", "label": "NO：收尾", "variant": "emphasis", "role": "branch"},
     {"id": "freeze-replay", "from": "freeze", "to": "replay", "label": "进入 F", "variant": "security"},
-    {"id": "replay-report", "from": "replay", "to": "report", "label": "进入 E", "variant": "emphasis", "route": "outside-right", "fromSide": "right", "toSide": "right"}
+    {"id": "replay-report", "from": "replay", "to": "report", "variant": "emphasis", "route": "straight", "fromSide": "bottom", "toSide": "top"}
   ],
   "cards": [
     {"dot": "cyan", "title": "A01–A12 是动作空间", "items": ["不是 A01→A12 固定流水线", "每轮只选当前最有价值的动作"]},
