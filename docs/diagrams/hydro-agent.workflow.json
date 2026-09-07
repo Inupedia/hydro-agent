@@ -8,24 +8,9 @@
     "visual_preset": "signal-flow",
     "quality_profile": "showcase",
     "views": [
-      {
-        "id": "main-flow",
-        "label": "给小组成员看的主流程",
-        "focus": ["task", "observe", "decide", "action", "evidence", "followup", "freeze", "replay", "report"],
-        "note": "只记住五件事：看证据 → 判断下一步 → 调一个专业工具 → 看工具结果 → 决定继续还是结束。A01–A12 是可选动作，不是固定流水线。"
-      },
-      {
-        "id": "agent-loop",
-        "label": "外层 Agent Loop",
-        "focus": ["observe", "decide", "action", "evidence", "followup"],
-        "note": "工具结果会成为下一轮的新证据。只要问题未解决、出现了新证据且预算允许，就回到观察与判断，而不是优化一次后直接结束。"
-      },
-      {
-        "id": "optimizer-loop",
-        "label": "模型内优化循环",
-        "focus": ["action", "optimizer", "evidence"],
-        "note": "Agent 只决定是否优化以及采用哪种已冻结策略；XAJ 参数搜索和 OpenHydroNet 候选训练由各自数值优化器在一次工具调用内部完成。"
-      }
+      {"id": "main-flow", "label": "给小组成员看的主流程", "focus": ["task", "observe", "decide", "action", "evidence", "followup", "freeze", "replay", "report"], "note": "只记住五件事：看证据 → 判断下一步 → 调一个专业工具 → 看工具结果 → 决定继续还是结束。A01–A12 是可选动作，不是固定流水线。"},
+      {"id": "agent-loop", "label": "外层 Agent Loop", "focus": ["observe", "decide", "action", "evidence", "followup"], "note": "工具结果会成为下一轮的新证据。只要问题未解决、出现了新证据且预算允许，就回到观察与判断，而不是优化一次后直接结束。"},
+      {"id": "optimizer-loop", "label": "模型内优化循环", "focus": ["action", "optimizer", "evidence"], "note": "Agent 只决定是否优化以及采用哪种已冻结策略；XAJ 参数搜索和 OpenHydroNet 候选训练由各自数值优化器在一次工具调用内部完成。"}
     ],
     "output": "docs/diagrams/hydro-agent.workflow.html"
   },
@@ -63,7 +48,7 @@
     {"id": "action-optimizer", "from": "action", "to": "optimizer", "label": "仅 CALIBRATE / ADAPT", "variant": "dashed", "role": "branch"},
     {"id": "optimizer-evidence", "from": "optimizer", "to": "evidence", "label": "候选 + 搜索轨迹 + 统一评价", "variant": "default"},
     {"id": "evidence-followup", "from": "evidence", "to": "followup", "label": "写回任务状态", "variant": "emphasis"},
-    {"id": "followup-observe", "from": "followup", "to": "observe", "label": "YES：有新证据，重新观察与判断", "variant": "dashed", "role": "return", "route": "bottom-channel", "fromSide": "bottom", "toSide": "bottom", "labelSegment": 1},
+    {"id": "followup-observe", "from": "followup", "to": "observe", "label": "YES：有新证据，重新观察与判断", "variant": "dashed", "role": "return", "route": "outside-right", "fromSide": "right", "toSide": "right"},
     {"id": "followup-freeze", "from": "followup", "to": "freeze", "label": "NO：ACCEPT / KEEP / BLOCK", "variant": "emphasis", "role": "branch"},
     {"id": "freeze-replay", "from": "freeze", "to": "replay", "label": "冻结方案进入 F", "variant": "security"},
     {"id": "replay-report", "from": "replay", "to": "report", "label": "回放结束进入 E", "variant": "emphasis"}
