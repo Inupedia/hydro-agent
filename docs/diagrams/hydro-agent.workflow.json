@@ -117,7 +117,7 @@
       "sublabel": "缺测？单位和时间对不对？资料是否齐全？",
       "tag": "A01–A02",
       "width": 190,
-      "yOffset": -34
+      "yOffset": -40
     },
     {
       "id": "prepare_scheme",
@@ -128,7 +128,7 @@
       "sublabel": "校验配置、模型、历史窗口和起报条件",
       "tag": "A03–A04",
       "width": 190,
-      "yOffset": 38
+      "yOffset": 40
     },
     {
       "id": "forecast",
@@ -169,7 +169,7 @@
       "sublabel": "有依据地补取、转换或纠正后重新运行",
       "tag": "A02",
       "width": 178,
-      "yOffset": -58
+      "yOffset": -90
     },
     {
       "id": "rebuild",
@@ -180,7 +180,7 @@
       "sublabel": "历史窗口、状态或缓存不一致时重新准备",
       "tag": "A04",
       "width": 178,
-      "yOffset": 12
+      "yOffset": 0
     },
     {
       "id": "adapt",
@@ -202,7 +202,7 @@
       "sublabel": "改善了吗？是否引入新退化？采用、撤销或继续诊断",
       "tag": "A08–A09",
       "width": 205,
-      "yOffset": 82
+      "yOffset": 90
     },
     {
       "id": "freeze",
