@@ -54,7 +54,7 @@
     {"id": "observe", "lane": "tools", "col": 1, "type": "database", "label": "2. 汇总当前证据", "sublabel": "数据质量 · 当前方案 · 预报表现 · forcing · 相似过程 · 已尝试动作", "tag": "OBSERVE", "width": 230},
     {"id": "action", "lane": "tools", "col": 3, "type": "messagebus", "label": "4. 调用一个专业工具", "sublabel": "A01–A12 是 Action Space；执行前检查权限、能力、策略和预算", "tag": "TOOL CALL", "width": 230},
     {"id": "evidence", "lane": "tools", "col": 4, "type": "database", "label": "5. 查看工具结果", "sublabel": "结果 · 指标 · Gate · 副作用 · 成本 → 形成新的 EvidencePacket", "tag": "TOOL OUTPUT", "width": 230},
-    {"id": "optimizer", "lane": "model", "col": 3, "type": "pipeline", "label": "模型内数值优化循环", "sublabel": "XAJ：有界参数率定；OHN：冻结候选训练。Agent 不直接给连续参数", "tag": "INNER LOOP", "width": 235}
+    {"id": "optimizer", "lane": "model", "col": 3, "type": "backend", "label": "模型内数值优化循环", "sublabel": "XAJ：有界参数率定；OHN：冻结候选训练。Agent 不直接给连续参数", "tag": "INNER LOOP", "width": 235}
   ],
   "edges": [
     {"id": "task-observe", "from": "task", "to": "observe", "label": "初始化状态", "variant": "default"},
