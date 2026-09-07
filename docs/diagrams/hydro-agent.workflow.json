@@ -51,7 +51,7 @@
     {"id": "followup-observe", "from": "followup", "to": "observe", "label": "YES：有新证据，重新观察与判断", "variant": "dashed", "role": "return", "fromSide": "top", "toSide": "left", "via": [[824.1, 260], [30, 260], [30, 647]], "labelSegment": 1},
     {"id": "followup-freeze", "from": "followup", "to": "freeze", "label": "NO：ACCEPT / KEEP / BLOCK", "variant": "emphasis", "role": "branch"},
     {"id": "freeze-replay", "from": "freeze", "to": "replay", "label": "冻结方案进入 F", "variant": "security"},
-    {"id": "replay-report", "from": "replay", "to": "report", "label": "回放结束进入 E", "variant": "emphasis", "route": "straight", "fromSide": "bottom", "toSide": "top"}
+    {"id": "replay-report", "from": "replay", "to": "report", "label": "回放结束进入 E", "variant": "emphasis", "fromSide": "bottom", "toSide": "top"}
   ],
   "cards": [
     {"dot": "cyan", "title": "最重要：A01–A12 不是固定步骤", "items": ["它们是 Agent 可以选择的业务动作空间；每一轮通常只选一个最有价值的动作", "工具返回什么，会直接改变下一轮 Agent 看到的证据和可能采取的动作"]},
