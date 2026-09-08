@@ -4,9 +4,9 @@
 
 **Goal:** Freeze one accepted/kept Scheme into an immutable operational package, replay sequential historical issue times without changing that package, evaluate the replay only in E phase using evaluation-only observations, and generate traceable metrics/report artifacts.
 
-**Architecture:** `FreezeService` creates a new immutable frozen Scheme record instead of mutating an existing Scheme. `ReplayPlanner` expands a date range into issue-time cases, resolves an allowed DataSnapshot for each case, and delegates each forecast to the existing SP3/SP4 application boundary. `ReplayService` persists one Forecast per issue time. `EvaluationService` switches to read-only E-phase data access, computes metrics through SP5 evaluation functions, and writes JSON/Markdown report artifacts. A10/A11/A12 become real ToolRouter handlers only after these services exist.
+**Architecture:** `FreezeService` creates a new immutable frozen Scheme record instead of mutating an existing Scheme. `ReplayPlanner` expands a date range into issue-time cases and delegates snapshot legality to SP4A `SnapshotResolver`. `ReplayService` calls SP4A `ForecastService` for every case, so each replay forecast uses the same audited Tool -> ActionRun -> Sandbox path as a single forecast. `EvaluationService` switches to read-only E-phase data access, computes metrics through SP5 evaluation functions, and writes JSON/Markdown report artifacts. A10/A11/A12 become real ToolRouter handlers only after these services exist.
 
-**Tech Stack:** Python 3.12, Pydantic 2, SQLAlchemy 2, NumPy, pytest 8; SP2 persistence, SP3 XAJ forecast service, SP4 snapshot/time boundary, SP5 metrics/Gate contracts, SP6 ToolRouter.
+**Tech Stack:** Python 3.12, Pydantic 2, SQLAlchemy 2, NumPy, pytest 8; SP2 persistence, SP4A ForecastService/SnapshotResolver, SP5 metrics/Gate contracts, SP6 ToolRouter.
 
 **Spec:** `docs/superpowers/specs/2026-09-08-execution-sandbox-design.md`
 
@@ -36,7 +36,6 @@ src/hydro_agent/evaluation/metrics.py
 src/hydro_agent/evaluation/service.py
 src/hydro_agent/reporting/__init__.py
 src/hydro_agent/reporting/report.py
-src/hydro_agent/persistence/models.py
 src/hydro_agent/persistence/repository.py
 src/hydro_agent/agent/tools.py
 tests/replay/test_freeze.py
@@ -47,24 +46,24 @@ tests/reporting/test_report.py
 tests/integration/test_frozen_historical_replay.py
 ```
 
-### Task 1: Add replay/freeze contracts and Forecast persistence
+### Task 1: Define replay contracts and enforce replay Forecast uniqueness
 
 **Files:**
 - Create: `src/hydro_agent/replay/__init__.py`
 - Create: `src/hydro_agent/replay/contracts.py`
-- Modify: `src/hydro_agent/persistence/models.py`
 - Modify: `src/hydro_agent/persistence/repository.py`
 - Test: `tests/replay/test_service.py`
 
 **Interfaces:**
-- Produces: `ReplayCase`, `ReplayPlan`, `ForecastRecord`, repository methods `create_forecast()`, `list_forecasts(task_id, scheme_id=None)`.
+- Consumes: SP4A `ForecastRecord` and `list_forecasts()`.
+- Produces: `ReplayCase`, `ReplayPlan`, `repository.get_forecast_for_issue(task_id, scheme_id, issue_time)`.
 
-- [ ] **Step 1: Write the failing Forecast persistence test**
+- [ ] **Step 1: Write the failing replay lookup test**
 
 ```python
 # tests/replay/test_service.py
 
-def test_forecast_persists_issue_target_leads_and_immutable_refs(seeded_repository):
+def test_replay_lookup_returns_exact_existing_forecast(seeded_repository):
     seeded_repository.create_forecast(
         forecast_id="fc-1",
         task_id="task-1",
@@ -76,19 +75,19 @@ def test_forecast_persists_issue_target_leads_and_immutable_refs(seeded_reposito
         unit="m3/s",
         artifact_ids=("artifact-forecast-1",),
     )
-    row = seeded_repository.list_forecasts("task-1")[0]
-    assert row.scheme_id == "scheme-frozen-1"
-    assert row.data_snapshot_id == "snapshot-issue-1"
-    assert row.lead_values_json == {"1": 10.0, "2": 11.0, "3": 12.0}
+    row = seeded_repository.get_forecast_for_issue(
+        "task-1", "scheme-frozen-1", "2025-05-01T00:00:00Z"
+    )
+    assert row.forecast_id == "fc-1"
 ```
 
 - [ ] **Step 2: Verify failure**
 
-Run: `uv run pytest tests/replay/test_service.py::test_forecast_persists_issue_target_leads_and_immutable_refs -v`
+Run: `uv run pytest tests/replay/test_service.py::test_replay_lookup_returns_exact_existing_forecast -v`
 
-Expected: FAIL because Forecast persistence and replay contracts do not exist.
+Expected: FAIL because replay contracts/lookup do not exist.
 
-- [ ] **Step 3: Implement exact contracts and Forecast row**
+- [ ] **Step 3: Implement exact replay contracts**
 
 ```python
 # src/hydro_agent/replay/contracts.py
@@ -111,48 +110,21 @@ class ReplayPlan(FrozenModel):
     scheme_id: str
     forcing_mode: Literal["R", "F"]
     cases: tuple[ReplayCase, ...]
-
-
-class ForecastRecord(FrozenModel):
-    forecast_id: str
-    task_id: str
-    action_run_id: str
-    scheme_id: str
-    data_snapshot_id: str
-    issue_time: datetime
-    lead_values: dict[int, float]
-    unit: str
-    artifact_ids: tuple[str, ...]
 ```
 
-Add a `forecasts` table with:
+Add repository lookup using the SP4A Forecast uniqueness key `(task_id, scheme_id, issue_time)`. Return `None` when absent and raise if database corruption yields more than one row.
 
-```text
-forecast_id PK
- task_id FK
- action_run_id FK
- scheme_id FK
- data_snapshot_id FK
- issue_time
- lead_values_json
- unit
- artifact_ids_json
- created_at
-```
+- [ ] **Step 4: Run test**
 
-`create_forecast()` inserts once; no update method is added.
-
-- [ ] **Step 4: Run persistence test**
-
-Run: `uv run pytest tests/replay/test_service.py::test_forecast_persists_issue_target_leads_and_immutable_refs -v`
+Run: `uv run pytest tests/replay/test_service.py::test_replay_lookup_returns_exact_existing_forecast -v`
 
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/hydro_agent/replay src/hydro_agent/persistence tests/replay/test_service.py
-git commit -m "feat: persist replay forecast records"
+git add src/hydro_agent/replay src/hydro_agent/persistence/repository.py tests/replay/test_service.py
+git commit -m "feat: define replay cases and forecast lookup"
 ```
 
 ### Task 2: Freeze the selected Scheme by creating a new immutable frozen Scheme
@@ -199,36 +171,15 @@ Frozen id format:
 {source_scheme_id}--frozen--{task_id}
 ```
 
-Construct frozen config by canonical deep copy of source config plus:
+Construct frozen config by canonical deep copy of source config plus provenance and a `freeze_contract` containing the already-configured `model_id`, lead 1/2/3, forcing mode, preprocessing version, warmup, Gate policy reference, and budget summary. Do not invent missing values; required missing keys raise `ValueError("scheme cannot be frozen: missing <field>")`.
 
-```json
-{
-  "provenance": {
-    "source_scheme_id": "scheme-base",
-    "gate_decision_id": null,
-    "frozen_for_task_id": "task-1"
-  },
-  "freeze_contract": {
-    "model_id": "xaj",
-    "lead_days": [1, 2, 3],
-    "forcing_mode": "F",
-    "preprocessing_version": "<copied-existing-value>",
-    "warmup": "<copied-existing-value>",
-    "gate_policy": "<copied-existing-value-or-null>",
-    "budget_summary": "<copied-from-task-state>"
-  }
-}
-```
-
-Do not invent missing model/preprocessing values. Required missing keys raise `ValueError("scheme cannot be frozen: missing <field>")`.
-
-Canonical-JSON hash the frozen config and call `create_scheme(status="frozen")`. Update only `task_state.current_scheme_id` to the new frozen id; never mutate the old Scheme.
+Canonical-JSON hash the frozen config and call `create_scheme(status="frozen")`. Update only `task_state.current_scheme_id` to the new frozen id; never mutate the source Scheme.
 
 - [ ] **Step 4: Run freeze tests**
 
 Run: `uv run pytest tests/replay/test_freeze.py -v`
 
-Expected: PASS, including a test that missing required freeze metadata fails before a frozen Scheme is created.
+Expected: PASS, including a missing-metadata rejection test.
 
 - [ ] **Step 5: Commit**
 
@@ -244,7 +195,7 @@ git commit -m "feat: freeze immutable forecast schemes"
 - Test: `tests/replay/test_planner.py`
 
 **Interfaces:**
-- Consumes: Task forcing mode, frozen Scheme, start/end dates, SP4 snapshot selection/time-boundary service.
+- Consumes: Task forcing mode, frozen Scheme, date range, SP4A `SnapshotResolver.resolve()`.
 - Produces: `ReplayPlanner.plan(task_id, start_date, end_date) -> ReplayPlan`.
 
 - [ ] **Step 1: Write failing F-mode planner test**
@@ -264,7 +215,7 @@ def test_f_mode_plan_uses_only_snapshot_available_by_each_issue_time(replay_plan
 
 
 def test_f_mode_plan_rejects_day_without_legal_forecast_snapshot(replay_planner_missing_day):
-    with pytest.raises(ValueError, match="no legal F-mode snapshot"):
+    with pytest.raises(DataAccessViolation, match="no legal forcing"):
         replay_planner_missing_day.plan("task-1", date(2025, 5, 1), date(2025, 5, 3))
 ```
 
@@ -278,12 +229,11 @@ Expected: FAIL.
 
 Rules:
 
-1. Load Task and assert `current_scheme_id` points to a Scheme with `status="frozen"`.
-2. Generate one UTC issue time per calendar day at the Task's configured issue hour; first milestone defaults to 00:00 only if the Task config explicitly contains that value.
-3. Ask SP4 snapshot selector for one legal snapshot per issue time.
-4. In F mode require forecast forcing released by/before the issue time and forbid future observed discharge roles.
-5. In R mode allow the explicitly declared reanalysis snapshot only.
-6. Preserve chronological order and reject duplicate issue times.
+1. load Task and assert `current_scheme_id` points to a Scheme with `status="frozen"`;
+2. generate one UTC issue time per calendar day using the explicit Task issue hour;
+3. call `SnapshotResolver.resolve(task_id, "forecast", issue_time)` for every day;
+4. preserve chronological order and reject duplicate issue times;
+5. never search for a later snapshot if the resolver rejects an F-mode day.
 
 Return a frozen `ReplayPlan`.
 
@@ -300,14 +250,14 @@ git add src/hydro_agent/replay/planner.py tests/replay/test_planner.py
 git commit -m "feat: plan legal historical replay cases"
 ```
 
-### Task 4: Execute replay sequentially through the existing forecast service
+### Task 4: Execute replay sequentially through SP4A ForecastService
 
 **Files:**
 - Create: `src/hydro_agent/replay/service.py`
 - Modify: `tests/replay/test_service.py`
 
 **Interfaces:**
-- Consumes: `ReplayPlan`, frozen Scheme, SP3 forecast application service.
+- Consumes: `ReplayPlan`, `ForecastService.forecast(...)`.
 - Produces: `ReplayService.execute(plan) -> tuple[ForecastRecord, ...]`.
 
 - [ ] **Step 1: Write failing same-scheme replay test**
@@ -322,7 +272,7 @@ def test_replay_uses_same_frozen_scheme_for_every_issue(replay_service, three_ca
     assert repository.get_task_state("task-1").optimization_cycles_used == 0
 ```
 
-Add a test where the forecast service fails on case 2. Expected behavior: case 1 remains persisted, case 2 records its failed ActionRun, case 3 is not executed, and the replay call raises `ReplayStopped("issue_time=...")`.
+Add a failure test where ForecastService fails on case 2: case 1 remains persisted, case 2's failed ActionRun remains auditable, case 3 is not executed, and `ReplayStopped` is raised.
 
 - [ ] **Step 2: Verify failure**
 
@@ -337,14 +287,12 @@ For each `ReplayCase`:
 ```text
 assert Task phase == F
 assert Scheme status == frozen
-create A11 ActionRun
-call existing forecast service with exact scheme_id + snapshot_id + issue_time
-normalize successful lead 1/2/3 output
-create immutable Forecast row
+if existing Forecast for same task/scheme/issue exists -> return it after hash/reference verification
+else ForecastService.forecast(task_id, frozen_scheme_id, issue_time, policy)
 continue
 ```
 
-Never call `CandidateSchemeService`, calibration runtime, or `GateEvaluator` from replay execution. Re-running an already persisted identical `(task_id, scheme_id, issue_time)` must return the existing Forecast after verifying its content hash instead of creating a duplicate.
+Never call `CalibrationService`, `CandidateSchemeService`, or `GateEvaluator` from replay execution.
 
 - [ ] **Step 4: Run replay tests**
 
@@ -359,16 +307,17 @@ git add src/hydro_agent/replay/service.py tests/replay/test_service.py
 git commit -m "feat: execute frozen historical replay"
 ```
 
-### Task 5: Extend evaluation metrics with KGE and build a read-only EvaluationService
+### Task 5: Extend metrics with KGE and build a read-only EvaluationService
 
 **Files:**
 - Modify: `src/hydro_agent/evaluation/metrics.py`
 - Create: `src/hydro_agent/evaluation/service.py`
+- Modify: `src/hydro_agent/persistence/repository.py`
 - Test: `tests/evaluation/test_service.py`
 
 **Interfaces:**
 - Consumes: persisted Forecasts + E-phase observation snapshot.
-- Produces: `EvaluationService.evaluate(task_id, observation_snapshot_id) -> ReplayEvaluation`.
+- Produces: `repository.set_task_phase(task_id, phase)`, `EvaluationService.evaluate(task_id, observation_snapshot_id) -> ReplayEvaluation`.
 
 - [ ] **Step 1: Write failing read-only evaluation tests**
 
@@ -394,7 +343,9 @@ Run: `uv run pytest tests/evaluation/test_service.py -v`
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement KGE and evaluation join**
+- [ ] **Step 3: Implement phase transition, KGE, and evaluation join**
+
+`set_task_phase()` is the only Task phase mutation method; allow only `B -> F -> E`, never reverse transitions.
 
 KGE 2009:
 
@@ -405,17 +356,9 @@ beta = mean(sim) / mean(obs)
 kge = 1 - sqrt((r - 1)**2 + (alpha - 1)**2 + (beta - 1)**2)
 ```
 
-Reject zero observed standard deviation or zero observed mean with a clear `ValueError` instead of returning NaN.
+Reject zero observed standard deviation or zero observed mean with `ValueError` instead of returning NaN.
 
-`EvaluationService`:
-
-1. requires Task phase `E`;
-2. loads all successful replay Forecasts for the frozen Scheme;
-3. loads the evaluation observation snapshot through an E-phase-only data accessor;
-4. joins observations to each forecast target date for lead 1/2/3;
-5. computes per-lead NSE/KGE/MAE/Bias and aggregate equal-weight summaries;
-6. returns a frozen result object containing `task_id`, `scheme_id`, observation snapshot id, forecast ids, metric dictionaries, and sample counts;
-7. writes no Scheme/Forecast mutation.
+`EvaluationService` requires phase E, loads all successful replay Forecasts for the frozen Scheme, loads the evaluation observation snapshot through SP4 data policy with `capability="evaluate"`, joins truth to target dates for lead 1/2/3, computes per-lead NSE/KGE/MAE/Bias plus aggregate summaries, and returns a frozen result containing Task/Scheme/Snapshot/Forecast ids and sample counts. It writes no Scheme/Forecast mutation.
 
 - [ ] **Step 4: Run evaluation tests**
 
@@ -426,7 +369,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/hydro_agent/evaluation tests/evaluation/test_service.py
+git add src/hydro_agent/evaluation src/hydro_agent/persistence/repository.py tests/evaluation/test_service.py
 git commit -m "feat: evaluate frozen replay in read-only phase"
 ```
 
@@ -454,9 +397,7 @@ def test_report_contains_traceable_scheme_snapshot_forecasts_and_metrics(report_
     assert payload["observation_snapshot_id"] == "snapshot-eval-truth"
     assert payload["forecast_ids"]
     text = md_path.read_text()
-    assert "NSE" in text
-    assert "KGE" in text
-    assert "scheme-frozen-1" in text
+    assert "NSE" in text and "KGE" in text and "scheme-frozen-1" in text
 ```
 
 - [ ] **Step 2: Verify failure**
@@ -467,28 +408,7 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement deterministic report output**
 
-Write:
-
-```text
-report.json
-report.md
-```
-
-`report.json` contains exact structured evaluation data plus artifact hash inputs. `report.md` sections:
-
-```text
-# Hydro-Agent Replay Report
-1. Task and frozen Scheme
-2. Replay period and forcing mode
-3. Data snapshots and leakage rules
-4. Forecast coverage by lead
-5. NSE / KGE / MAE / Bias table
-6. Gate/freeze provenance
-7. Cost summary
-8. Limitations
-```
-
-Do not generate prose with an LLM in SP7. Use fixed templates and numeric formatting (`.4f`). Hash both files and register them as promoted report artifacts.
+Write `report.json` and `report.md`. Markdown sections are fixed: Task/frozen Scheme, replay period/forcing mode, snapshot/time-leak rules, forecast coverage, NSE/KGE/MAE/Bias table, Gate/freeze provenance, cost summary, limitations. Numeric formatting is `.4f`. Hash and register both files as promoted report artifacts; no LLM prose generation in SP7.
 
 - [ ] **Step 4: Run reporting tests**
 
@@ -533,11 +453,9 @@ def test_freeze_replay_evaluate_report_end_to_end(real_replay_flow):
     assert len(report_artifacts) == 2
 ```
 
-Add explicit assertions that no ActionRun with capability `calibrate` or `adapt` occurs after phase becomes F, and that an intentionally future-dated observation snapshot is rejected if injected into an A11 run.
+Also assert no `calibrate`/`adapt` ActionRun occurs after phase becomes F and a future-dated observation snapshot is rejected if injected into A11.
 
-- [ ] **Step 2: Run and verify the first missing boundary**
-
-Run:
+- [ ] **Step 2: Run and verify first missing boundary**
 
 ```bash
 HYDRO_AGENT_LOWMAN_SNAPSHOT=... uv run pytest tests/integration/test_frozen_historical_replay.py -v
@@ -546,8 +464,6 @@ HYDRO_AGENT_LOWMAN_SNAPSHOT=... uv run pytest tests/integration/test_frozen_hist
 Expected before final wiring: FAIL at an unregistered A10/A11/A12 handler or missing fixture, not at data mutation.
 
 - [ ] **Step 3: Register handlers explicitly**
-
-`ToolRouter` registrations:
 
 ```text
 A10_FREEZE -> FreezeToolHandler
