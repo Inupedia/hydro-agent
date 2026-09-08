@@ -12,6 +12,7 @@ class CalibrationStrategy(FrozenModel):
     max_candidates: int = Field(ge=1, le=500)
     random_seed: int
     objective: Literal["nse"]
+    local_scale: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class LeadMetrics(FrozenModel):

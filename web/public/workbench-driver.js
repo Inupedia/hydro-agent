@@ -7,6 +7,7 @@
     A01_CHECK_DATA: "task",
     A03_VALIDATE_SCHEME: "task",
     A05_FORECAST: "forecast",
+    A06_DIAGNOSE: "task",
     A07_OPTIMIZE: "optimize",
     A08_GATE: "gate",
     A09_RESOLVE: "keep",
@@ -19,6 +20,7 @@
     A01_CHECK_DATA: "资料检查",
     A03_VALIDATE_SCHEME: "校验方案",
     A05_FORECAST: "基础预报（XAJ）",
+    A06_DIAGNOSE: "预报诊断",
     A07_OPTIMIZE: "有限参数优化（XAJ）",
     A08_GATE: "Gate 把关",
     A09_RESOLVE: "落实 Gate 结论",
@@ -31,6 +33,7 @@
     "A01_CHECK_DATA",
     "A03_VALIDATE_SCHEME",
     "A05_FORECAST",
+    "A06_DIAGNOSE",
     "A07_OPTIMIZE",
     "A08_GATE",
     "A09_RESOLVE",
@@ -159,6 +162,7 @@
               return `
                 <article class="round">
                   <header>第 ${round.round_number} 轮 · ${escapeHtml(round.action_zh || round.action || "决策")} · ${escapeHtml(round.tool_status_zh || round.tool_status || "待执行")}</header>
+                  <p><strong>业务判断：</strong>${escapeHtml(round.judgment_zh || round.rationale_summary || "—")}</p>
                   <p><strong>输入摘要：</strong>${escapeHtml(round.input_summary_zh || "—")}</p>
                   <p><strong>假设：</strong>${escapeHtml(round.hypothesis_zh || round.hypothesis || "—")}
                      · <strong>理由：</strong>${escapeHtml(round.rationale_summary || "—")}</p>

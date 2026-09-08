@@ -89,6 +89,23 @@ class EvidenceSummary(FrozenModel):
     action: ActionCode
     status: str
     new_information_hash: str
+    observations: tuple[str, ...] = ()
+    metrics: dict[str, float] = Field(default_factory=dict)
+    gates: dict[str, str] = Field(default_factory=dict)
+
+
+class HydroContext(FrozenModel):
+    """Decision-relevant hydrologic context beyond ids/hashes."""
+
+    current_parameters: dict[str, float] = Field(default_factory=dict)
+    candidate_parameters: dict[str, float] | None = None
+    parameter_delta: dict[str, float] = Field(default_factory=dict)
+    latest_forecast_leads: dict[int, float] = Field(default_factory=dict)
+    available_skills: tuple[str, ...] = ()
+    available_strategies: tuple[str, ...] = ()
+    diagnosis: dict[str, object] = Field(default_factory=dict)
+    experiment_history: tuple[str, ...] = ()
+    skill_cards: tuple[dict[str, object], ...] = ()
 
 
 class WorldStateView(FrozenModel):
@@ -102,6 +119,7 @@ class WorldStateView(FrozenModel):
     last_information_hash: str | None = None
     last_decision_fingerprint: str | None = None
     needs_follow_up: bool = True
+    hydro: HydroContext = Field(default_factory=HydroContext)
 
 
 MAX_AGENT_ROUNDS = 20

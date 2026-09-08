@@ -187,6 +187,7 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
                 rationale_summary=str(row.get("rationale_summary") or ""),
                 llm_output=str(row.get("llm_output") or ""),
                 input_summary_zh=str(row.get("input_summary_zh") or ""),
+                judgment_zh=str(row.get("judgment_zh") or ""),
                 input_world_state=dict(row.get("input_world_state") or {}),
                 tool_status=tool_status,
                 tool_status_zh=status_zh(tool_status),

@@ -16,25 +16,30 @@ from hydro_agent.llm.settings import LLMSettings
 _HYPOTHESES = tuple(h.value for h in ProblemHypothesis)
 _ACTIONS = tuple(a.value for a in ActionCode)
 
-SYSTEM_INSTRUCTIONS = f"""You are the Hydro-Agent decision module.
+SYSTEM_INSTRUCTIONS = f"""You are the Hydro-Agent decision module for a hydrologist-style research loop.
 Choose exactly one ActionCode from permissions.safe_actions.
-Never invent continuous parameter vectors or call model processes.
+Never invent continuous parameter vectors or call model processes directly.
 
-Preferred B-phase sequence when available:
-A01_CHECK_DATA -> A05_FORECAST -> A07_OPTIMIZE -> A08_GATE -> A09_RESOLVE -> A10_FREEZE
-Then F-phase: A11_REPLAY
-Then E-phase: A12_EVALUATE_REPORT
-Do NOT re-run A05_FORECAST for the same scheme/issue after it already succeeded.
-After A07_OPTIMIZE succeeds, choose A08_GATE next (not another forecast).
+You MUST use hydro context and skill cards:
+- Read hydro.diagnosis / evidence_summary.observations / metrics / gates
+- Use available_skills and available_strategies
+- Prefer A06_DIAGNOSE after a forecast before blind re-optimization
+- After diagnose, follow recommended_action/strategy when still safe
+- After A09_RESOLVE with KEEP/ROLLBACK and remaining optimization budget, you MAY A06 or A07 again instead of freezing
+- Only A10_FREEZE when evidence supports stopping (small bias / Gate KEEP after enough experiments / budget low)
+
+Preferred B-phase research loop:
+A01/A03 -> A05_FORECAST -> A06_DIAGNOSE -> A07_OPTIMIZE(strategy_id) -> A08_GATE -> A09_RESOLVE
+then either continue diagnose/optimize OR A10_FREEZE -> (F) A11_REPLAY -> (E) A12_EVALUATE_REPORT
 
 Return ONLY one JSON object with exactly these keys:
-- action: one ActionCode string, e.g. "A05_FORECAST"
+- action: one ActionCode string, e.g. "A06_DIAGNOSE"
 - hypothesis: MUST be exactly one of {_HYPOTHESES} (a short enum token, NEVER a sentence)
-- strategy_id: null, unless action is A07_OPTIMIZE then use "xaj-bounded-v1"
-- rationale_summary: short English or Chinese reason (1-2 sentences). Put explanations HERE, not in hypothesis.
+- strategy_id: null, unless action is A07_OPTIMIZE then one of hydro.available_strategies
+- rationale_summary: Chinese preferred; state 发现/依据/为何这样调/预期验证 (1-3 short sentences)
 
 Example:
-{{"action":"A05_FORECAST","hypothesis":"MODEL","strategy_id":null,"rationale_summary":"Run the base XAJ forecast first."}}
+{{"action":"A06_DIAGNOSE","hypothesis":"MODEL","strategy_id":null,"rationale_summary":"已有预报，先诊断洪峰与偏差再决定是否优化。"}}
 
 No markdown fences. No extra keys. No prose outside JSON.
 """
@@ -127,6 +132,7 @@ def normalize_decision_payload(
     if safe_actions and action not in safe_actions:
         # Prefer forward progress when the model invents a disallowed action.
         preferred = (
+            ActionCode.A06_DIAGNOSE.value,
             ActionCode.A05_FORECAST.value,
             ActionCode.A03_VALIDATE_SCHEME.value,
             ActionCode.A07_OPTIMIZE.value,
@@ -139,7 +145,7 @@ def normalize_decision_payload(
         )
         action = next((a for a in preferred if a in safe_actions), sorted(safe_actions)[0])
 
-    # Nudge the model through the research path when it loops.
+    # Soft format nudges only — do NOT force freeze after resolve (multi-round experiments allowed).
     actions = set(evidence_actions)
     if (
         ActionCode.A07_OPTIMIZE.value in actions
@@ -151,42 +157,10 @@ def normalize_decision_payload(
     if (
         ActionCode.A08_GATE.value in actions
         and ActionCode.A09_RESOLVE.value not in actions
-        and action in {ActionCode.A05_FORECAST.value, ActionCode.A07_OPTIMIZE.value}
+        and action == ActionCode.A05_FORECAST.value
         and (not safe_actions or ActionCode.A09_RESOLVE.value in safe_actions)
     ):
         action = ActionCode.A09_RESOLVE.value
-    if (
-        ActionCode.A09_RESOLVE.value in actions
-        and ActionCode.A10_FREEZE.value not in actions
-        and action
-        in {
-            ActionCode.A05_FORECAST.value,
-            ActionCode.A07_OPTIMIZE.value,
-            ActionCode.A08_GATE.value,
-        }
-        and (not safe_actions or ActionCode.A10_FREEZE.value in safe_actions)
-    ):
-        action = ActionCode.A10_FREEZE.value
-    if (
-        ActionCode.A10_FREEZE.value in actions
-        and ActionCode.A11_REPLAY.value not in actions
-        and action
-        in {
-            ActionCode.A05_FORECAST.value,
-            ActionCode.A07_OPTIMIZE.value,
-            ActionCode.A08_GATE.value,
-            ActionCode.A09_RESOLVE.value,
-            ActionCode.A10_FREEZE.value,
-        }
-        and (not safe_actions or ActionCode.A11_REPLAY.value in safe_actions)
-    ):
-        action = ActionCode.A11_REPLAY.value
-    if (
-        ActionCode.A11_REPLAY.value in actions
-        and ActionCode.A12_EVALUATE_REPORT.value not in actions
-        and (not safe_actions or ActionCode.A12_EVALUATE_REPORT.value in safe_actions)
-    ):
-        action = ActionCode.A12_EVALUATE_REPORT.value
     data["action"] = action
 
     hypothesis_raw = data.get("hypothesis")

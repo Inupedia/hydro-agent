@@ -15,6 +15,8 @@ def timeline_label(action: str | None, status: str) -> str:
         (ActionCode.A05_FORECAST.value, "succeeded"): "预报完成",
         (ActionCode.A05_FORECAST.value, "failed"): "预报失败",
         (ActionCode.A05_FORECAST.value, "running"): "正在运行水文模型",
+        (ActionCode.A06_DIAGNOSE.value, "succeeded"): "预报诊断完成",
+        (ActionCode.A06_DIAGNOSE.value, "failed"): "预报诊断失败",
         (ActionCode.A07_OPTIMIZE.value, "succeeded"): "有限参数优化完成",
         (ActionCode.A07_OPTIMIZE.value, "running"): "正在进行有限参数优化",
         (ActionCode.A08_GATE.value, "ACCEPT"): "候选方案通过 Gate",

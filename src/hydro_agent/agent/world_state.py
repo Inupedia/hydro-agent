@@ -5,6 +5,7 @@ from hydro_agent.agent.contracts import (
     MAX_OPTIMIZATION_CYCLES,
     BudgetSummary,
     EvidenceSummary,
+    HydroContext,
     ModelSummary,
     PermissionSummary,
     SchemeSummary,
@@ -13,15 +14,25 @@ from hydro_agent.agent.contracts import (
 )
 from hydro_agent.agent.permissions import PermissionGate
 from hydro_agent.execution.hashing import sha256_bytes
+from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
+from hydro_agent.skills import SkillRegistry
 
 
 class WorldStateBuilder:
     def __init__(
-        self, repository, *, model_id: str = "xaj", capabilities: frozenset[str] | None = None
+        self,
+        repository,
+        *,
+        model_id: str = "xaj",
+        capabilities: frozenset[str] | None = None,
+        skills: SkillRegistry | None = None,
+        strategies: CalibrationStrategyRegistry | None = None,
     ):
         self.repository = repository
         self.model_id = model_id
         self.capabilities = capabilities or frozenset({"forecast", "calibrate", "validate"})
+        self.skills = skills or SkillRegistry()
+        self.strategies = strategies or CalibrationStrategyRegistry()
 
     def build(self, task_id: str) -> WorldStateView:
         task = self.repository.get_task(task_id)
@@ -34,10 +45,50 @@ class WorldStateBuilder:
                 action=row.action,
                 status=row.status,
                 new_information_hash=row.new_information_hash,
+                observations=tuple(row.observations_json or ()),
+                metrics={str(k): float(v) for k, v in dict(row.metrics_json or {}).items()},
+                gates={str(k): str(v) for k, v in dict(row.gates_json or {}).items()},
             )
-            for row in evidence_rows[-5:]
+            for row in evidence_rows[-8:]
         )
         forecasts = self.repository.list_forecasts(task_id)
+        latest_forecast = forecasts[-1] if forecasts else None
+        current_params = dict((scheme.config_json or {}).get("parameters") or {})
+        candidate = next(
+            (s for s in reversed(self.repository.list_schemes(task_id)) if s.status == "candidate"),
+            None,
+        )
+        candidate_params = None
+        parameter_delta: dict[str, float] = {}
+        if candidate is not None:
+            candidate_params = dict((candidate.config_json or {}).get("parameters") or {})
+            for key, value in candidate_params.items():
+                if key in current_params:
+                    parameter_delta[key] = float(value) - float(current_params[key])
+        diagnosis = {}
+        for row in reversed(evidence_rows):
+            if row.action == "A06_DIAGNOSE" and row.gates_json:
+                diagnosis = dict(row.gates_json)
+                break
+        history = tuple(
+            f"{row.action}:{row.status}:{';'.join((row.observations_json or [])[:2])}"
+            for row in evidence_rows[-6:]
+        )
+        hydro = HydroContext(
+            current_parameters={k: float(v) for k, v in current_params.items()},
+            candidate_parameters=candidate_params,
+            parameter_delta=parameter_delta,
+            latest_forecast_leads=(
+                {int(k): float(v) for k, v in latest_forecast.lead_values_json.items()}
+                if latest_forecast
+                else {}
+            ),
+            available_skills=self.skills.summaries_zh(),
+            available_strategies=self.strategies.list_ids(),
+            diagnosis=diagnosis,
+            experiment_history=history,
+            skill_cards=tuple(self.skills.cards_for_prompt()),
+        )
         view = WorldStateView(
             task=TaskSummary(
                 task_id=task.task_id,
@@ -64,10 +115,11 @@ class WorldStateBuilder:
                 max_optimization_cycles=MAX_OPTIMIZATION_CYCLES,
             ),
             evidence_summary=evidence_summary,
-            latest_forecast_id=forecasts[-1].forecast_id if forecasts else None,
+            latest_forecast_id=latest_forecast.forecast_id if latest_forecast else None,
             last_information_hash=state.last_information_hash,
             last_decision_fingerprint=state.last_decision_fingerprint,
             needs_follow_up=bool(state.needs_follow_up),
+            hydro=hydro,
         )
         safe = PermissionGate().safe_actions(view)
         return view.model_copy(

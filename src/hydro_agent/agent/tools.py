@@ -113,6 +113,51 @@ class ValidateSchemeHandler:
         )
 
 
+class DiagnoseHandler:
+    """A06: evidence-grounded diagnosis using domain skills + forecast/obs errors."""
+
+    def __init__(self, repository, *, diagnose_fn):
+        self.repository = repository
+        self.diagnose_fn = diagnose_fn
+
+    def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
+        result = self.diagnose_fn(task_id)
+        observations = (
+            f"phenomenon={result.get('phenomenon')}",
+            f"hypothesis={result.get('hypothesis')}",
+            f"recommended_action={result.get('recommended_action')}",
+            f"recommended_strategy_id={result.get('recommended_strategy_id')}",
+            *(result.get("notes") or ()),
+        )
+        metrics = {
+            str(k): float(v)
+            for k, v in dict(result.get("metrics") or {}).items()
+            if isinstance(v, (int, float))
+        }
+        gates = {
+            "hypothesis": str(result.get("hypothesis") or "UNKNOWN"),
+            "recommended_action": str(result.get("recommended_action") or ""),
+            "recommended_strategy_id": str(result.get("recommended_strategy_id") or ""),
+            "phenomenon": str(result.get("phenomenon") or ""),
+            "skill_id": "forecast-diagnose",
+        }
+        return EvidencePacket(
+            evidence_id=_evidence_id(),
+            task_id=task_id,
+            action=ActionCode.A06_DIAGNOSE,
+            status="succeeded",
+            observations=observations,
+            metrics=metrics,
+            gates=gates,
+            new_information_hash=information_hash(
+                action=ActionCode.A06_DIAGNOSE,
+                status="succeeded",
+                observations=observations,
+                metrics=metrics,
+            ),
+        )
+
+
 class ForecastHandler:
     def __init__(self, repository, *, forecast_service, issue_time: str, policy):
         self.repository = repository
@@ -221,8 +266,17 @@ class GateHandler:
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
         base, candidate = self.bundle_provider(task_id)
         result = self.gate_evaluator.evaluate(base, candidate, self.policy)
-        observations = (f"gate_status={result.status}", *result.reasons)
-        metrics = {"primary_delta": float(result.primary_delta)}
+        observations = (
+            f"gate_status={result.status}",
+            f"base_primary={base.primary_score:.4f}",
+            f"candidate_primary={candidate.primary_score:.4f}",
+            *result.reasons,
+        )
+        metrics = {
+            "primary_delta": float(result.primary_delta),
+            "base_primary": float(base.primary_score),
+            "candidate_primary": float(candidate.primary_score),
+        }
         gates = {"status": result.status, "candidate_scheme_id": result.candidate_scheme_id}
         return EvidencePacket(
             evidence_id=_evidence_id(),

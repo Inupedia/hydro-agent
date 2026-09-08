@@ -6,6 +6,7 @@ ACTION_ZH = {
     ActionCode.A01_CHECK_DATA.value: "资料检查",
     ActionCode.A03_VALIDATE_SCHEME.value: "方案校验",
     ActionCode.A05_FORECAST.value: "基础预报",
+    ActionCode.A06_DIAGNOSE.value: "预报诊断",
     ActionCode.A07_OPTIMIZE.value: "有限参数优化",
     ActionCode.A08_GATE.value: "Gate 把关",
     ActionCode.A09_RESOLVE.value: "落实 Gate 结论",

@@ -66,7 +66,25 @@ def test_extract_json_from_fenced_response():
     assert payload["action"] == "A05_FORECAST"
 
 
-def test_normalize_moves_sentence_hypothesis_into_rationale():
+def test_normalize_does_not_force_freeze_after_resolve():
+    payload = normalize_decision_payload(
+        {
+            "action": "A07_OPTIMIZE",
+            "hypothesis": "MODEL",
+            "strategy_id": "xaj-peak-bias-v1",
+            "rationale_summary": "Gate KEEP 后继续按诊断策略再试一轮",
+        },
+        safe_actions={
+            "A06_DIAGNOSE",
+            "A07_OPTIMIZE",
+            "A08_GATE",
+            "A09_RESOLVE",
+            "A10_FREEZE",
+        },
+        evidence_actions=("A08_GATE", "A09_RESOLVE"),
+    )
+    assert payload["action"] == "A07_OPTIMIZE"
+    assert payload["strategy_id"] == "xaj-peak-bias-v1"
     payload = normalize_decision_payload(
         {
             "action": "A01_CHECK_DATA",

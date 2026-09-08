@@ -244,6 +244,13 @@ def _build_real(
                 )
                 deps.finish_llm_trace(task_id, action=decision.action.value)
                 trace = deps.get_llm_trace(task_id)
+                judgment = (
+                    f"发现：阶段{view.task.phase}，证据{[e.action.value for e in view.evidence_summary]}；"
+                    f"依据：{view.hydro.diagnosis or view.hydro.experiment_history[-2:]}；"
+                    f"决策：{decision.action.value}/{decision.hypothesis.value}"
+                    f"{(' / '+decision.strategy_id) if decision.strategy_id else ''}；"
+                    f"理由：{decision.rationale_summary}"
+                )
                 deps.append_agent_round_log(
                     task_id,
                     {
@@ -255,6 +262,7 @@ def _build_real(
                         "llm_output": trace.text,
                         "input_summary_zh": input_summary,
                         "input_world_state": input_world,
+                        "judgment_zh": judgment,
                         "tool_status": None,
                         "tool_observations": [],
                         "tool_metrics": {},
@@ -313,7 +321,11 @@ def _build_real(
             repository,
             provider=provider,
             tools=tools,
-            world_state=WorldStateBuilder(repository),
+            world_state=WorldStateBuilder(
+                repository,
+                skills=kernel.skills,
+                strategies=kernel.strategies,
+            ),
             provider_name="siliconflow",
             provider_model=settings.model,
         )

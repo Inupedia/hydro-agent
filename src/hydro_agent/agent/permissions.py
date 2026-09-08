@@ -17,6 +17,7 @@ PHASE_ACTIONS = {
         ActionCode.A01_CHECK_DATA,
         ActionCode.A03_VALIDATE_SCHEME,
         ActionCode.A05_FORECAST,
+        ActionCode.A06_DIAGNOSE,
         ActionCode.A07_OPTIMIZE,
         ActionCode.A08_GATE,
         ActionCode.A09_RESOLVE,
@@ -36,6 +37,7 @@ IMPLEMENTED = {
     ActionCode.A01_CHECK_DATA,
     ActionCode.A03_VALIDATE_SCHEME,
     ActionCode.A05_FORECAST,
+    ActionCode.A06_DIAGNOSE,
     ActionCode.A07_OPTIMIZE,
     ActionCode.A08_GATE,
     ActionCode.A09_RESOLVE,
@@ -78,6 +80,8 @@ class PermissionGate:
             raise PermissionDenied(f"action {decision.action} is not safe")
         if decision.action == ActionCode.A07_OPTIMIZE and decision.strategy_id is None:
             raise PermissionDenied("optimize requires strategy_id")
+        if decision.action == ActionCode.A06_DIAGNOSE and view.latest_forecast_id is None:
+            raise PermissionDenied("diagnose requires a forecast first")
         fingerprint = decision_fingerprint(decision, view.scheme.scheme_id)
         if (
             view.last_decision_fingerprint == fingerprint

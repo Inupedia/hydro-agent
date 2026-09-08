@@ -103,6 +103,7 @@ class AgentRoundLogItem(FrozenApiModel):
     rationale_summary: str = ""
     llm_output: str = ""
     input_summary_zh: str = ""
+    judgment_zh: str = ""
     input_world_state: dict[str, object] = Field(default_factory=dict)
     tool_status: str | None = None
     tool_status_zh: str = ""

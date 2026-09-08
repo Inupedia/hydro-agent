@@ -7,6 +7,7 @@ from pathlib import Path
 from hydro_agent.agent.contracts import ActionCode, AgentDecision, EvidencePacket
 from hydro_agent.agent.tools import (
     CheckDataHandler,
+    DiagnoseHandler,
     EvaluateReportToolHandler,
     ForecastHandler,
     FreezeToolHandler,
@@ -21,7 +22,6 @@ from hydro_agent.data.contracts import SnapshotContext
 from hydro_agent.data.lowman import load_normalized_source
 from hydro_agent.data.policy import DataAccessPolicy
 from hydro_agent.data.snapshot import SnapshotBuilder
-from hydro_agent.evaluation.metrics import build_evaluation_bundle
 from hydro_agent.evaluation.service import EvaluationService
 from hydro_agent.execution.contracts import ExecutionPolicy
 from hydro_agent.execution.registry import RuntimeRegistry
@@ -30,6 +30,7 @@ from hydro_agent.models.xaj.adapter import XajRuntimeAdapter
 from hydro_agent.optimization.candidates import CandidateSchemeService
 from hydro_agent.optimization.contracts import GatePolicy
 from hydro_agent.optimization.gate import GateEvaluator
+from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 from hydro_agent.replay.freeze import FreezeService
 from hydro_agent.replay.planner import ReplayPlanner
 from hydro_agent.replay.service import ReplayService
@@ -38,6 +39,12 @@ from hydro_agent.services.calibration import CalibrationService
 from hydro_agent.services.forecast import ForecastService
 from hydro_agent.services.snapshots import SnapshotResolver
 from hydro_agent.services.workspace import MaterializingWorkspaceManager
+from hydro_agent.skills import SkillRegistry
+from hydro_agent.workbench.validation_gate import (
+    RealValidationGate,
+    diagnose_forecast_errors,
+    truth_from_source,
+)
 
 POLICY = ExecutionPolicy(
     timeout_seconds=600, network_access=False, max_output_bytes=20_000_000, device="cpu"
@@ -69,6 +76,9 @@ class RealWorkbenchKernel:
         self.scheme_template = json.loads(Path(scheme_path).read_text(encoding="utf-8"))
         self.scheme_template["warmup_days"] = warmup_days
         self.scheme_template.setdefault("model_id", "xaj")
+        self.skills = SkillRegistry()
+        self.strategies = CalibrationStrategyRegistry()
+        self._task_configs: dict = {}
 
         self.snapshot_root = self.work_root / "snapshots"
         self.builder = SnapshotBuilder(self.snapshot_root, DataAccessPolicy(), repository)
@@ -94,6 +104,13 @@ class RealWorkbenchKernel:
         )
         self.evaluation = EvaluationService(repository, snapshot_root=self.snapshot_root)
         self.report_builder = ReplayReportBuilder()
+        self.validation_gate = RealValidationGate(
+            repository=repository,
+            forecast_service=self.forecast,
+            source=self.source,
+            policy=POLICY,
+            task_configs=self._task_configs,
+        )
 
     def scheme_config(self) -> dict:
         return json.loads(json.dumps(self.scheme_template))
@@ -124,12 +141,18 @@ class RealWorkbenchKernel:
         return snap_id
 
     def build_tools(self, *, task_configs: dict) -> ToolRouter:
+        self._task_configs.clear()
+        self._task_configs.update(task_configs)
         tools = ToolRouter()
         tools.register(ActionCode.A01_CHECK_DATA, CheckDataHandler(self.repository))
         tools.register(ActionCode.A03_VALIDATE_SCHEME, ValidateSchemeHandler(self.repository))
         tools.register(
             ActionCode.A05_FORECAST,
             _TaskAwareForecastHandler(self, task_configs),
+        )
+        tools.register(
+            ActionCode.A06_DIAGNOSE,
+            DiagnoseHandler(self.repository, diagnose_fn=self._diagnose),
         )
         tools.register(
             ActionCode.A07_OPTIMIZE,
@@ -141,7 +164,7 @@ class RealWorkbenchKernel:
                 self.repository,
                 gate_evaluator=self.gate,
                 policy=GATE_POLICY,
-                bundle_provider=self._bundle_provider,
+                bundle_provider=self.validation_gate.bundles,
             ),
         )
         tools.register(ActionCode.A09_RESOLVE, ResolveHandler(self.repository))
@@ -159,42 +182,32 @@ class RealWorkbenchKernel:
         )
         return tools
 
-    def _bundle_provider(self, task_id: str):
-        schemes = self.repository.list_schemes(task_id)
-        base = next((s for s in schemes if s.status == "base"), None)
-        candidate = next((s for s in schemes if s.status == "candidate"), None)
-        if base is None or candidate is None:
-            raise RuntimeError("gate requires base and candidate schemes")
-        # Prefer KEEP unless candidate objective clearly beat base in evidence.
-        opt = next(
-            (
-                row
-                for row in reversed(self.repository.list_evidence(task_id))
-                if row.action == ActionCode.A07_OPTIMIZE.value
-            ),
-            None,
+    def _diagnose(self, task_id: str) -> dict:
+        cfg = self._task_configs.get(task_id) or {}
+        issue = _issue_from_config(cfg)
+        forecasts = [
+            row
+            for row in self.repository.list_forecasts(task_id)
+            if row.issue_time.date() == issue.date()
+        ]
+        if not forecasts:
+            forecasts = list(self.repository.list_forecasts(task_id))
+        if not forecasts:
+            return {
+                "hypothesis": "DATA",
+                "phenomenon": "尚无预报，无法诊断",
+                "recommended_action": "A05_FORECAST",
+                "recommended_strategy_id": None,
+                "metrics": {},
+                "notes": ["no forecast"],
+            }
+        latest = forecasts[-1]
+        leads = {int(k): float(v) for k, v in latest.lead_values_json.items()}
+        return diagnose_forecast_errors(
+            truth=truth_from_source(self.source.flow_rows),
+            lead_values=leads,
+            issue_day=latest.issue_time.date(),
         )
-        base_score = 0.40
-        cand_score = 0.40
-        if opt and opt.metrics_json and "objective_value" in opt.metrics_json:
-            # NSE-like objective: map into primary_score for Gate.
-            cand_score = float(opt.metrics_json["objective_value"])
-            base_score = max(0.0, cand_score - 0.005)
-        series = {
-            1: ([1.0, 2.0, 3.0], [1.0, 2.0, 2.5]),
-            2: ([1.0, 2.0, 3.0], [1.0, 2.0, 2.5]),
-            3: ([1.0, 2.0, 3.0], [1.0, 2.0, 2.5]),
-        }
-        base_bundle = build_evaluation_bundle(base.scheme_id, series)
-        cand_series = {
-            1: ([1.0, 2.0, 3.0], [1.0, 2.0, 2.5 + max(0.0, cand_score - base_score)]),
-            2: ([1.0, 2.0, 3.0], [1.0, 2.0, 2.5 + max(0.0, cand_score - base_score)]),
-            3: ([1.0, 2.0, 3.0], [1.0, 2.0, 2.5 + max(0.0, cand_score - base_score)]),
-        }
-        cand_bundle = build_evaluation_bundle(candidate.scheme_id, cand_series)
-        base_bundle = base_bundle.model_copy(update={"primary_score": base_score})
-        cand_bundle = cand_bundle.model_copy(update={"primary_score": cand_score})
-        return base_bundle, cand_bundle
 
 
 def _issue_from_config(cfg: dict) -> datetime:
@@ -244,25 +257,50 @@ class _TaskAwareOptimizeHandler:
 
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
         cfg = self.task_configs.get(task_id) or {}
-        issue = _issue_from_config(cfg)
-        issue_iso = issue.isoformat().replace("+00:00", "Z")
-        cal_id = self.kernel.resolver.resolve(task_id, "calibrate", issue_iso)
+        window = self.kernel.validation_gate.window_for(task_id)
+        cal_day = window.calibration_issue
+        cal_issue = datetime(cal_day.year, cal_day.month, cal_day.day, tzinfo=timezone.utc)
+        cal_iso = cal_issue.isoformat().replace("+00:00", "Z")
+        # Independent validation snapshot keyed by validation end issue (held-out window).
+        val_issue = _issue_from_config(cfg)
+        val_iso = val_issue.isoformat().replace("+00:00", "Z")
+        cal_id = self.kernel.resolver.resolve(task_id, "calibrate", cal_iso)
+        val_id = self.kernel.resolver.resolve(task_id, "calibrate", val_iso)
+        if cal_id == val_id and window.start <= window.end:
+            # Force distinct snapshot ids when issue dates differ; resolver already does.
+            pass
+        strategy_id = decision.strategy_id
+        if not strategy_id:
+            for row in reversed(self.kernel.repository.list_evidence(task_id)):
+                if row.action == ActionCode.A06_DIAGNOSE.value:
+                    strategy_id = (row.gates_json or {}).get("recommended_strategy_id") or None
+                    break
+        strategy_id = strategy_id or "xaj-bounded-v1"
         handler = OptimizeHandler(
             self.kernel.repository,
             calibration_service=self.kernel.calibration,
             candidate_service=self.kernel.candidates,
             calibration_snapshot_id=cal_id,
-            validation_snapshot_id=cal_id,
+            validation_snapshot_id=val_id,
             policy=POLICY,
         )
-        if decision.strategy_id is None:
-            decision = AgentDecision(
-                action=decision.action,
-                hypothesis=decision.hypothesis,
-                strategy_id="xaj-bounded-v1",
-                rationale_summary=decision.rationale_summary,
-            )
-        return handler.execute(task_id, decision)
+        decision = AgentDecision(
+            action=decision.action,
+            hypothesis=decision.hypothesis,
+            strategy_id=strategy_id,
+            rationale_summary=decision.rationale_summary,
+        )
+        packet = handler.execute(task_id, decision)
+        # Attach calibration/validation separation into observations for the agent log.
+        extra = (
+            f"calibration_snapshot_id={cal_id}",
+            f"validation_snapshot_id={val_id}",
+            f"calibration_issue={cal_iso}",
+            f"validation_window={window.start.isoformat()}..{window.end.isoformat()}",
+        )
+        return packet.model_copy(
+            update={"observations": tuple(packet.observations) + extra}
+        )
 
 
 class _TaskAwareReplayHandler:
@@ -301,5 +339,4 @@ class _TaskAwareEvaluateHandler:
             observation_snapshot_id=truth_id,
             output_dir=out_dir,
         )
-        packet = handler.execute(task_id, decision)
-        return packet
+        return handler.execute(task_id, decision)

@@ -34,10 +34,17 @@ def _load_streamflow(workspace: Path) -> dict[date, float]:
     return values
 
 
-def _sample_vector(rng, names, ranges) -> dict[str, float]:
+def _sample_vector(rng, names, ranges, *, base_parameters=None, local_scale=None) -> dict[str, float]:
     parameters = {}
     for name in names:
         low, high = ranges[name]
+        if local_scale is not None and base_parameters is not None and name in base_parameters:
+            center = float(base_parameters[name])
+            span = (high - low) * float(local_scale)
+            low = max(low, center - span)
+            high = min(high, center + span)
+            if high < low:
+                low, high = high, low
         if name == "L":
             lo_i = int(round(low))
             hi_i = int(round(high))
@@ -47,6 +54,8 @@ def _sample_vector(rng, names, ranges) -> dict[str, float]:
         else:
             # Keep capacities strictly positive when upstream allows a zero lower bound.
             sample_low = low if low > 0 else min(high, max(low, 1e-6))
+            if sample_low > high:
+                sample_low = high
             parameters[name] = float(rng.uniform(sample_low, high))
     return parameters
 
@@ -74,7 +83,15 @@ def run(workspace: Path) -> dict:
     names = scheme.PARAMETER_ORDER
     candidates: list[dict[str, float]] = [dict(scheme.parameters)]
     while len(candidates) < strategy.max_candidates:
-        candidates.append(_sample_vector(rng, names, ranges))
+        candidates.append(
+            _sample_vector(
+                rng,
+                names,
+                ranges,
+                base_parameters=scheme.parameters,
+                local_scale=strategy.local_scale,
+            )
+        )
 
     xaj = load_xaj()
     best_score = float("-inf")
