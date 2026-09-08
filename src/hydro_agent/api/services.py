@@ -83,6 +83,21 @@ def build_task_summary(deps: AppDependencies, task_id: str) -> TaskSummary:
     state = deps.repository.ensure_task_state(task_id)
     config = deps.task_configs.get(task_id) or {}
     model_id = str(config.get("model_id") or "xaj")
+    start_date = config.get("start_date")
+    end_date = config.get("end_date")
+    if start_date is None or end_date is None:
+        try:
+            schemes = deps.repository.list_schemes(task_id=task_id)
+            for scheme in schemes:
+                workbench = (scheme.config_json or {}).get("workbench") or {}
+                start_date = start_date or workbench.get("start_date")
+                end_date = end_date or workbench.get("end_date")
+                if not model_id or model_id == "xaj":
+                    model_id = str(scheme.model_id or model_id or "xaj")
+                if start_date and end_date:
+                    break
+        except Exception:
+            pass
     active = False
     executor = getattr(deps, "executor", None)
     if executor is not None:
@@ -101,6 +116,10 @@ def build_task_summary(deps: AppDependencies, task_id: str) -> TaskSummary:
         status = "completed"
     elif state.agent_rounds_used > 0:
         status = "idle"
+    created_at = None
+    if getattr(task, "created_at", None) is not None:
+        created_at = task.created_at.isoformat()
+    forcing = getattr(task, "forcing_mode", None) or config.get("forcing_mode")
     return TaskSummary(
         task_id=task_id,
         basin_id=task.basin_id,
@@ -111,6 +130,10 @@ def build_task_summary(deps: AppDependencies, task_id: str) -> TaskSummary:
         current_scheme_id=state.current_scheme_id,
         agent_rounds_used=state.agent_rounds_used,
         optimization_cycles_used=state.optimization_cycles_used,
+        start_date=str(start_date) if start_date else None,
+        end_date=str(end_date) if end_date else None,
+        forcing_mode=forcing if forcing in ("R", "F") else None,
+        created_at=created_at,
     )
 
 

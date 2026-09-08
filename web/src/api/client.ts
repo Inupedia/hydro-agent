@@ -1,12 +1,19 @@
 import type { ResultSummary, RunSummary, TaskCreateRequest, TaskSummary, TimelineItem } from '../types/api'
 
+export type HealthResponse = {
+  status: string
+  mode?: string
+  provider_model?: string | null
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
     ...init,
   })
   if (!response.ok) {
-    throw new Error(`API ${response.status}: ${path}`)
+    const detail = await response.text()
+    throw new Error(`API ${response.status}: ${detail || path}`)
   }
   if (response.status === 204) {
     return undefined as T
@@ -15,6 +22,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  health() {
+    return request<HealthResponse>('/api/health')
+  },
   createTask(body: TaskCreateRequest) {
     return request<TaskSummary>('/api/tasks', { method: 'POST', body: JSON.stringify(body) })
   },

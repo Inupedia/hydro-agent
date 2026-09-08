@@ -5058,7 +5058,7 @@
         <rect data-graph-role="structural-frame" data-composition-frame-kind="group" data-composition-frame-id="group-0" x="327" y="214" width="336" height="62" rx="9" class="c-lane" stroke-width="1"/>
         <text x="337" y="212" class="t-backend" font-size="7" font-weight="600">自动决策环</text>
         <rect data-graph-role="structural-frame" data-composition-frame-kind="group" data-composition-frame-id="group-1" x="505" y="338" width="364.4" height="62" rx="9" class="c-security-group" stroke-width="1"/>
-        <text x="515" y="336" class="t-security" font-size="7" font-weight="600">KEEP = 提升不够，不是失败</text>
+        <text x="515" y="336" class="t-security" font-size="7" font-weight="600">把关</text>
         <rect data-graph-role="structural-frame" data-composition-frame-kind="group" data-composition-frame-id="group-2" x="332" y="462" width="715.4000000000001" height="62" rx="9" class="c-lane" stroke-width="1"/>
         <text x="342" y="460" class="t-messagebus" font-size="7" font-weight="600">证据沉淀</text>
 
@@ -5150,8 +5150,8 @@
           <text data-detail="context" x="968.4" y="255" class="t-muted" font-size="8" text-anchor="middle">A12 NSE/KGE…</text>
         </g>
 
-        <g id="node-gate" data-node-id="gate" data-node-label="把关 Gate" tabindex="0" role="button" aria-label="Focus 把关 Gate, 提升够不够大？, 把关与锁定 › KEEP = 提升不够，不是失败 › 预报与尝试改进" aria-pressed="false" data-node-kind="security" data-node-sublabel="提升够不够大？" data-node-context="把关与锁定 › KEEP = 提升不够，不是失败 › 预报与尝试改进">
-          <title>把关 Gate · 提升够不够大？ · 把关与锁定 › KEEP = 提升不够，不是失败 › 预报与尝试改进</title>
+        <g id="node-gate" data-node-id="gate" data-node-label="把关 Gate" tabindex="0" role="button" aria-label="Focus 把关 Gate, 提升够不够大？, 把关与锁定 › 预报与尝试改进" aria-pressed="false" data-node-kind="security" data-node-sublabel="提升够不够大？" data-node-context="把关与锁定 › 预报与尝试改进">
+          <title>把关 Gate · 提升够不够大？ · 把关与锁定 › 预报与尝试改进</title>
           <rect x="509" y="341" width="150" height="52" rx="6" class="c-mask"/>
           <rect x="509" y="341" width="150" height="52" rx="6" class="c-security" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(515 347) scale(0.6875)">
@@ -5162,8 +5162,8 @@
           <text data-detail="context" x="584" y="379" class="t-muted" font-size="8" text-anchor="middle">提升够不够大？</text>
         </g>
 
-        <g id="node-keep" data-node-id="keep" data-node-label="KEEP 原方案" tabindex="0" role="button" aria-label="Focus KEEP 原方案, 提升未达门槛, 把关与锁定 › KEEP = 提升不够，不是失败 › 锁定、回看、说明" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="提升未达门槛" data-node-context="把关与锁定 › KEEP = 提升不够，不是失败 › 锁定、回看、说明">
-          <title>KEEP 原方案 · 提升未达门槛 · 把关与锁定 › KEEP = 提升不够，不是失败 › 锁定、回看、说明</title>
+        <g id="node-keep" data-node-id="keep" data-node-label="KEEP 原方案" tabindex="0" role="button" aria-label="Focus KEEP 原方案, 提升未达门槛, 把关与锁定 › 锁定、回看、说明" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="提升未达门槛" data-node-context="把关与锁定 › 锁定、回看、说明">
+          <title>KEEP 原方案 · 提升未达门槛 · 把关与锁定 › 锁定、回看、说明</title>
           <rect x="715.4" y="341" width="150" height="52" rx="6" class="c-mask"/>
           <rect x="715.4" y="341" width="150" height="52" rx="6" class="c-messagebus" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(721.4 347) scale(0.6875)">
@@ -5458,30 +5458,7 @@
       </div>
     </div>
 
-    <!-- Info Cards -->
-    <div class="cards">
-      <div class="card">
-        <div class="card-header">
-          <div class="card-dot cyan"></div>
-          <h3>怎么用</h3>
-        </div>
-        <ul>
-          <li>&bull; 点击图上的「用户」或「任务」节点</li>
-          <li>&bull; 在弹出层填写流域/日期后开始</li>
-        </ul>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div class="card-dot rose"></div>
-          <h3>KEEP 不是失败</h3>
-        </div>
-        <ul>
-          <li>&bull; 提升不够就保持原方案</li>
-          <li>&bull; 流程会继续冻结与回放</li>
-        </ul>
-      </div>
-    </div>
+    <!-- Info cards intentionally omitted: workbench sidebars carry live status. -->
 
   </div>
 

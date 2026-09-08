@@ -27,6 +27,7 @@ services:
       HYDRO_AGENT_SCHEME: "/app/tests/fixtures/xaj/lowman_scheme.json"
       HYDRO_AGENT_MODE: "real"
       HYDRO_LLM_TIMEOUT_SECONDS: "180"
+      HYDRO_LLM_MAX_RETRIES: "5"
     restart: unless-stopped
 
 volumes:

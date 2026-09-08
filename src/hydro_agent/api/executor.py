@@ -30,6 +30,7 @@ class TaskExecutor:
             # Completed evaluation path: refreshing the Run page must not reset follow-up.
             if task.phase == "E" and not state.needs_follow_up and not state.paused:
                 return self.status(task_id)
+            self.deps.clear_llm_error(task_id)
             self.deps.repository.update_task_state(task_id, paused=False, needs_follow_up=True)
             self._active_task_id = task_id
             self._future = self._pool.submit(self._run, task_id)
@@ -43,6 +44,7 @@ class TaskExecutor:
     def resume(self, task_id: str) -> RunSummary:
         with self._lock:
             self.deps.repository.ensure_task_state(task_id)
+            self.deps.clear_llm_error(task_id)
             self.deps.repository.update_task_state(task_id, paused=False, needs_follow_up=True)
             if self._active_task_id == task_id and not self._is_idle_locked():
                 # In-flight worker will observe cleared pause on the next round.

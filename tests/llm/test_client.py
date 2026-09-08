@@ -75,7 +75,7 @@ def test_request_and_usage(monkeypatch):
     assert result.prompt_tokens == 0
 
 
-def test_error_redacted_without_retry(monkeypatch):
+def test_error_redacted_without_retry_on_auth(monkeypatch):
     calls = []
 
     class Opener:
@@ -88,3 +88,48 @@ def test_error_redacted_without_retry(monkeypatch):
         client.SiliconFlowClient(LLMSettings(api_key="test-secret")).complete([])
     assert "test-secret" not in str(error.value)
     assert len(calls) == 1
+
+
+def test_retries_transient_http_503(monkeypatch):
+    calls = []
+    sleeps: list[float] = []
+
+    class StreamResponse:
+        def __init__(self, chunks: list[bytes]):
+            self._chunks = list(chunks)
+
+        def readline(self):
+            if not self._chunks:
+                return b""
+            return self._chunks.pop(0)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class Opener:
+        def open(self, request, timeout):
+            calls.append(1)
+            if len(calls) < 3:
+                raise HTTPError(request.full_url, 503, "busy", {}, io.BytesIO(b"busy"))
+            chunk = {
+                "model": "zai-org/GLM-5.3",
+                "choices": [{"delta": {"content": "OK"}}],
+            }
+            return StreamResponse(
+                [
+                    f"data: {json.dumps(chunk)}\n".encode(),
+                    b"data: [DONE]\n",
+                ]
+            )
+
+    monkeypatch.setattr(client, "build_opener", lambda *args: Opener())
+    monkeypatch.setattr(client.time, "sleep", lambda seconds: sleeps.append(seconds))
+    result = client.SiliconFlowClient(
+        LLMSettings(api_key="test-secret", max_retries=4)
+    ).complete([{"role": "user", "content": "OK"}])
+    assert result.content == "OK"
+    assert len(calls) == 3
+    assert sleeps == [0.8, 1.6]

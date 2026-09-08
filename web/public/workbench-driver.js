@@ -115,18 +115,23 @@
   }
 
   function closeResultsPanel() {
-    const panel = $("hydro-results");
-    if (panel) panel.hidden = true;
+    const body = $("hydro-results-body");
+    const logEl = $("hydro-agent-log");
+    if (body) {
+      body.innerHTML = `
+        <div class="hydro-empty-state">
+          <p class="hydro-empty-title">尚无结果</p>
+          <p>完成评估后，指标与方案摘要会显示在这里。</p>
+        </div>`;
+    }
+    if (logEl) logEl.innerHTML = "";
   }
 
   async function showFinalResults(id) {
-    const panel = $("hydro-results");
-    if (!panel) return;
-    panel.hidden = false;
     const body = $("hydro-results-body");
     const logEl = $("hydro-agent-log");
-    if (body) body.innerHTML = "<p>正在加载最终结果…</p>";
-    if (logEl) logEl.innerHTML = "<p>正在加载智能体日志…</p>";
+    if (body) body.innerHTML = '<p class="hydro-loading">正在加载结果…</p>';
+    if (logEl) logEl.innerHTML = "";
     try {
       const [results, agentLog] = await Promise.all([
         api(`/api/tasks/${id}/results`),
@@ -141,7 +146,7 @@
         .slice(0, 3)
         .map((f) => {
           const leads = f.lead_values || {};
-          return `L1=${fmtMetric(leads["1"] ?? leads[1])} / L2=${fmtMetric(leads["2"] ?? leads[2])} / L3=${fmtMetric(leads["3"] ?? leads[3])}`;
+          return `L1=${fmtMetric(leads["1"] ?? leads[1])} · L2=${fmtMetric(leads["2"] ?? leads[2])} · L3=${fmtMetric(leads["3"] ?? leads[3])}`;
         })
         .join("<br/>");
       const gateStatus = gate ? gate.status : null;
@@ -163,7 +168,7 @@
             <div><dt>任务</dt><dd>${escapeHtml(results.task_id)}</dd></div>
             <div><dt>阶段</dt><dd>${escapeHtml(results.phase_zh || results.phase)}</dd></div>
             <div><dt>方案</dt><dd><code>${escapeHtml(scheme.scheme_id || "—")}</code><em>${escapeHtml(scheme.status || "—")}</em></dd></div>
-            <div><dt>预报摘要</dt><dd>${leadBits || "无"}</dd></div>
+            <div><dt>预报</dt><dd>${leadBits || "无"}</dd></div>
             <div><dt>产物</dt><dd class="hydro-links">${
               reports.length
                 ? reports
@@ -172,7 +177,7 @@
                         `<a href="/api/tasks/${encodeURIComponent(id)}/report/${encodeURIComponent(name)}" target="_blank" rel="noreferrer">${escapeHtml(name)}</a>`,
                     )
                     .join("")
-                : "无"
+                : ""
             }<a href="/api/tasks/${encodeURIComponent(id)}/report/agent-log.jsonl" target="_blank" rel="noreferrer">agent-log.jsonl</a></dd></div>
           </dl>
         `;
@@ -180,7 +185,7 @@
       const rounds = agentLog.rounds || [];
       if (logEl) {
         if (!rounds.length) {
-          logEl.innerHTML = '<p class="hydro-empty">暂无智能体轮次日志。</p>';
+          logEl.innerHTML = '<p class="hydro-empty">暂无轮次日志。</p>';
         } else {
           logEl.innerHTML = rounds
             .map((round) => {
@@ -206,20 +211,20 @@
                     </div>
                     <span class="hydro-status-pill" data-tone="${tone}">${escapeHtml(status)}</span>
                   </header>
-                  <p class="hydro-judgment"><span>业务判断</span>${escapeHtml(round.judgment_zh || round.rationale_summary || "—")}</p>
-                  <p><span class="hydro-label">输入摘要</span>${escapeHtml(round.input_summary_zh || "—")}</p>
+                  <p class="hydro-judgment"><span>判断</span>${escapeHtml(round.judgment_zh || round.rationale_summary || "—")}</p>
+                  <p><span class="hydro-label">摘要</span>${escapeHtml(round.input_summary_zh || "—")}</p>
                   <p><span class="hydro-label">假设</span>${escapeHtml(round.hypothesis_zh || round.hypothesis || "—")}
                      <span class="hydro-label">理由</span>${escapeHtml(round.rationale_summary || "—")}</p>
                   <details>
-                    <summary>模型原始输出</summary>
+                    <summary>模型输出</summary>
                     <pre>${escapeHtml(round.llm_output || "（无）")}</pre>
                   </details>
                   <details>
-                    <summary>本轮 WorldState 输入 JSON</summary>
+                    <summary>WorldState JSON</summary>
                     <pre>${escapeHtml(JSON.stringify(round.input_world_state || {}, null, 2))}</pre>
                   </details>
-                  <p><span class="hydro-label">工具观测</span>${obs}</p>
-                  <p><span class="hydro-label">工具指标</span>${metricsText || "—"}</p>
+                  <p><span class="hydro-label">观测</span>${obs}</p>
+                  <p><span class="hydro-label">指标</span>${metricsText || "—"}</p>
                   ${round.error ? `<p class="err"><span class="hydro-label">错误</span>${escapeHtml(round.error)}</p>` : ""}
                 </article>
               `;
@@ -229,7 +234,7 @@
       }
     } catch (err) {
       console.error(err);
-      if (body) body.innerHTML = `<p class="err">加载结果失败：${escapeHtml(String(err.message || err))}</p>`;
+      if (body) body.innerHTML = `<p class="err">加载失败：${escapeHtml(String(err.message || err))}</p>`;
       if (logEl) logEl.innerHTML = "";
     }
   }
@@ -294,16 +299,20 @@
 
   function openInputPanel() {
     const panel = $("hydro-panel");
+    const backdrop = $("hydro-backdrop");
     if (!panel) return;
     panel.hidden = false;
+    if (backdrop) backdrop.hidden = false;
     highlight("user");
-    setStatus("在第一步填写参数，然后点开始");
+    setStatus("填写参数后点开始");
     $("hydro-basin")?.focus();
   }
 
   function closeInputPanel() {
     const panel = $("hydro-panel");
+    const backdrop = $("hydro-backdrop");
     if (panel) panel.hidden = true;
+    if (backdrop) backdrop.hidden = true;
   }
 
   function setRunning(isRunning) {
@@ -475,8 +484,8 @@
           polling = null;
           setRunning(false);
           setProgress({
-            title: "已完成 · 请看右侧最终结果",
-            detail: `任务 ${taskId}`,
+            title: "已完成",
+            detail: `任务 ${taskId} · 右侧为评估结果`,
             busy: false,
             phase: "已完成",
             steps: buildStepList(timeline, "A12_EVALUATE_REPORT", false),
@@ -502,399 +511,513 @@
   }
 
   function mountUi() {
-    if ($("hydro-panel")) return;
+    if ($("hydro-shell")) return;
+
+    document.documentElement.classList.add("hydro-workbench");
+    document.body.classList.add("hydro-workbench-body");
 
     const style = document.createElement("style");
+    style.id = "hydro-workbench-style";
     style.textContent = `
-      @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Sora:wght@500;600;700&display=swap");
-
-      :root {
-        --hydro-ink: #0b1f2a;
-        --hydro-muted: #4a6573;
-        --hydro-line: rgba(11, 31, 42, 0.12);
-        --hydro-surface: rgba(247, 251, 253, 0.92);
-        --hydro-surface-solid: #f7fbfd;
-        --hydro-accent: #0d7a6f;
-        --hydro-accent-soft: rgba(13, 122, 111, 0.12);
-        --hydro-deep: #083f3a;
-        --hydro-warn: #9a6700;
-        --hydro-danger: #b42318;
-        --hydro-ok: #0f766e;
-        --hydro-shadow: 0 18px 40px rgba(8, 35, 48, 0.14);
-        --hydro-radius: 18px;
-        --hydro-font: "IBM Plex Sans", "PingFang SC", "Segoe UI", sans-serif;
-        --hydro-display: "Sora", "IBM Plex Sans", "PingFang SC", sans-serif;
-        --hydro-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-      }
-
-      [data-node-id="user"],
-      [data-node-id="task"] { cursor: pointer !important; }
-      [data-node-id].hydro-active {
-        filter: drop-shadow(0 0 0.55rem rgba(13, 122, 111, 0.9));
-        outline: 3px solid var(--hydro-accent);
-        outline-offset: 4px;
-      }
-      [data-node-id].hydro-done { opacity: 0.92; }
-
-      #hydro-progress,
-      #hydro-results,
-      #hydro-panel {
-        font-family: var(--hydro-font);
-        color: var(--hydro-ink);
+      html.hydro-workbench,
+      html.hydro-workbench body.hydro-workbench-body {
+        margin: 0 !important;
+        padding: 0 !important;
+        height: 100%;
+        min-height: 100dvh;
+        overflow: hidden;
+        background: #e8e8ed !important;
+        color: #1d1d1f;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+          "Helvetica Neue", "PingFang SC", "Segoe UI", sans-serif;
         -webkit-font-smoothing: antialiased;
       }
 
-      #hydro-progress,
-      #hydro-results {
-        position: fixed;
-        z-index: 2147483646;
-        display: flex;
-        flex-direction: column;
-        gap: 0.75rem;
-        max-height: calc(100vh - 24px);
-        padding: 0;
-        border-radius: var(--hydro-radius);
-        background:
-          linear-gradient(165deg, rgba(255,255,255,0.72), transparent 42%),
-          linear-gradient(180deg, #e8f4f2 0%, var(--hydro-surface-solid) 38%, #f4f8fa 100%);
-        border: 1px solid var(--hydro-line);
-        box-shadow: var(--hydro-shadow);
-        backdrop-filter: blur(14px);
+      :root {
+        --macos-bg: #e8e8ed;
+        --macos-sidebar: rgba(246, 246, 248, 0.82);
+        --macos-surface: rgba(255, 255, 255, 0.72);
+        --macos-surface-solid: #ffffff;
+        --macos-fill: rgba(120, 120, 128, 0.12);
+        --macos-fill-2: rgba(120, 120, 128, 0.18);
+        --macos-separator: rgba(60, 60, 67, 0.18);
+        --macos-label: #1d1d1f;
+        --macos-secondary: rgba(60, 60, 67, 0.6);
+        --macos-tertiary: rgba(60, 60, 67, 0.4);
+        --macos-blue: #007aff;
+        --macos-blue-soft: rgba(0, 122, 255, 0.12);
+        --macos-green: #34c759;
+        --macos-orange: #ff9f0a;
+        --macos-red: #ff3b30;
+        --macos-shadow: 0 1px 0 rgba(255,255,255,0.65) inset, 0 8px 28px rgba(0,0,0,0.08);
+        --macos-radius: 12px;
+        --macos-mono: ui-monospace, "SF Mono", Menlo, monospace;
+      }
+
+      #hydro-shell {
+        height: 100dvh;
+        display: grid;
+        grid-template-rows: 44px minmax(0, 1fr);
         overflow: hidden;
       }
 
-      #hydro-progress {
-        top: 12px;
-        left: 12px;
-        width: min(360px, calc(100vw - 24px));
-      }
-      #hydro-progress[data-busy="1"] {
-        border-color: color-mix(in srgb, var(--hydro-accent) 45%, var(--hydro-line));
-        box-shadow: 0 0 0 3px var(--hydro-accent-soft), var(--hydro-shadow);
-      }
-
-      #hydro-results {
-        top: 12px;
-        right: 12px;
-        width: min(460px, calc(100vw - 24px));
-      }
-      #hydro-results[hidden] { display: none !important; }
-
-      .hydro-side-head {
+      #hydro-titlebar {
         display: flex;
-        align-items: flex-start;
+        align-items: center;
         gap: 0.75rem;
-        padding: 0.95rem 1rem 0.35rem;
+        padding: 0 0.9rem;
+        background: rgba(246, 246, 248, 0.9);
+        border-bottom: 1px solid var(--macos-separator);
+        backdrop-filter: saturate(180%) blur(20px);
+        -webkit-backdrop-filter: saturate(180%) blur(20px);
+        z-index: 5;
       }
-      .hydro-side-mark {
-        width: 0.55rem;
-        height: 2.4rem;
-        border-radius: 999px;
-        background: linear-gradient(180deg, #1aa6a0, var(--hydro-deep));
-        flex: 0 0 auto;
-        margin-top: 0.15rem;
+      #hydro-titlebar .traffic {
+        display: flex;
+        gap: 7px;
+        width: 52px;
       }
-      .hydro-side-head > div { flex: 1; min-width: 0; }
-      .hydro-side-head .eyebrow {
-        margin: 0 0 0.2rem;
-        font-size: 0.7rem;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: var(--hydro-muted);
-        font-weight: 600;
+      #hydro-titlebar .traffic span {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        background: var(--macos-fill-2);
       }
-      #hydro-progress-title,
-      #hydro-results .hydro-side-title {
+      #hydro-titlebar .traffic span:nth-child(1) { background: #ff5f57; }
+      #hydro-titlebar .traffic span:nth-child(2) { background: #febc2e; }
+      #hydro-titlebar .traffic span:nth-child(3) { background: #28c840; }
+      #hydro-titlebar h1 {
         margin: 0;
-        font-family: var(--hydro-display);
-        font-size: 1.12rem;
+        flex: 1;
+        text-align: center;
+        font-size: 13px;
         font-weight: 600;
-        line-height: 1.3;
-        letter-spacing: -0.02em;
+        letter-spacing: -0.01em;
+        color: var(--macos-label);
       }
-      #hydro-progress[data-busy="1"] #hydro-progress-title::after {
-        content: "";
-        display: inline-block;
-        width: 0.5rem;
-        height: 0.5rem;
-        margin-left: 0.45rem;
+      #hydro-titlebar .hydro-toolbar-actions {
+        display: flex;
+        gap: 0.4rem;
+        min-width: 52px;
+        justify-content: flex-end;
+      }
+      #hydro-titlebar button {
+        appearance: none;
+        border: 0;
+        min-height: 28px;
+        padding: 0 0.7rem;
         border-radius: 999px;
-        background: var(--hydro-accent);
-        vertical-align: middle;
-        animation: hydro-pulse 1.1s ease-in-out infinite;
+        background: var(--macos-fill);
+        color: var(--macos-label);
+        font: 600 12px/1 -apple-system, BlinkMacSystemFont, sans-serif;
+        cursor: pointer;
       }
-      @keyframes hydro-pulse {
-        0%, 100% { opacity: 0.35; transform: scale(0.85); }
-        50% { opacity: 1; transform: scale(1); }
+      #hydro-titlebar button:hover { background: var(--macos-fill-2); }
+      #hydro-titlebar button.primary {
+        background: var(--macos-blue);
+        color: #fff;
       }
 
-      .hydro-chip {
+      #hydro-body {
+        display: grid;
+        grid-template-columns: minmax(220px, 260px) minmax(0, 1fr) minmax(260px, 320px);
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      #hydro-progress,
+      #hydro-results {
+        position: relative;
+        top: auto;
+        left: auto;
+        right: auto;
+        bottom: auto;
+        width: auto !important;
+        max-height: none !important;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+        background: var(--macos-sidebar);
+        backdrop-filter: saturate(160%) blur(24px);
+        -webkit-backdrop-filter: saturate(160%) blur(24px);
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+        padding: 0;
+      }
+      #hydro-progress { border-right: 1px solid var(--macos-separator); }
+      #hydro-results { border-left: 1px solid var(--macos-separator); }
+      #hydro-results[hidden] { display: flex !important; }
+
+      .hydro-pane-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        padding: 0.85rem 0.9rem 0.55rem;
         flex: 0 0 auto;
-        min-height: 28px;
-        padding: 0.2rem 0.55rem;
-        border-radius: 999px;
-        border: 1px solid var(--hydro-line);
-        background: rgba(255,255,255,0.7);
-        color: var(--hydro-muted);
-        font-size: 0.72rem;
+      }
+      .hydro-pane-head .eyebrow {
+        margin: 0;
+        font-size: 11px;
         font-weight: 600;
         letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: var(--macos-tertiary);
+      }
+      #hydro-progress-title,
+      .hydro-pane-title {
+        margin: 0.15rem 0 0;
+        font-size: 17px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        color: var(--macos-label);
+        line-height: 1.25;
+      }
+      .hydro-chip {
+        min-height: 22px;
+        padding: 0 0.5rem;
+        border-radius: 999px;
+        background: var(--macos-fill);
+        color: var(--macos-secondary);
+        font-size: 11px;
+        font-weight: 600;
         display: inline-flex;
         align-items: center;
+        border: 0;
       }
       .hydro-chip[data-tone="live"] {
-        color: var(--hydro-deep);
-        border-color: color-mix(in srgb, var(--hydro-accent) 40%, transparent);
-        background: var(--hydro-accent-soft);
+        background: var(--macos-blue-soft);
+        color: var(--macos-blue);
       }
       .hydro-chip[data-tone="done"] {
-        color: var(--hydro-ok);
-        border-color: color-mix(in srgb, var(--hydro-ok) 35%, transparent);
-        background: rgba(15, 118, 110, 0.1);
+        background: rgba(52, 199, 89, 0.16);
+        color: #248a3d;
       }
 
       .hydro-track {
-        margin: 0 1rem;
-        height: 4px;
+        margin: 0 0.9rem 0.55rem;
+        height: 3px;
         border-radius: 999px;
-        background: rgba(11, 31, 42, 0.08);
+        background: var(--macos-fill);
         overflow: hidden;
+        flex: 0 0 auto;
       }
       #hydro-progress-bar {
         display: block;
         height: 100%;
         width: 0%;
+        background: var(--macos-blue);
         border-radius: inherit;
-        background: linear-gradient(90deg, #149e96, var(--hydro-deep));
-        transition: width 220ms ease-out;
+        transition: width 200ms ease;
       }
-
       #hydro-progress-detail {
         margin: 0;
-        padding: 0 1rem;
-        color: var(--hydro-muted);
-        font-size: 0.8rem;
-        line-height: 1.5;
+        padding: 0 0.9rem 0.7rem;
+        color: var(--macos-secondary);
+        font-size: 12px;
+        line-height: 1.45;
+        flex: 0 0 auto;
       }
 
       #hydro-progress-steps {
         list-style: none;
         margin: 0;
-        padding: 0.15rem 0.7rem 0.85rem;
-        display: grid;
-        gap: 0.2rem;
+        padding: 0 0.55rem 0.75rem;
         overflow: auto;
-        max-height: min(44vh, 420px);
+        flex: 1 1 auto;
+        min-height: 0;
+        display: grid;
+        gap: 2px;
         scrollbar-width: thin;
       }
       #hydro-progress-steps li {
         display: grid;
-        grid-template-columns: 1rem 1fr auto;
+        grid-template-columns: 14px 1fr auto;
         align-items: center;
         gap: 0.55rem;
-        min-height: 2.15rem;
+        min-height: 32px;
         padding: 0.35rem 0.55rem;
-        border-radius: 10px;
-        font-size: 0.78rem;
-        color: var(--hydro-muted);
+        border-radius: 8px;
+        font-size: 12px;
+        color: var(--macos-secondary);
         position: relative;
-        transition: background 180ms ease, color 180ms ease;
       }
       #hydro-progress-steps li::before {
         content: "";
         position: absolute;
-        left: calc(0.55rem + 0.35rem);
-        top: -0.2rem;
-        bottom: -0.2rem;
+        left: calc(0.55rem + 6px);
+        top: -2px;
+        bottom: -2px;
         width: 1px;
-        background: rgba(11, 31, 42, 0.08);
+        background: var(--macos-separator);
       }
       #hydro-progress-steps li:first-child::before { top: 50%; }
       #hydro-progress-steps li:last-child::before { bottom: 50%; }
       .hydro-dot {
-        width: 0.7rem;
-        height: 0.7rem;
-        border-radius: 999px;
-        border: 2px solid rgba(11, 31, 42, 0.18);
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        border: 1.5px solid rgba(60,60,67,0.28);
         background: #fff;
         z-index: 1;
         justify-self: center;
       }
-      .hydro-step-text { min-width: 0; line-height: 1.35; }
+      .hydro-step-text { min-width: 0; line-height: 1.3; }
       .hydro-step-state {
-        font-size: 0.68rem;
-        color: rgba(74, 101, 115, 0.85);
-        letter-spacing: 0.02em;
+        font-size: 10px;
+        color: var(--macos-tertiary);
+        font-variant-numeric: tabular-nums;
       }
-      #hydro-progress-steps li[data-state="done"] {
-        color: color-mix(in srgb, var(--hydro-ink) 78%, transparent);
-      }
+      #hydro-progress-steps li[data-state="done"] { color: var(--macos-label); }
       #hydro-progress-steps li[data-state="done"] .hydro-dot {
-        border-color: var(--hydro-accent);
-        background: var(--hydro-accent);
-        box-shadow: inset 0 0 0 2px #fff;
+        border-color: var(--macos-blue);
+        background: var(--macos-blue);
+        box-shadow: inset 0 0 0 1.5px #fff;
       }
-      #hydro-progress-steps li[data-state="done"] .hydro-step-state { color: var(--hydro-ok); }
+      #hydro-progress-steps li[data-state="done"] .hydro-step-state { color: var(--macos-blue); }
       #hydro-progress-steps li[data-state="current"] {
-        background: var(--hydro-accent-soft);
-        color: var(--hydro-deep);
+        background: var(--macos-blue-soft);
+        color: var(--macos-blue);
         font-weight: 600;
       }
       #hydro-progress-steps li[data-state="current"] .hydro-dot {
-        border-color: var(--hydro-accent);
+        border-color: var(--macos-blue);
         background: #fff;
-        box-shadow: 0 0 0 3px rgba(13, 122, 111, 0.18);
-        animation: hydro-pulse 1.1s ease-in-out infinite;
+        box-shadow: 0 0 0 3px rgba(0,122,255,0.18);
       }
-      #hydro-progress-steps li[data-state="current"] .hydro-step-state { color: var(--hydro-accent); }
+      #hydro-progress-steps li[data-state="current"] .hydro-step-state { color: var(--macos-blue); }
       #hydro-progress-steps li[data-state="todo"] { opacity: 0.72; }
 
       #hydro-llm-wrap {
-        margin: 0 0.85rem 0.95rem;
-        padding-top: 0.15rem;
-        border-top: 1px solid var(--hydro-line);
+        flex: 0 0 auto;
+        margin: 0 0.7rem 0.8rem;
+        padding-top: 0.55rem;
+        border-top: 1px solid var(--macos-separator);
       }
       #hydro-llm-wrap[hidden] { display: none !important; }
       #hydro-llm-wrap .eyebrow {
-        margin: 0.55rem 0 0.35rem;
-        font-size: 0.7rem;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        color: var(--hydro-muted);
+        margin: 0 0 0.35rem;
+        font-size: 11px;
         font-weight: 600;
+        color: var(--macos-tertiary);
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
       }
       #hydro-llm-wrap[data-streaming="1"] .eyebrow::after {
         content: " · 接收中";
-        color: var(--hydro-accent);
+        color: var(--macos-blue);
+        text-transform: none;
       }
       #hydro-llm {
         margin: 0;
-        max-height: 26vh;
+        max-height: 22vh;
         overflow: auto;
-        padding: 0.65rem 0.7rem;
-        border-radius: 12px;
-        background: linear-gradient(180deg, #0c1c22, #10262c);
-        color: #d7efe8;
-        font: 0.72rem/1.5 var(--hydro-mono);
+        padding: 0.6rem 0.65rem;
+        border-radius: 10px;
+        background: #1c1c1e;
+        color: #f5f5f7;
+        font: 11px/1.45 var(--macos-mono);
         white-space: pre-wrap;
         word-break: break-word;
-        border: 1px solid rgba(255,255,255,0.06);
       }
+
+      #hydro-stage {
+        min-width: 0;
+        min-height: 0;
+        overflow: auto;
+        background:
+          radial-gradient(1200px 600px at 50% -10%, rgba(255,255,255,0.75), transparent 60%),
+          #f5f5f7;
+        position: relative;
+      }
+      #hydro-stage .toolbar,
+      #hydro-stage .guided-views,
+      #hydro-stage .cards,
+      #hydro-stage .share-chapter-cue,
+      #hydro-stage .diagram-guide,
+      #hydro-stage .semantic-lens,
+      #hydro-stage .node-finder,
+      #hydro-stage .route-probe,
+      #hydro-stage .semantic-passport,
+      #hydro-stage .overview-map,
+      #hydro-stage .overview-map-feedback {
+        display: none !important;
+      }
+      #hydro-stage .header-row::after { display: none !important; }
+      #hydro-stage .pulse-dot { display: none !important; }
+      #hydro-stage .container {
+        max-width: none !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0.75rem 0.85rem 1.25rem !important;
+      }
+      #hydro-stage .header {
+        margin: 0 0 0.65rem !important;
+      }
+      #hydro-stage .header h1 {
+        font-family: inherit !important;
+        font-size: 15px !important;
+        font-weight: 600 !important;
+        letter-spacing: -0.015em !important;
+        color: var(--macos-label) !important;
+      }
+      #hydro-stage .diagram-container {
+        border-radius: 14px;
+        background: rgba(255,255,255,0.78);
+        border: 1px solid var(--macos-separator);
+        box-shadow: var(--macos-shadow);
+        overflow: hidden;
+      }
+      #hydro-stage body,
+      html.hydro-workbench body {
+        background: transparent !important;
+      }
+
+      [data-node-id="user"],
+      [data-node-id="task"] { cursor: pointer !important; }
+      [data-node-id].hydro-active {
+        filter: drop-shadow(0 0 0.45rem rgba(0, 122, 255, 0.85));
+        outline: 2px solid var(--macos-blue);
+        outline-offset: 3px;
+      }
+      [data-node-id].hydro-done { opacity: 0.94; }
 
       #hydro-results-scroll {
         overflow: auto;
-        padding: 0 1rem 1.1rem;
+        padding: 0 0.75rem 0.9rem;
         display: grid;
-        gap: 0.75rem;
+        gap: 0.65rem;
+        min-height: 0;
+        flex: 1 1 auto;
         scrollbar-width: thin;
+      }
+      .hydro-empty-state {
+        margin-top: 0.35rem;
+        padding: 1rem 0.85rem;
+        border-radius: 12px;
+        background: rgba(255,255,255,0.55);
+        border: 1px solid var(--macos-separator);
+        color: var(--macos-secondary);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      .hydro-empty-title {
+        margin: 0 0 0.25rem;
+        color: var(--macos-label);
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .hydro-loading {
+        margin: 0;
+        color: var(--macos-secondary);
+        font-size: 12px;
       }
       #hydro-results .story {
         margin: 0;
-        padding: 0.7rem 0.8rem;
+        padding: 0.7rem 0.75rem;
         border-radius: 12px;
-        background: rgba(255,255,255,0.72);
-        border: 1px solid var(--hydro-line);
-        color: color-mix(in srgb, var(--hydro-ink) 88%, transparent);
-        font-size: 0.86rem;
-        line-height: 1.55;
+        background: rgba(255,255,255,0.7);
+        border: 1px solid var(--macos-separator);
+        color: var(--macos-label);
+        font-size: 12.5px;
+        line-height: 1.5;
       }
       .hydro-metric-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 0.5rem;
+        gap: 0.45rem;
       }
       .hydro-metric {
-        padding: 0.7rem 0.75rem;
+        padding: 0.65rem 0.7rem;
         border-radius: 12px;
-        background: rgba(255,255,255,0.78);
-        border: 1px solid var(--hydro-line);
+        background: rgba(255,255,255,0.75);
+        border: 1px solid var(--macos-separator);
         display: grid;
-        gap: 0.2rem;
+        gap: 0.15rem;
       }
       .hydro-metric span {
-        font-size: 0.7rem;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        color: var(--hydro-muted);
+        font-size: 10px;
         font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--macos-tertiary);
       }
       .hydro-metric strong {
-        font-family: var(--hydro-display);
-        font-size: 1.2rem;
-        font-variant-numeric: tabular-nums;
+        font-size: 18px;
+        font-weight: 600;
         letter-spacing: -0.03em;
-        color: var(--hydro-deep);
+        font-variant-numeric: tabular-nums;
+        color: var(--macos-label);
       }
       .hydro-gate-banner {
         display: flex;
         align-items: center;
-        gap: 0.65rem;
-        min-height: 2.6rem;
-        padding: 0.55rem 0.8rem;
-        border-radius: 12px;
-        border: 1px solid var(--hydro-line);
-        background: rgba(255,255,255,0.75);
+        gap: 0.55rem;
+        min-height: 36px;
+        padding: 0.45rem 0.7rem;
+        border-radius: 10px;
+        background: rgba(255,255,255,0.7);
+        border: 1px solid var(--macos-separator);
       }
       .hydro-gate-label {
-        font-size: 0.68rem;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: var(--hydro-muted);
+        font-size: 10px;
         font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--macos-tertiary);
       }
-      .hydro-gate-banner strong { font-size: 0.92rem; }
+      .hydro-gate-banner strong { font-size: 13px; }
       .hydro-gate-banner[data-gate="ACCEPT"] {
-        background: rgba(15, 118, 110, 0.1);
-        border-color: rgba(15, 118, 110, 0.28);
-        color: var(--hydro-ok);
-      }
-      .hydro-gate-banner[data-gate="KEEP"] {
-        background: rgba(11, 31, 42, 0.04);
+        background: rgba(52, 199, 89, 0.12);
+        border-color: rgba(52, 199, 89, 0.28);
+        color: #248a3d;
       }
       .hydro-gate-banner[data-gate="ROLLBACK"] {
-        background: rgba(154, 103, 0, 0.1);
-        border-color: rgba(154, 103, 0, 0.28);
-        color: var(--hydro-warn);
+        background: rgba(255, 159, 10, 0.14);
+        border-color: rgba(255, 159, 10, 0.3);
+        color: #9a6700;
       }
       .hydro-kv {
         margin: 0;
         display: grid;
-        gap: 0.4rem;
+        gap: 0.35rem;
       }
       .hydro-kv > div {
         display: grid;
-        grid-template-columns: 4.6rem 1fr;
-        gap: 0.45rem;
-        padding: 0.45rem 0.55rem;
-        border-radius: 10px;
-        background: rgba(255,255,255,0.55);
-        border: 1px solid rgba(11, 31, 42, 0.06);
+        grid-template-columns: 3.4rem 1fr;
+        gap: 0.4rem;
+        padding: 0.4rem 0.5rem;
+        border-radius: 8px;
+        background: rgba(255,255,255,0.45);
       }
       .hydro-kv dt {
-        color: var(--hydro-muted);
-        font-size: 0.74rem;
+        color: var(--macos-tertiary);
+        font-size: 11px;
         font-weight: 600;
       }
       .hydro-kv dd {
         margin: 0;
-        font-size: 0.8rem;
+        font-size: 12px;
         word-break: break-word;
         display: flex;
         flex-wrap: wrap;
-        gap: 0.35rem 0.5rem;
+        gap: 0.3rem 0.45rem;
         align-items: baseline;
       }
       .hydro-kv code {
-        font-family: var(--hydro-mono);
-        font-size: 0.72rem;
-        background: rgba(11, 31, 42, 0.05);
-        padding: 0.1rem 0.35rem;
-        border-radius: 6px;
+        font-family: var(--macos-mono);
+        font-size: 10.5px;
+        background: var(--macos-fill);
+        padding: 0.1rem 0.3rem;
+        border-radius: 5px;
       }
       .hydro-kv em {
         font-style: normal;
-        color: var(--hydro-muted);
-        font-size: 0.72rem;
+        color: var(--macos-secondary);
+        font-size: 11px;
       }
       .hydro-links {
         display: flex !important;
@@ -903,177 +1026,136 @@
       }
       .hydro-links a,
       #hydro-results a {
-        color: var(--hydro-accent);
+        color: var(--macos-blue);
         text-decoration: none;
-        border-bottom: 1px solid color-mix(in srgb, var(--hydro-accent) 35%, transparent);
         font-weight: 500;
       }
-      .hydro-links a:hover,
-      #hydro-results a:hover { border-bottom-color: var(--hydro-accent); }
-      .hydro-links a:focus-visible,
-      #hydro-results a:focus-visible,
-      #hydro-results-close:focus-visible,
-      #hydro-run:focus-visible,
-      #hydro-cancel:focus-visible {
-        outline: 3px solid color-mix(in srgb, var(--hydro-accent) 45%, white);
-        outline-offset: 2px;
-      }
-
+      .hydro-links a:hover { text-decoration: underline; }
       .section-title {
-        margin: 0.25rem 0 0;
-        font-size: 0.7rem;
-        letter-spacing: 0.08em;
-        color: var(--hydro-muted);
-        text-transform: uppercase;
+        margin: 0.15rem 0 0;
+        font-size: 11px;
         font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--macos-tertiary);
       }
-      #hydro-agent-log {
-        display: grid;
-        gap: 0.6rem;
-      }
+      #hydro-agent-log { display: grid; gap: 0.5rem; }
       #hydro-agent-log .round {
-        padding: 0.7rem 0.75rem;
-        border-radius: 14px;
-        background: rgba(255,255,255,0.78);
-        border: 1px solid var(--hydro-line);
+        padding: 0.65rem 0.7rem;
+        border-radius: 12px;
+        background: rgba(255,255,255,0.72);
+        border: 1px solid var(--macos-separator);
         display: grid;
-        gap: 0.35rem;
+        gap: 0.3rem;
       }
-      #hydro-agent-log .round[data-tone="ok"] {
-        border-color: rgba(15, 118, 110, 0.28);
-        box-shadow: inset 3px 0 0 var(--hydro-ok);
-      }
-      #hydro-agent-log .round[data-tone="warn"] {
-        border-color: rgba(154, 103, 0, 0.28);
-        box-shadow: inset 3px 0 0 var(--hydro-warn);
-      }
-      #hydro-agent-log .round[data-tone="bad"] {
-        border-color: rgba(180, 35, 24, 0.28);
-        box-shadow: inset 3px 0 0 var(--hydro-danger);
-      }
+      #hydro-agent-log .round[data-tone="ok"] { box-shadow: inset 3px 0 0 var(--macos-green); }
+      #hydro-agent-log .round[data-tone="warn"] { box-shadow: inset 3px 0 0 var(--macos-orange); }
+      #hydro-agent-log .round[data-tone="bad"] { box-shadow: inset 3px 0 0 var(--macos-red); }
       #hydro-agent-log .round header {
         display: flex;
-        align-items: flex-start;
         justify-content: space-between;
-        gap: 0.55rem;
+        gap: 0.5rem;
         margin: 0;
       }
       #hydro-agent-log .round header strong {
         display: block;
-        font-size: 0.88rem;
+        font-size: 13px;
         letter-spacing: -0.01em;
       }
       .hydro-round-index {
         display: block;
-        font-size: 0.68rem;
-        color: var(--hydro-muted);
-        letter-spacing: 0.04em;
-        margin-bottom: 0.1rem;
+        font-size: 10px;
+        color: var(--macos-tertiary);
         font-weight: 600;
+        margin-bottom: 0.1rem;
       }
       .hydro-status-pill {
         flex: 0 0 auto;
-        min-height: 1.55rem;
-        padding: 0.15rem 0.5rem;
+        min-height: 22px;
+        padding: 0 0.45rem;
         border-radius: 999px;
-        font-size: 0.68rem;
+        font-size: 10px;
         font-weight: 700;
-        border: 1px solid var(--hydro-line);
-        background: rgba(11, 31, 42, 0.04);
-        color: var(--hydro-muted);
+        background: var(--macos-fill);
+        color: var(--macos-secondary);
         display: inline-flex;
         align-items: center;
       }
       .hydro-status-pill[data-tone="ok"] {
-        color: var(--hydro-ok);
-        background: rgba(15, 118, 110, 0.1);
-        border-color: rgba(15, 118, 110, 0.25);
+        background: rgba(52, 199, 89, 0.16);
+        color: #248a3d;
       }
       .hydro-status-pill[data-tone="warn"] {
-        color: var(--hydro-warn);
-        background: rgba(154, 103, 0, 0.1);
-        border-color: rgba(154, 103, 0, 0.25);
+        background: rgba(255, 159, 10, 0.16);
+        color: #9a6700;
       }
       .hydro-status-pill[data-tone="bad"] {
-        color: var(--hydro-danger);
-        background: rgba(180, 35, 24, 0.08);
-        border-color: rgba(180, 35, 24, 0.25);
+        background: rgba(255, 59, 48, 0.14);
+        color: #d70015;
       }
       .hydro-judgment {
         margin: 0;
-        padding: 0.5rem 0.6rem;
-        border-radius: 10px;
-        background: rgba(13, 122, 111, 0.07);
-        font-size: 0.8rem;
-        line-height: 1.45;
+        padding: 0.45rem 0.55rem;
+        border-radius: 8px;
+        background: var(--macos-blue-soft);
+        font-size: 12px;
+        line-height: 1.4;
       }
       .hydro-judgment span,
       .hydro-label {
         display: inline-block;
-        margin-right: 0.35rem;
-        color: var(--hydro-muted);
-        font-size: 0.7rem;
+        margin-right: 0.3rem;
+        color: var(--macos-tertiary);
+        font-size: 10px;
         font-weight: 700;
-        letter-spacing: 0.04em;
+        letter-spacing: 0.03em;
       }
       #hydro-agent-log .round p {
         margin: 0;
-        font-size: 0.78rem;
-        line-height: 1.45;
-        color: color-mix(in srgb, var(--hydro-ink) 88%, transparent);
+        font-size: 12px;
+        line-height: 1.4;
+        color: var(--macos-label);
       }
       #hydro-agent-log details {
-        margin: 0.15rem 0;
-        border-radius: 10px;
-        background: rgba(11, 31, 42, 0.03);
-        padding: 0.15rem 0.45rem;
+        margin: 0.1rem 0;
+        border-radius: 8px;
+        background: var(--macos-fill);
+        padding: 0.1rem 0.4rem;
       }
       #hydro-agent-log summary {
         cursor: pointer;
-        font-size: 0.74rem;
-        color: var(--hydro-muted);
+        font-size: 11px;
+        color: var(--macos-secondary);
         font-weight: 600;
-        min-height: 1.8rem;
+        min-height: 28px;
         display: flex;
         align-items: center;
       }
       #hydro-agent-log pre {
-        margin: 0.25rem 0 0.45rem;
-        max-height: 180px;
+        margin: 0.2rem 0 0.4rem;
+        max-height: 160px;
         overflow: auto;
-        padding: 0.55rem 0.6rem;
-        border-radius: 10px;
-        background: linear-gradient(180deg, #0c1c22, #10262c);
-        color: #d7efe8;
-        font: 0.7rem/1.45 var(--hydro-mono);
+        padding: 0.5rem 0.55rem;
+        border-radius: 8px;
+        background: #1c1c1e;
+        color: #f5f5f7;
+        font: 10.5px/1.4 var(--macos-mono);
         white-space: pre-wrap;
         word-break: break-word;
       }
       #hydro-agent-log .err,
-      #hydro-results .err { color: var(--hydro-danger); }
-      .hydro-empty {
-        margin: 0;
-        color: var(--hydro-muted);
-        font-size: 0.8rem;
-      }
+      #hydro-results .err { color: var(--macos-red); }
+      .hydro-empty { margin: 0; color: var(--macos-secondary); font-size: 12px; }
 
-      #hydro-results-close {
-        min-width: 44px;
-        min-height: 44px;
-        margin: 0.35rem 0.35rem 0 0;
-        border: 1px solid var(--hydro-line);
-        border-radius: 12px;
-        background: rgba(255,255,255,0.75);
-        cursor: pointer;
-        color: var(--hydro-muted);
-        font: 0.78rem/1 var(--hydro-font);
-        font-weight: 600;
-        transition: background 160ms ease, color 160ms ease;
+      #hydro-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483646;
+        background: rgba(0,0,0,0.28);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
       }
-      #hydro-results-close:hover {
-        background: #fff;
-        color: var(--hydro-ink);
-      }
+      #hydro-backdrop[hidden] { display: none !important; }
 
       #hydro-panel {
         position: fixed;
@@ -1081,162 +1163,211 @@
         left: 50%;
         top: 50%;
         transform: translate(-50%, -50%);
-        width: min(420px, calc(100vw - 24px));
-        padding: 1.05rem 1.15rem 1.15rem;
-        border-radius: var(--hydro-radius);
-        background:
-          linear-gradient(165deg, rgba(255,255,255,0.85), transparent 40%),
-          var(--hydro-surface-solid);
-        border: 1px solid var(--hydro-line);
-        box-shadow: var(--hydro-shadow);
+        width: min(400px, calc(100vw - 28px));
+        padding: 1rem 1.05rem 1.05rem;
+        border-radius: 16px;
+        background: rgba(246, 246, 248, 0.92);
+        border: 1px solid rgba(255,255,255,0.55);
+        box-shadow: 0 24px 64px rgba(0,0,0,0.22);
+        backdrop-filter: saturate(180%) blur(28px);
+        -webkit-backdrop-filter: saturate(180%) blur(28px);
+        color: var(--macos-label);
       }
       #hydro-panel[hidden] { display: none !important; }
       #hydro-panel h2 {
-        margin: 0 0 0.35rem;
-        font-family: var(--hydro-display);
-        font-size: 1.12rem;
+        margin: 0 0 0.25rem;
+        font-size: 17px;
+        font-weight: 600;
         letter-spacing: -0.02em;
+        text-align: center;
       }
       #hydro-panel .hint {
         margin: 0 0 0.9rem;
-        color: var(--hydro-muted);
-        font-size: 0.8rem;
-        line-height: 1.5;
+        color: var(--macos-secondary);
+        font-size: 12px;
+        line-height: 1.45;
+        text-align: center;
       }
-      #hydro-panel .grid { display: grid; gap: 0.7rem; }
+      #hydro-panel .grid { display: grid; gap: 0.65rem; }
       #hydro-panel label {
         display: grid;
-        gap: 0.3rem;
-        font-size: 0.76rem;
-        color: var(--hydro-muted);
+        gap: 0.28rem;
+        font-size: 12px;
+        color: var(--macos-secondary);
         font-weight: 600;
       }
       #hydro-panel input,
       #hydro-panel select,
       #hydro-panel button {
         font: inherit;
-        min-height: 44px;
-        padding: 0.55rem 0.7rem;
-        border-radius: 10px;
-        border: 1px solid var(--hydro-line);
-        background: #fff;
-        color: var(--hydro-ink);
+        min-height: 34px;
+        padding: 0.45rem 0.65rem;
+        border-radius: 8px;
+        border: 1px solid var(--macos-separator);
+        background: rgba(255,255,255,0.92);
+        color: var(--macos-label);
       }
       #hydro-panel .check {
         display: flex;
         align-items: center;
-        gap: 0.5rem;
-        min-height: 44px;
+        gap: 0.45rem;
+        min-height: 34px;
       }
-      #hydro-panel .check input { width: 1.1rem; height: 1.1rem; padding: 0; min-height: 0; }
+      #hydro-panel .check input { width: 1rem; height: 1rem; min-height: 0; padding: 0; }
       #hydro-panel .actions {
         display: flex;
-        gap: 0.55rem;
-        margin-top: 0.95rem;
+        gap: 0.5rem;
+        margin-top: 0.9rem;
       }
       #hydro-run {
-        background: linear-gradient(180deg, #129388, var(--hydro-deep)) !important;
+        background: var(--macos-blue) !important;
         color: #fff !important;
         border: 0 !important;
         cursor: pointer;
-        font-weight: 700;
+        font-weight: 600;
         flex: 1;
-        transition: transform 160ms ease, filter 160ms ease;
+        border-radius: 999px !important;
       }
-      #hydro-run:hover:not(:disabled) { filter: brightness(1.05); }
-      #hydro-run:active:not(:disabled) { transform: scale(0.98); }
-      #hydro-run:disabled { opacity: 0.55; cursor: not-allowed; }
-      #hydro-cancel { background: transparent !important; cursor: pointer; }
+      #hydro-run:disabled { opacity: 0.45; cursor: not-allowed; }
+      #hydro-cancel {
+        background: var(--macos-fill) !important;
+        border: 0 !important;
+        cursor: pointer;
+        border-radius: 999px !important;
+        min-width: 72px;
+      }
       #hydro-status {
-        margin: 0.8rem 0 0;
-        font-size: 0.78rem;
-        color: var(--hydro-muted);
-        line-height: 1.45;
+        margin: 0.7rem 0 0;
+        font-size: 12px;
+        color: var(--macos-secondary);
+        text-align: center;
+        line-height: 1.4;
       }
 
-      html[data-present="true"] .guided-views { display: none !important; }
+      #hydro-progress:focus-within,
+      #hydro-results:focus-within,
+      #hydro-panel:focus-within {
+        outline: none;
+      }
+      #hydro-run:focus-visible,
+      #hydro-cancel:focus-visible,
+      #hydro-start-task:focus-visible,
+      #hydro-panel input:focus-visible,
+      #hydro-panel select:focus-visible {
+        outline: 3px solid rgba(0,122,255,0.35);
+        outline-offset: 1px;
+      }
 
-      @media (max-width: 980px) {
+      @media (max-width: 1100px) {
+        #hydro-body {
+          grid-template-columns: minmax(200px, 230px) minmax(0, 1fr);
+          grid-template-rows: minmax(0, 1fr) minmax(220px, 34vh);
+        }
         #hydro-results {
-          left: 8px;
-          right: 8px;
-          top: auto;
-          bottom: 8px;
-          width: auto;
-          max-height: 46vh;
+          grid-column: 1 / -1;
+          border-left: 0;
+          border-top: 1px solid var(--macos-separator);
         }
       }
-      @media (max-width: 720px) {
+      @media (max-width: 760px) {
+        #hydro-titlebar .traffic { display: none; }
+        #hydro-body {
+          grid-template-columns: 1fr;
+          grid-template-rows: minmax(160px, 28vh) minmax(0, 1fr) minmax(180px, 32vh);
+        }
         #hydro-progress {
-          left: 8px;
-          right: 8px;
-          width: auto;
-          max-height: 40vh;
+          border-right: 0;
+          border-bottom: 1px solid var(--macos-separator);
+        }
+        #hydro-results {
+          grid-column: auto;
         }
       }
       @media (prefers-reduced-motion: reduce) {
-        #hydro-progress-bar,
-        #hydro-progress-steps li,
-        #hydro-run,
-        #hydro-results-close { transition: none !important; }
-        #hydro-progress[data-busy="1"] #hydro-progress-title::after,
-        #hydro-progress-steps li[data-state="current"] .hydro-dot {
-          animation: none !important;
-        }
+        #hydro-progress-bar { transition: none !important; }
       }
     `;
     document.head.appendChild(style);
+
+    const existing = Array.from(document.body.childNodes);
+
+    const shell = document.createElement("div");
+    shell.id = "hydro-shell";
+
+    const titlebar = document.createElement("header");
+    titlebar.id = "hydro-titlebar";
+    titlebar.innerHTML = `
+      <div class="traffic" aria-hidden="true"><span></span><span></span><span></span></div>
+      <h1>Hydro-Agent</h1>
+      <div class="hydro-toolbar-actions">
+        <button id="hydro-start-task" type="button" class="primary">新建任务</button>
+      </div>
+    `;
+
+    const body = document.createElement("div");
+    body.id = "hydro-body";
 
     const progress = document.createElement("aside");
     progress.id = "hydro-progress";
     progress.dataset.busy = "0";
     progress.setAttribute("aria-label", "实时进度");
     progress.innerHTML = `
-      <header class="hydro-side-head">
-        <span class="hydro-side-mark" aria-hidden="true"></span>
+      <div class="hydro-pane-head">
         <div>
           <p class="eyebrow">实时进度</p>
           <p id="hydro-progress-title">待命</p>
         </div>
         <span id="hydro-progress-phase" class="hydro-chip" data-tone="idle">待命</span>
-      </header>
+      </div>
       <div class="hydro-track" aria-hidden="true"><span id="hydro-progress-bar"></span></div>
-      <p id="hydro-progress-detail">点击图上的「用户」或「任务」输入参数</p>
+      <p id="hydro-progress-detail">点「新建任务」或图上的「用户 / 任务」开始</p>
       <ol id="hydro-progress-steps" aria-label="流程步骤"></ol>
       <div id="hydro-llm-wrap" hidden>
-        <p class="eyebrow">大模型流式输出</p>
+        <p class="eyebrow">模型输出</p>
         <pre id="hydro-llm" aria-live="polite"></pre>
       </div>
     `;
-    document.body.appendChild(progress);
+
+    const stage = document.createElement("main");
+    stage.id = "hydro-stage";
+    stage.setAttribute("aria-label", "流程示意图");
+    existing.forEach((node) => stage.appendChild(node));
 
     const results = document.createElement("aside");
     results.id = "hydro-results";
-    results.hidden = true;
-    results.setAttribute("aria-label", "最终结果");
+    results.setAttribute("aria-label", "评估结果");
     results.innerHTML = `
-      <header class="hydro-side-head">
-        <span class="hydro-side-mark" aria-hidden="true"></span>
+      <div class="hydro-pane-head">
         <div>
           <p class="eyebrow">评估结果</p>
-          <h2 class="hydro-side-title">最终结果</h2>
+          <p class="hydro-pane-title">结果</p>
         </div>
-        <button id="hydro-results-close" type="button" aria-label="关闭结果面板">关闭</button>
-      </header>
+      </div>
       <div id="hydro-results-scroll">
         <div id="hydro-results-body"></div>
-        <p class="section-title">智能体全程日志</p>
+        <p class="section-title">智能体日志</p>
         <div id="hydro-agent-log"></div>
       </div>
     `;
-    document.body.appendChild(results);
+
+    body.append(progress, stage, results);
+    shell.append(titlebar, body);
+    document.body.appendChild(shell);
+
+    const backdrop = document.createElement("div");
+    backdrop.id = "hydro-backdrop";
+    backdrop.hidden = true;
+    document.body.appendChild(backdrop);
 
     const panel = document.createElement("section");
     panel.id = "hydro-panel";
     panel.hidden = true;
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-modal", "true");
+    panel.setAttribute("aria-labelledby", "hydro-panel-title");
     panel.innerHTML = `
-      <h2>第一步 · 输入任务</h2>
-      <p class="hint">点 Archify 图上的「用户 / 任务」打开。真实模式会调 SiliconFlow，并跑 XAJ，通常比演示慢。</p>
+      <h2 id="hydro-panel-title">新建任务</h2>
+      <p class="hint">填写流域与验证窗口后开始。真实模式会调用 SiliconFlow 并运行 XAJ。</p>
       <div class="grid">
         <label>流域
           <input id="hydro-basin" value="camels_13235000" autocomplete="off" />
@@ -1266,6 +1397,9 @@
     `;
     document.body.appendChild(panel);
 
+    closeResultsPanel();
+
+    $("hydro-start-task")?.addEventListener("click", () => openInputPanel());
     $("hydro-run").addEventListener("click", () => {
       if (polling) {
         clearInterval(polling);
@@ -1277,12 +1411,12 @@
       closeInputPanel();
       setProgress({
         title: "待命",
-        detail: "点击图上的「用户」或「任务」输入参数",
+        detail: "点「新建任务」或图上的「用户 / 任务」开始",
         busy: false,
         steps: [],
       });
     });
-    $("hydro-results-close")?.addEventListener("click", () => closeResultsPanel());
+    backdrop.addEventListener("click", () => closeInputPanel());
   }
 
   function bindDiagramClicks() {
@@ -1327,6 +1461,7 @@
     }
     document.documentElement.setAttribute("data-theme", "light");
     document.documentElement.setAttribute("data-motion", "still");
+    document.documentElement.setAttribute("data-present", "true");
     if (location.hash && /view=|focus=/.test(location.hash)) {
       history.replaceState(null, "", location.pathname + location.search);
     }
@@ -1340,7 +1475,7 @@
     highlight("user");
     setProgress({
       title: "待命",
-      detail: "点击图上的「用户」或「任务」输入参数",
+      detail: "点「新建任务」或图上的「用户 / 任务」开始",
       busy: false,
       steps: [],
     });
@@ -1350,14 +1485,14 @@
         if (h.mode === "real") {
           setProgress({
             title: "真实模式就绪",
-            detail: `${h.provider_model || "SiliconFlow"} + XAJ · 点「用户」开始`,
+            detail: `${h.provider_model || "SiliconFlow"} + XAJ`,
             busy: false,
             steps: [],
           });
         } else {
           setProgress({
             title: "演示模式",
-            detail: "未检测到真实 LLM/数据 · 点「用户」开始",
+            detail: "未检测到真实 LLM/数据",
             busy: false,
             steps: [],
           });

@@ -8,6 +8,10 @@ export type TaskSummary = {
   current_scheme_id: string | null
   agent_rounds_used: number
   optimization_cycles_used: number
+  start_date?: string | null
+  end_date?: string | null
+  forcing_mode?: 'R' | 'F' | null
+  created_at?: string | null
 }
 
 export type TaskCreateRequest = {
@@ -34,6 +38,10 @@ export type RunSummary = {
   current_scheme_id: string | null
   last_action: string | null
   last_hypothesis: string | null
+  llm_streaming?: boolean
+  llm_text?: string
+  llm_error?: string | null
+  llm_decision_action?: string | null
 }
 
 export type TimelineItem = {
@@ -67,4 +75,7 @@ export type ResultSummary = {
   gate: Record<string, unknown> | null
   report_artifacts: string[]
   costs: Record<string, number>
+  story_zh?: string
+  phase_zh?: string
+  status_zh?: string
 }

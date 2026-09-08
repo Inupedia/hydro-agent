@@ -61,6 +61,12 @@ class AppDependencies:
             if error:
                 trace.error = error
 
+    def clear_llm_error(self, task_id: str) -> None:
+        with self._llm_lock:
+            trace = self.llm_traces.setdefault(task_id, LlmTrace())
+            trace.error = None
+            trace.streaming = False
+
     def get_llm_trace(self, task_id: str) -> LlmTrace:
         with self._llm_lock:
             return self.llm_traces.get(task_id) or LlmTrace()

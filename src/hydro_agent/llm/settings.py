@@ -13,6 +13,7 @@ class LLMSettings(FrozenModel):
     model: str = "zai-org/GLM-5.3"
     api_key: SecretStr = Field(repr=False)
     timeout_seconds: int = Field(default=60, gt=0, le=300)
+    max_retries: int = Field(default=4, ge=0, le=8)
 
     @field_validator("api_key")
     @classmethod
@@ -48,4 +49,5 @@ class LLMSettings(FrozenModel):
             model=values.get("HYDRO_LLM_MODEL", cls.model_fields["model"].default),
             api_key=SecretStr(values.get("SILICONFLOW_API_KEY") or ""),
             timeout_seconds=values.get("HYDRO_LLM_TIMEOUT_SECONDS", 60),
+            max_retries=values.get("HYDRO_LLM_MAX_RETRIES", 4),
         )

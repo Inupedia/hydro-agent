@@ -10,6 +10,8 @@ from hydro_agent.execution.contracts import FrozenModel
 
 from .settings import LLMSettings
 
+_RETRYABLE_HTTP = frozenset({408, 429, 500, 502, 503, 504})
+
 
 class LLMError(RuntimeError):
     """Sanitized provider failure: no headers, key or raw response body."""
@@ -44,6 +46,34 @@ class SiliconFlowClient:
     ) -> Completion:
         if not 1 <= max_tokens <= 4096:
             raise ValueError("max_tokens must be between 1 and 4096")
+        started = time.monotonic()
+        attempts = max(1, int(self.settings.max_retries) + 1)
+        last_error: LLMError | None = None
+        for attempt in range(attempts):
+            try:
+                return self._complete_stream_once(
+                    messages,
+                    max_tokens=max_tokens,
+                    on_delta=on_delta,
+                    started=started,
+                )
+            except LLMError as exc:
+                last_error = exc
+                if not _is_retryable(exc) or attempt >= attempts - 1:
+                    raise
+                delay = min(8.0, 0.8 * (2**attempt))
+                time.sleep(delay)
+        assert last_error is not None
+        raise last_error
+
+    def _complete_stream_once(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        max_tokens: int,
+        on_delta: Callable[[str], None] | None,
+        started: float,
+    ) -> Completion:
         request = Request(
             self.settings.base_url + "/chat/completions",
             data=json.dumps(
@@ -62,7 +92,6 @@ class SiliconFlowClient:
             },
             method="POST",
         )
-        started = time.monotonic()
         content_parts: list[str] = []
         thinking_open = False
         thinking_closed = False
@@ -131,3 +160,16 @@ class SiliconFlowClient:
             raise LLMError("provider connection failed or timed out") from None
         except (ValueError, KeyError, IndexError, TypeError):
             raise LLMError("invalid provider response") from None
+
+
+def _is_retryable(error: LLMError) -> bool:
+    message = str(error)
+    if message == "provider connection failed or timed out":
+        return True
+    if message.startswith("provider HTTP "):
+        try:
+            code = int(message.rsplit(" ", 1)[-1])
+        except ValueError:
+            return False
+        return code in _RETRYABLE_HTTP
+    return False

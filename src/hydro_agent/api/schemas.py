@@ -32,6 +32,10 @@ class TaskSummary(FrozenApiModel):
     current_scheme_id: str | None
     agent_rounds_used: int
     optimization_cycles_used: int
+    start_date: str | None = None
+    end_date: str | None = None
+    forcing_mode: Literal["R", "F"] | None = None
+    created_at: str | None = None
 
 
 class RunSummary(FrozenApiModel):
