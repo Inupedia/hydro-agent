@@ -13,7 +13,22 @@
 - 跨任务/模型引用拒绝；F/E 阶段率定与适配拒绝。
 - GLM-5.3 独立连通性检查，密钥不传入数值子进程。
 
-## 安装和验证
+## Docker 一键启动（工作台）
+
+本地浏览器直接使用打包后的 Vue + FastAPI demo：
+
+```sh
+docker compose up --build -d
+```
+
+打开 http://127.0.0.1:8000 ，创建任务后点「创建并运行」。数据持久化在 Docker volume `hydro-agent-data`。
+
+```sh
+docker compose logs -f workbench
+docker compose down
+```
+
+当前镜像内置脚本化 demo Agent（不跑真实 XAJ 数值引擎），用于完整体验任务 / 时间线 / 结果页。
 
 需要 Python 3.12 与 uv。依赖版本由 `uv.lock` 固定。
 

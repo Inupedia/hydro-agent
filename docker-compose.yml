@@ -1,0 +1,20 @@
+services:
+  workbench:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: hydro-agent-workbench:local
+    ports:
+      - "8000:8000"
+    volumes:
+      - hydro-agent-data:/data
+    environment:
+      HYDRO_AGENT_HOST: "0.0.0.0"
+      HYDRO_AGENT_PORT: "8000"
+      HYDRO_AGENT_DB: "/data/hydro.db"
+      HYDRO_AGENT_REPORTS: "/data/reports"
+      HYDRO_AGENT_STATIC: "/app/web/dist"
+    restart: unless-stopped
+
+volumes:
+  hydro-agent-data:
