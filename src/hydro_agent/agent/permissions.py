@@ -39,6 +39,9 @@ IMPLEMENTED = {
     ActionCode.A07_OPTIMIZE,
     ActionCode.A08_GATE,
     ActionCode.A09_RESOLVE,
+    ActionCode.A10_FREEZE,
+    ActionCode.A11_REPLAY,
+    ActionCode.A12_EVALUATE_REPORT,
 }
 
 

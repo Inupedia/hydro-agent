@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from hydro_agent.evaluation.metrics import bias, mae, nse
+from hydro_agent.evaluation.metrics import bias, kge, mae, nse
 
 
 def test_metrics_match_hand_calculation():
@@ -13,12 +13,17 @@ def test_metrics_match_hand_calculation():
     assert nse(obs, sim) == pytest.approx(expected_nse)
 
 
+def test_kge_rejects_zero_observed_std():
+    with pytest.raises(ValueError, match="standard deviation"):
+        kge([1.0, 1.0], [1.0, 2.0])
+
+
 def test_nse_rejects_single_observation():
     with pytest.raises(ValueError, match="at least two"):
         nse([1.0], [1.0])
 
 
-@pytest.mark.parametrize("fn", [nse, mae, bias])
+@pytest.mark.parametrize("fn", [nse, mae, bias, kge])
 def test_metrics_reject_nan_and_shape_mismatch(fn):
     with pytest.raises(ValueError):
         fn([1.0, 2.0], [1.0])

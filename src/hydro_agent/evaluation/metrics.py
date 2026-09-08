@@ -47,6 +47,22 @@ def high_flow_mae(obs, sim, quantile: float = 0.9) -> float:
     return mae(obs_a[mask], sim_a[mask])
 
 
+def kge(obs, sim) -> float:
+    obs_a, sim_a = _as_1d(obs, sim)
+    if obs_a.size < 2:
+        raise ValueError("kge requires at least two observations")
+    obs_std = float(np.std(obs_a, ddof=0))
+    obs_mean = float(np.mean(obs_a))
+    if obs_std == 0:
+        raise ValueError("kge observed standard deviation is zero")
+    if obs_mean == 0:
+        raise ValueError("kge observed mean is zero")
+    r = float(np.corrcoef(obs_a, sim_a)[0, 1])
+    alpha = float(np.std(sim_a, ddof=0) / obs_std)
+    beta = float(np.mean(sim_a) / obs_mean)
+    return float(1.0 - np.sqrt((r - 1.0) ** 2 + (alpha - 1.0) ** 2 + (beta - 1.0) ** 2))
+
+
 def build_evaluation_bundle(scheme_id: str, lead_series: dict[int, tuple]) -> EvaluationBundle:
     leads = []
     for lead in (1, 2, 3):

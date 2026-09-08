@@ -269,3 +269,109 @@ class ResolveHandler:
                 metrics=metrics,
             ),
         )
+
+
+class FreezeToolHandler:
+    def __init__(self, repository, *, freeze_service):
+        self.repository = repository
+        self.freeze_service = freeze_service
+
+    def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
+        state = self.repository.ensure_task_state(task_id)
+        frozen_id = self.freeze_service.freeze(
+            task_id=task_id, source_scheme_id=state.current_scheme_id
+        )
+        self.repository.set_task_phase(task_id, "F")
+        observations = (f"frozen_scheme_id={frozen_id}",)
+        metrics: dict[str, float] = {}
+        return EvidencePacket(
+            evidence_id=_evidence_id(),
+            task_id=task_id,
+            action=ActionCode.A10_FREEZE,
+            status="succeeded",
+            observations=observations,
+            metrics=metrics,
+            new_information_hash=information_hash(
+                action=ActionCode.A10_FREEZE,
+                status="succeeded",
+                observations=observations,
+                metrics=metrics,
+            ),
+        )
+
+
+class ReplayToolHandler:
+    def __init__(self, repository, *, planner, replay_service, start_date, end_date):
+        self.repository = repository
+        self.planner = planner
+        self.replay_service = replay_service
+        self.start_date = start_date
+        self.end_date = end_date
+
+    def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
+        plan = self.planner.plan(task_id, self.start_date, self.end_date)
+        forecasts = self.replay_service.execute(plan)
+        observations = (
+            f"forecast_count={len(forecasts)}",
+            f"scheme_id={plan.scheme_id}",
+        )
+        metrics = {"forecast_count": float(len(forecasts))}
+        return EvidencePacket(
+            evidence_id=_evidence_id(),
+            task_id=task_id,
+            action=ActionCode.A11_REPLAY,
+            status="succeeded",
+            observations=observations,
+            metrics=metrics,
+            artifact_ids=tuple(f.forecast_id for f in forecasts),
+            new_information_hash=information_hash(
+                action=ActionCode.A11_REPLAY,
+                status="succeeded",
+                observations=observations,
+                metrics=metrics,
+            ),
+        )
+
+
+class EvaluateReportToolHandler:
+    def __init__(
+        self,
+        repository,
+        *,
+        evaluation_service,
+        report_builder,
+        observation_snapshot_id: str,
+        output_dir,
+    ):
+        self.repository = repository
+        self.evaluation_service = evaluation_service
+        self.report_builder = report_builder
+        self.observation_snapshot_id = observation_snapshot_id
+        self.output_dir = output_dir
+
+    def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
+        task = self.repository.get_task(task_id)
+        if task.phase == "F":
+            self.repository.set_task_phase(task_id, "E")
+        evaluation = self.evaluation_service.evaluate(task_id, self.observation_snapshot_id)
+        json_path, md_path = self.report_builder.build(evaluation, self.output_dir)
+        observations = (
+            f"scheme_id={evaluation.scheme_id}",
+            f"report_json={json_path.name}",
+            f"report_md={md_path.name}",
+        )
+        return EvidencePacket(
+            evidence_id=_evidence_id(),
+            task_id=task_id,
+            action=ActionCode.A12_EVALUATE_REPORT,
+            status="succeeded",
+            observations=observations,
+            metrics=dict(evaluation.metrics),
+            artifact_ids=(json_path.name, md_path.name),
+            new_information_hash=information_hash(
+                action=ActionCode.A12_EVALUATE_REPORT,
+                status="succeeded",
+                observations=observations,
+                metrics=dict(evaluation.metrics),
+            ),
+        )

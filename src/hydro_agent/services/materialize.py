@@ -23,6 +23,9 @@ class ExecutionInputMaterializer:
         scheme = self.repository.get_scheme(request.scheme_id)
         snapshot = self.repository.get_snapshot(request.data_snapshot_id)
         config = dict(scheme.config_json)
+        # Persist provenance/freeze metadata in DB only; runtimes receive model fields.
+        for key in ("provenance", "freeze_contract"):
+            config.pop(key, None)
         config["scheme_id"] = scheme.scheme_id
         scheme_path = workspace / "input/scheme/scheme.json"
         scheme_path.parent.mkdir(parents=True, exist_ok=True)

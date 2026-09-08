@@ -137,6 +137,36 @@ class HydroRepository:
                 stmt = stmt.where(Forecast.task_id == task_id)
             return list(session.scalars(stmt))
 
+    def get_forecast_for_issue(self, task_id: str, scheme_id: str, issue_time):
+        issue = timestamp(issue_time)
+        with self.database.session() as session:
+            rows = list(
+                session.scalars(
+                    select(Forecast).where(
+                        Forecast.task_id == task_id,
+                        Forecast.scheme_id == scheme_id,
+                        Forecast.issue_time == issue,
+                    )
+                )
+            )
+        if len(rows) > 1:
+            raise ValueError("corrupt forecast uniqueness")
+        return rows[0] if rows else None
+
+    def set_task_phase(self, task_id: str, phase: str):
+        if phase not in ("B", "F", "E"):
+            raise ValueError("invalid phase")
+        with self.database.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                raise KeyError(task_id)
+            order = {"B": 0, "F": 1, "E": 2}
+            if order[phase] != order[task.phase] + 1:
+                raise ValueError(f"illegal phase transition {task.phase}->{phase}")
+            task.phase = phase
+            session.flush()
+            return task
+
     def create_action_run(self, **kwargs):
         # Validate identifiers/capability before they can become execution paths.
         request = ExecutionRequest(
