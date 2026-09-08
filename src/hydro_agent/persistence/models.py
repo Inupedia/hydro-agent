@@ -97,3 +97,17 @@ class CostLedger(Base):
     wall_time_seconds: Mapped[float] = mapped_column(Float)
     peak_memory_bytes: Mapped[int | None] = mapped_column(Integer)
     __table_args__ = (CheckConstraint("wall_time_seconds >= 0"),)
+
+
+class Forecast(Created, Base):
+    __tablename__ = "forecasts"
+    forecast_id: Mapped[str] = mapped_column(String, primary_key=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey("tasks.task_id"))
+    action_run_id: Mapped[str] = mapped_column(ForeignKey("action_runs.action_run_id"), unique=True)
+    scheme_id: Mapped[str] = mapped_column(ForeignKey("schemes.scheme_id"))
+    data_snapshot_id: Mapped[str] = mapped_column(ForeignKey("data_snapshots.snapshot_id"))
+    issue_time: Mapped[datetime] = mapped_column(UTCDateTime())
+    lead_values_json: Mapped[dict] = mapped_column(JSON)
+    unit: Mapped[str]
+    artifact_ids_json: Mapped[list] = mapped_column(JSON)
+    __table_args__ = (CheckConstraint("unit = 'm3/s'"),)

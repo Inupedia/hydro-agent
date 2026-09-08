@@ -9,3 +9,7 @@ __pycache__/
 *.db
 *.db-*
 .ruff_cache/
+.worktrees/
+data/source/
+data/snapshots/
+data/hydro-agent.db*

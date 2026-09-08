@@ -5,9 +5,10 @@ from pydantic import AwareDatetime, TypeAdapter
 from sqlalchemy import select, update
 
 from hydro_agent.execution.contracts import ExecutionPolicy, ExecutionRequest, ExecutionResult
+from hydro_agent.services.contracts import ForecastCreate, ForecastRecord
 
 from .database import Database
-from .models import ActionRun, Artifact, CostLedger, DataSnapshot, Scheme, Task, now
+from .models import ActionRun, Artifact, CostLedger, DataSnapshot, Forecast, Scheme, Task, now
 from .schemas import DataSnapshotCreate, SchemeCreate, TaskCreate
 
 
@@ -48,6 +49,15 @@ class HydroRepository:
         data["manifest_json"] = data.pop("manifest")
         return self._create(DataSnapshot(**data))
 
+    def get_task(self, task_id):
+        return self._get(Task, task_id)
+
+    def list_snapshots(self, task_id):
+        with self.database.session() as session:
+            return list(
+                session.scalars(select(DataSnapshot).where(DataSnapshot.task_id == task_id))
+            )
+
     def get_scheme(self, scheme_id):
         return self._get(Scheme, scheme_id)
 
@@ -69,6 +79,42 @@ class HydroRepository:
                     .order_by(Artifact.artifact_id)
                 )
             )
+
+    def create_forecast(self, **kwargs):
+        data = ForecastCreate(**kwargs)
+        record = ForecastRecord(
+            forecast_id=data.forecast_id,
+            task_id=data.task_id,
+            action_run_id=data.action_run_id,
+            scheme_id=data.scheme_id,
+            data_snapshot_id=data.data_snapshot_id,
+            issue_time=timestamp(data.issue_time),
+            lead_values=data.lead_values,
+            unit=data.unit,
+            artifact_ids=data.artifact_ids,
+        )
+        row = Forecast(
+            forecast_id=record.forecast_id,
+            task_id=record.task_id,
+            action_run_id=record.action_run_id,
+            scheme_id=record.scheme_id,
+            data_snapshot_id=record.data_snapshot_id,
+            issue_time=record.issue_time,
+            lead_values_json={str(k): float(v) for k, v in sorted(record.lead_values.items())},
+            unit=record.unit,
+            artifact_ids_json=list(record.artifact_ids),
+        )
+        return self._create(row)
+
+    def get_forecast(self, forecast_id):
+        return self._get(Forecast, forecast_id)
+
+    def list_forecasts(self, task_id=None):
+        with self.database.session() as session:
+            stmt = select(Forecast).order_by(Forecast.forecast_id)
+            if task_id is not None:
+                stmt = stmt.where(Forecast.task_id == task_id)
+            return list(session.scalars(stmt))
 
     def create_action_run(self, **kwargs):
         # Validate identifiers/capability before they can become execution paths.

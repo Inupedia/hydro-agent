@@ -27,11 +27,15 @@ class Database:
         Base.metadata.create_all(self.engine)
         # Immutability must survive direct SQL writes, not just repository conventions.
         with self.engine.begin() as conn:
-            for table in ("schemes", "data_snapshots"):
+            for table in ("schemes", "data_snapshots", "forecasts"):
                 for operation in ("UPDATE", "DELETE"):
                     conn.exec_driver_sql(f"""CREATE TRIGGER IF NOT EXISTS {table}_no_{operation}
                         BEFORE {operation} ON {table} BEGIN
                         SELECT RAISE(ABORT, 'immutable record'); END""")
+            conn.exec_driver_sql(
+                """CREATE UNIQUE INDEX IF NOT EXISTS forecasts_task_scheme_issue
+                   ON forecasts(task_id, scheme_id, issue_time)"""
+            )
 
     @contextmanager
     def session(self):
