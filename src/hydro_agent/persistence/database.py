@@ -10,7 +10,7 @@ class Base(DeclarativeBase):
 
 class Database:
     def __init__(self, url: str) -> None:
-        self.engine = create_engine(url)
+        self.engine = create_engine(url, connect_args={"check_same_thread": False})
         if self.engine.dialect.name != "sqlite":
             raise ValueError("only SQLite is supported")
 

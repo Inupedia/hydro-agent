@@ -64,6 +64,10 @@ class HydroRepository:
     def get_task(self, task_id):
         return self._get(Task, task_id)
 
+    def list_tasks(self):
+        with self.database.session() as session:
+            return list(session.scalars(select(Task).order_by(Task.created_at, Task.task_id)))
+
     def list_snapshots(self, task_id):
         with self.database.session() as session:
             return list(
