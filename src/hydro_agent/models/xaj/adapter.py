@@ -9,16 +9,12 @@ class XajRuntimeAdapter:
     capabilities = frozenset({"validate", "rebuild_state", "forecast", "calibrate"})
 
     def command(self, request: ExecutionRequest, workspace: Path) -> list[str]:
-        if (
-            request.model_id != "xaj"
-            or request.capability != "forecast"
-            or request.policy.device != "cpu"
-        ):
+        if request.model_id != "xaj" or request.policy.device != "cpu":
             raise ValueError("unsupported XAJ capability or device")
-        return [
-            sys.executable,
-            "-m",
-            "hydro_agent.models.xaj.runtime",
-            "--workspace",
-            str(workspace),
-        ]
+        if request.capability == "forecast":
+            module = "hydro_agent.models.xaj.runtime"
+        elif request.capability == "calibrate":
+            module = "hydro_agent.models.xaj.calibrate_runtime"
+        else:
+            raise ValueError("unsupported XAJ capability or device")
+        return [sys.executable, "-m", module, "--workspace", str(workspace)]

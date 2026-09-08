@@ -80,6 +80,15 @@ class HydroRepository:
                 )
             )
 
+    def list_schemes(self, task_id=None, status=None):
+        with self.database.session() as session:
+            stmt = select(Scheme).order_by(Scheme.scheme_id)
+            if task_id is not None:
+                stmt = stmt.where(Scheme.task_id == task_id)
+            if status is not None:
+                stmt = stmt.where(Scheme.status == status)
+            return list(session.scalars(stmt))
+
     def create_forecast(self, **kwargs):
         data = ForecastCreate(**kwargs)
         record = ForecastRecord(

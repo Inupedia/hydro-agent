@@ -22,7 +22,7 @@ def _pinned_install(direct: dict) -> bool:
     return url == archive or (url.startswith(git_url) and commit.startswith(UPSTREAM_COMMIT))
 
 
-def load_xaj():
+def _ensure_packages() -> Path:
     dist = importlib.metadata.distribution("hydromodel")
     direct = json.loads(dist.read_text("direct_url.json") or "{}")
     if not _pinned_install(direct):
@@ -33,4 +33,23 @@ def load_xaj():
             package = types.ModuleType(name)
             package.__path__ = [str(path)]
             sys.modules[name] = package
+    return root
+
+
+def load_xaj():
+    _ensure_packages()
     return importlib.import_module("hydromodel.models.xaj").xaj
+
+
+def load_param_ranges() -> dict[str, tuple[float, float]]:
+    _ensure_packages()
+    config = importlib.import_module("hydromodel.models.model_config").get_model_param_config(
+        "xaj", {"source_type": "sources", "source_book": "HF"}
+    )
+    ranges = {}
+    for name, bounds in config["param_range"].items():
+        low, high = float(bounds[0]), float(bounds[1])
+        if high < low:
+            raise ValueError(f"invalid range for {name}")
+        ranges[name] = (low, high)
+    return ranges

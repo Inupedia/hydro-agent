@@ -9,7 +9,8 @@ from pathlib import Path
 
 from hydro_agent.data.contracts import FlowObservation, ForcingRow
 
-PUBLISHED = datetime(2024, 6, 1, tzinfo=timezone.utc)
+# Historical availability before the 2020-05-01 issue time used in tests.
+AVAILABLE = datetime(2019, 1, 1, tzinfo=timezone.utc)
 START = date(2020, 4, 28)
 BASIN = {
     "basin_id": "camels_13235000",
@@ -32,7 +33,7 @@ def write_source(output: Path) -> Path:
                 pet_mm_day=2.0,
                 source_kind="reanalysis",
                 source="caravan-era5-land-fao-pm",
-                available_at=PUBLISHED,
+                available_at=AVAILABLE,
             )
         )
         flow.append(
@@ -40,7 +41,7 @@ def write_source(output: Path) -> Path:
                 valid_date=day,
                 discharge_m3s=5.0 + i,
                 source="caravan-streamflow",
-                available_at=PUBLISHED,
+                available_at=AVAILABLE,
             )
         )
     (output / "forcing.jsonl").write_text(

@@ -300,8 +300,8 @@ This is the minimum end-to-end proof of the research claim. OpenHydroNet proves 
 - [x] SP2 acceptance passes. Local verification: 2026-09-08.
 - [x] SP3 real XAJ acceptance passes. Local verification: 2026-09-08.
 - [x] SP4 F/R leakage regression passes. Local verification: 2026-09-08.
-- [x] SP4A forecast/calibration services pass independently without Agent. Local verification: 2026-09-08 (forecast path; calibration deferred to SP5).
-- [ ] SP5 real candidate rollback/immutability acceptance passes.
+- [x] SP4A forecast/calibration services pass independently without Agent. Local verification: 2026-09-08.
+- [x] SP5 real candidate rollback/immutability acceptance passes. Local verification: 2026-09-08.
 - [ ] SP6 two-round evidence loop passes with scripted provider.
 - [ ] SP7 freeze/replay/E-phase/report acceptance passes.
 - [ ] SP3B real OpenHydroNet inference/adaptation isolation passes.
