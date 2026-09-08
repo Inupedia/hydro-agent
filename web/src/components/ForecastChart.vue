@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 
 const props = defineProps<{
@@ -8,8 +8,10 @@ const props = defineProps<{
 
 const el = ref<HTMLDivElement | null>(null)
 let chart: echarts.ECharts | null = null
+let observer: ResizeObserver | null = null
 
-function render() {
+async function render() {
+  await nextTick()
   if (!props.forecasts.length) {
     if (chart) {
       chart.dispose()
@@ -45,7 +47,7 @@ function render() {
     series: [1, 2, 3].map((lead, index) => ({
       name: `提前 ${lead} 天`,
       type: 'line',
-      smooth: true,
+      smooth: false,
       showSymbol: props.forecasts.length < 8,
       lineStyle: { width: index === 0 ? 3 : 2 },
       data: props.forecasts.map((f) => f.lead_values[lead] ?? f.lead_values[String(lead) as never] ?? null),
@@ -60,9 +62,12 @@ function onResize() {
 onMounted(() => {
   render()
   window.addEventListener('resize', onResize)
+  observer = new ResizeObserver(onResize)
+  if (el.value) observer.observe(el.value)
 })
 onUnmounted(() => {
   window.removeEventListener('resize', onResize)
+  observer?.disconnect()
   chart?.dispose()
 })
 watch(() => props.forecasts, render, { deep: true })
@@ -70,7 +75,7 @@ watch(() => props.forecasts, render, { deep: true })
 
 <template>
   <div v-if="!forecasts.length" class="empty" data-test="forecast-chart-empty">暂无预报序列</div>
-  <div v-else ref="el" data-test="forecast-chart" class="chart" />
+  <div v-show="forecasts.length" ref="el" data-test="forecast-chart" class="chart" />
 </template>
 
 <style scoped>

@@ -7,7 +7,7 @@ import SettingsSheet from '../components/SettingsSheet.vue'
 import { useDemoStore } from '../stores/demo'
 import { stageStatuses } from '../demo/stages'
 
-const props = defineProps<{
+defineProps<{
   showStages?: boolean
   taskSummary?: string
 }>()
