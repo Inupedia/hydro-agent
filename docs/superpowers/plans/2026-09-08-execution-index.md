@@ -296,8 +296,8 @@ This is the minimum end-to-end proof of the research claim. OpenHydroNet proves 
 
 ## 7. Completion Checklist
 
-- [ ] SP1 acceptance passes.
-- [ ] SP2 acceptance passes.
+- [x] SP1 acceptance passes. Local verification: 2026-09-08.
+- [x] SP2 acceptance passes. Local verification: 2026-09-08.
 - [ ] SP3 real XAJ acceptance passes.
 - [ ] SP4 F/R leakage regression passes.
 - [ ] SP4A forecast/calibration services pass independently without Agent.
