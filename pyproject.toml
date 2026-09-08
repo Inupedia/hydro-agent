@@ -10,6 +10,7 @@ xaj = [
   "hydromodel @ git+https://github.com/OuyangWenyu/hydromodel.git@89d7a8ed1d72ce4fffbbd9897490b089382ecbac",
 ]
 dev = ["pytest>=8.3,<9", "ruff>=0.11,<1"]
+agent-openai = ["openai>=1"]
 
 [build-system]
 requires = ["hatchling"]

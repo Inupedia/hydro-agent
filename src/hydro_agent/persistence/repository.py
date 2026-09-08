@@ -8,7 +8,19 @@ from hydro_agent.execution.contracts import ExecutionPolicy, ExecutionRequest, E
 from hydro_agent.services.contracts import ForecastCreate, ForecastRecord
 
 from .database import Database
-from .models import ActionRun, Artifact, CostLedger, DataSnapshot, Forecast, Scheme, Task, now
+from .models import (
+    ActionRun,
+    AgentDecisionRun,
+    Artifact,
+    CostLedger,
+    DataSnapshot,
+    Evidence,
+    Forecast,
+    Scheme,
+    Task,
+    TaskState,
+    now,
+)
 from .schemas import DataSnapshotCreate, SchemeCreate, TaskCreate
 
 
@@ -199,3 +211,90 @@ class HydroRepository:
             )
             for item in artifacts:
                 session.add(Artifact(action_run_id=result.action_run_id, **item))
+
+    def ensure_task_state(self, task_id: str, *, current_scheme_id: str | None = None):
+        with self.database.session() as session:
+            state = session.get(TaskState, task_id)
+            if state is not None:
+                return state
+            if current_scheme_id is None:
+                schemes = list(
+                    session.scalars(
+                        select(Scheme).where(Scheme.task_id == task_id).order_by(Scheme.scheme_id)
+                    )
+                )
+                if not schemes:
+                    raise KeyError(f"no scheme for task {task_id}")
+                current_scheme_id = next(
+                    (s.scheme_id for s in schemes if s.status in ("base", "accepted", "frozen")),
+                    schemes[0].scheme_id,
+                )
+            state = TaskState(
+                task_id=task_id,
+                current_scheme_id=current_scheme_id,
+                agent_rounds_used=0,
+                optimization_cycles_used=0,
+                paused=False,
+                needs_follow_up=True,
+                last_information_hash=None,
+                last_decision_fingerprint=None,
+            )
+            session.add(state)
+            session.flush()
+            return state
+
+    def get_task_state(self, task_id: str):
+        return self._get(TaskState, task_id)
+
+    def update_task_state(self, task_id: str, **fields):
+        allowed = {
+            "current_scheme_id",
+            "agent_rounds_used",
+            "optimization_cycles_used",
+            "paused",
+            "needs_follow_up",
+            "last_information_hash",
+            "last_decision_fingerprint",
+        }
+        unknown = set(fields) - allowed
+        if unknown:
+            raise ValueError(f"unknown task state fields: {sorted(unknown)}")
+        with self.database.session() as session:
+            state = session.get(TaskState, task_id)
+            if state is None:
+                raise KeyError(task_id)
+            for key, value in fields.items():
+                setattr(state, key, value)
+            state.updated_at = now()
+            session.flush()
+            return state
+
+    def add_evidence(self, packet):
+        row = Evidence(
+            evidence_id=packet.evidence_id,
+            task_id=packet.task_id,
+            action_run_id=packet.action_run_id,
+            action=packet.action.value if hasattr(packet.action, "value") else packet.action,
+            status=packet.status,
+            observations_json=list(packet.observations),
+            metrics_json=dict(packet.metrics),
+            gates_json=dict(packet.gates),
+            artifact_ids_json=list(packet.artifact_ids),
+            new_information_hash=packet.new_information_hash,
+            payload_json=packet.model_dump(mode="json"),
+        )
+        return self._create(row)
+
+    def list_evidence(self, task_id: str):
+        with self.database.session() as session:
+            return list(
+                session.scalars(
+                    select(Evidence)
+                    .where(Evidence.task_id == task_id)
+                    .order_by(Evidence.created_at, Evidence.evidence_id)
+                )
+            )
+
+    def record_agent_decision(self, **kwargs):
+        row = AgentDecisionRun(**kwargs)
+        return self._create(row)

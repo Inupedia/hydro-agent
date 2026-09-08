@@ -111,3 +111,47 @@ class Forecast(Created, Base):
     unit: Mapped[str]
     artifact_ids_json: Mapped[list] = mapped_column(JSON)
     __table_args__ = (CheckConstraint("unit = 'm3/s'"),)
+
+
+class TaskState(Base):
+    __tablename__ = "task_state"
+    task_id: Mapped[str] = mapped_column(ForeignKey("tasks.task_id"), primary_key=True)
+    current_scheme_id: Mapped[str] = mapped_column(ForeignKey("schemes.scheme_id"))
+    agent_rounds_used: Mapped[int] = mapped_column(Integer, default=0)
+    optimization_cycles_used: Mapped[int] = mapped_column(Integer, default=0)
+    paused: Mapped[bool] = mapped_column(Boolean, default=False)
+    needs_follow_up: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_information_hash: Mapped[str | None]
+    last_decision_fingerprint: Mapped[str | None]
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=now)
+
+
+class Evidence(Created, Base):
+    __tablename__ = "evidence"
+    evidence_id: Mapped[str] = mapped_column(String, primary_key=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey("tasks.task_id"))
+    action_run_id: Mapped[str | None] = mapped_column(ForeignKey("action_runs.action_run_id"))
+    action: Mapped[str]
+    status: Mapped[str]
+    observations_json: Mapped[list] = mapped_column(JSON)
+    metrics_json: Mapped[dict] = mapped_column(JSON)
+    gates_json: Mapped[dict] = mapped_column(JSON)
+    artifact_ids_json: Mapped[list] = mapped_column(JSON)
+    new_information_hash: Mapped[str]
+    payload_json: Mapped[dict] = mapped_column(JSON)
+
+
+class AgentDecisionRun(Created, Base):
+    __tablename__ = "agent_decisions"
+    decision_id: Mapped[str] = mapped_column(String, primary_key=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey("tasks.task_id"))
+    round_number: Mapped[int] = mapped_column(Integer)
+    provider: Mapped[str]
+    model: Mapped[str | None]
+    world_state_hash: Mapped[str]
+    action: Mapped[str]
+    hypothesis: Mapped[str]
+    strategy_id: Mapped[str | None]
+    rationale_summary: Mapped[str]
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
