@@ -1,0 +1,312 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Inupedia/hydro-agent/docs/schemas/hydro-world-model.schema.json",
+  "title": "Hydro-Agent Hydro World Model",
+  "type": "object",
+  "required": ["task", "basin", "model", "scheme", "permissions", "budget"],
+  "properties": {
+    "task": { "$ref": "#/$defs/Task" },
+    "basin": { "$ref": "#/$defs/Basin" },
+    "stations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Station" },
+      "default": []
+    },
+    "data_snapshots": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/DataSnapshot" },
+      "default": []
+    },
+    "forcing": {
+      "anyOf": [
+        { "$ref": "#/$defs/Forcing" },
+        { "type": "null" }
+      ]
+    },
+    "hydro_state": {
+      "anyOf": [
+        { "$ref": "#/$defs/HydroState" },
+        { "type": "null" }
+      ]
+    },
+    "model": { "$ref": "#/$defs/HydrologicModel" },
+    "scheme": { "$ref": "#/$defs/Scheme" },
+    "forecast": {
+      "anyOf": [
+        { "$ref": "#/$defs/Forecast" },
+        { "type": "null" }
+      ]
+    },
+    "evidence": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Evidence" },
+      "default": []
+    },
+    "permissions": { "$ref": "#/$defs/PermissionView" },
+    "budget": { "$ref": "#/$defs/BudgetView" }
+  },
+  "$defs": {
+    "Basin": {
+      "type": "object",
+      "required": ["basin_id", "name"],
+      "properties": {
+        "basin_id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "area_km2": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+        "metadata": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": false
+    },
+    "Station": {
+      "type": "object",
+      "required": ["station_id", "name", "station_type", "basin_id"],
+      "properties": {
+        "station_id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "station_type": {
+          "type": "string",
+          "enum": ["hydrology", "rainfall", "meteorology", "mixed"]
+        },
+        "basin_id": { "type": "string", "minLength": 1 },
+        "latitude": { "type": ["number", "null"], "minimum": -90, "maximum": 90 },
+        "longitude": { "type": ["number", "null"], "minimum": -180, "maximum": 180 }
+      },
+      "additionalProperties": false
+    },
+    "DataSnapshot": {
+      "type": "object",
+      "required": ["snapshot_id", "source", "available_at", "hash", "variables"],
+      "properties": {
+        "snapshot_id": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 },
+        "available_at": { "type": "string", "format": "date-time" },
+        "hash": { "type": "string", "minLength": 1 },
+        "variables": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "basin_id": { "type": ["string", "null"] },
+        "artifact_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
+    "Forcing": {
+      "type": "object",
+      "required": ["forcing_id", "snapshot_id", "mode", "issue_time", "horizon"],
+      "properties": {
+        "forcing_id": { "type": "string", "minLength": 1 },
+        "snapshot_id": { "type": "string", "minLength": 1 },
+        "mode": { "type": "string", "enum": ["F", "R"] },
+        "issue_time": { "type": "string", "format": "date-time" },
+        "horizon": { "type": "integer", "minimum": 1 },
+        "variables": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "quality_flags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
+    "HydroState": {
+      "type": "object",
+      "required": ["state_id", "basin_id", "issue_time", "quality_flags"],
+      "properties": {
+        "state_id": { "type": "string", "minLength": 1 },
+        "basin_id": { "type": "string", "minLength": 1 },
+        "issue_time": { "type": "string", "format": "date-time" },
+        "current_flow": { "type": ["number", "null"] },
+        "current_flow_unit": { "type": ["string", "null"] },
+        "antecedent_rainfall": { "type": ["number", "null"] },
+        "antecedent_rainfall_unit": { "type": ["string", "null"] },
+        "model_state_ref": { "type": ["string", "null"] },
+        "quality_flags": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "HydrologicModel": {
+      "type": "object",
+      "required": ["model_id", "version", "capabilities"],
+      "properties": {
+        "model_id": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["forecast", "validate", "calibrate", "adapt"]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "adapter_ref": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "Scheme": {
+      "type": "object",
+      "required": ["scheme_id", "model_id", "config_version", "status"],
+      "properties": {
+        "scheme_id": { "type": "string", "minLength": 1 },
+        "model_id": { "type": "string", "minLength": 1 },
+        "config_version": { "type": "string", "minLength": 1 },
+        "parameter_or_weight_ref": { "type": ["string", "null"] },
+        "status": {
+          "type": "string",
+          "enum": ["base", "candidate", "accepted", "rolled_back", "frozen"]
+        },
+        "parent_scheme_id": { "type": ["string", "null"] },
+        "strategy_id": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "LeadValue": {
+      "type": "object",
+      "required": ["lead", "target_time", "value"],
+      "properties": {
+        "lead": { "type": "integer", "enum": [1, 2, 3] },
+        "target_time": { "type": "string", "format": "date-time" },
+        "value": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "Forecast": {
+      "type": "object",
+      "required": ["forecast_id", "scheme_id", "issue_time", "lead_values", "unit"],
+      "properties": {
+        "forecast_id": { "type": "string", "minLength": 1 },
+        "scheme_id": { "type": "string", "minLength": 1 },
+        "data_snapshot_id": { "type": ["string", "null"] },
+        "hydro_state_id": { "type": ["string", "null"] },
+        "issue_time": { "type": "string", "format": "date-time" },
+        "lead_values": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/LeadValue" },
+          "minItems": 1,
+          "maxItems": 3
+        },
+        "unit": { "type": "string", "minLength": 1 },
+        "quality_flags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "artifact_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
+    "Evidence": {
+      "type": "object",
+      "required": ["evidence_id", "action_id", "status", "observations", "metrics", "gates"],
+      "properties": {
+        "evidence_id": { "type": "string", "minLength": 1 },
+        "action_id": {
+          "type": "string",
+          "pattern": "^A(0[1-9]|1[0-2])$"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["success", "partial", "failed", "blocked"]
+        },
+        "target_object_type": {
+          "type": ["string", "null"],
+          "enum": ["Basin", "Station", "DataSnapshot", "Forcing", "HydroState", "HydrologicModel", "Scheme", "Forecast", "Task", null]
+        },
+        "target_object_id": { "type": ["string", "null"] },
+        "observations": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "metrics": { "type": "object", "additionalProperties": true },
+        "gates": { "type": "object", "additionalProperties": true },
+        "supported_hypotheses": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Hypothesis" },
+          "default": []
+        },
+        "weakened_hypotheses": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Hypothesis" },
+          "default": []
+        },
+        "unresolved_hypotheses": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Hypothesis" },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
+    "Hypothesis": {
+      "type": "string",
+      "enum": ["DATA", "TIMING", "STATE", "FORCING", "MODEL", "UNKNOWN"]
+    },
+    "Task": {
+      "type": "object",
+      "required": ["task_id", "basin_id", "phase", "forcing_mode", "current_scheme_id"],
+      "properties": {
+        "task_id": { "type": "string", "minLength": 1 },
+        "basin_id": { "type": "string", "minLength": 1 },
+        "phase": { "type": "string", "enum": ["B", "F", "E"] },
+        "forcing_mode": { "type": "string", "enum": ["F", "R"] },
+        "current_scheme_id": { "type": "string", "minLength": 1 },
+        "active_problem": { "$ref": "#/$defs/Hypothesis" },
+        "terminal_status": {
+          "type": ["string", "null"],
+          "enum": ["ACCEPT", "KEEP", "ROLLBACK", "BLOCK", "FREEZE", null]
+        },
+        "terminal_reason": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "PermissionView": {
+      "type": "object",
+      "required": ["safe_actions"],
+      "properties": {
+        "safe_actions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^A(0[1-9]|1[0-2])$"
+          },
+          "uniqueItems": true
+        },
+        "blocked_actions": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "default": {}
+        }
+      },
+      "additionalProperties": false
+    },
+    "BudgetView": {
+      "type": "object",
+      "required": ["agent_rounds_remaining", "optimization_cycles_remaining"],
+      "properties": {
+        "agent_rounds_remaining": { "type": "integer", "minimum": 0 },
+        "optimization_cycles_remaining": { "type": "integer", "minimum": 0 },
+        "model_budget_remaining": { "type": ["number", "null"], "minimum": 0 },
+        "wall_time_remaining": { "type": ["number", "null"], "minimum": 0 },
+        "api_budget_remaining": { "type": ["number", "null"], "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  }
+}
