@@ -304,9 +304,10 @@ This is the minimum end-to-end proof of the research claim. OpenHydroNet proves 
 - [x] SP5 real candidate rollback/immutability acceptance passes. Local verification: 2026-09-08.
 - [x] SP6 two-round evidence loop passes with scripted provider. Local verification: 2026-09-08.
 - [x] SP7 freeze/replay/E-phase/report acceptance passes. Local verification: 2026-09-08.
-- [ ] SP3B real OpenHydroNet inference/adaptation isolation passes.
+- [ ] SP3B real OpenHydroNet inference/adaptation isolation passes. Deferred: XAJ-first complete path before OHN.
 - [ ] SP8 API/unit/build/Playwright acceptance passes.
-- [ ] Full fast test suite passes from repository root.
+- [x] Full fast test suite passes from repository root. Local verification: 2026-09-08 (102 passed excluding integration).
 - [ ] All real-model tests record pinned upstream commits, input hashes, wall time, and peak memory.
-- [ ] No Agent/UI path directly executes model subprocesses.
-- [ ] No accepted historical F replay uses future observations or future reanalysis as forecast forcing.
+- [x] No Agent/UI path directly executes model subprocesses. Local verification: 2026-09-08 (ToolRouter -> services -> Sandbox only).
+- [x] No accepted historical F replay uses future observations or future reanalysis as forecast forcing. Local verification: 2026-09-08.
+- [x] XAJ full research path (validate→forecast→calibrate→gate→resolve→freeze→replay→evaluate/report) passes as one Task. Local verification: 2026-09-08.

@@ -58,7 +58,7 @@ class SnapshotResolver:
             if isinstance(self.source, NormalizedSource)
             else load_normalized_source(Path(self.source))
         )
-        snapshot_id = f"{task_id}--{capability}--{issue.strftime('%Y%m%dT%H%M%SZ')}"
+        snapshot_id = f"{task_id}--{task.phase}--{capability}--{issue.strftime('%Y%m%dT%H%M%SZ')}"
         context = SnapshotContext(
             task_id=task_id,
             snapshot_id=snapshot_id,
