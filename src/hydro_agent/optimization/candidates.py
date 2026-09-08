@@ -31,7 +31,9 @@ class CandidateSchemeService:
             "created_by_action_run_id": action_run_id,
             "strategy_id": strategy_id,
         }
-        scheme_id = f"{base_scheme_id}--candidate--{action_run_id}"
+        short_run = action_run_id.replace("run-", "")[-12:]
+        # Keep scheme ids short: Identifier max length is 128.
+        scheme_id = f"{base.task_id}--cand-{short_run}"
         content_hash = sha256_bytes(canonical_json(config).encode("utf-8"))
         self.repository.create_scheme(
             scheme_id=scheme_id,

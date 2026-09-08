@@ -81,19 +81,46 @@ class SiliconFlowDecisionProvider:
                         "WorldStateView JSON follows. Pick exactly one legal next action.\n"
                         "Remember: hypothesis must be one enum token like MODEL, never a sentence.\n"
                         "action MUST be one of permissions.safe_actions.\n"
+                        "Keep rationale_summary under 120 Chinese characters so JSON stays complete.\n"
                         + view.model_dump_json()
                     ),
                 },
             ],
-            max_tokens=800,
+            max_tokens=1200,
             on_delta=on_delta,
         )
         safe = {a.value for a in view.permissions.safe_actions}
+        evidence_actions = tuple(item.action.value for item in view.evidence_summary)
+        try:
+            try_payload = _extract_json(completion.content)
+        except ValueError:
+            try_payload = _fallback_payload(view, raw_text=completion.content)
         payload = normalize_decision_payload(
-            _extract_json(completion.content),
+            try_payload,
             safe_actions=safe,
-            evidence_actions=tuple(item.action.value for item in view.evidence_summary),
+            evidence_actions=evidence_actions,
         )
+        # After an accepted resolve, freeze rather than endless re-optimize loops.
+        accepted = any(
+            item.action == ActionCode.A09_RESOLVE and item.status == "ACCEPT"
+            for item in view.evidence_summary
+        )
+        if (
+            accepted
+            and ActionCode.A10_FREEZE.value not in evidence_actions
+            and payload["action"]
+            in {
+                ActionCode.A06_DIAGNOSE.value,
+                ActionCode.A07_OPTIMIZE.value,
+                ActionCode.A08_GATE.value,
+            }
+            and ActionCode.A10_FREEZE.value in safe
+        ):
+            payload["action"] = ActionCode.A10_FREEZE.value
+            payload["strategy_id"] = None
+            payload["rationale_summary"] = (
+                "Gate 已 ACCEPT 并落实候选，停止继续调参，冻结当前方案进入回放。"
+            )
         return AgentDecision.model_validate(payload)
 
 
@@ -102,16 +129,82 @@ def _extract_json(text: str) -> dict:
     if raw.startswith("```"):
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
-    try:
-        value = json.loads(raw)
-    except json.JSONDecodeError:
-        match = _JSON_RE.search(text)
-        if not match:
-            raise ValueError("SiliconFlow response did not contain JSON AgentDecision") from None
-        value = json.loads(match.group(0))
-    if not isinstance(value, dict):
-        raise ValueError("AgentDecision JSON must be an object")
-    return value
+    candidates = [raw]
+    match = _JSON_RE.search(text)
+    if match:
+        candidates.append(match.group(0))
+    start = text.find("{")
+    if start >= 0:
+        fragment = text[start:].strip()
+        candidates.append(fragment)
+        # Common truncation: missing closing braces / quote.
+        for suffix in ('"}', '"}}', "}", "}}", '"} }'):
+            candidates.append(fragment + suffix)
+    for candidate in candidates:
+        try:
+            value = json.loads(candidate)
+        except json.JSONDecodeError:
+            repaired = _repair_truncated_json(candidate)
+            if repaired is None:
+                continue
+            try:
+                value = json.loads(repaired)
+            except json.JSONDecodeError:
+                continue
+        if isinstance(value, dict):
+            return value
+    raise ValueError("SiliconFlow response did not contain JSON AgentDecision")
+
+
+def _repair_truncated_json(text: str) -> str | None:
+    if "{" not in text:
+        return None
+    fragment = text[text.find("{") :]
+    # Close an open string if needed.
+    quote_count = fragment.count('"') - fragment.count('\\"')
+    if quote_count % 2 == 1:
+        fragment += '"'
+    opens = fragment.count("{") - fragment.count("}")
+    if opens > 0:
+        fragment += "}" * opens
+    return fragment
+
+
+def _fallback_payload(view: WorldStateView, *, raw_text: str) -> dict:
+    """Deterministic next step when the LLM returns truncated/non-JSON text."""
+    actions = [item.action.value for item in view.evidence_summary]
+    safe = {a.value for a in view.permissions.safe_actions}
+    preferred = None
+    if "A07_OPTIMIZE" in actions and "A08_GATE" not in actions:
+        preferred = ActionCode.A08_GATE.value
+    elif "A08_GATE" in actions and "A09_RESOLVE" not in actions:
+        preferred = ActionCode.A09_RESOLVE.value
+    elif "A09_RESOLVE" in actions and "A10_FREEZE" not in actions:
+        # Allow continue-or-freeze; default freeze to finish the smoke path.
+        preferred = ActionCode.A10_FREEZE.value
+    elif "A10_FREEZE" in actions and "A11_REPLAY" in safe:
+        preferred = ActionCode.A11_REPLAY.value
+    elif view.task.phase == "E" and "A12_EVALUATE_REPORT" in safe:
+        preferred = ActionCode.A12_EVALUATE_REPORT.value
+    elif "A05_FORECAST" not in actions and "A05_FORECAST" in safe:
+        preferred = ActionCode.A05_FORECAST.value
+    elif "A06_DIAGNOSE" not in actions and "A06_DIAGNOSE" in safe and view.latest_forecast_id:
+        preferred = ActionCode.A06_DIAGNOSE.value
+    elif "A07_OPTIMIZE" in safe:
+        preferred = ActionCode.A07_OPTIMIZE.value
+    else:
+        preferred = next(iter(sorted(safe)), ActionCode.A01_CHECK_DATA.value)
+    # If raw text clearly names an action, prefer that when safe.
+    for code in _ACTIONS:
+        if code in raw_text and code in safe:
+            preferred = code
+            break
+    return {
+        "action": preferred,
+        "hypothesis": "MODEL",
+        "strategy_id": "xaj-bounded-v1" if preferred == ActionCode.A07_OPTIMIZE.value else None,
+        "rationale_summary": "模型输出不完整，已按证据状态回退到安全的下一步。",
+    }
 
 
 def normalize_decision_payload(

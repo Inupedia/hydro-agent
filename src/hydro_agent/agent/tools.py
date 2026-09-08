@@ -234,10 +234,16 @@ class OptimizeHandler:
         )
         observations = (
             f"candidate_scheme_id={candidate_id}",
+            f"base_scheme_id={outcome.base_scheme_id}",
             f"strategy_id={outcome.strategy_id}",
             f"objective_value={outcome.objective_value}",
         )
         metrics = {"objective_value": float(outcome.objective_value)}
+        gates = {
+            "candidate_scheme_id": candidate_id,
+            "base_scheme_id": outcome.base_scheme_id,
+            "strategy_id": str(outcome.strategy_id),
+        }
         return EvidencePacket(
             evidence_id=_evidence_id(),
             task_id=task_id,
@@ -246,6 +252,7 @@ class OptimizeHandler:
             status="succeeded",
             observations=observations,
             metrics=metrics,
+            gates=gates,
             artifact_ids=tuple(outcome.artifact_ids),
             new_information_hash=information_hash(
                 action=ActionCode.A07_OPTIMIZE,
@@ -268,6 +275,8 @@ class GateHandler:
         result = self.gate_evaluator.evaluate(base, candidate, self.policy)
         observations = (
             f"gate_status={result.status}",
+            f"base_scheme_id={result.base_scheme_id}",
+            f"candidate_scheme_id={result.candidate_scheme_id}",
             f"base_primary={base.primary_score:.4f}",
             f"candidate_primary={candidate.primary_score:.4f}",
             *result.reasons,
@@ -277,7 +286,11 @@ class GateHandler:
             "base_primary": float(base.primary_score),
             "candidate_primary": float(candidate.primary_score),
         }
-        gates = {"status": result.status, "candidate_scheme_id": result.candidate_scheme_id}
+        gates = {
+            "status": result.status,
+            "base_scheme_id": result.base_scheme_id,
+            "candidate_scheme_id": result.candidate_scheme_id,
+        }
         return EvidencePacket(
             evidence_id=_evidence_id(),
             task_id=task_id,

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from hydro_agent.agent.contracts import ActionCode
 from hydro_agent.evaluation.metrics import build_evaluation_bundle, mae, nse
 from hydro_agent.execution.contracts import ExecutionPolicy
 
@@ -37,6 +38,7 @@ def collect_lead_series(
     forecasts,
     scheme_id: str,
     truth: dict[date, float],
+    window: ValidationWindow | None = None,
 ) -> dict[int, tuple[list[float], list[float]]]:
     lead_obs: dict[int, list[float]] = {1: [], 2: [], 3: []}
     lead_sim: dict[int, list[float]] = {1: [], 2: [], 3: []}
@@ -44,9 +46,13 @@ def collect_lead_series(
         if forecast.scheme_id != scheme_id:
             continue
         issue_date = forecast.issue_time.date()
+        if window is not None and (issue_date < window.start or issue_date > window.end):
+            continue
         values = forecast.lead_values_json
         for lead_key, value in values.items():
             lead = int(lead_key)
+            if lead not in lead_obs:
+                continue
             target = issue_date + timedelta(days=lead)
             if target not in truth:
                 continue
@@ -55,10 +61,119 @@ def collect_lead_series(
     return {lead: (lead_obs[lead], lead_sim[lead]) for lead in (1, 2, 3)}
 
 
+def collect_aligned_lead_series(
+    *,
+    forecasts,
+    base_scheme_id: str,
+    candidate_scheme_id: str,
+    truth: dict[date, float],
+    window: ValidationWindow,
+) -> tuple[dict[int, tuple[list[float], list[float]]], dict[int, tuple[list[float], list[float]]]]:
+    """Build base/candidate series on identical (issue_day, lead, observation) samples."""
+    by_scheme_issue: dict[tuple[str, date], Any] = {}
+    for forecast in forecasts:
+        if forecast.scheme_id not in (base_scheme_id, candidate_scheme_id):
+            continue
+        issue_date = forecast.issue_time.date()
+        if issue_date < window.start or issue_date > window.end:
+            continue
+        key = (forecast.scheme_id, issue_date)
+        # Prefer the lexicographically last forecast_id only as a last resort; Gate
+        # should normally have one forecast per (scheme, issue).
+        prev = by_scheme_issue.get(key)
+        if prev is None or str(forecast.forecast_id) >= str(prev.forecast_id):
+            by_scheme_issue[key] = forecast
+
+    base_obs: dict[int, list[float]] = {1: [], 2: [], 3: []}
+    base_sim: dict[int, list[float]] = {1: [], 2: [], 3: []}
+    cand_obs: dict[int, list[float]] = {1: [], 2: [], 3: []}
+    cand_sim: dict[int, list[float]] = {1: [], 2: [], 3: []}
+
+    for day in window.issue_days:
+        base_f = by_scheme_issue.get((base_scheme_id, day))
+        cand_f = by_scheme_issue.get((candidate_scheme_id, day))
+        if base_f is None or cand_f is None:
+            continue
+        for lead in (1, 2, 3):
+            target = day + timedelta(days=lead)
+            if target not in truth:
+                continue
+            b_key = str(lead)
+            c_key = str(lead)
+            if b_key not in base_f.lead_values_json or c_key not in cand_f.lead_values_json:
+                continue
+            obs = float(truth[target])
+            base_obs[lead].append(obs)
+            cand_obs[lead].append(obs)
+            base_sim[lead].append(float(base_f.lead_values_json[b_key]))
+            cand_sim[lead].append(float(cand_f.lead_values_json[c_key]))
+
+    return (
+        {lead: (base_obs[lead], base_sim[lead]) for lead in (1, 2, 3)},
+        {lead: (cand_obs[lead], cand_sim[lead]) for lead in (1, 2, 3)},
+    )
+
+
 def require_enough_pairs(series: dict[int, tuple[list[float], list[float]]]) -> None:
     for lead, (obs, _sim) in series.items():
         if len(obs) < 2:
             raise RuntimeError(f"validation window too short for lead-{lead} Gate metrics")
+
+
+def resolve_gate_scheme_ids(repository, task_id: str) -> tuple[str, str]:
+    """Bind Gate to current scheme vs the candidate from the latest A07 optimize."""
+    state = repository.ensure_task_state(task_id)
+    base_scheme_id = state.current_scheme_id
+    if not base_scheme_id:
+        raise RuntimeError("gate requires a current scheme")
+
+    candidate_scheme_id: str | None = None
+    optimize_base_id: str | None = None
+    for row in reversed(repository.list_evidence(task_id)):
+        if row.action != ActionCode.A07_OPTIMIZE.value:
+            continue
+        gates = dict(row.gates_json or {})
+        candidate_scheme_id = gates.get("candidate_scheme_id") or None
+        optimize_base_id = gates.get("base_scheme_id") or None
+        if not candidate_scheme_id:
+            for obs in row.observations_json or ():
+                if str(obs).startswith("candidate_scheme_id="):
+                    candidate_scheme_id = str(obs).split("=", 1)[1]
+                    break
+        break
+
+    if not candidate_scheme_id:
+        raise RuntimeError("gate requires a candidate from the latest A07_OPTIMIZE")
+
+    if candidate_scheme_id == base_scheme_id:
+        # Should not happen before resolve; fall back to provenance / optimize base.
+        try:
+            scheme = repository.get_scheme(candidate_scheme_id)
+            provenance = dict((scheme.config_json or {}).get("provenance") or {})
+            base_scheme_id = str(
+                provenance.get("base_scheme_id") or optimize_base_id or base_scheme_id
+            )
+        except KeyError:
+            if optimize_base_id:
+                base_scheme_id = optimize_base_id
+
+    if candidate_scheme_id == base_scheme_id:
+        raise RuntimeError("gate candidate equals baseline scheme")
+    return base_scheme_id, candidate_scheme_id
+
+
+def latest_candidate_scheme_id(repository, task_id: str) -> str | None:
+    for row in reversed(repository.list_evidence(task_id)):
+        if row.action != ActionCode.A07_OPTIMIZE.value:
+            continue
+        gates = dict(row.gates_json or {})
+        candidate = gates.get("candidate_scheme_id")
+        if candidate:
+            return str(candidate)
+        for obs in row.observations_json or ():
+            if str(obs).startswith("candidate_scheme_id="):
+                return str(obs).split("=", 1)[1]
+    return None
 
 
 def diagnose_forecast_errors(
@@ -187,25 +302,22 @@ class RealValidationGate:
             )
 
     def bundles(self, task_id: str):
-        schemes = self.repository.list_schemes(task_id)
-        base = next((s for s in schemes if s.status == "base"), None)
-        candidate = next((s for s in reversed(list(schemes)) if s.status == "candidate"), None)
-        if base is None or candidate is None:
-            raise RuntimeError("gate requires base and candidate schemes")
+        base_scheme_id, candidate_scheme_id = resolve_gate_scheme_ids(self.repository, task_id)
         window = self.window_for(task_id)
-        self.ensure_forecasts(task_id, base.scheme_id, window)
-        self.ensure_forecasts(task_id, candidate.scheme_id, window)
+        self.ensure_forecasts(task_id, base_scheme_id, window)
+        self.ensure_forecasts(task_id, candidate_scheme_id, window)
         truth = truth_from_source(self.source.flow_rows)
         forecasts = self.repository.list_forecasts(task_id)
-        base_series = collect_lead_series(
-            forecasts=forecasts, scheme_id=base.scheme_id, truth=truth
-        )
-        cand_series = collect_lead_series(
-            forecasts=forecasts, scheme_id=candidate.scheme_id, truth=truth
+        base_series, cand_series = collect_aligned_lead_series(
+            forecasts=forecasts,
+            base_scheme_id=base_scheme_id,
+            candidate_scheme_id=candidate_scheme_id,
+            truth=truth,
+            window=window,
         )
         require_enough_pairs(base_series)
         require_enough_pairs(cand_series)
         return (
-            build_evaluation_bundle(base.scheme_id, base_series),
-            build_evaluation_bundle(candidate.scheme_id, cand_series),
+            build_evaluation_bundle(base_scheme_id, base_series),
+            build_evaluation_bundle(candidate_scheme_id, cand_series),
         )

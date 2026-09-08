@@ -16,6 +16,7 @@ from hydro_agent.agent.permissions import PermissionGate
 from hydro_agent.execution.hashing import sha256_bytes
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 from hydro_agent.skills import SkillRegistry
+from hydro_agent.workbench.validation_gate import latest_candidate_scheme_id
 
 
 class WorldStateBuilder:
@@ -51,13 +52,21 @@ class WorldStateBuilder:
             )
             for row in evidence_rows[-8:]
         )
-        forecasts = self.repository.list_forecasts(task_id)
+        forecasts = [
+            row
+            for row in self.repository.list_forecasts(task_id)
+            if row.scheme_id == scheme.scheme_id
+        ]
+        forecasts.sort(key=lambda row: (row.issue_time, row.forecast_id))
         latest_forecast = forecasts[-1] if forecasts else None
         current_params = dict((scheme.config_json or {}).get("parameters") or {})
-        candidate = next(
-            (s for s in reversed(self.repository.list_schemes(task_id)) if s.status == "candidate"),
-            None,
-        )
+        candidate = None
+        candidate_id = latest_candidate_scheme_id(self.repository, task_id)
+        if candidate_id and candidate_id != scheme.scheme_id:
+            try:
+                candidate = self.repository.get_scheme(candidate_id)
+            except KeyError:
+                candidate = None
         candidate_params = None
         parameter_delta: dict[str, float] = {}
         if candidate is not None:

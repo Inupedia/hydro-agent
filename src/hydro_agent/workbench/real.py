@@ -141,8 +141,9 @@ class RealWorkbenchKernel:
         return snap_id
 
     def build_tools(self, *, task_configs: dict) -> ToolRouter:
-        self._task_configs.clear()
-        self._task_configs.update(task_configs)
+        # Share the live dict reference so create_task updates are visible to Gate/diagnose.
+        self._task_configs = task_configs
+        self.validation_gate.task_configs = task_configs
         tools = ToolRouter()
         tools.register(ActionCode.A01_CHECK_DATA, CheckDataHandler(self.repository))
         tools.register(ActionCode.A03_VALIDATE_SCHEME, ValidateSchemeHandler(self.repository))
@@ -183,31 +184,69 @@ class RealWorkbenchKernel:
         return tools
 
     def _diagnose(self, task_id: str) -> dict:
-        cfg = self._task_configs.get(task_id) or {}
-        issue = _issue_from_config(cfg)
+        state = self.repository.ensure_task_state(task_id)
+        scheme_id = state.current_scheme_id
+        if not scheme_id:
+            return {
+                "hypothesis": "DATA",
+                "phenomenon": "尚无当前方案，无法诊断",
+                "recommended_action": "A03_VALIDATE_SCHEME",
+                "recommended_strategy_id": None,
+                "metrics": {},
+                "notes": ["no current scheme"],
+            }
+        window = self.validation_gate.window_for(task_id)
         forecasts = [
             row
             for row in self.repository.list_forecasts(task_id)
-            if row.issue_time.date() == issue.date()
+            if row.scheme_id == scheme_id
+            and window.start <= row.issue_time.date() <= window.end
         ]
+        forecasts.sort(key=lambda row: (row.issue_time, row.forecast_id))
         if not forecasts:
-            forecasts = list(self.repository.list_forecasts(task_id))
+            # Ensure at least the validation-end issue for the *current* scheme.
+            issue = datetime(
+                window.end.year, window.end.month, window.end.day, tzinfo=timezone.utc
+            )
+            issue_iso = issue.isoformat().replace("+00:00", "Z")
+            self.forecast.forecast(
+                task_id=task_id,
+                scheme_id=scheme_id,
+                issue_time=issue_iso,
+                policy=POLICY,
+            )
+            forecasts = [
+                row
+                for row in self.repository.list_forecasts(task_id)
+                if row.scheme_id == scheme_id
+                and window.start <= row.issue_time.date() <= window.end
+            ]
+            forecasts.sort(key=lambda row: (row.issue_time, row.forecast_id))
         if not forecasts:
             return {
                 "hypothesis": "DATA",
-                "phenomenon": "尚无预报，无法诊断",
+                "phenomenon": "尚无当前方案预报，无法诊断",
                 "recommended_action": "A05_FORECAST",
                 "recommended_strategy_id": None,
                 "metrics": {},
-                "notes": ["no forecast"],
+                "notes": [f"scheme_id={scheme_id}", "no forecast"],
             }
         latest = forecasts[-1]
         leads = {int(k): float(v) for k, v in latest.lead_values_json.items()}
-        return diagnose_forecast_errors(
+        result = diagnose_forecast_errors(
             truth=truth_from_source(self.source.flow_rows),
             lead_values=leads,
             issue_day=latest.issue_time.date(),
         )
+        notes = list(result.get("notes") or [])
+        notes.insert(0, f"scheme_id={scheme_id}")
+        notes.insert(1, f"issue={latest.issue_time.date().isoformat()}")
+        notes.insert(
+            2,
+            f"validation_window={window.start.isoformat()}..{window.end.isoformat()}",
+        )
+        result["notes"] = notes
+        return result
 
 
 def _issue_from_config(cfg: dict) -> datetime:

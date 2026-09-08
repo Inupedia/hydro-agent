@@ -12,6 +12,10 @@ services:
       - hydro-agent-data:/data
       - ./data/source/camels_13235000:/app/data/source/camels_13235000:ro
       - ./tests/fixtures/xaj/lowman_scheme.json:/app/tests/fixtures/xaj/lowman_scheme.json:ro
+      # Keep runtime in sync with the workspace so hotfixes cannot drift from the image.
+      - ./src:/app/src
+      - ./scripts/run_workbench_api.py:/app/scripts/run_workbench_api.py:ro
+      - ./web/dist:/app/web/dist:ro
     environment:
       HYDRO_AGENT_HOST: "0.0.0.0"
       HYDRO_AGENT_PORT: "8000"

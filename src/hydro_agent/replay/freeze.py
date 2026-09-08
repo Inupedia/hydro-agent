@@ -66,7 +66,9 @@ class FreezeService:
             "gate_decision_id": gate_decision_id,
             "frozen_by": "FreezeService",
         }
-        frozen_id = f"{source_scheme_id}--frozen--{task_id}"
+        frozen_id = f"{task_id}--frozen-{source_scheme_id[-24:]}"
+        if len(frozen_id) > 128:
+            frozen_id = f"{task_id}--frozen-{sha256_bytes(source_scheme_id.encode())[:16]}"
         content_hash = sha256_bytes(canonical_json(config).encode("utf-8"))
         self.repository.create_scheme(
             scheme_id=frozen_id,

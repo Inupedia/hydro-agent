@@ -58,12 +58,15 @@ def _view() -> WorldStateView:
     )
 
 
-def test_extract_json_from_fenced_response():
-    payload = _extract_json(
-        '```json\n{"action":"A05_FORECAST","hypothesis":"MODEL","strategy_id":null,'
-        '"rationale_summary":"forecast now"}\n```'
+def test_extract_json_repairs_truncated_object():
+    text = (
+        '[thinking]\nnext gate\n[/thinking]\n'
+        '{"action":"A08_GATE","hypothesis":"MODEL","strategy_id":null,'
+        '"rationale_summary":"候选已生成，进入独立验证 Gate。'
     )
-    assert payload["action"] == "A05_FORECAST"
+    payload = _extract_json(text)
+    assert payload["action"] == "A08_GATE"
+    assert payload["hypothesis"] == "MODEL"
 
 
 def test_normalize_does_not_force_freeze_after_resolve():
