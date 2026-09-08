@@ -34,20 +34,37 @@ def test_endpoint_rejection(url):
 
 
 def test_request_and_usage(monkeypatch):
+    class StreamResponse:
+        def __init__(self, chunks: list[bytes]):
+            self._chunks = list(chunks)
+
+        def readline(self):
+            if not self._chunks:
+                return b""
+            return self._chunks.pop(0)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
     class Opener:
         def open(self, request, timeout):
             body = json.loads(request.data)
             assert body["model"] == "zai-org/GLM-5.3"
             assert body["max_tokens"] == 1024
+            assert body["stream"] is True
             assert request.get_header("Authorization") == "Bearer test-secret"
-            return io.BytesIO(
-                json.dumps(
-                    {
-                        "model": body["model"],
-                        "choices": [{"finish_reason": "stop", "message": {"content": "OK"}}],
-                        "usage": {"prompt_tokens": 10, "completion_tokens": 2},
-                    }
-                ).encode()
+            chunk = {
+                "model": body["model"],
+                "choices": [{"delta": {"content": "OK"}}],
+            }
+            return StreamResponse(
+                [
+                    f"data: {json.dumps(chunk)}\n".encode(),
+                    b"data: [DONE]\n",
+                ]
             )
 
     monkeypatch.setattr(client, "build_opener", lambda *args: Opener())
@@ -55,7 +72,7 @@ def test_request_and_usage(monkeypatch):
         [{"role": "user", "content": "OK"}]
     )
     assert result.content == "OK"
-    assert result.prompt_tokens == 10
+    assert result.prompt_tokens == 0
 
 
 def test_error_redacted_without_retry(monkeypatch):

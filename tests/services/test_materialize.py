@@ -97,3 +97,20 @@ def test_scheme_materialization_comes_from_repository_not_caller(materialize_sta
     snapshot = repo.get_snapshot(request.data_snapshot_id)
     for item in snapshot.manifest_json["files"]:
         assert sha256_file(workspace / "input/snapshot" / item["relative_path"]) == item["sha256"]
+
+
+def test_materialize_strips_workbench_metadata(materialize_stack):
+    repo, materializer_manager, request = materialize_stack
+    scheme = repo.get_scheme(request.scheme_id)
+    scheme.config_json["workbench"] = {
+        "allow_optimization": True,
+        "start_date": "2020-04-29",
+        "end_date": "2020-05-01",
+    }
+    scheme.config_json["provenance"] = {"source_scheme_id": "scheme-base"}
+    workspace = materializer_manager.create(request)
+    payload = json.loads((workspace / "input/scheme/scheme.json").read_text())
+    assert "workbench" not in payload
+    assert "provenance" not in payload
+    assert payload["warmup_days"] == 2
+    assert payload["scheme_id"] == request.scheme_id

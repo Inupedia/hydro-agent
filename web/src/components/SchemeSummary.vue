@@ -11,10 +11,23 @@ defineProps<{
 </script>
 
 <template>
-  <section v-if="scheme">
+  <!-- Kept for unit/e2e compatibility; ResultView now uses ProcessStory as the primary narrative. -->
+  <section v-if="scheme" class="scheme-summary">
     <h3>{{ scheme.status === 'frozen' ? '冻结方案' : '当前方案' }}</h3>
-    <p>模型：{{ scheme.model_id }}</p>
-    <p>方案：{{ scheme.scheme_id }}</p>
-    <p>哈希：{{ scheme.content_hash.slice(0, 12) }}</p>
+    <p>
+      {{
+        scheme.status === 'frozen'
+          ? '这套参数已被锁定，后续评估都基于这一版。'
+          : '这套参数仍可被后续步骤调整。'
+      }}
+    </p>
+    <p class="muted">模型：{{ scheme.model_id === 'xaj' ? '新安江（XAJ）' : scheme.model_id }}</p>
   </section>
 </template>
+
+<style scoped>
+.muted {
+  color: rgba(16, 35, 28, 0.65);
+  font-size: 0.9rem;
+}
+</style>

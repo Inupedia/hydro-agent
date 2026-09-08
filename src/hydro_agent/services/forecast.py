@@ -29,6 +29,19 @@ class ForecastService:
         self.model_id = model_id
 
     def forecast(self, *, task_id: str, scheme_id: str, issue_time: str, policy) -> ForecastRecord:
+        existing = self.repository.get_forecast_for_issue(task_id, scheme_id, issue_time)
+        if existing is not None:
+            return ForecastRecord(
+                forecast_id=existing.forecast_id,
+                task_id=existing.task_id,
+                action_run_id=existing.action_run_id,
+                scheme_id=existing.scheme_id,
+                data_snapshot_id=existing.data_snapshot_id,
+                issue_time=existing.issue_time,
+                lead_values={int(k): float(v) for k, v in existing.lead_values_json.items()},
+                unit=existing.unit,
+                artifact_ids=tuple(existing.artifact_ids_json),
+            )
         snapshot_id = self.resolver.resolve(task_id, "forecast", issue_time)
         action_run_id = new_action_run_id()
         self.repository.create_action_run(

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { reactive } from 'vue'
+import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTasksStore } from '../stores/tasks'
 
 const router = useRouter()
 const tasks = useTasksStore()
+const showAdvanced = ref(false)
 const form = reactive({
   basin_id: 'camels_13235000',
   model_id: 'xaj' as 'xaj' | 'openhydronet',
@@ -33,24 +34,19 @@ async function onSubmit() {
 <template>
   <section class="page">
     <h1>创建预报任务</h1>
-    <p class="lede">填写流域与运行边界后自动执行；不提供 A01–A12 手工勾选。</p>
+    <p class="lede">
+      点一下就会自动跑完整流程。你不需要懂水文模型参数，也不用勾选技术动作——系统会自己预报、尝试改进、把关、锁定，并给出白话结果说明。
+    </p>
     <form class="form" @submit.prevent="onSubmit">
       <label>
-        流域
+        流域（演示默认即可）
         <input v-model="form.basin_id" name="basin_id" required />
       </label>
       <label>
         模型
         <select v-model="form.model_id" name="model_id">
-          <option value="xaj">xaj</option>
-          <option value="openhydronet" disabled>openhydronet（稍后）</option>
-        </select>
-      </label>
-      <label>
-        Forcing 模式
-        <select v-model="form.forcing_mode" name="forcing_mode">
-          <option value="R">R</option>
-          <option value="F">F</option>
+          <option value="xaj">新安江（XAJ）</option>
+          <option value="openhydronet" disabled>OpenHydroNet（稍后）</option>
         </select>
       </label>
       <label>
@@ -61,15 +57,29 @@ async function onSubmit() {
         结束日期
         <input v-model="form.end_date" type="date" required />
       </label>
-      <label>
-        基础方案模板
-        <input v-model="form.base_scheme_id" required />
-      </label>
-      <label class="check">
-        <input v-model="form.allow_optimization" type="checkbox" name="allow_optimization" />
-        允许有限参数优化
-      </label>
-      <button type="submit" :disabled="submitting.value">创建并运行</button>
+
+      <button type="button" class="linkish" @click="showAdvanced = !showAdvanced">
+        {{ showAdvanced ? '收起高级选项' : '高级选项（一般不用改）' }}
+      </button>
+      <template v-if="showAdvanced">
+        <label>
+          Forcing 模式
+          <select v-model="form.forcing_mode" name="forcing_mode">
+            <option value="R">R（实测强迫）</option>
+            <option value="F">F（预报强迫）</option>
+          </select>
+        </label>
+        <label>
+          基础方案模板
+          <input v-model="form.base_scheme_id" required />
+        </label>
+        <label class="check">
+          <input v-model="form.allow_optimization" type="checkbox" name="allow_optimization" />
+          允许有限参数优化
+        </label>
+      </template>
+
+      <button type="submit" :disabled="submitting.value">创建并自动运行</button>
     </form>
   </section>
 </template>

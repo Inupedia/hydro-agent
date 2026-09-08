@@ -45,12 +45,11 @@ class AgentRuntime:
             1 if decision.action == ActionCode.A07_OPTIMIZE else 0
         )
         needs_follow_up = True
-        if decision.action == ActionCode.A09_RESOLVE:
-            needs_follow_up = False
-        elif decision.action == ActionCode.A12_EVALUATE_REPORT:
+        if decision.action == ActionCode.A12_EVALUATE_REPORT:
             needs_follow_up = False
         elif packet.status == "blocked":
             needs_follow_up = False
+        # A09_RESOLVE applies Gate outcome but freeze/replay/evaluate may still follow.
         self.repository.update_task_state(
             task_id,
             agent_rounds_used=rounds_used,

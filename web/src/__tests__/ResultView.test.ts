@@ -40,6 +40,17 @@ vi.mock('../components/ForecastChart.vue', () => ({
 vi.mock('../api/client', () => ({
   api: {
     getResults: vi.fn(async () => completedResultFixture),
+    getTimeline: vi.fn(async () => [
+      {
+        id: '1',
+        occurred_at: '2020-05-01T00:00:00Z',
+        label: '预报完成',
+        status: 'succeeded',
+        action: 'A05_FORECAST',
+        evidence_id: 'ev-1',
+        details: {},
+      },
+    ]),
   },
 }))
 
@@ -48,7 +59,7 @@ describe('ResultView', () => {
     setActivePinia(createPinia())
   })
 
-  it('shows frozen scheme, gate outcome, metrics and lead series', async () => {
+  it('shows plain-language process story, metrics and lead series', async () => {
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [{ path: '/tasks/:taskId/results', component: ResultView }],
@@ -60,10 +71,11 @@ describe('ResultView', () => {
     const wrapper = mount(ResultView, {
       global: { plugins: [router] },
     })
-    expect(wrapper.text()).toContain('冻结方案')
+    expect(wrapper.text()).toContain('系统决定：先不换方案')
+    expect(wrapper.text()).toContain('整体吻合度')
     expect(wrapper.text()).toContain('NSE')
-    expect(wrapper.text()).toContain('KGE')
     expect(wrapper.find('[data-test="forecast-chart"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="report-json"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('展开技术细节')
   })
 })

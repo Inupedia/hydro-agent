@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 
 from hydro_agent.agent.contracts import MAX_AGENT_ROUNDS, MAX_OPTIMIZATION_CYCLES
 from hydro_agent.api.deps import AppDependencies
 from hydro_agent.api.schemas import RunSummary
+
+logger = logging.getLogger(__name__)
 
 
 class TaskExecutor:
@@ -22,7 +25,11 @@ class TaskExecutor:
         with self._lock:
             if self._active_task_id is not None and not self._is_idle_locked():
                 raise RuntimeError("local worker busy")
-            self.deps.repository.ensure_task_state(task_id)
+            state = self.deps.repository.ensure_task_state(task_id)
+            task = self.deps.repository.get_task(task_id)
+            # Completed evaluation path: refreshing the Run page must not reset follow-up.
+            if task.phase == "E" and not state.needs_follow_up and not state.paused:
+                return self.status(task_id)
             self.deps.repository.update_task_state(task_id, paused=False, needs_follow_up=True)
             self._active_task_id = task_id
             self._future = self._pool.submit(self._run, task_id)
@@ -51,6 +58,7 @@ class TaskExecutor:
         state = self.deps.repository.ensure_task_state(task_id)
         evidence = self.deps.repository.list_evidence(task_id)
         last = evidence[-1] if evidence else None
+        trace = self.deps.get_llm_trace(task_id)
         with self._lock:
             active = self._active_task_id == task_id and not self._is_idle_locked()
         return RunSummary(
@@ -67,12 +75,19 @@ class TaskExecutor:
             current_scheme_id=state.current_scheme_id,
             last_action=last.action if last else None,
             last_hypothesis=None,
+            llm_streaming=bool(trace.streaming),
+            llm_text=trace.text,
+            llm_error=trace.error,
+            llm_decision_action=trace.decision_action,
         )
 
     def _run(self, task_id: str) -> None:
         try:
             runtime = self.deps.runtime_factory()
             runtime.run_until_terminal(task_id)
+        except Exception as exc:
+            logger.exception("workbench worker failed for task %s", task_id)
+            self.deps.finish_llm_trace(task_id, error=str(exc))
         finally:
             with self._lock:
                 if self._active_task_id == task_id:

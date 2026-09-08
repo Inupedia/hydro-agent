@@ -55,6 +55,13 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
             "max_optimization_cycles": payload.max_optimization_cycles,
         },
     }
+    if deps.base_scheme_config is not None:
+        base = deps.base_scheme_config()
+        config["model_id"] = str(base.get("model_id") or "xaj")
+        if base.get("warmup_days") is not None:
+            config["warmup_days"] = int(base["warmup_days"])
+        if isinstance(base.get("parameters"), dict) and base["parameters"]:
+            config["parameters"] = copy.deepcopy(base["parameters"])
     content_hash = sha256_bytes(
         json.dumps(config, sort_keys=True, separators=(",", ":")).encode("utf-8")
     )

@@ -4,17 +4,24 @@ const props = defineProps<{ taskId: string; artifacts: string[] }>()
 function href(name: string) {
   return `/api/tasks/${props.taskId}/report/${name}`
 }
+
+function label(name: string) {
+  if (name === 'report.md') return '阅读说明（Markdown）'
+  if (name === 'report.json') return '下载指标数据（JSON）'
+  return name
+}
 </script>
 
 <template>
-  <section>
-    <h3>报告</h3>
+  <section v-if="artifacts.length">
+    <h3>报告下载</h3>
+    <p class="lede">说明文档面向阅读；JSON 给需要二次处理的人。</p>
     <ul>
       <li v-for="name in artifacts" :key="name">
         <a
           :href="href(name)"
           :data-test="name === 'report.json' ? 'report-json' : name === 'report.md' ? 'report-md' : undefined"
-        >{{ name }}</a>
+        >{{ label(name) }}</a>
       </li>
     </ul>
   </section>

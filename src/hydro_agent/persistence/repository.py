@@ -332,3 +332,13 @@ class HydroRepository:
     def record_agent_decision(self, **kwargs):
         row = AgentDecisionRun(**kwargs)
         return self._create(row)
+
+    def list_agent_decisions(self, task_id: str):
+        with self.database.session() as session:
+            return list(
+                session.scalars(
+                    select(AgentDecisionRun)
+                    .where(AgentDecisionRun.task_id == task_id)
+                    .order_by(AgentDecisionRun.round_number, AgentDecisionRun.decision_id)
+                )
+            )

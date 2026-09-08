@@ -1,8 +1,10 @@
 import { expect, test } from '@playwright/test'
 
-test('task flows from creation to evidence timeline to results', async ({ page }) => {
+test('click first Archify step to input, then run without hash thrash', async ({ page }) => {
+  let created = false
   await page.route('**/api/tasks', async (route) => {
     if (route.request().method() === 'POST') {
+      created = true
       await route.fulfill({
         status: 201,
         contentType: 'application/json',
@@ -49,65 +51,24 @@ test('task flows from creation to evidence timeline to results', async ({ page }
       contentType: 'application/json',
       body: JSON.stringify([
         {
-          id: 't1',
-          occurred_at: '2020-05-01T00:00:00Z',
-          label: '正在运行水文模型',
-          status: 'running',
-          action: 'A05_FORECAST',
-          evidence_id: 'ev-1',
-          details: { action_run_id: 'run-1' },
-        },
-        {
-          id: 't2',
-          occurred_at: '2020-05-01T00:01:00Z',
-          label: '方案已冻结',
+          id: 't3',
+          occurred_at: '2020-05-01T00:02:00Z',
+          label: '评估报告完成',
           status: 'succeeded',
-          action: 'A10_FREEZE',
-          evidence_id: 'ev-2',
-          details: { action_run_id: '' },
+          action: 'A12_EVALUATE_REPORT',
+          evidence_id: 'ev-3',
+          details: {},
         },
       ]),
     })
   })
 
-  await page.route('**/api/tasks/task-demo/results', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        task_id: 'task-demo',
-        phase: 'E',
-        scheme: {
-          scheme_id: 'scheme-frozen',
-          status: 'frozen',
-          content_hash: 'abcdef123456',
-          model_id: 'xaj',
-          provenance: {},
-        },
-        forecasts: [
-          {
-            forecast_id: 'fc-1',
-            scheme_id: 'scheme-frozen',
-            issue_time: '2020-05-01T00:00:00Z',
-            lead_values: { 1: 1, 2: 2, 3: 3 },
-            unit: 'm3/s',
-          },
-        ],
-        metrics: { NSE: 0.5, KGE: 0.4, MAE: 1.0, Bias: 0.0 },
-        gate: { status: 'KEEP' },
-        report_artifacts: ['report.json', 'report.md'],
-        costs: {},
-      }),
-    })
-  })
-
-  await page.goto('/tasks')
-  await page.getByLabel('流域').fill('camels_13235000')
-  await page.getByLabel('模型').selectOption('xaj')
-  await page.getByRole('button', { name: '创建并运行' }).click()
-  await expect(page.getByText('正在运行水文模型')).toBeVisible()
-  await expect(page.getByText('方案已冻结')).toBeVisible()
-  await page.getByRole('button', { name: '查看结果' }).click()
-  await expect(page.getByText('冻结方案')).toBeVisible()
-  await expect(page.getByText('NSE')).toBeVisible()
+  await page.goto('/')
+  await expect(page.locator('#hydro-badge')).toBeVisible()
+  await expect(page.locator('#hydro-panel')).toBeHidden()
+  await page.locator('[data-node-id="user"]').first().click({ force: true })
+  await expect(page.locator('#hydro-panel')).toBeVisible()
+  await page.locator('#hydro-run').click()
+  await expect.poll(() => created).toBeTruthy()
+  await expect(page).not.toHaveURL(/view=|focus=/)
 })

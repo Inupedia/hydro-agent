@@ -52,13 +52,23 @@ class CheckDataHandler:
         self.repository = repository
 
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
+        task = self.repository.get_task(task_id)
+        state = self.repository.ensure_task_state(task_id)
+        schemes = self.repository.list_schemes(task_id)
         snapshots = self.repository.list_snapshots(task_id=task_id)
         observations = (
+            f"basin_id={task.basin_id}",
+            f"scheme_count={len(schemes)}",
+            f"current_scheme={state.current_scheme_id or 'none'}",
             f"snapshot_count={len(snapshots)}",
-            f"latest={snapshots[-1].snapshot_id if snapshots else 'none'}",
+            f"latest_snapshot={snapshots[-1].snapshot_id if snapshots else 'none'}",
         )
-        status = "succeeded" if snapshots else "failed"
-        metrics = {"snapshot_count": float(len(snapshots))}
+        # Snapshots are built lazily; a configured scheme is enough to proceed.
+        status = "succeeded" if schemes and state.current_scheme_id else "failed"
+        metrics = {
+            "scheme_count": float(len(schemes)),
+            "snapshot_count": float(len(snapshots)),
+        }
         return EvidencePacket(
             evidence_id=_evidence_id(),
             task_id=task_id,
@@ -311,6 +321,10 @@ class ReplayToolHandler:
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
         plan = self.planner.plan(task_id, self.start_date, self.end_date)
         forecasts = self.replay_service.execute(plan)
+        # Advance into read-only evaluation once historical replay succeeds.
+        task = self.repository.get_task(task_id)
+        if task.phase == "F":
+            self.repository.set_task_phase(task_id, "E")
         observations = (
             f"forecast_count={len(forecasts)}",
             f"scheme_id={plan.scheme_id}",

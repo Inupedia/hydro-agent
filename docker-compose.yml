@@ -6,14 +6,23 @@ services:
     image: hydro-agent-workbench:local
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     volumes:
       - hydro-agent-data:/data
+      - ./data/source/camels_13235000:/app/data/source/camels_13235000:ro
+      - ./tests/fixtures/xaj/lowman_scheme.json:/app/tests/fixtures/xaj/lowman_scheme.json:ro
     environment:
       HYDRO_AGENT_HOST: "0.0.0.0"
       HYDRO_AGENT_PORT: "8000"
       HYDRO_AGENT_DB: "/data/hydro.db"
       HYDRO_AGENT_REPORTS: "/data/reports"
       HYDRO_AGENT_STATIC: "/app/web/dist"
+      HYDRO_AGENT_WORK_ROOT: "/data/runtime"
+      HYDRO_AGENT_SOURCE: "/app/data/source/camels_13235000"
+      HYDRO_AGENT_SCHEME: "/app/tests/fixtures/xaj/lowman_scheme.json"
+      HYDRO_AGENT_MODE: "real"
+      HYDRO_LLM_TIMEOUT_SECONDS: "180"
     restart: unless-stopped
 
 volumes:

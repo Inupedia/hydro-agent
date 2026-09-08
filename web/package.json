@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "test": "vitest",
+    "dev": "node scripts/build-archify-ui.mjs && npx --yes serve dist -l 5173",
+    "build": "node scripts/build-archify-ui.mjs",
+    "preview": "node scripts/build-archify-ui.mjs && npx --yes serve dist -l 5173",
+    "test": "vitest run",
     "test:e2e": "playwright test"
   },
   "dependencies": {

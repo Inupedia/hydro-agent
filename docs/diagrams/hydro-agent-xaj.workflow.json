@@ -1,0 +1,343 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Hydro-Agent · 点击「用户」输入并开始",
+    "animation": "none",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "step-forecast",
+        "label": "预报",
+        "focus": [
+          "task",
+          "forecast",
+          "evidence"
+        ],
+        "note": "正在做基础流量预报。"
+      },
+      {
+        "id": "step-optimize",
+        "label": "调参",
+        "focus": [
+          "forecast",
+          "optimize",
+          "gate"
+        ],
+        "note": "尝试有限改进，并准备把关。"
+      },
+      {
+        "id": "step-gate",
+        "label": "KEEP 把关",
+        "focus": [
+          "gate",
+          "keep",
+          "freeze"
+        ],
+        "note": "提升不够就 KEEP，然后照常冻结——不是卡死。"
+      },
+      {
+        "id": "step-replay",
+        "label": "回放报告",
+        "focus": [
+          "freeze",
+          "replay",
+          "report",
+          "results"
+        ],
+        "note": "历史回放并生成结果说明。"
+      },
+      {
+        "id": "happy-path",
+        "label": "全路径",
+        "focus": [
+          "user",
+          "task",
+          "forecast",
+          "optimize",
+          "gate",
+          "keep",
+          "freeze",
+          "replay",
+          "report",
+          "results"
+        ],
+        "note": "从创建到结果说明的完整路径。"
+      }
+    ],
+    "output": "web/public/diagrams/hydro-agent-xaj.workflow.html"
+  },
+  "lanes": [
+    {
+      "id": "ui",
+      "label": "你看到的界面"
+    },
+    {
+      "id": "agent",
+      "label": "Agent 自动决策"
+    },
+    {
+      "id": "gate",
+      "label": "把关与锁定",
+      "variant": "exception"
+    },
+    {
+      "id": "engine",
+      "label": "模型与证据"
+    }
+  ],
+  "phases": [
+    {
+      "id": "start",
+      "label": "创建",
+      "fromCol": 0,
+      "toCol": 1
+    },
+    {
+      "id": "try",
+      "label": "预报与尝试改进",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "lock",
+      "label": "锁定、回看、说明",
+      "fromCol": 4,
+      "toCol": 5,
+      "variant": "dashed"
+    }
+  ],
+  "groups": [
+    {
+      "id": "decision_loop",
+      "label": "自动决策环",
+      "lane": "agent",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "keep_path",
+      "label": "KEEP = 提升不够，不是失败",
+      "lane": "gate",
+      "fromCol": 3,
+      "toCol": 4,
+      "variant": "security"
+    },
+    {
+      "id": "evidence_path",
+      "label": "证据沉淀",
+      "lane": "engine",
+      "fromCol": 2,
+      "toCol": 5,
+      "variant": "dashed"
+    }
+  ],
+  "mainPath": [
+    "user",
+    "task",
+    "forecast",
+    "optimize",
+    "gate",
+    "keep",
+    "freeze",
+    "replay",
+    "report",
+    "results"
+  ],
+  "nodes": [
+    {
+      "id": "user",
+      "lane": "ui",
+      "col": 0,
+      "type": "external",
+      "label": "用户",
+      "sublabel": "点创建并运行",
+      "width": 140
+    },
+    {
+      "id": "task",
+      "lane": "ui",
+      "col": 1,
+      "type": "frontend",
+      "label": "任务页",
+      "sublabel": "流域 / 日期",
+      "width": 140
+    },
+    {
+      "id": "results",
+      "lane": "ui",
+      "col": 5,
+      "type": "frontend",
+      "label": "结果说明",
+      "sublabel": "白话过程 + 曲线",
+      "width": 150
+    },
+    {
+      "id": "forecast",
+      "lane": "agent",
+      "col": 2,
+      "type": "backend",
+      "label": "基础预报",
+      "sublabel": "A05 跑一轮流量",
+      "width": 150
+    },
+    {
+      "id": "optimize",
+      "lane": "agent",
+      "col": 3,
+      "type": "cloud",
+      "label": "有限调参",
+      "sublabel": "A07 试着改进",
+      "width": 150
+    },
+    {
+      "id": "gate",
+      "lane": "gate",
+      "col": 3,
+      "type": "security",
+      "label": "把关 Gate",
+      "sublabel": "提升够不够大？",
+      "width": 150
+    },
+    {
+      "id": "keep",
+      "lane": "gate",
+      "col": 4,
+      "type": "messagebus",
+      "label": "KEEP 原方案",
+      "sublabel": "提升未达门槛",
+      "width": 150
+    },
+    {
+      "id": "freeze",
+      "lane": "engine",
+      "col": 4,
+      "type": "database",
+      "label": "冻结方案",
+      "sublabel": "A10 锁定这一版",
+      "width": 150
+    },
+    {
+      "id": "replay",
+      "lane": "engine",
+      "col": 5,
+      "type": "backend",
+      "label": "历史回放",
+      "sublabel": "A11 多日再起报",
+      "width": 150
+    },
+    {
+      "id": "report",
+      "lane": "agent",
+      "col": 5,
+      "type": "database",
+      "label": "评估报告",
+      "sublabel": "A12 NSE/KGE…",
+      "width": 150
+    },
+    {
+      "id": "evidence",
+      "lane": "engine",
+      "col": 2,
+      "type": "database",
+      "label": "证据库",
+      "sublabel": "时间线 / 指标",
+      "width": 140
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-user-task",
+      "from": "user",
+      "to": "task",
+      "variant": "default"
+    },
+    {
+      "id": "e-task-forecast",
+      "from": "task",
+      "to": "forecast",
+      "label": "自动启动",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-forecast-opt",
+      "from": "forecast",
+      "to": "optimize",
+      "variant": "default"
+    },
+    {
+      "id": "e-opt-gate",
+      "from": "optimize",
+      "to": "gate",
+      "label": "提交候选",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-gate-keep",
+      "from": "gate",
+      "to": "keep",
+      "label": "提升不够",
+      "variant": "security"
+    },
+    {
+      "id": "e-keep-freeze",
+      "from": "keep",
+      "to": "freeze",
+      "label": "仍用原方案",
+      "variant": "default"
+    },
+    {
+      "id": "e-freeze-replay",
+      "from": "freeze",
+      "to": "replay",
+      "variant": "default"
+    },
+    {
+      "id": "e-replay-report",
+      "from": "replay",
+      "to": "report",
+      "variant": "default"
+    },
+    {
+      "id": "e-report-results",
+      "from": "report",
+      "to": "results",
+      "label": "白话说明",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-forecast-ev",
+      "from": "forecast",
+      "to": "evidence",
+      "label": "写入证据",
+      "variant": "dashed"
+    },
+    {
+      "id": "e-report-ev",
+      "from": "report",
+      "to": "evidence",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "怎么用",
+      "items": [
+        "点击图上的「用户」或「任务」节点",
+        "在弹出层填写流域/日期后开始"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "KEEP 不是失败",
+      "items": [
+        "提升不够就保持原方案",
+        "流程会继续冻结与回放"
+      ]
+    }
+  ]
+}

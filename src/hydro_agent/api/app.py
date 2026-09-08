@@ -27,7 +27,11 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
 
     @app.get("/api/health")
     def health():
-        return {"status": "ok"}
+        return {
+            "status": "ok",
+            "mode": getattr(deps, "mode", "demo"),
+            "provider_model": getattr(deps, "provider_model", None),
+        }
 
     app.include_router(tasks.router)
     app.include_router(runs.router)

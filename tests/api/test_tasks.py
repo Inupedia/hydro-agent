@@ -5,7 +5,9 @@ from hydro_agent.api.app import create_app
 
 def test_health_and_openapi_boot(app_dependencies):
     client = TestClient(create_app(app_dependencies))
-    assert client.get("/api/health").json() == {"status": "ok"}
+    health = client.get("/api/health").json()
+    assert health["status"] == "ok"
+    assert "mode" in health
     schema = client.get("/openapi.json").json()
     assert "/api/tasks" in schema["paths"]
 

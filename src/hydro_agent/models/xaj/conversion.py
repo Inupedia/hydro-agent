@@ -16,8 +16,12 @@ def load_xaj_inputs(workspace: Path):
     scheme_payload = json.loads(
         (workspace / "input/scheme/scheme.json").read_text(encoding="utf-8")
     )
-    scheme_payload.pop("scheme_id", None)
-    scheme = XajScheme(**scheme_payload)
+    # Ignore non-model keys that the workbench may embed for orchestration.
+    scheme = XajScheme(
+        model_id=scheme_payload.get("model_id", "xaj"),
+        warmup_days=scheme_payload["warmup_days"],
+        parameters=scheme_payload["parameters"],
+    )
     basin = XajBasin.model_validate_json(
         (workspace / "input/snapshot/basin.json").read_text(encoding="utf-8")
     )

@@ -8,17 +8,19 @@ import argparse
 import csv
 import json
 import subprocess
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
 from numcodecs import get_codec
 
-from hydro_agent.data.contracts import ForcingRow
+from hydro_agent.data.contracts import FlowObservation, ForcingRow
 from hydro_agent.execution.hashing import sha256_file
 
 BASE = "https://storage.googleapis.com/caravan-multimet/v1.1/ERA5_LAND/timeseries.zarr/"
 SITE = "https://waterservices.usgs.gov/nwis/site/?format=rdb&sites=13235000&siteOutput=expanded"
+DV = "https://waterservices.usgs.gov/nwis/dv/?format=json&sites=13235000&parameterCd=00060&siteStatus=all"
+CFS_TO_M3S = 0.028316846592
 
 
 def prepare(output, start, end):
@@ -113,20 +115,52 @@ def prepare(output, start, end):
     (output / "forcing.jsonl").write_text(
         "\n".join(r.model_dump_json() for r in rows) + "\n", encoding="utf-8"
     )
-    (output / "flow.jsonl").write_text("", encoding="utf-8")
+    flow_url = f"{DV}&startDT={start.isoformat()}&endDT={end.isoformat()}"
+    flow_bytes = download(flow_url, "usgs-dv-00060.json")
+    flow_payload = json.loads(flow_bytes.decode("utf-8"))
+    dv_values = flow_payload["value"]["timeSeries"][0]["values"][0]["value"]
+    flow_rows = []
+    for item in dv_values:
+        day = date.fromisoformat(item["dateTime"][:10])
+        if day < start or day > end:
+            continue
+        value_text = item.get("value")
+        if value_text in (None, ""):
+            continue
+        try:
+            discharge = float(value_text) * CFS_TO_M3S
+        except ValueError:
+            continue
+        if discharge < 0:
+            continue
+        # Daily USGS values become available at the next UTC midnight.
+        available_at = datetime.combine(day + timedelta(days=1), time.min, timezone.utc)
+        flow_rows.append(
+            FlowObservation(
+                valid_date=day,
+                discharge_m3s=discharge,
+                source="usgs-nwis-dv-00060",
+                available_at=available_at,
+            )
+        )
+    if len(flow_rows) < 2:
+        raise ValueError("insufficient USGS daily discharge for calibration")
+    (output / "flow.jsonl").write_text(
+        "\n".join(r.model_dump_json() for r in flow_rows) + "\n", encoding="utf-8"
+    )
     (output / "basin.json").write_text(json.dumps(basin, sort_keys=True), encoding="utf-8")
     provenance = dict(
-        source="Caravan MultiMet",
+        source="Caravan MultiMet + USGS NWIS DV",
         version="v1.1",
         product="ERA5_LAND",
         basin_index=basin_index,
         day_timezone="UTC",
         source_attributes=attrs,
-        available_at_policy="retrieval_upper_bound; historical operational availability not asserted",
+        available_at_policy="retrieval_upper_bound for forcing; next-UTC-midnight for USGS DV flow",
         retrieved_at=retrieved.isoformat(),
         raw_files=receipts,
         area_source="USGS drain_area_va, square miles * 2.589988110336",
-        observations="not used by precipitation-PET-only XAJ forecast",
+        observations="usgs-nwis daily discharge 00060 (cfs->m3/s) for calibration/evaluation",
         normalized_files={
             name: sha256_file(output / name)
             for name in ("forcing.jsonl", "flow.jsonl", "basin.json")
@@ -138,6 +172,7 @@ def prepare(output, start, end):
             {
                 "source": str(output.resolve()),
                 "rows": len(rows),
+                "flow_rows": len(flow_rows),
                 "area_km2": area_km2,
                 "precipitation_range": [
                     min(r.precipitation_mm_day for r in rows),

@@ -46,6 +46,10 @@ class RunSummary(FrozenApiModel):
     current_scheme_id: str | None
     last_action: str | None = None
     last_hypothesis: str | None = None
+    llm_streaming: bool = False
+    llm_text: str = ""
+    llm_error: str | None = None
+    llm_decision_action: str | None = None
 
 
 class TimelineItem(FrozenApiModel):
@@ -83,3 +87,30 @@ class ResultSummary(FrozenApiModel):
     gate: dict[str, object] | None
     report_artifacts: tuple[str, ...]
     costs: dict[str, float]
+    story_zh: str = ""
+    phase_zh: str = ""
+    status_zh: str = ""
+
+
+class AgentRoundLogItem(FrozenApiModel):
+    round_number: int
+    occurred_at: str | None = None
+    action: str | None = None
+    action_zh: str = ""
+    hypothesis: str | None = None
+    hypothesis_zh: str = ""
+    strategy_id: str | None = None
+    rationale_summary: str = ""
+    llm_output: str = ""
+    input_summary_zh: str = ""
+    input_world_state: dict[str, object] = Field(default_factory=dict)
+    tool_status: str | None = None
+    tool_status_zh: str = ""
+    tool_observations: tuple[str, ...] = ()
+    tool_metrics: dict[str, float] = Field(default_factory=dict)
+    error: str | None = None
+
+
+class AgentLogSummary(FrozenApiModel):
+    task_id: str
+    rounds: tuple[AgentRoundLogItem, ...]
