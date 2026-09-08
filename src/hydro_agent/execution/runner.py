@@ -31,6 +31,10 @@ def _kill_group(process: subprocess.Popen) -> None:
         os.killpg(process.pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
+    except PermissionError:
+        # macOS can return EPERM for a group whose only member just exited.
+        if process.poll() is None:
+            raise
     process.wait()
 
 
@@ -110,6 +114,15 @@ class SandboxRunner:
                     time.sleep(0.02)
                 # Also reap descendants after parent exit to prevent background writers.
                 _kill_group(process)
+                # A fast child can write between the last size sample and poll().
+                if error is None:
+                    try:
+                        final_size = sum(p.stat().st_size for p in _files(workspace / "output"))
+                        final_size += stdout.stat().st_size + stderr.stat().st_size
+                        if final_size > request.policy.max_output_bytes:
+                            status, error = "contract_error", "output_too_large"
+                    except ValueError:
+                        status, error = "contract_error", "unsafe_output"
                 if error is None:
                     if exit_code != 0:
                         error = f"runtime_exit_{exit_code}"
