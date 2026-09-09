@@ -153,7 +153,7 @@ function fmtDelta(value: number | null) {
       <div>
         <span class="overline">调参与判断</span>
         <h2>新安江参数如何被调整</h2>
-        <p>诊断假设 → 选择策略/参数组/目标 → 有界搜索 → 与基础方案对照。</p>
+        <p>诊断假设 → 水文员手工改参对比（优先）或有界搜索 → 与基础方案对照 → Gate。</p>
       </div>
       <span v-if="scheme?.status" class="status-pill">{{ scheme.status === 'frozen' ? '已冻结' : scheme.status }}</span>
     </header>

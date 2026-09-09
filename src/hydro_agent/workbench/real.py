@@ -84,7 +84,7 @@ class RealWorkbenchKernel:
         self.snapshot_root = self.work_root / "snapshots"
         self.builder = SnapshotBuilder(self.snapshot_root, DataAccessPolicy(), repository)
         self.resolver = SnapshotResolver(
-            repository, builder=self.builder, source=self.source, history_days=60
+            repository, builder=self.builder, source=self.source, history_days=max(60, warmup_days + 60)
         )
         workspaces = MaterializingWorkspaceManager(
             self.work_root / "runs", repository, snapshot_root=self.snapshot_root
@@ -133,7 +133,8 @@ class RealWorkbenchKernel:
                 forcing_mode=task.forcing_mode,
                 capability="evaluate",
                 issue_time=issue,
-                history_days=60,
+                history_days=max(60, self.scheme_template["warmup_days"] + 60),
+                day_timezone=str(self.source.basin.get("day_timezone", "UTC")),
             ),
             forcing_rows=list(self.source.forcing_rows),
             flow_rows=list(self.source.flow_rows),

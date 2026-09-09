@@ -4,7 +4,12 @@
  */
 (function () {
   const ACTION_NODE = {
-    A01_CHECK_DATA: "task",
+    M01_CHECK_MATERIALS: 'materials',
+  M02_DELINEATE: 'delineate',
+  M03_REVIEW_BOUNDARY: 'boundary',
+  M04_BUILD_INPUTS: 'inputs',
+  M05_VALIDATE_PLAN: 'plan',
+  A01_CHECK_DATA: "task",
     A03_VALIDATE_SCHEME: "task",
     A05_FORECAST: "forecast",
     A06_DIAGNOSE: "task",
@@ -291,6 +296,7 @@
       end_date: $("hydro-end").value,
       forcing_mode: $("hydro-forcing").value,
       base_scheme_id: "scheme-base",
+      model_plan_id: $("hydro-model-plan")?.value || null,
       allow_optimization: $("hydro-optimize").checked,
       max_agent_decision_rounds: 20,
       max_optimization_cycles: 4,
@@ -508,6 +514,58 @@
     };
     void tick();
     polling = setInterval(tick, 350);
+  }
+
+  function setupModelBuilder() {
+    let currentPlan = null;
+    let planTimer = null;
+    let library = [];
+    const choosePlan = (p) => {
+      if (!p || p.status !== "ready") return;
+      $("hydro-model-plan").value = p.plan_id;
+      $("hydro-basin").value = p.basin_id;
+      $("hydro-start-date").value = p.suggested_start;
+      $("hydro-end").value = p.suggested_end;
+      $("hydro-forcing").value = "R";
+    };
+    const list = async () => {
+      library = await api("/api/model-plans");
+      const selected = $("hydro-model-plan").value;
+      $("hydro-model-plan").innerHTML = '<option value="">请选择已复核方案</option>' + library.filter(p => p.status === "ready").map(p => `<option value="${escapeHtml(p.plan_id)}">腰古 · ${escapeHtml(p.plan_id)}</option>`).join("");
+      $("hydro-model-plan").value = selected;
+    };
+    const render = async () => {
+      if (!currentPlan) return;
+      const p = await api(`/api/model-plans/${currentPlan}`);
+      $("hydro-model-state").textContent = p.error || p.stages.map(s => `${s.label}：${({pending:"待开始",running:"执行中",completed:"已完成",awaiting_review:"待复核",failed:"失败"})[s.status] || s.status}`).join(" / ");
+      highlight(ACTION_NODE[p.current_stage] || "materials");
+      p.stages.filter(s => s.status === "completed").forEach(s => markDone(ACTION_NODE[s.code]));
+      if (p.status === "awaiting_review") {
+        clearInterval(planTimer); planTimer = null;
+        const img = document.createElement("img"); img.src = `/api/model-plans/${p.plan_id}/map`; img.alt = "流域出口与边界复核地图"; img.style.width = "100%";
+        const button = document.createElement("button"); button.type = "button"; button.textContent = "确认图中出口与边界，继续构建输入";
+        button.onclick = async () => {
+          button.disabled = true;
+          try { await api(`/api/model-plans/${p.plan_id}/confirm-boundary`, {method:"POST",body:JSON.stringify({boundary_hash:p.boundary_hash})}); planTimer = setInterval(() => void render().catch(e=>setStatus(e.message)), 1500); }
+          catch(e) { setStatus(e.message); button.disabled = false; }
+        };
+        $("hydro-model-state").append(img,button);
+      }
+      if (["ready","failed"].includes(p.status)) {
+        clearInterval(planTimer); planTimer = null;
+        $("hydro-new-model").disabled = false;
+        if (p.status === "ready") { await list(); choosePlan(p); }
+      }
+    };
+    $("hydro-model-plan").onchange = () => choosePlan(library.find(p => p.plan_id === $("hydro-model-plan").value));
+    $("hydro-new-model").onclick = async () => {
+      $("hydro-new-model").disabled = true; $("hydro-model-plan").value = "";
+      try {
+        const p = await api("/api/model-plans",{method:"POST",body:"{}"}); currentPlan = p.plan_id;
+        await render(); planTimer = setInterval(() => void render().catch(e=>setStatus(e.message)),1500);
+      } catch(e) { setStatus(e.message); $("hydro-new-model").disabled = false; }
+    };
+    void list().catch(e => { $("hydro-model-state").textContent = e.message; });
   }
 
   function mountUi() {
@@ -1368,6 +1426,12 @@
     panel.innerHTML = `
       <h2 id="hydro-panel-title">新建任务</h2>
       <p class="hint">填写流域与验证窗口后开始。真实模式会调用 SiliconFlow 并运行 XAJ。</p>
+      <section id="hydro-model-builder">
+        <label>完整模型方案<select id="hydro-model-plan"><option value="">请选择已复核方案</option></select></label>
+        <button id="hydro-new-model" type="button">新建腰古流域模型</button>
+        <p>DEM → 流域边界 → 面雨量 → 完整方案。集总式，预热 365 天。</p>
+        <div id="hydro-model-state" role="status"></div>
+      </section>
       <div class="grid">
         <label>流域
           <input id="hydro-basin" value="camels_13235000" autocomplete="off" />
@@ -1397,6 +1461,7 @@
     `;
     document.body.appendChild(panel);
 
+    setupModelBuilder();
     closeResultsPanel();
 
     $("hydro-start-task")?.addEventListener("click", () => openInputPanel());

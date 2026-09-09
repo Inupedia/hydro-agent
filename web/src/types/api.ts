@@ -20,6 +20,7 @@ export type TaskCreateRequest = {
   start_date: string
   end_date: string
   forcing_mode: 'R' | 'F'
+  model_plan_id?: string | null
   base_scheme_id: string
   allow_optimization: boolean
   max_agent_decision_rounds: number
@@ -83,4 +84,47 @@ export type ResultSummary = {
   story_zh?: string
   phase_zh?: string
   status_zh?: string
+}
+
+export type ModelPlan = {
+  plan_id: string
+  basin_id: string
+  status: string
+  model_mode?: 'lumped' | 'distributed'
+  current_stage?: string
+  stages: {code:string;label:string;status:string;detail:string}[]
+  boundary_hash?: string
+  boundary?: {dem_area_km2:number;[key:string]:unknown}
+  unit_count?: number
+  area_km2?: number
+  suggested_start?: string
+  suggested_end?: string
+  error?: string | null
+}
+
+export type BasinInfo = {
+  basin_id: string
+  label: string
+  region?: string
+  kind?: string
+  status?: string
+  materials?: { hydro: boolean; dem: boolean; gis: boolean }
+  missing?: string[]
+  ready_for_build?: boolean
+  complete?: boolean
+  usgs_site?: string
+  default_start?: string
+  default_end?: string
+}
+
+export type DownloadJob = {
+  job_id: string
+  basin_id: string
+  status: string
+  stage: string
+  current_file?: string | null
+  bytes?: number
+  fraction?: number
+  error?: string | null
+  log_tail?: string
 }

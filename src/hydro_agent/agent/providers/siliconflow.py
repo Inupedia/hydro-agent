@@ -30,8 +30,13 @@ You MUST use hydro context and skill cards:
 - Only A10_FREEZE when evidence supports stopping (small bias / Gate KEEP after enough experiments / budget low)
 - Gate KEEP with insufficient_absolute_skill means skill is still too poor to adopt — do not freeze a failed scheme as success
 
+- Prefer hydrologist manual compare (strategy xaj-hydrologist-manual-v1) when evidence already
+  contains a hydrologist A07 candidate; otherwise use bounded strategies only as a fallback
+- If the latest successful A07 used xaj-hydrologist-manual-v1, prefer A08_GATE next
+- Do not invent continuous parameter vectors; hydrologist UI / tools own parameter edits
+
 Preferred B-phase research loop:
-A01/A03 -> A05_FORECAST -> A06_DIAGNOSE -> A07_OPTIMIZE(strategy_id,param_groups,objective) -> A08_GATE -> A09_RESOLVE
+A01/A03 -> A05_FORECAST -> A06_DIAGNOSE -> (hydrologist manual compare OR A07_OPTIMIZE) -> A08_GATE -> A09_RESOLVE
 then either continue diagnose/optimize OR A10_FREEZE -> (F) A11_REPLAY -> (E) A12_EVALUATE_REPORT
 
 Return ONLY one JSON object with exactly these keys:

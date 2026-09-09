@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class TaskExecutor:
-    """Single local worker that drives AgentRuntime until terminal/paused."""
+    """Single local worker that drives the LangGraph AgentRuntime until terminal/paused."""
 
     def __init__(self, deps: AppDependencies):
         self.deps = deps
@@ -22,6 +22,7 @@ class TaskExecutor:
         self._future: Future | None = None
 
     def start(self, task_id: str) -> RunSummary:
+        self._validate_plan(task_id)
         with self._lock:
             if self._active_task_id is not None and not self._is_idle_locked():
                 raise RuntimeError("local worker busy")
@@ -42,6 +43,7 @@ class TaskExecutor:
         return self.status(task_id)
 
     def resume(self, task_id: str) -> RunSummary:
+        self._validate_plan(task_id)
         with self._lock:
             self.deps.repository.ensure_task_state(task_id)
             self.deps.clear_llm_error(task_id)
@@ -85,7 +87,9 @@ class TaskExecutor:
 
     def _run(self, task_id: str) -> None:
         try:
-            runtime = self.deps.runtime_factory()
+            self._validate_plan(task_id)
+            runtime = (self.deps.runtime_for_task(task_id) if self.deps.runtime_for_task
+                       else self.deps.runtime_factory())
             runtime.run_until_terminal(task_id)
         except Exception as exc:
             logger.exception("workbench worker failed for task %s", task_id)
@@ -95,6 +99,23 @@ class TaskExecutor:
                 if self._active_task_id == task_id:
                     self._active_task_id = None
                     self._future = None
+
+    def _validate_plan(self, task_id: str):
+        state = self.deps.repository.ensure_task_state(task_id)
+        config = self.deps.repository.get_scheme(state.current_scheme_id).config_json if state.current_scheme_id else {}
+        plan_id = config.get("model_plan_id")
+        if not plan_id:
+            if self.deps.mode == "real":
+                raise RuntimeError("旧任务缺少完整模型方案，请新建任务并选择已复核方案")
+            return
+        if self.deps.model_plans is None:
+            raise RuntimeError("建模服务不可用")
+        try:
+            plan = self.deps.model_plans.require_ready(plan_id)
+            if plan["content_hash"] != config.get("model_plan_hash"):
+                raise ValueError("模型方案版本变化，需重新创建任务")
+        except (ValueError, KeyError) as exc:
+            raise RuntimeError(str(exc)) from exc
 
     def _is_idle_locked(self) -> bool:
         if self._future is None:

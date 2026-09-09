@@ -11,6 +11,7 @@ def test_strategy_registry_exposes_distinct_experiment_strategies():
         "xaj-bounded-v1",
         "xaj-peak-bias-v1",
         "xaj-local-refine-v1",
+        "xaj-hydrologist-manual-v1",
     }
     assert registry.get("xaj-bounded-v1").random_seed != registry.get("xaj-peak-bias-v1").random_seed
     assert registry.get("xaj-local-refine-v1").local_scale == 0.25

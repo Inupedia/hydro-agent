@@ -31,6 +31,12 @@ class AppDependencies:
     mode: str = "demo"
     base_scheme_config: Callable[[], dict[str, Any]] | None = None
     provider_model: str | None = None
+    model_plans: Any = None
+    basins: Any = None
+    basin_downloads: Any = None
+    hydrologist: Any = None
+    hydrologist_graph: Any = None
+    runtime_for_task: Callable[[str], AgentRuntime] | None = None
     llm_traces: dict[str, LlmTrace] = field(default_factory=dict)
     agent_round_logs: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     _llm_lock: threading.Lock = field(default_factory=threading.Lock)

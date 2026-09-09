@@ -6,6 +6,7 @@ import type { ResultSummary, RunSummary, TaskCreateRequest, TaskSummary, Timelin
 export type RunMode = 'live' | 'replay' | 'simulated'
 
 export type DraftConfig = {
+  model_plan_id?: string | null
   basin_id: string
   model_id: 'xaj' | 'openhydronet'
   start_date: string
@@ -42,15 +43,16 @@ export const useDemoStore = defineStore('demo', () => {
   const saved = loadSession()
   const draft = ref<DraftConfig>(
     saved?.draft || {
-      basin_id: 'camels_13235000',
+      basin_id: 'usgs_02472000',
       model_id: 'xaj',
-      start_date: '2020-04-29',
-      end_date: '2020-05-01',
+      start_date: '2020-01-01',
+      end_date: '2020-01-31',
       forcing_mode: 'R',
       base_scheme_id: 'scheme-base',
       allow_optimization: true,
       max_agent_decision_rounds: 20,
       max_optimization_cycles: 4,
+      model_plan_id: null,
     },
   )
 

@@ -36,17 +36,17 @@ jobs:
 
       - name: Validate workflow
         run: |
-          node archify-src/archify/bin/archify.mjs validate workflow docs/diagrams/hydro-agent.workflow.json --quality showcase --json
+          node archify-src/archify/bin/archify.mjs validate workflow docs/diagrams/hydro-agent-xaj.workflow.json --quality showcase --json
 
       - name: Render workflow
         run: |
           mkdir -p dist
-          node archify-src/archify/bin/archify.mjs deliver workflow docs/diagrams/hydro-agent.workflow.json dist/hydro-agent.workflow.html --quality showcase --json
+          node archify-src/archify/bin/archify.mjs deliver workflow docs/diagrams/hydro-agent-xaj.workflow.json dist/hydro-agent-xaj.workflow.html --quality showcase --json
 
       - name: Upload rendered flowchart
         uses: actions/upload-artifact@v4
         with:
           name: hydro-agent-archify-flowchart
           path: |
-            dist/hydro-agent.workflow.html
-            docs/diagrams/hydro-agent.workflow.json
+            dist/hydro-agent-xaj.workflow.html
+            docs/diagrams/hydro-agent-xaj.workflow.json

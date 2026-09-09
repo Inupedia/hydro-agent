@@ -2,11 +2,25 @@
   "schema_version": 2,
   "diagram_type": "workflow",
   "meta": {
-    "title": "Hydro-Agent · 点击「用户」输入并开始",
+    "title": "Hydro-Agent · 先建立流域，再模拟与率定",
     "animation": "none",
     "visual_preset": "signal-flow",
     "quality_profile": "showcase",
     "views": [
+      {
+        "id": "step-model",
+        "label": "流域建模",
+        "focus": [
+          "user",
+          "materials",
+          "delineate",
+          "boundary",
+          "inputs",
+          "plan",
+          "reuse"
+        ],
+        "note": "资料或边界未通过时停止；修改上游必须另建版本。"
+      },
       {
         "id": "step-forecast",
         "label": "预报",
@@ -53,6 +67,11 @@
         "label": "全路径",
         "focus": [
           "user",
+          "materials",
+          "delineate",
+          "boundary",
+          "inputs",
+          "plan",
           "task",
           "forecast",
           "optimize",
@@ -74,6 +93,10 @@
       "label": "你看到的界面"
     },
     {
+      "id": "modeling",
+      "label": "流域建模"
+    },
+    {
       "id": "agent",
       "label": "Agent 自动决策"
     },
@@ -89,23 +112,29 @@
   ],
   "phases": [
     {
+      "id": "model-build",
+      "label": "流域建模与方案复用",
+      "fromCol": 0,
+      "toCol": 5
+    },
+    {
       "id": "start",
       "label": "创建",
-      "fromCol": 0,
-      "toCol": 1
+      "fromCol": 5,
+      "toCol": 6
     },
     {
       "id": "try",
       "label": "预报与尝试改进",
-      "fromCol": 2,
-      "toCol": 3,
+      "fromCol": 7,
+      "toCol": 8,
       "variant": "emphasis"
     },
     {
       "id": "lock",
       "label": "锁定、回看、说明",
-      "fromCol": 4,
-      "toCol": 5,
+      "fromCol": 9,
+      "toCol": 10,
       "variant": "dashed"
     }
   ],
@@ -114,29 +143,34 @@
       "id": "decision_loop",
       "label": "自动决策环",
       "lane": "agent",
-      "fromCol": 2,
-      "toCol": 3,
+      "fromCol": 7,
+      "toCol": 8,
       "variant": "emphasis"
     },
     {
       "id": "keep_path",
       "label": "KEEP = 提升不够，不是失败",
       "lane": "gate",
-      "fromCol": 3,
-      "toCol": 4,
+      "fromCol": 8,
+      "toCol": 9,
       "variant": "security"
     },
     {
       "id": "evidence_path",
       "label": "证据沉淀",
       "lane": "engine",
-      "fromCol": 2,
-      "toCol": 5,
+      "fromCol": 7,
+      "toCol": 10,
       "variant": "dashed"
     }
   ],
   "mainPath": [
     "user",
+    "materials",
+    "delineate",
+    "boundary",
+    "inputs",
+    "plan",
     "task",
     "forecast",
     "optimize",
@@ -153,23 +187,23 @@
       "lane": "ui",
       "col": 0,
       "type": "external",
-      "label": "用户",
-      "sublabel": "点创建并运行",
+      "label": "选择建模方式",
+      "sublabel": "新建 / 复用完整方案",
       "width": 140
     },
     {
       "id": "task",
       "lane": "ui",
-      "col": 1,
+      "col": 6,
       "type": "frontend",
-      "label": "任务页",
-      "sublabel": "流域 / 日期",
+      "label": "计算任务",
+      "sublabel": "绑定完整方案 / 日期",
       "width": 140
     },
     {
       "id": "results",
       "lane": "ui",
-      "col": 5,
+      "col": 10,
       "type": "frontend",
       "label": "结果说明",
       "sublabel": "白话过程 + 曲线",
@@ -178,7 +212,7 @@
     {
       "id": "forecast",
       "lane": "agent",
-      "col": 2,
+      "col": 7,
       "type": "backend",
       "label": "基础预报",
       "sublabel": "A05 跑一轮流量",
@@ -187,7 +221,7 @@
     {
       "id": "optimize",
       "lane": "agent",
-      "col": 3,
+      "col": 8,
       "type": "cloud",
       "label": "有限调参",
       "sublabel": "A07 试着改进",
@@ -196,7 +230,7 @@
     {
       "id": "gate",
       "lane": "gate",
-      "col": 3,
+      "col": 8,
       "type": "security",
       "label": "把关 Gate",
       "sublabel": "提升够不够大？",
@@ -205,7 +239,7 @@
     {
       "id": "keep",
       "lane": "gate",
-      "col": 4,
+      "col": 9,
       "type": "messagebus",
       "label": "KEEP 原方案",
       "sublabel": "提升未达门槛",
@@ -214,7 +248,7 @@
     {
       "id": "freeze",
       "lane": "engine",
-      "col": 4,
+      "col": 9,
       "type": "database",
       "label": "冻结方案",
       "sublabel": "A10 锁定这一版",
@@ -223,7 +257,7 @@
     {
       "id": "replay",
       "lane": "engine",
-      "col": 5,
+      "col": 10,
       "type": "backend",
       "label": "历史回放",
       "sublabel": "A11 多日再起报",
@@ -232,7 +266,7 @@
     {
       "id": "report",
       "lane": "agent",
-      "col": 5,
+      "col": 10,
       "type": "database",
       "label": "评估报告",
       "sublabel": "A12 NSE/KGE…",
@@ -241,25 +275,73 @@
     {
       "id": "evidence",
       "lane": "engine",
-      "col": 2,
+      "col": 7,
       "type": "database",
       "label": "证据库",
       "sublabel": "时间线 / 指标",
       "width": 140
+    },
+    {
+      "id": "materials",
+      "lane": "modeling",
+      "col": 0,
+      "type": "backend",
+      "label": "资料检查",
+      "sublabel": "DEM / 站点 / 日资料",
+      "width": 160
+    },
+    {
+      "id": "delineate",
+      "lane": "modeling",
+      "col": 1,
+      "type": "backend",
+      "label": "流域提取",
+      "sublabel": "出口 / 边界 / 单元",
+      "width": 160
+    },
+    {
+      "id": "boundary",
+      "lane": "modeling",
+      "col": 2,
+      "type": "security",
+      "label": "边界复核",
+      "sublabel": "查看地图后确认",
+      "width": 160
+    },
+    {
+      "id": "inputs",
+      "lane": "modeling",
+      "col": 3,
+      "type": "backend",
+      "label": "模型输入",
+      "sublabel": "面雨量 / 参数 / 时间",
+      "width": 160
+    },
+    {
+      "id": "plan",
+      "lane": "modeling",
+      "col": 4,
+      "type": "database",
+      "label": "完整模型方案",
+      "sublabel": "文件校验 / 版本固定",
+      "width": 160
+    },
+    {
+      "id": "reuse",
+      "lane": "ui",
+      "col": 2,
+      "type": "database",
+      "label": "复用已有方案",
+      "sublabel": "复核版本与文件完整性",
+      "width": 160
     }
   ],
   "edges": [
     {
-      "id": "e-user-task",
-      "from": "user",
-      "to": "task",
-      "variant": "default"
-    },
-    {
       "id": "e-task-forecast",
       "from": "task",
       "to": "forecast",
-      "label": "自动启动",
+      "label": "方案可用才执行",
       "variant": "emphasis"
     },
     {
@@ -320,9 +402,74 @@
       "from": "report",
       "to": "evidence",
       "variant": "dashed"
+    },
+    {
+      "id": "e-user-materials",
+      "from": "user",
+      "to": "materials",
+      "label": "新建",
+      "variant": "default"
+    },
+    {
+      "id": "e-materials-delineate",
+      "from": "materials",
+      "to": "delineate",
+      "label": "资料齐全",
+      "variant": "default"
+    },
+    {
+      "id": "e-delineate-boundary",
+      "from": "delineate",
+      "to": "boundary",
+      "label": "数值检查通过",
+      "variant": "default"
+    },
+    {
+      "id": "e-boundary-inputs",
+      "from": "boundary",
+      "to": "inputs",
+      "label": "确认当前边界",
+      "variant": "default"
+    },
+    {
+      "id": "e-inputs-plan",
+      "from": "inputs",
+      "to": "plan",
+      "label": "输入校验通过",
+      "variant": "default"
+    },
+    {
+      "id": "e-user-reuse",
+      "from": "user",
+      "to": "reuse",
+      "label": "复用",
+      "variant": "default"
+    },
+    {
+      "id": "e-reuse-plan",
+      "from": "reuse",
+      "to": "plan",
+      "label": "校验文件版本",
+      "variant": "default"
+    },
+    {
+      "id": "e-plan-task",
+      "from": "plan",
+      "to": "task",
+      "label": "绑定方案",
+      "variant": "default"
     }
   ],
   "cards": [
+    {
+      "dot": "cyan",
+      "title": "完整建模流程",
+      "items": [
+        "DEM 确定边界与计算单元；面雨量按空间权重构建",
+        "集总式已接入；分单元与小时次洪尚未开放",
+        "上游变化必须新建方案，不沿用旧结果"
+      ]
+    },
     {
       "dot": "cyan",
       "title": "怎么用",

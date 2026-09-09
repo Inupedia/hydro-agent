@@ -3,6 +3,9 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import ForecastChart from '../components/ForecastChart.vue'
 import LiveWorkflow from '../components/LiveWorkflow.vue'
+import ModelPreparation from '../components/ModelPreparation.vue'
+import type { ModelPlan } from '../types/api'
+import HydrologistTune from '../components/HydrologistTune.vue'
 import ParamTuningPanel from '../components/ParamTuningPanel.vue'
 import { useDemoStore } from '../stores/demo'
 import { api } from '../api/client'
@@ -14,6 +17,21 @@ const route = useRoute()
 const busy = ref(false)
 const serviceMode = ref<string | null>(null)
 const connected = ref(false)
+const modelingAvailable = ref(false)
+const hydrologistAvailable = ref(false)
+const basins = ref<import('../types/api').BasinInfo[]>([])
+const planReady = computed(() => !!demo.draft.model_plan_id)
+function selectPlan(plan: ModelPlan | null) {
+  if (demo.taskId) return
+  const previous = demo.draft.model_plan_id
+  demo.draft.model_plan_id = plan?.plan_id || null
+  if (plan && previous !== plan.plan_id) {
+    demo.draft.basin_id = plan.basin_id
+    demo.draft.forcing_mode = 'R'
+    if (plan.suggested_start) demo.draft.start_date = plan.suggested_start
+    if (plan.suggested_end) demo.draft.end_date = plan.suggested_end
+  }
+}
 const now = ref(Date.now())
 const advanced = ref(false)
 const taskPane = ref<HTMLElement | null>(null)
@@ -39,7 +57,7 @@ const showWorkflow = computed(
       !!demo.run &&
       demo.run.status !== 'created'),
 )
-/** Focus stage: Archify + journal only. */
+/** Focus stage: live workflow + journal only. */
 const focusStage = computed(() => showWorkflow.value && !demo.isCompleted)
 const completedActions = computed(() =>
   demo.timeline
@@ -76,6 +94,19 @@ const showTuning = computed(
       !!demo.results.optimize ||
       !!(demo.results.scheme?.parameter_delta && Object.keys(demo.results.scheme.parameter_delta).length) ||
       !!(demo.results.scheme?.parameters && Object.keys(demo.results.scheme.parameters).length)),
+)
+const showHydrologist = computed(
+  () =>
+    hydrologistAvailable.value &&
+    !focusStage.value &&
+    !!demo.taskId &&
+    !!demo.draft.model_plan_id &&
+    (showTuning.value ||
+      demo.run?.paused ||
+      demo.run?.status === 'idle' ||
+      !!demo.results?.optimize ||
+      completedActions.value.includes('A06_DIAGNOSE') ||
+      completedActions.value.includes('A07_OPTIMIZE')),
 )
 const mode = computed(() =>
   demo.mode === 'replay' ? '历史记录' : serviceMode.value === 'real' ? '真实计算' : serviceMode.value ? '模拟演示' : '连接待确认',
@@ -212,6 +243,15 @@ watch(focusStage, async (enter, was) => {
 })
 
 watch(
+  () => demo.draft.basin_id,
+  (id, prev) => {
+    if (prev && id !== prev && !demo.taskId) {
+      demo.draft.model_plan_id = null
+    }
+  },
+)
+
+watch(
   () => [showWorkflow.value, demo.results?.forecasts?.length, showTuning.value] as const,
   async ([workflow, forecastCount, tuning]) => {
     if (workflow) return
@@ -228,7 +268,16 @@ onMounted(async () => {
   try {
     const health = await api.health()
     connected.value = health.status === 'ok'
+    modelingAvailable.value = !!health.model_preparation
+    hydrologistAvailable.value = !!health.hydrologist_tune
     serviceMode.value = health.mode || null
+    if (health.basin_catalog) {
+      try {
+        basins.value = await api.listBasins()
+      } catch {
+        basins.value = []
+      }
+    }
   } catch {
     connected.value = false
   }
@@ -261,32 +310,46 @@ onUnmounted(() => {
   <div class="observatory" :class="{ 'is-focus': focusStage, 'is-results': !focusStage && !!demo.results }">
     <header class="observatory-header">
       <a href="/" class="observatory-brand"><span class="brand-symbol" aria-hidden="true">≈</span><span>Hydro<span class="brand-light">Agent</span><small>水文智能体 · 演示空间</small></span></a>
-      <div class="header-caption">{{ focusStage ? '执行中 · ARCHIFY' : '理解过程，看见结果' }}</div>
+      <div class="header-caption">{{ focusStage ? '执行中 · 计算流程' : '理解过程，看见结果' }}</div>
       <div class="connection"><i :class="{ online: connected }" />{{ mode }}</div>
     </header>
 
     <main class="observatory-grid">
       <aside ref="taskPane" class="task-pane glass-pane">
-        <div class="section-heading"><span class="overline">01 / 预报任务</span><span class="mini-icon" aria-hidden="true">↗</span></div>
-        <h2>从一个流域开始</h2>
-        <p class="muted">设定目标，剩下的交给系统。</p>
+        <div class="section-heading"><span class="overline">01 / 选流域</span><span class="mini-icon" aria-hidden="true">↗</span></div>
+        <h2>从一个美国流域开始</h2>
+        <p class="muted">先选流域并完成建模，再设定时段运行。</p>
         <form @submit.prevent="begin">
           <fieldset :disabled="locked">
-            <label>研究流域<input v-model="demo.draft.basin_id" required aria-label="研究流域" /></label>
+            <label>研究流域
+              <select v-model="demo.draft.basin_id" required aria-label="研究流域" :disabled="!!demo.taskId || !!demo.draft.model_plan_id">
+                <option v-for="b in basins" :key="b.basin_id" :value="b.basin_id">
+                  {{ b.label }}{{ b.ready_for_build ? '' : ' · 待下载' }}
+                </option>
+                <option v-if="!basins.length" value="usgs_02472000">Leaf River near Collins (MS)</option>
+              </select>
+            </label>
+            <p v-if="demo.draft.model_plan_id" class="basin-caption">已绑定方案：{{ demo.draft.model_plan_id }}</p>
+            <p v-else-if="serviceMode === 'real'" class="basin-caption">请在右侧下载资料并建立模型方案</p>
             <p class="basin-caption">{{ basinLabel(demo.draft.basin_id) }}</p>
-            <div class="date-fields"><label>开始日期<input v-model="demo.draft.start_date" type="date" required /></label><label>结束日期<input v-model="demo.draft.end_date" type="date" :min="demo.draft.start_date" required /></label></div>
-            <label>计算模型<select v-model="demo.draft.model_id"><option value="xaj">新安江 · XAJ</option><option value="openhydronet" disabled>OpenHydroNet · 尚未启用</option></select></label>
-            <label>气象资料<select v-model="demo.draft.forcing_mode"><option value="R">实测资料 · 历史检验</option><option value="F">预报资料 · 预测计算</option></select></label>
-            <label class="toggle-row"><span>允许尝试改进方案</span><input v-model="demo.draft.allow_optimization" type="checkbox" role="switch" /></label>
-            <button class="text-button" type="button" :aria-expanded="advanced" @click="advanced = !advanced">{{ advanced ? '收起运行设置 −' : '运行设置 +' }}</button>
-            <div v-if="advanced" class="advanced-fields"><label>基础方案<input v-model="demo.draft.base_scheme_id" required /></label><label>最多决策轮次<input v-model.number="demo.draft.max_agent_decision_rounds" type="number" min="1" max="100" required /></label><label>最多改进次数<input v-model.number="demo.draft.max_optimization_cycles" type="number" min="0" max="20" required /></label></div>
+            <div class="section-heading" style="margin-top:18px"><span class="overline">02 / 预报任务</span></div>
+            <div :class="{ 'is-locked': serviceMode === 'real' && !planReady }">
+              <fieldset :disabled="locked || (serviceMode === 'real' && !planReady)">
+              <div class="date-fields"><label>开始日期<input v-model="demo.draft.start_date" type="date" required /></label><label>结束日期<input v-model="demo.draft.end_date" type="date" :min="demo.draft.start_date" required /></label></div>
+              <label>计算模型<select v-model="demo.draft.model_id"><option value="xaj">新安江 · XAJ</option><option value="openhydronet" disabled>OpenHydroNet · 尚未启用</option></select></label>
+              <label>气象资料<select v-model="demo.draft.forcing_mode"><option value="R">实测 / 再分析 · 历史检验</option><option value="F" disabled>预报资料 · 尚未对美国站开放</option></select></label>
+              <label class="toggle-row"><span>允许尝试改进方案</span><input v-model="demo.draft.allow_optimization" type="checkbox" role="switch" /></label>
+              <button class="text-button" type="button" :aria-expanded="advanced" @click="advanced = !advanced">{{ advanced ? '收起运行设置 −' : '运行设置 +' }}</button>
+              <div v-if="advanced" class="advanced-fields"><label>基础方案<input v-model="demo.draft.base_scheme_id" required /></label><label>最多决策轮次<input v-model.number="demo.draft.max_agent_decision_rounds" type="number" min="1" max="100" required /></label><label>最多改进次数<input v-model.number="demo.draft.max_optimization_cycles" type="number" min="0" max="20" required /></label></div>
+              </fieldset>
+            </div>
           </fieldset>
-          <button v-if="!demo.run || demo.run.status === 'created'" class="start-button" :disabled="busy || !connected" type="submit">{{ busy ? '正在启动…' : '开始运行' }}<span aria-hidden="true">↗</span></button>
+          <button v-if="!demo.run || demo.run.status === 'created'" class="start-button" :disabled="busy || !connected || (serviceMode === 'real' && !demo.draft.model_plan_id)" type="submit">{{ busy ? '正在启动…' : planReady ? '开始运行' : '请先完成建模' }}<span aria-hidden="true">↗</span></button>
           <button v-else-if="demo.run.paused && demo.mode !== 'replay'" type="button" class="start-button" :disabled="busy" @click="resume">继续计算 <span>↗</span></button>
           <button v-else-if="demo.isRunning" type="button" class="start-button" disabled>正在计算<span class="activity-dot" /></button>
           <button v-else type="button" class="start-button" @click="newTask">新建任务 <span>＋</span></button>
         </form>
-        <p class="source-note">{{ demo.draft.forcing_mode === 'R' ? '使用历史实测资料检验，不代表当前业务预报。' : '预报资料可用性将在运行时检查。' }}</p>
+        <p class="source-note">{{ demo.draft.forcing_mode === 'R' ? '使用 MultiMet 再分析 + USGS 流量做历史检验，不代表业务预报。' : '预报资料可用性将在运行时检查。' }}</p>
         <label class="case-picker">已有案例<select aria-label="已有案例" :disabled="demo.isRunning || busy" :value="demo.mode === 'replay' ? demo.taskId : ''" @change="openCase"><option value="">{{ demo.caseLibrary.length ? '选择一份已完成记录' : '暂无已完成记录' }}</option><option v-for="task in demo.caseLibrary" :key="task.task_id" :value="task.task_id">{{ task.start_date || task.task_id }} · {{ basinLabel(task.basin_id) }}</option></select></label>
       </aside>
 
@@ -299,6 +362,13 @@ onUnmounted(() => {
           :completed-actions="completedActions"
           :gate-status="gateStatus"
           :expanded="focusStage"
+        />
+        <ModelPreparation
+          v-else-if="modelingAvailable && !demo.taskId"
+          :basin-id="demo.draft.basin_id"
+          :selected-id="demo.draft.model_plan_id"
+          :locked="busy"
+          @selected="selectPlan"
         />
         <div class="water-scene" v-else-if="!demo.results?.forecasts.length" aria-label="抽象水流地形示意，非预测数据">
           <svg viewBox="0 0 800 360" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><defs><linearGradient id="terrain" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#dceefa"/><stop offset="1" stop-color="#a9c9dd"/></linearGradient><linearGradient id="river" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#75e0ee"/><stop offset=".5" stop-color="#238ef5"/><stop offset="1" stop-color="#1b57bc"/></linearGradient><filter id="shadow"><feGaussianBlur stdDeviation="14"/></filter></defs>
@@ -316,6 +386,13 @@ onUnmounted(() => {
           <div class="chart-title"><h2>流量预测</h2><span>{{ mode }} · m³/s</span></div>
           <ForecastChart :forecasts="demo.results.forecasts" />
           <p class="chart-note">横轴为起报日期，各曲线代表提前 1、2、3 天的预测。</p>
+        </div>
+        <div v-if="showHydrologist" class="hydrologist-mount">
+          <HydrologistTune
+            :plan-id="demo.draft.model_plan_id"
+            :task-id="demo.taskId"
+            :locked="busy || demo.isRunning"
+          />
         </div>
         <div v-if="showTuning" ref="tuningMount" class="tuning-mount">
           <ParamTuningPanel

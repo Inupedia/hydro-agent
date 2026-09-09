@@ -21,6 +21,10 @@ class StubForecastHandler:
         )
 
 
+def test_agent_runtime_uses_langgraph_orchestrator():
+    assert AgentRuntime.orchestrator == "langgraph"
+
+
 def test_runtime_persists_decision_and_evidence(tmp_path):
     db = Database(f"sqlite+pysqlite:///{tmp_path}/hydro.db")
     db.create_schema()

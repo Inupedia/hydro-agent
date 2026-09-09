@@ -34,6 +34,38 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
         raise ValueError("only xaj is enabled in the XAJ-first workbench")
     if payload.forcing_mode not in ("R", "F"):
         raise ValueError("invalid forcing_mode")
+    plan = None
+    plan_config = None
+    if payload.model_plan_id:
+        if deps.mode != "real":
+            raise ValueError("真实计算服务未就绪，不能将完整模型方案送入模拟演示")
+        if deps.model_plans is None:
+            raise ValueError("建模服务未配置")
+        try:
+            plan = deps.model_plans.require_ready(payload.model_plan_id)
+        except KeyError as exc:
+            raise ValueError("模型方案不存在") from exc
+        if payload.basin_id != plan["basin_id"]:
+            raise ValueError("任务流域与模型方案不一致")
+        if payload.forcing_mode != "R":
+            raise ValueError("老师历史资料仅支持 R 回算；不可当作未来气象预报")
+        from datetime import date, timedelta
+        if (payload.start_date < date.fromisoformat(plan["suggested_start"])
+                or payload.end_date + timedelta(days=3) > date.fromisoformat(plan["data_end"])):
+            raise ValueError("任务时段超出方案资料范围或预热长度不足")
+        # Optimize/calibrate issues at start_date - 1; ensure history still fits.
+        hist = int(plan.get("history_days") or 0)
+        if hist and plan.get("data_start"):
+            data_start = date.fromisoformat(plan["data_start"])
+            calib_issue = payload.start_date - timedelta(days=1)
+            if calib_issue < data_start + timedelta(days=hist - 1):
+                raise ValueError(
+                    "任务开始日过早：校准需要 start_date 前一日仍具备完整 history；请使用方案建议时段"
+                )
+        plan_config = json.loads((deps.model_plans.directory(payload.model_plan_id) / "scheme.json")
+                                 .read_text(encoding="utf-8"))
+    elif deps.mode == "real":
+        raise ValueError("请先新建并复核模型方案，或选择已有完整方案")
     task_id = f"task-{uuid_suffix()}"
     scheme_id = f"{task_id}--{payload.base_scheme_id}"
     deps.repository.create_task(
@@ -55,13 +87,19 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
             "max_optimization_cycles": payload.max_optimization_cycles,
         },
     }
-    if deps.base_scheme_config is not None:
-        base = deps.base_scheme_config()
+    if plan_config is not None or deps.base_scheme_config is not None:
+        base = plan_config if plan_config is not None else deps.base_scheme_config()
+        for key in ("routing", "model_version", "model_plan_id"):
+            if key in base:
+                config[key] = copy.deepcopy(base[key])
         config["model_id"] = str(base.get("model_id") or "xaj")
         if base.get("warmup_days") is not None:
             config["warmup_days"] = int(base["warmup_days"])
         if isinstance(base.get("parameters"), dict) and base["parameters"]:
             config["parameters"] = copy.deepcopy(base["parameters"])
+    if plan:
+        config["model_plan_id"] = plan["plan_id"]
+        config["model_plan_hash"] = plan["content_hash"]
     content_hash = sha256_bytes(
         json.dumps(config, sort_keys=True, separators=(",", ":")).encode("utf-8")
     )
@@ -128,6 +166,7 @@ def build_task_summary(deps: AppDependencies, task_id: str) -> TaskSummary:
         status=status,
         paused=bool(state.paused),
         current_scheme_id=state.current_scheme_id,
+        model_plan_id=(deps.repository.get_scheme(state.current_scheme_id).config_json or {}).get("model_plan_id") if state.current_scheme_id else None,
         agent_rounds_used=state.agent_rounds_used,
         optimization_cycles_used=state.optimization_cycles_used,
         start_date=str(start_date) if start_date else None,

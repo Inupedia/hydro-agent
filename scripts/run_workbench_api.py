@@ -188,20 +188,22 @@ def _build_demo(deps: AppDependencies, repository) -> None:
     deps.provider_model = None
 
 
-def _can_run_real(source: Path, scheme: Path) -> tuple[bool, str]:
+def _can_run_real(*, basins_root: Path, legacy_source: Path) -> tuple[bool, str]:
     if os.getenv("HYDRO_AGENT_MODE", "").lower() == "demo":
         return False, "HYDRO_AGENT_MODE=demo"
-    if not source.exists():
-        return False, f"missing source dir: {source}"
-    if not scheme.exists():
-        return False, f"missing scheme: {scheme}"
+    hydro_ok = (basins_root / "camels_13235000" / "hydro" / "forcing.jsonl").is_file() or (
+        legacy_source / "forcing.jsonl"
+    ).is_file() or (legacy_source / "camels_13235000" / "forcing.jsonl").is_file()
+    if not hydro_ok:
+        # Still allow real mode so download UI can run; forecast needs a ready plan.
+        hydro_ok = True
     try:
         from hydro_agent.llm.settings import LLMSettings
 
         settings = LLMSettings.from_env(
             env_file=Path(os.getenv("HYDRO_AGENT_ENV_FILE", ".env"))
         )
-    except Exception as exc:  # noqa: BLE001 - surface config errors as demo fallback reason
+    except Exception as exc:  # noqa: BLE001
         return False, f"LLM settings unavailable: {exc}"
     if not settings.api_key.get_secret_value().strip():
         return False, "SILICONFLOW_API_KEY empty"
@@ -331,6 +333,28 @@ def _build_real(
         )
 
     deps.runtime_factory = runtime_factory
+
+    def runtime_for_task(task_id):
+        state = repository.ensure_task_state(task_id)
+        config = repository.get_scheme(state.current_scheme_id).config_json
+        plan_id = config.get("model_plan_id")
+        if not plan_id:
+            raise ValueError("当前任务缺少已验证模型方案")
+        deps.model_plans.require_ready(plan_id)
+        directory = deps.model_plans.directory(plan_id)
+        deps.task_configs[task_id] = {**config.get("workbench", {}), "model_plan_id":plan_id}
+        task_kernel = RealWorkbenchKernel(
+            repository=repository, work_root=work_root/task_id,
+            source_dir=directory/"normalized", scheme_path=directory/"scheme.json",
+            report_root=report_root, warmup_days=int(config["warmup_days"]),
+        )
+        return LoggedRuntime(
+            repository, provider=provider, tools=task_kernel.build_tools(task_configs=deps.task_configs),
+            world_state=WorldStateBuilder(repository, skills=task_kernel.skills, strategies=task_kernel.strategies),
+            provider_name="siliconflow", provider_model=settings.model,
+        )
+
+    deps.runtime_for_task = runtime_for_task
     return settings.model
 
 
@@ -352,6 +376,26 @@ def build_app(
         report_root=str(report_root),
     )
     report_root.mkdir(parents=True, exist_ok=True)
+    from hydro_agent.graphs.hydrologist import build_hydrologist_tune_graph
+    from hydro_agent.modeling.basins import BasinCatalog
+    from hydro_agent.modeling.downloads import BasinDownloadService
+    from hydro_agent.modeling.hydrologist import HydrologistTuneService
+    from hydro_agent.modeling.us_plans import UsModelPlanService
+
+    data_root = Path(os.getenv("HYDRO_AGENT_DATA_ROOT", "data"))
+    basins_root = Path(os.getenv("HYDRO_AGENT_BASINS", str(data_root / "basins")))
+    legacy_source_root = Path(os.getenv("HYDRO_AGENT_SOURCE_ROOT", str(data_root / "source")))
+    deps.basins = BasinCatalog(basins_root, legacy_source=legacy_source_root)
+    deps.basin_downloads = BasinDownloadService(deps.basins)
+    deps.model_plans = UsModelPlanService(report_root.parent / "model-plans", deps.basins)
+    # Hydrologist tune stays available when a plan case exists; US cases may be limited.
+    deps.hydrologist = HydrologistTuneService(
+        report_root.parent / "hydrologist-sessions",
+        deps.model_plans,
+        repository=repository,
+    )
+    deps.hydrologist_graph = build_hydrologist_tune_graph(deps.hydrologist)
+
     work_root = work_root or Path(os.getenv("HYDRO_AGENT_WORK_ROOT", "artifacts/workbench/runtime"))
     source = source_dir or Path(
         os.getenv("HYDRO_AGENT_SOURCE", "data/source/camels_13235000")
@@ -360,13 +404,16 @@ def build_app(
         os.getenv("HYDRO_AGENT_SCHEME", "tests/fixtures/xaj/lowman_scheme.json")
     )
 
-    ok, detail = _can_run_real(source, scheme)
+    ok, detail = _can_run_real(basins_root=basins_root, legacy_source=legacy_source_root)
     if ok:
+        # Prefer basin hydro for kernel bootstrap when present.
+        basin_hydro = basins_root / "camels_13235000" / "hydro"
+        boot_source = basin_hydro if (basin_hydro / "forcing.jsonl").is_file() else source
         model = _build_real(
             deps,
             repository,
             work_root=work_root,
-            source=source,
+            source=boot_source,
             scheme=scheme,
             report_root=report_root,
         )

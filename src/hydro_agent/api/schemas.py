@@ -17,6 +17,7 @@ class TaskCreateRequest(FrozenApiModel):
     end_date: date
     forcing_mode: Literal["R", "F"]
     base_scheme_id: str = Field(min_length=1)
+    model_plan_id: str | None = None
     allow_optimization: bool
     max_agent_decision_rounds: int = Field(default=20, ge=1, le=20)
     max_optimization_cycles: int = Field(default=4, ge=0, le=4)
@@ -30,6 +31,7 @@ class TaskSummary(FrozenApiModel):
     status: str
     paused: bool
     current_scheme_id: str | None
+    model_plan_id: str | None = None
     agent_rounds_used: int
     optimization_cycles_used: int
     start_date: str | None = None

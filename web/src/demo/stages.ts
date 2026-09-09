@@ -28,6 +28,11 @@ const ACTION_STAGE: Record<string, AudienceStageId> = {
 }
 
 export const ACTION_TITLE_ZH: Record<string, string> = {
+  M01_CHECK_MATERIALS: '检查建模资料',
+  M02_DELINEATE: '提取流域与计算单元',
+  M03_REVIEW_BOUNDARY: '复核出口与边界',
+  M04_BUILD_INPUTS: '构建面雨量与模型输入',
+  M05_VALIDATE_PLAN: '校验完整模型方案',
   A01_CHECK_DATA: '正在检查资料',
   A03_VALIDATE_SCHEME: '正在校验方案',
   A05_FORECAST: '正在计算预测',
@@ -189,7 +194,11 @@ export function gateDecisionZh(
 }
 
 export const BASIN_LABELS: Record<string, string> = {
-  camels_13235000: 'Lowman（Snake River 支流）',
+  usgs_02472000: 'Leaf River near Collins (MS)',
+  camels_13235000: 'Lowman · South Fork Payette (ID)',
+  camels_01123000: 'Pendleton Hill · Housatonic (CT)',
+  camels_05455500: 'Iowa City · Iowa River (IA)',
+  yaogu: '腰古（旁路实验）',
 }
 
 export function basinLabel(basinId: string): string {

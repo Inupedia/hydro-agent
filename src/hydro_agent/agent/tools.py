@@ -229,6 +229,32 @@ class OptimizeHandler:
         self.policy = policy
 
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
+        if decision.strategy_id == "xaj-hydrologist-manual-v1":
+            observations = (
+                "hydrologist_manual_required",
+                "open_hydrologist_tune_ui",
+                "strategy_id=xaj-hydrologist-manual-v1",
+            )
+            return EvidencePacket(
+                evidence_id=_evidence_id(),
+                task_id=task_id,
+                action_run_id=None,
+                action=ActionCode.A07_OPTIMIZE,
+                status="blocked",
+                observations=observations,
+                metrics={},
+                gates={
+                    "strategy_id": "xaj-hydrologist-manual-v1",
+                    "reason": "await_hydrologist_compare",
+                },
+                artifact_ids=(),
+                new_information_hash=information_hash(
+                    action=ActionCode.A07_OPTIMIZE,
+                    status="blocked",
+                    observations=observations,
+                    metrics={},
+                ),
+            )
         state = self.repository.ensure_task_state(task_id)
         outcome = self.calibration_service.calibrate(
             task_id=task_id,

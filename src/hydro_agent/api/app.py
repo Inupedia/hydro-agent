@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from hydro_agent.api.deps import AppDependencies
 from hydro_agent.api.executor import TaskExecutor
-from hydro_agent.api.routes import results, runs, tasks
+from hydro_agent.api.routes import basins, hydrologist, model_plans, results, runs, tasks
 
 
 def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> FastAPI:
@@ -29,10 +29,18 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
     def health():
         return {
             "status": "ok",
+            "model_preparation": deps.model_plans is not None,
+            "basin_catalog": getattr(deps, "basins", None) is not None,
+            "hydrologist_tune": getattr(deps, "hydrologist", None) is not None,
+            "orchestrator": "langgraph",
             "mode": getattr(deps, "mode", "demo"),
             "provider_model": getattr(deps, "provider_model", None),
         }
 
+    app.include_router(basins.router)
+    app.include_router(basins.downloads_router)
+    app.include_router(model_plans.router)
+    app.include_router(hydrologist.router)
     app.include_router(tasks.router)
     app.include_router(runs.router)
     app.include_router(results.router)

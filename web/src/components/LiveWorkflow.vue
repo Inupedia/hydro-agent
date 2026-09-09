@@ -15,6 +15,11 @@ const loaded = ref(false)
 
 /** Align with Archify node ids in hydro-agent-xaj.workflow.html */
 const ACTION_NODE: Record<string, string> = {
+  M01_CHECK_MATERIALS: 'materials',
+  M02_DELINEATE: 'delineate',
+  M03_REVIEW_BOUNDARY: 'boundary',
+  M04_BUILD_INPUTS: 'inputs',
+  M05_VALIDATE_PLAN: 'plan',
   A01_CHECK_DATA: 'task',
   A03_VALIDATE_SCHEME: 'task',
   A05_FORECAST: 'forecast',
@@ -84,10 +89,10 @@ function ready() {
       .diagram-container::before,.diagram-container::after,.share-chapter-cue,.toolbar,.header,.cards,.diagram-nav,.guided-views { display:none!important; }
       [data-node-id] { transition: opacity .2s, filter .2s; }
       [data-node-id].live-pending { opacity: .42; }
-      [data-node-id] > rect { fill:#f4f8fc!important; stroke:#c6d6e5!important; }
-      [data-node-id].live-done > rect { fill:#edf7f5!important; stroke:#7cbaaa!important; }
-      [data-node-id].live-current > rect { fill:#e0efff!important; stroke:#007aff!important; stroke-width:3px!important; filter:drop-shadow(0 0 5px #007aff33); }
-      [data-node-id].live-blocked > rect { fill:#fff0ed!important; stroke:#cc6457!important; }
+      [data-node-id] > rect { fill:#ffffff!important; stroke:#e5e5ea!important; }
+      [data-node-id].live-done > rect { fill:#eaf7ee!important; stroke:#248a3d!important; }
+      [data-node-id].live-current > rect { fill:#eaf3ff!important; stroke:#007aff!important; stroke-width:3px!important; filter:drop-shadow(0 0 5px #007aff33); }
+      [data-node-id].live-blocked > rect { fill:#fff0f0!important; stroke:#d70015!important; }
       text { font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif!important; }
       @media(prefers-reduced-motion:reduce) { * { transition:none!important; animation:none!important; } }
     `
@@ -102,7 +107,7 @@ watch(() => [props.action, props.status, props.gateStatus, props.completedAction
 <template>
   <section class="live-workflow" :class="{ 'is-expanded': expanded }" data-test="live-workflow">
     <div class="workflow-caption">
-      <span>执行地图 <small>ARCHIFY</small></span>
+      <span>执行地图</span>
       <strong aria-live="polite">{{ label }}</strong>
     </div>
     <iframe
@@ -125,12 +130,15 @@ watch(() => [props.action, props.status, props.gateStatus, props.completedAction
   min-height: 250px;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(140deg, #ffffffb0, #ffffff55);
-  border: 1px solid #fff;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.95);
   border-radius: 22px;
   margin: 20px 0 10px;
   overflow: hidden;
   transform-origin: 50% 40%;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.05);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 .live-workflow.is-expanded {
   min-height: min(62vh, 640px);

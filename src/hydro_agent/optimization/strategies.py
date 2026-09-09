@@ -27,12 +27,27 @@ XAJ_LOCAL_REFINE_V1 = CalibrationStrategy(
     param_groups=("evap", "runoff", "routing"),
 )
 
+# Hydrologist notebook §6: parameters come from manual compare, not random search.
+XAJ_HYDROLOGIST_MANUAL_V1 = CalibrationStrategy(
+    strategy_id="xaj-hydrologist-manual-v1",
+    max_candidates=1,
+    random_seed=20260913,
+    objective="nse",
+    local_scale=None,
+    param_groups=("evap", "runoff", "routing"),
+)
+
 
 class CalibrationStrategyRegistry:
     def __init__(self) -> None:
         self._strategies = {
             s.strategy_id: s
-            for s in (XAJ_BOUNDED_V1, XAJ_PEAK_BIAS_V1, XAJ_LOCAL_REFINE_V1)
+            for s in (
+                XAJ_BOUNDED_V1,
+                XAJ_PEAK_BIAS_V1,
+                XAJ_LOCAL_REFINE_V1,
+                XAJ_HYDROLOGIST_MANUAL_V1,
+            )
         }
 
     def get(self, strategy_id: str) -> CalibrationStrategy:

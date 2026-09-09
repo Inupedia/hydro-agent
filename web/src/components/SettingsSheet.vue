@@ -75,12 +75,12 @@ const demo = useDemoStore()
   max-height: min(80dvh, 720px);
   overflow: auto;
   border-radius: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.95);
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.18);
   padding: 1.25rem 1.35rem 1.4rem;
-  background: var(--glass-strong);
-  backdrop-filter: saturate(180%) blur(28px);
-  -webkit-backdrop-filter: saturate(180%) blur(28px);
+  background: rgba(246, 246, 248, 0.94);
+  backdrop-filter: saturate(180%) blur(32px);
+  -webkit-backdrop-filter: saturate(180%) blur(32px);
   display: grid;
   gap: 0.85rem;
 }
