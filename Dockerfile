@@ -30,6 +30,9 @@ COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 COPY scripts ./scripts
 
+# Prefer a reachable index when building behind unstable PyPI routes.
+ENV UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+
 RUN uv sync --frozen --extra api --extra data --extra xaj --no-dev \
     && mkdir -p /data/reports /data/runtime
 
