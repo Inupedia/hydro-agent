@@ -6,14 +6,16 @@ XAJ_BOUNDED_V1 = CalibrationStrategy(
     random_seed=20260908,
     objective="nse",
     local_scale=None,
+    param_groups=("evap", "runoff", "routing"),
 )
 
 XAJ_PEAK_BIAS_V1 = CalibrationStrategy(
     strategy_id="xaj-peak-bias-v1",
     max_candidates=40,
     random_seed=20260911,
-    objective="nse",
+    objective="composite",
     local_scale=None,
+    param_groups=("runoff", "routing"),
 )
 
 XAJ_LOCAL_REFINE_V1 = CalibrationStrategy(
@@ -22,6 +24,7 @@ XAJ_LOCAL_REFINE_V1 = CalibrationStrategy(
     random_seed=20260912,
     objective="nse",
     local_scale=0.25,
+    param_groups=("evap", "runoff", "routing"),
 )
 
 

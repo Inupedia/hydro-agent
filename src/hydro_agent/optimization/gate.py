@@ -16,6 +16,9 @@ class GateEvaluator:
         primary_delta = float(candidate.primary_score - base.primary_score)
         if reasons:
             status = "ROLLBACK"
+        elif candidate.primary_score < policy.min_candidate_primary:
+            status = "KEEP"
+            reasons.append("insufficient_absolute_skill")
         elif primary_delta >= policy.min_primary_delta:
             status = "ACCEPT"
         else:

@@ -7,6 +7,9 @@ describe('demo stage mapping', () => {
     expect(actionTitle('A08_GATE')).toContain('检查')
     expect(gateDecisionZh('KEEP').title).toBe('保留原方案')
     expect(gateDecisionZh('KEEP').tone).toBe('keep')
+    expect(
+      gateDecisionZh('KEEP', { reasons: ['insufficient_absolute_skill'], metrics: { base_primary: -300, candidate_primary: -220, primary_delta: 80 } }).reason,
+    ).toContain('绝对技巧')
     const statuses = stageStatuses(['A01_CHECK_DATA', 'A05_FORECAST'], 'A07_OPTIMIZE', 'running')
     expect(statuses.data).toBe('done')
     expect(statuses.forecast).toBe('done')

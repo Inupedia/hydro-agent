@@ -37,3 +37,14 @@ def test_diagnose_recommends_peak_strategy_on_underestimation():
     )
     assert result["hypothesis"] == "MODEL"
     assert result["recommended_strategy_id"] == "xaj-peak-bias-v1"
+    assert result["recommended_param_groups"] == ["runoff", "routing"]
+    assert result["recommended_objective"] == "composite"
+    assert len(result["hypotheses"]) >= 2
+    ids = {item["id"] for item in result["hypotheses"]}
+    assert "MODEL" in ids and "FORCING" in ids
+
+
+def test_peak_bias_strategy_targets_runoff_routing_composite():
+    strategy = CalibrationStrategyRegistry().get("xaj-peak-bias-v1")
+    assert strategy.objective == "composite"
+    assert strategy.param_groups == ("runoff", "routing")

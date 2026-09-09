@@ -122,11 +122,22 @@ class DiagnoseHandler:
 
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
         result = self.diagnose_fn(task_id)
+        hypotheses = list(result.get("hypotheses") or [])
+        hypothesis_lines = tuple(
+            f"hypothesis[{index}]={item.get('id')}:{float(item.get('strength') or 0):.2f}:"
+            f"{item.get('suggested_action')}:{item.get('suggested_strategy_id') or '-'}"
+            for index, item in enumerate(hypotheses)
+        )
+        groups = result.get("recommended_param_groups")
+        groups_text = ",".join(groups) if isinstance(groups, (list, tuple)) else ""
         observations = (
             f"phenomenon={result.get('phenomenon')}",
             f"hypothesis={result.get('hypothesis')}",
             f"recommended_action={result.get('recommended_action')}",
             f"recommended_strategy_id={result.get('recommended_strategy_id')}",
+            f"recommended_param_groups={groups_text or '-'}",
+            f"recommended_objective={result.get('recommended_objective') or '-'}",
+            *hypothesis_lines,
             *(result.get("notes") or ()),
         )
         metrics = {
@@ -138,8 +149,11 @@ class DiagnoseHandler:
             "hypothesis": str(result.get("hypothesis") or "UNKNOWN"),
             "recommended_action": str(result.get("recommended_action") or ""),
             "recommended_strategy_id": str(result.get("recommended_strategy_id") or ""),
+            "recommended_param_groups": groups_text,
+            "recommended_objective": str(result.get("recommended_objective") or ""),
             "phenomenon": str(result.get("phenomenon") or ""),
             "skill_id": "forecast-diagnose",
+            "hypotheses_json": json.dumps(hypotheses, ensure_ascii=False, sort_keys=True),
         }
         return EvidencePacket(
             evidence_id=_evidence_id(),
@@ -223,26 +237,47 @@ class OptimizeHandler:
             validation_snapshot_id=self.validation_snapshot_id,
             strategy_id=decision.strategy_id,
             policy=self.policy,
+            param_groups=decision.param_groups,
+            objective=decision.objective,
         )
+        base_params = dict(
+            (self.repository.get_scheme(outcome.base_scheme_id).config_json or {}).get("parameters")
+            or {}
+        )
+        delta = {
+            key: float(outcome.candidate_parameters[key]) - float(base_params[key])
+            for key in outcome.candidate_parameters
+            if key in base_params
+            and abs(float(outcome.candidate_parameters[key]) - float(base_params[key])) > 1e-12
+        }
+        groups_text = ",".join(outcome.param_groups)
         candidate_id = self.candidate_service.register_candidate(
             base_scheme_id=outcome.base_scheme_id,
             action_run_id=outcome.action_run_id,
             calibration_payload={
                 "candidate_parameters": outcome.candidate_parameters,
                 "strategy_id": outcome.strategy_id,
+                "objective": outcome.objective,
+                "param_groups": list(outcome.param_groups),
             },
         )
         observations = (
             f"candidate_scheme_id={candidate_id}",
             f"base_scheme_id={outcome.base_scheme_id}",
             f"strategy_id={outcome.strategy_id}",
+            f"objective={outcome.objective}",
+            f"param_groups={groups_text}",
             f"objective_value={outcome.objective_value}",
+            f"parameter_delta={json.dumps(delta, sort_keys=True)}",
         )
         metrics = {"objective_value": float(outcome.objective_value)}
         gates = {
             "candidate_scheme_id": candidate_id,
             "base_scheme_id": outcome.base_scheme_id,
             "strategy_id": str(outcome.strategy_id),
+            "objective": outcome.objective,
+            "param_groups": groups_text,
+            "parameter_delta_json": json.dumps(delta, sort_keys=True),
         }
         return EvidencePacket(
             evidence_id=_evidence_id(),
@@ -279,17 +314,20 @@ class GateHandler:
             f"candidate_scheme_id={result.candidate_scheme_id}",
             f"base_primary={base.primary_score:.4f}",
             f"candidate_primary={candidate.primary_score:.4f}",
+            f"min_candidate_primary={self.policy.min_candidate_primary:.4f}",
             *result.reasons,
         )
         metrics = {
             "primary_delta": float(result.primary_delta),
             "base_primary": float(base.primary_score),
             "candidate_primary": float(candidate.primary_score),
+            "min_candidate_primary": float(self.policy.min_candidate_primary),
         }
         gates = {
             "status": result.status,
             "base_scheme_id": result.base_scheme_id,
             "candidate_scheme_id": result.candidate_scheme_id,
+            "reasons": ",".join(result.reasons),
         }
         return EvidencePacket(
             evidence_id=_evidence_id(),

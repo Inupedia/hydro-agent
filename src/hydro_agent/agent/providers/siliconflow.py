@@ -22,24 +22,28 @@ Never invent continuous parameter vectors or call model processes directly.
 
 You MUST use hydro context and skill cards:
 - Read hydro.diagnosis / evidence_summary.observations / metrics / gates
-- Use available_skills and available_strategies
+- Diagnosis may list multiple hypotheses with strengths; YOU pick which hypothesis to act on
+- Use available_skills, available_strategies, available_param_groups, available_objectives
 - Prefer A06_DIAGNOSE after a forecast before blind re-optimization
-- After diagnose, follow recommended_action/strategy when still safe
+- After diagnose, treat recommendations as suggestions only — choose action/strategy/param_groups/objective yourself
 - After A09_RESOLVE with KEEP/ROLLBACK and remaining optimization budget, you MAY A06 or A07 again instead of freezing
 - Only A10_FREEZE when evidence supports stopping (small bias / Gate KEEP after enough experiments / budget low)
+- Gate KEEP with insufficient_absolute_skill means skill is still too poor to adopt — do not freeze a failed scheme as success
 
 Preferred B-phase research loop:
-A01/A03 -> A05_FORECAST -> A06_DIAGNOSE -> A07_OPTIMIZE(strategy_id) -> A08_GATE -> A09_RESOLVE
+A01/A03 -> A05_FORECAST -> A06_DIAGNOSE -> A07_OPTIMIZE(strategy_id,param_groups,objective) -> A08_GATE -> A09_RESOLVE
 then either continue diagnose/optimize OR A10_FREEZE -> (F) A11_REPLAY -> (E) A12_EVALUATE_REPORT
 
 Return ONLY one JSON object with exactly these keys:
 - action: one ActionCode string, e.g. "A06_DIAGNOSE"
 - hypothesis: MUST be exactly one of {_HYPOTHESES} (a short enum token, NEVER a sentence)
 - strategy_id: null, unless action is A07_OPTIMIZE then one of hydro.available_strategies
+- param_groups: null, unless A07_OPTIMIZE then a JSON array subset of hydro.available_param_groups (e.g. ["runoff","routing"])
+- objective: null, unless A07_OPTIMIZE then one of hydro.available_objectives ("nse"|"peak"|"composite")
 - rationale_summary: Chinese preferred; state 发现/依据/为何这样调/预期验证 (1-3 short sentences)
 
 Example:
-{{"action":"A06_DIAGNOSE","hypothesis":"MODEL","strategy_id":null,"rationale_summary":"已有预报，先诊断洪峰与偏差再决定是否优化。"}}
+{{"action":"A07_OPTIMIZE","hypothesis":"MODEL","strategy_id":"xaj-peak-bias-v1","param_groups":["runoff","routing"],"objective":"composite","rationale_summary":"洪峰低估，先动产汇流参数并用综合目标验证。"}}
 
 No markdown fences. No extra keys. No prose outside JSON.
 """
@@ -118,6 +122,8 @@ class SiliconFlowDecisionProvider:
         ):
             payload["action"] = ActionCode.A10_FREEZE.value
             payload["strategy_id"] = None
+            payload["param_groups"] = None
+            payload["objective"] = None
             payload["rationale_summary"] = (
                 "Gate 已 ACCEPT 并落实候选，停止继续调参，冻结当前方案进入回放。"
             )
@@ -203,6 +209,10 @@ def _fallback_payload(view: WorldStateView, *, raw_text: str) -> dict:
         "action": preferred,
         "hypothesis": "MODEL",
         "strategy_id": "xaj-bounded-v1" if preferred == ActionCode.A07_OPTIMIZE.value else None,
+        "param_groups": ["evap", "runoff", "routing"]
+        if preferred == ActionCode.A07_OPTIMIZE.value
+        else None,
+        "objective": "nse" if preferred == ActionCode.A07_OPTIMIZE.value else None,
         "rationale_summary": "模型输出不完整，已按证据状态回退到安全的下一步。",
     }
 
@@ -293,7 +303,35 @@ def normalize_decision_payload(
     if action != ActionCode.A07_OPTIMIZE.value:
         strategy_id = None
 
+    param_groups = data.get("param_groups")
+    objective = data.get("objective")
+    if action != ActionCode.A07_OPTIMIZE.value:
+        param_groups = None
+        objective = None
+    else:
+        if isinstance(param_groups, str):
+            param_groups = [p.strip() for p in param_groups.split(",") if p.strip()]
+        if param_groups in ("", "null", "None", None):
+            param_groups = None
+        if isinstance(param_groups, list):
+            cleaned = []
+            for item in param_groups:
+                key = str(item).strip().lower()
+                if key in {"evap", "runoff", "routing"} and key not in cleaned:
+                    cleaned.append(key)
+            param_groups = cleaned or None
+        if objective in ("", "null", "None", None):
+            objective = None
+        elif str(objective) not in {"nse", "peak", "composite"}:
+            objective = "nse"
+        if not param_groups:
+            param_groups = ["evap", "runoff", "routing"]
+        if not objective:
+            objective = "nse"
+
     data["hypothesis"] = hypothesis
     data["rationale_summary"] = rationale
     data["strategy_id"] = strategy_id
+    data["param_groups"] = param_groups
+    data["objective"] = objective
     return data

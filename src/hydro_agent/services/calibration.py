@@ -17,6 +17,8 @@ class CalibrationOutcome(FrozenModel):
     base_scheme_id: Identifier
     candidate_parameters: dict[str, float]
     objective_value: float
+    objective: str = "nse"
+    param_groups: tuple[str, ...] = ()
     artifact_ids: tuple[str, ...] = Field(default_factory=tuple)
     result_payload: dict[str, Any] = Field(default_factory=dict)
 
@@ -45,6 +47,8 @@ class CalibrationService:
         validation_snapshot_id: str,
         strategy_id: str,
         policy,
+        param_groups: tuple[str, ...] | None = None,
+        objective: str | None = None,
     ) -> CalibrationOutcome:
         task = self.repository.get_task(task_id)
         if task.phase in ("F", "E"):
@@ -57,6 +61,8 @@ class CalibrationService:
             raise ValueError("cross-task references are forbidden")
         if base.model_id != self.model_id:
             raise ValueError("scheme model mismatch")
+        resolved_groups = tuple(param_groups) if param_groups else tuple(strategy.param_groups)
+        resolved_objective = objective or strategy.objective
         action_run_id = new_action_run_id()
         self.repository.create_action_run(
             task_id=task_id,
@@ -69,7 +75,12 @@ class CalibrationService:
         )
         request = self.repository.build_execution_request(
             action_run_id,
-            {"strategy_id": strategy.strategy_id, "validation_snapshot_id": validation_snapshot_id},
+            {
+                "strategy_id": strategy.strategy_id,
+                "validation_snapshot_id": validation_snapshot_id,
+                "param_groups": list(resolved_groups),
+                "objective": resolved_objective,
+            },
             policy,
         )
         result = self.runner.run(request)
@@ -104,6 +115,8 @@ class CalibrationService:
             base_scheme_id=base_scheme_id,
             candidate_parameters={str(k): float(v) for k, v in parameters.items()},
             objective_value=float(payload["objective_value"]),
+            objective=str(payload.get("objective") or resolved_objective),
+            param_groups=tuple(payload.get("param_groups") or resolved_groups),
             artifact_ids=tuple(a["artifact_id"] for a in artifacts if a["promoted"]),
             result_payload=dict(payload),
         )

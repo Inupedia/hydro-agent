@@ -24,16 +24,40 @@ describe('single page observatory',()=>{
   expect(api.createTask).toHaveBeenCalledTimes(1)
   expect(api.startRun).toHaveBeenCalledTimes(1)
   expect(router.currentRoute.value.path).toBe('/')
+  expect(wrapper.find('[data-test="live-workflow"]').exists()).toBe(true)
+  expect(wrapper.find('.water-scene').exists()).toBe(false)
   expect(wrapper.find('fieldset').attributes('disabled')).toBeDefined()
   wrapper.unmount()
  })
  it('renders arriving results in place and exposes report links',async()=>{
   const {wrapper,store,router}=await setup()
   store.taskId='test-task'
-  store.results={task_id:'test-task',phase:'E',scheme:null,forecasts:[{forecast_id:'f',scheme_id:'s',issue_time:'2020-01-01',lead_values:{1:10},unit:'m3/s'}],metrics:{},gate:{status:'KEEP'},report_artifacts:['report.md'],costs:{}}
+  store.run={status:'completed',worker_active:false,phase:'E',needs_follow_up:false} as typeof store.run
+  store.results={
+    task_id:'test-task',
+    phase:'E',
+    scheme:{
+      scheme_id:'s',
+      status:'frozen',
+      content_hash:'h',
+      model_id:'xaj',
+      provenance:{},
+      parameters:{K:0.5,SM:30},
+      base_parameters:{K:0.75,SM:20},
+      parameter_delta:{K:-0.25,SM:10},
+    },
+    forecasts:[{forecast_id:'f',scheme_id:'s',issue_time:'2020-01-01',lead_values:{1:10},unit:'m3/s'}],
+    metrics:{},
+    gate:{status:'KEEP',reason_codes:['insufficient_absolute_skill'],metrics:{base_primary:-300,candidate_primary:-220}},
+    diagnosis:{hypothesis:'MODEL',phenomenon:'洪峰低估',hypotheses_json:JSON.stringify([{id:'MODEL',strength:0.8,phenomenon:'洪峰低估'}])},
+    optimize:{strategy_id:'xaj-peak-bias-v1',param_groups:'runoff,routing',objective:'composite',metrics:{objective_value:0.12}},
+    report_artifacts:['report.md'],
+    costs:{},
+  }
   await flushPromises()
   expect(wrapper.find('[data-test="chart"]').exists()).toBe(true)
-  expect(wrapper.find('.water-scene').exists()).toBe(false)
+  expect(wrapper.find('[data-test="param-tuning"]').exists()).toBe(true)
+  expect(wrapper.text()).toContain('新安江参数如何被调整')
   expect(wrapper.text()).toContain('保留原方案')
   expect(wrapper.find('a[href*="/report/"]').attributes('href')).toBe('/api/tasks/test-task/report/report.md')
   expect(router.currentRoute.value.path).toBe('/')

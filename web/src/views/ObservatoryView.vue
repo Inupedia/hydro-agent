@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import ForecastChart from '../components/ForecastChart.vue'
+import LiveWorkflow from '../components/LiveWorkflow.vue'
+import ParamTuningPanel from '../components/ParamTuningPanel.vue'
 import { useDemoStore } from '../stores/demo'
 import { api } from '../api/client'
+import { gsap, motionDuration, prefersReducedMotion } from '../motion/gsap'
 import { AUDIENCE_STAGES, actionTitle, actionExplain, basinLabel, gateDecisionZh, stageForAction, stageStatuses } from '../demo/stages'
 
 const demo = useDemoStore()
@@ -13,22 +16,99 @@ const serviceMode = ref<string | null>(null)
 const connected = ref(false)
 const now = ref(Date.now())
 const advanced = ref(false)
+const taskPane = ref<HTMLElement | null>(null)
+const mainStage = ref<HTMLElement | null>(null)
+const journalPane = ref<HTMLElement | null>(null)
+const stageTrack = ref<HTMLElement | null>(null)
+const decisionStrip = ref<HTMLElement | null>(null)
+const forecastSurface = ref<HTMLElement | null>(null)
+const tuningMount = ref<HTMLElement | null>(null)
 let timer: number | undefined
+let layoutTween: ReturnType<typeof gsap.timeline> | null = null
+
 const locked = computed(() => busy.value || !!demo.taskId)
 const action = computed(() => demo.run?.llm_decision_action || demo.run?.last_action || demo.timeline.at(-1)?.action)
+const showWorkflow = computed(
+  () =>
+    busy.value ||
+    demo.isRunning ||
+    !!demo.run?.paused ||
+    demo.isFailed ||
+    (!!demo.taskId &&
+      !demo.results?.forecasts?.length &&
+      !!demo.run &&
+      demo.run.status !== 'created'),
+)
+/** Focus stage: Archify + journal only. */
+const focusStage = computed(() => showWorkflow.value && !demo.isCompleted)
+const completedActions = computed(() =>
+  demo.timeline
+    .filter((t) => t.action && !['failed', 'error', 'skipped', 'running'].includes(t.status))
+    .map((t) => t.action as string),
+)
+const gateStatus = computed(() => {
+  const fromResults = demo.results?.gate?.status
+  if (typeof fromResults === 'string') return fromResults
+  const gate = [...demo.timeline].reverse().find((t) => t.action === 'A08_GATE' || t.action === 'A09_RESOLVE')
+  return typeof gate?.status === 'string' ? gate.status : null
+})
 const stage = computed(() => stageForAction(action.value))
-const progress = computed(() => stageStatuses(demo.timeline.filter(t => !['failed', 'error', 'skipped'].includes(t.status)).map(t => t.action || ''), action.value || null, demo.isCompleted ? 'completed' : demo.run?.status || null))
-const progressLabel = (status: string) => ({ pending: '待开始', active: '进行中', done: '已完成', skipped: '未执行', blocked: '已受阻' }[status] || '')
-const gate = computed(() => gateDecisionZh(typeof demo.results?.gate?.status === 'string' ? demo.results.gate.status : null))
-const mode = computed(() => demo.mode === 'replay' ? '历史记录' : serviceMode.value === 'real' ? '真实计算' : serviceMode.value ? '模拟演示' : '连接待确认')
-const title = computed(() => demo.isFailed ? '本次计算暂时受阻' : demo.isCompleted ? '一次预测，有据可循。' : demo.isRunning ? actionTitle(action.value) : demo.run?.paused ? '计算已暂停' : '看见水流的下一程。')
-const description = computed(() => demo.isFailed ? '查看右侧记录，了解计算停在哪一步。' : demo.isCompleted ? '计算与判断留在同一画面，每个结果都有来处。' : demo.isRunning ? actionExplain(action.value) : '从资料检查到流量预测，让复杂的计算过程清晰可见。')
+const progress = computed(() =>
+  stageStatuses(
+    demo.timeline.filter((t) => !['failed', 'error', 'skipped'].includes(t.status)).map((t) => t.action || ''),
+    action.value || null,
+    demo.isCompleted ? 'completed' : demo.run?.status || null,
+  ),
+)
+const progressLabel = (status: string) =>
+  ({ pending: '待开始', active: '进行中', done: '已完成', skipped: '未执行', blocked: '已受阻' })[status] || ''
+const gate = computed(() =>
+  gateDecisionZh(typeof demo.results?.gate?.status === 'string' ? demo.results.gate.status : null, {
+    reasons: demo.results?.gate?.reason_codes || demo.results?.gate?.reasons,
+    metrics: (demo.results?.gate?.metrics as Record<string, unknown> | undefined) || null,
+  }),
+)
+const showTuning = computed(
+  () =>
+    !focusStage.value &&
+    !!demo.results &&
+    (!!demo.results.diagnosis ||
+      !!demo.results.optimize ||
+      !!(demo.results.scheme?.parameter_delta && Object.keys(demo.results.scheme.parameter_delta).length) ||
+      !!(demo.results.scheme?.parameters && Object.keys(demo.results.scheme.parameters).length)),
+)
+const mode = computed(() =>
+  demo.mode === 'replay' ? '历史记录' : serviceMode.value === 'real' ? '真实计算' : serviceMode.value ? '模拟演示' : '连接待确认',
+)
+const title = computed(() =>
+  demo.isFailed
+    ? '本次计算暂时受阻'
+    : demo.isCompleted
+      ? '一次预测，有据可循。'
+      : demo.isRunning
+        ? actionTitle(action.value)
+        : demo.run?.paused
+          ? '计算已暂停'
+          : '看见水流的下一程。',
+)
+const description = computed(() =>
+  demo.isFailed
+    ? '查看右侧记录，了解计算停在哪一步。'
+    : demo.isCompleted
+      ? '计算与判断留在同一画面，每个结果都有来处。'
+      : demo.isRunning
+        ? actionExplain(action.value)
+        : '从资料检查到流量预测，让复杂的计算过程清晰可见。',
+)
 const elapsed = computed(() => {
   if (!demo.startedAt || demo.isCompleted || demo.isFailed) return demo.isCompleted ? '已结束' : '等待开始'
   const seconds = Math.max(0, Math.floor((now.value - demo.startedAt) / 1000))
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 })
-const eventStatus = (status: string) => ({ succeeded: '已完成', completed: '已完成', success: '已完成', running: '进行中', failed: '失败', error: '失败', skipped: '已跳过' }[status] || '执行记录')
+const eventStatus = (status: string) =>
+  ({ succeeded: '已完成', completed: '已完成', success: '已完成', running: '进行中', failed: '失败', error: '失败', skipped: '已跳过' })[
+    status
+  ] || '执行记录'
 const events = computed(() => [...demo.timeline].reverse())
 const reports = computed(() => demo.results?.report_artifacts || [])
 const error = computed(() => demo.error || demo.run?.llm_error)
@@ -38,29 +118,120 @@ async function begin() {
   try {
     if (!demo.taskId) await demo.createTaskFromDraft()
     await demo.startRun()
-  } catch (err) { demo.error = String((err as Error).message || err) }
-  finally { busy.value = false }
+  } catch (err) {
+    demo.error = String((err as Error).message || err)
+  } finally {
+    busy.value = false
+  }
 }
 async function resume() {
   busy.value = true
-  try { await demo.resumeCompute() }
-  catch (err) { demo.error = String((err as Error).message || err) }
-  finally { busy.value = false }
+  try {
+    await demo.resumeCompute()
+  } catch (err) {
+    demo.error = String((err as Error).message || err)
+  } finally {
+    busy.value = false
+  }
 }
 async function openCase(event: Event) {
   const id = (event.target as HTMLSelectElement).value
-  const task = demo.caseLibrary.find(t => t.task_id === id)
+  const task = demo.caseLibrary.find((t) => t.task_id === id)
   if (task) await demo.openCaseReplay(task)
 }
 function newTask() {
   demo.resetSession()
   history.replaceState(null, '', '/')
 }
+
+function animateFocus(enter: boolean) {
+  layoutTween?.kill()
+  const reduced = prefersReducedMotion()
+  const dur = motionDuration(0.55)
+  const task = taskPane.value
+  const main = mainStage.value
+  const track = stageTrack.value
+  const decision = decisionStrip.value
+  if (!main) return
+
+  layoutTween = gsap.timeline({ defaults: { ease: 'power3.out' } })
+  if (enter) {
+    if (task) {
+      layoutTween.to(task, { autoAlpha: 0, duration: dur * 0.45, pointerEvents: 'none' }, 0)
+    }
+    layoutTween.fromTo(
+      main,
+      { scale: reduced ? 1 : 0.97, transformOrigin: '50% 40%' },
+      { scale: 1, duration: dur, clearProps: 'transform' },
+      0,
+    )
+    const workflow = main.querySelector('.live-workflow')
+    if (workflow) {
+      layoutTween.fromTo(
+        workflow,
+        { scale: reduced ? 1 : 0.9, autoAlpha: 0.4, y: 18 },
+        { scale: 1, autoAlpha: 1, y: 0, duration: dur, ease: 'power3.out', clearProps: 'transform' },
+        0.06,
+      )
+    }
+  } else {
+    if (task) {
+      gsap.set(task, { pointerEvents: 'auto' })
+      layoutTween.to(task, { autoAlpha: 1, duration: dur }, 0)
+    }
+    layoutTween
+      .to([track, decision].filter(Boolean), { autoAlpha: 1, y: 0, duration: dur * 0.55 }, 0)
+      .fromTo(main, { scale: reduced ? 1 : 1.02 }, { scale: 1, duration: dur, clearProps: 'transform' }, 0)
+  }
+}
+
+function animateResultsSurfaces() {
+  const chart = forecastSurface.value
+  const tuning = tuningMount.value
+  const dur = motionDuration(0.6)
+  if (chart) {
+    gsap.fromTo(
+      chart,
+      { autoAlpha: 0, y: 28, scale: prefersReducedMotion() ? 1 : 0.96 },
+      { autoAlpha: 1, y: 0, scale: 1, duration: dur, ease: 'power3.out', clearProps: 'transform' },
+    )
+  }
+  if (tuning) {
+    gsap.fromTo(
+      tuning,
+      { autoAlpha: 0, y: 36 },
+      { autoAlpha: 1, y: 0, duration: dur, delay: 0.12, ease: 'power3.out' },
+    )
+  }
+}
+
+watch(focusStage, async (enter, was) => {
+  await nextTick()
+  if (was === undefined && !enter) return
+  animateFocus(enter)
+})
+
+watch(
+  () => [showWorkflow.value, demo.results?.forecasts?.length, showTuning.value] as const,
+  async ([workflow, forecastCount, tuning]) => {
+    if (workflow) return
+    await nextTick()
+    if (forecastCount || tuning) animateResultsSurfaces()
+  },
+)
+
 onMounted(async () => {
-  timer = window.setInterval(() => { now.value = Date.now() }, 1000)
+  timer = window.setInterval(() => {
+    now.value = Date.now()
+  }, 1000)
   void demo.loadCaseLibrary()
-  try { const health = await api.health(); connected.value = health.status === 'ok'; serviceMode.value = health.mode || null }
-  catch { connected.value = false }
+  try {
+    const health = await api.health()
+    connected.value = health.status === 'ok'
+    serviceMode.value = health.mode || null
+  } catch {
+    connected.value = false
+  }
   const id = String(route.params.taskId || demo.taskId || '')
   if (id) {
     try {
@@ -71,22 +242,31 @@ onMounted(async () => {
       if (task.forcing_mode) demo.draft.forcing_mode = task.forcing_mode
       demo.draft.model_id = task.model_id === 'openhydronet' ? 'openhydronet' : 'xaj'
       demo.restoreTask(id)
-    } catch (err) { demo.error = String((err as Error).message || err) }
+    } catch (err) {
+      demo.error = String((err as Error).message || err)
+    }
   }
+  await nextTick()
+  if (focusStage.value) animateFocus(true)
+  else if (demo.results?.forecasts?.length || showTuning.value) animateResultsSurfaces()
 })
-onUnmounted(() => { clearInterval(timer); demo.stopPolling() })
+onUnmounted(() => {
+  clearInterval(timer)
+  demo.stopPolling()
+  layoutTween?.kill()
+})
 </script>
 
 <template>
-  <div class="observatory">
+  <div class="observatory" :class="{ 'is-focus': focusStage, 'is-results': !focusStage && !!demo.results }">
     <header class="observatory-header">
       <a href="/" class="observatory-brand"><span class="brand-symbol" aria-hidden="true">≈</span><span>Hydro<span class="brand-light">Agent</span><small>水文智能体 · 演示空间</small></span></a>
-      <div class="header-caption">理解过程，看见结果</div>
+      <div class="header-caption">{{ focusStage ? '执行中 · ARCHIFY' : '理解过程，看见结果' }}</div>
       <div class="connection"><i :class="{ online: connected }" />{{ mode }}</div>
     </header>
 
     <main class="observatory-grid">
-      <aside class="task-pane glass-pane">
+      <aside ref="taskPane" class="task-pane glass-pane">
         <div class="section-heading"><span class="overline">01 / 预报任务</span><span class="mini-icon" aria-hidden="true">↗</span></div>
         <h2>从一个流域开始</h2>
         <p class="muted">设定目标，剩下的交给系统。</p>
@@ -110,9 +290,17 @@ onUnmounted(() => { clearInterval(timer); demo.stopPolling() })
         <label class="case-picker">已有案例<select aria-label="已有案例" :disabled="demo.isRunning || busy" :value="demo.mode === 'replay' ? demo.taskId : ''" @change="openCase"><option value="">{{ demo.caseLibrary.length ? '选择一份已完成记录' : '暂无已完成记录' }}</option><option v-for="task in demo.caseLibrary" :key="task.task_id" :value="task.task_id">{{ task.start_date || task.task_id }} · {{ basinLabel(task.basin_id) }}</option></select></label>
       </aside>
 
-      <section class="main-stage">
+      <section ref="mainStage" class="main-stage" :class="{ 'main-stage--focus': focusStage, 'main-stage--results': !focusStage && !!demo.results }">
         <div class="hero-copy"><div class="overline"><span class="blue-dot" /> {{ demo.isCompleted ? '计算已完成' : demo.isRunning ? '智能体正在工作' : 'HYDROLOGY, MADE VISIBLE' }}</div><h1>{{ title }}</h1><p>{{ description }}</p></div>
-        <div class="water-scene" v-if="!demo.results?.forecasts.length" aria-label="抽象水流地形示意，非预测数据">
+        <LiveWorkflow
+          v-if="showWorkflow"
+          :action="action"
+          :status="demo.run?.paused ? 'paused' : demo.run?.status"
+          :completed-actions="completedActions"
+          :gate-status="gateStatus"
+          :expanded="focusStage"
+        />
+        <div class="water-scene" v-else-if="!demo.results?.forecasts.length" aria-label="抽象水流地形示意，非预测数据">
           <svg viewBox="0 0 800 360" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><defs><linearGradient id="terrain" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#dceefa"/><stop offset="1" stop-color="#a9c9dd"/></linearGradient><linearGradient id="river" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#75e0ee"/><stop offset=".5" stop-color="#238ef5"/><stop offset="1" stop-color="#1b57bc"/></linearGradient><filter id="shadow"><feGaussianBlur stdDeviation="14"/></filter></defs>
           <ellipse cx="416" cy="289" rx="255" ry="27" fill="#6e9cb4" opacity=".18" filter="url(#shadow)"/>
           <path d="M100 220 365 62 709 172 438 329Z" fill="#a9c4d7"/><path d="M100 203 365 45 709 155 438 312Z" fill="url(#terrain)"/>
@@ -124,12 +312,23 @@ onUnmounted(() => { clearInterval(timer); demo.stopPolling() })
           </svg>
           <div class="scene-caption"><span>资料 → 计算 → 判断</span><small>水流地形示意 · 非实测地图</small></div>
         </div>
-        <div v-else class="forecast-surface"><div class="chart-title"><h2>流量预测</h2><span>{{ mode }} · m³/s</span></div><ForecastChart :forecasts="demo.results.forecasts" /><p class="chart-note">横轴为起报日期，各曲线代表提前 1、2、3 天的预测。</p></div>
-        <div class="stage-track" aria-label="执行阶段"><div v-for="(item, index) in AUDIENCE_STAGES" :key="item.id" :class="{ current: stage === item.id && demo.isRunning }"><span class="stage-number">0{{ index + 1 }}</span><strong>{{ item.label }}</strong><small class="stage-state">{{ progressLabel(progress[item.id]) }}</small><span class="stage-marker" /></div></div>
-        <div class="decision-strip"><span class="decision-icon" aria-hidden="true">{{ demo.results?.gate ? '✓' : '◎' }}</span><div><span class="overline">{{ demo.results ? '本次方案判断' : '让每一步，都有依据' }}</span><h3>{{ demo.results ? gate.title : '系统执行，过程可见' }}</h3><p>{{ demo.results ? gate.reason : '检查资料、计算流量、比较方案，并保留执行记录。' }}</p></div><button v-if="demo.taskId" class="refresh-button" aria-label="刷新结果" @click="demo.refresh()">↻</button></div>
+        <div v-else ref="forecastSurface" class="forecast-surface">
+          <div class="chart-title"><h2>流量预测</h2><span>{{ mode }} · m³/s</span></div>
+          <ForecastChart :forecasts="demo.results.forecasts" />
+          <p class="chart-note">横轴为起报日期，各曲线代表提前 1、2、3 天的预测。</p>
+        </div>
+        <div v-if="showTuning" ref="tuningMount" class="tuning-mount">
+          <ParamTuningPanel
+            :diagnosis="demo.results?.diagnosis"
+            :optimize="demo.results?.optimize"
+            :scheme="demo.results?.scheme"
+          />
+        </div>
+        <div ref="stageTrack" class="stage-track" aria-label="执行阶段"><div v-for="(item, index) in AUDIENCE_STAGES" :key="item.id" :class="{ current: stage === item.id && demo.isRunning }"><span class="stage-number">0{{ index + 1 }}</span><strong>{{ item.label }}</strong><small class="stage-state">{{ progressLabel(progress[item.id]) }}</small><span class="stage-marker" /></div></div>
+        <div ref="decisionStrip" class="decision-strip"><span class="decision-icon" aria-hidden="true">{{ demo.results?.gate ? '✓' : '◎' }}</span><div><span class="overline">{{ demo.results ? '本次方案判断' : '让每一步，都有依据' }}</span><h3>{{ demo.results ? gate.title : '系统执行，过程可见' }}</h3><p>{{ demo.results ? gate.reason : '检查资料、计算流量、比较方案，并保留执行记录。' }}</p></div><button v-if="demo.taskId" class="refresh-button" aria-label="刷新结果" @click="demo.refresh()">↻</button></div>
       </section>
 
-      <aside class="journal-pane glass-pane"><div class="section-heading"><span class="overline">02 / 执行记录</span><span class="record-count">{{ demo.timeline.length }}</span></div><h2>每一步，都看得见</h2><div class="journal-status"><span :class="{ 'blue-dot': demo.isRunning }">{{ demo.isRunning ? '运行中' : demo.isCompleted ? '已完成' : demo.isFailed ? '已受阻' : '等待执行' }}</span><span>{{ elapsed }}</span></div>
+      <aside ref="journalPane" class="journal-pane glass-pane"><div class="section-heading"><span class="overline">02 / 执行记录</span><span class="record-count">{{ demo.timeline.length }}</span></div><h2>每一步，都看得见</h2><div class="journal-status"><span :class="{ 'blue-dot': demo.isRunning }">{{ demo.isRunning ? '运行中' : demo.isCompleted ? '已完成' : demo.isFailed ? '已受阻' : '等待执行' }}</span><span>{{ elapsed }}</span></div>
         <div v-if="error" class="inline-error" role="alert"><strong>暂时无法继续</strong><p>{{ error }}</p><button v-if="demo.taskId" class="text-button" @click="demo.refresh()">重新读取状态</button></div>
         <div class="journal-list"><div v-if="!events.length" class="journal-empty"><span aria-hidden="true">⌁</span><h3>等待第一条记录</h3><p>开始后，这里会记录系统做了什么，以及得到了什么。</p></div><details v-for="(event, index) in events" :key="event.id" class="journal-event"><summary><span class="event-dot" :class="{ failed: ['failed', 'error'].includes(event.status) }" /><span><small>{{ String(events.length - index).padStart(2, '0') }} · {{ eventStatus(event.status) }}</small><strong>{{ event.label || actionTitle(event.action) }}</strong></span><span class="expand-icon">＋</span></summary><pre>{{ JSON.stringify(event.details, null, 2) }}</pre></details></div>
         <div class="report-area"><span class="overline">结果与报告</span><template v-if="reports.length"><a v-for="name in reports" :key="name" :href="`/api/tasks/${encodeURIComponent(demo.taskId || '')}/report/${encodeURIComponent(name)}`" target="_blank" rel="noreferrer">{{ name }} <span>↗</span></a></template><p v-else>{{ demo.isCompleted ? '尚未取得报告，可刷新结果重试。' : '运行完成后，可在这里打开报告。' }}</p></div>

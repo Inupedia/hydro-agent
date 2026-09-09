@@ -197,6 +197,19 @@ def diagnose_forecast_errors(
             "phenomenon": "观测不足以诊断",
             "recommended_action": "A01_CHECK_DATA",
             "recommended_strategy_id": None,
+            "recommended_param_groups": None,
+            "recommended_objective": None,
+            "hypotheses": [
+                {
+                    "id": "UNKNOWN",
+                    "strength": 1.0,
+                    "phenomenon": "观测不足以诊断",
+                    "suggested_action": "A01_CHECK_DATA",
+                    "suggested_strategy_id": None,
+                    "suggested_param_groups": None,
+                    "suggested_objective": None,
+                }
+            ],
             "metrics": {},
             "notes": ["need >=2 lead observations"],
         }
@@ -210,6 +223,7 @@ def diagnose_forecast_errors(
     under_peak = peak_sim < 0.85 * peak_obs
     over_peak = peak_sim > 1.15 * peak_obs
     mean_bias = (sum(sim) - sum(obs)) / max(sum(obs), 1e-9)
+    peak_ratio = float(peak_sim / peak_obs) if peak_obs else 0.0
     notes = [
         f"mae={err_mae:.3f}",
         f"nse={err_nse:.3f}" if err_nse == err_nse else "nse=nan",
@@ -217,57 +231,117 @@ def diagnose_forecast_errors(
         f"peak_sim={peak_sim:.3f}",
         f"mean_bias={mean_bias:.3f}",
     ]
+    metrics = {
+        "mae": float(err_mae),
+        "nse": float(err_nse) if err_nse == err_nse else 0.0,
+        "mean_bias": float(mean_bias),
+        "peak_ratio": peak_ratio,
+    }
+    hypotheses: list[dict[str, Any]] = []
+
     if under_peak and abs(mean_bias) > 0.1:
-        return {
-            "hypothesis": "MODEL",
-            "phenomenon": "持续偏小/洪峰低估，优先怀疑产汇流参数系统偏差",
-            "recommended_action": "A07_OPTIMIZE",
-            "recommended_strategy_id": "xaj-peak-bias-v1",
-            "metrics": {
-                "mae": float(err_mae),
-                "nse": float(err_nse) if err_nse == err_nse else 0.0,
-                "mean_bias": float(mean_bias),
-                "peak_ratio": float(peak_sim / peak_obs) if peak_obs else 0.0,
-            },
-            "notes": notes,
-        }
-    if over_peak:
-        return {
-            "hypothesis": "MODEL",
-            "phenomenon": "洪峰偏高，建议局部细化参数而非全局重搜",
-            "recommended_action": "A07_OPTIMIZE",
-            "recommended_strategy_id": "xaj-local-refine-v1",
-            "metrics": {
-                "mae": float(err_mae),
-                "nse": float(err_nse) if err_nse == err_nse else 0.0,
-                "mean_bias": float(mean_bias),
-                "peak_ratio": float(peak_sim / peak_obs) if peak_obs else 0.0,
-            },
-            "notes": notes,
-        }
-    if abs(mean_bias) < 0.05 and err_nse == err_nse and err_nse > 0.5:
-        return {
-            "hypothesis": "MODEL",
-            "phenomenon": "整体偏差不大，可冻结进入回放评估",
-            "recommended_action": "A10_FREEZE",
-            "recommended_strategy_id": None,
-            "metrics": {
-                "mae": float(err_mae),
-                "nse": float(err_nse),
-                "mean_bias": float(mean_bias),
-            },
-            "notes": notes,
-        }
+        hypotheses.append(
+            {
+                "id": "MODEL",
+                "strength": 0.85,
+                "phenomenon": "持续偏小/洪峰低估，优先怀疑产汇流参数系统偏差",
+                "suggested_action": "A07_OPTIMIZE",
+                "suggested_strategy_id": "xaj-peak-bias-v1",
+                "suggested_param_groups": ["runoff", "routing"],
+                "suggested_objective": "composite",
+            }
+        )
+        hypotheses.append(
+            {
+                "id": "FORCING",
+                "strength": 0.35,
+                "phenomenon": "系统性偏低也可能来自降水强迫偏弱，建议复核资料",
+                "suggested_action": "A01_CHECK_DATA",
+                "suggested_strategy_id": None,
+                "suggested_param_groups": None,
+                "suggested_objective": None,
+            }
+        )
+        hypotheses.append(
+            {
+                "id": "STATE",
+                "strength": 0.25,
+                "phenomenon": "初始土壤含水量偏低也会压低洪峰，可在预算允许时重建状态",
+                "suggested_action": "A03_VALIDATE_SCHEME",
+                "suggested_strategy_id": None,
+                "suggested_param_groups": None,
+                "suggested_objective": None,
+            }
+        )
+    elif over_peak:
+        hypotheses.append(
+            {
+                "id": "MODEL",
+                "strength": 0.8,
+                "phenomenon": "洪峰偏高，建议局部细化参数而非全局重搜",
+                "suggested_action": "A07_OPTIMIZE",
+                "suggested_strategy_id": "xaj-local-refine-v1",
+                "suggested_param_groups": ["runoff", "routing"],
+                "suggested_objective": "nse",
+            }
+        )
+        hypotheses.append(
+            {
+                "id": "FORCING",
+                "strength": 0.3,
+                "phenomenon": "局部强降水高估也可能抬高峰值",
+                "suggested_action": "A01_CHECK_DATA",
+                "suggested_strategy_id": None,
+                "suggested_param_groups": None,
+                "suggested_objective": None,
+            }
+        )
+    elif abs(mean_bias) < 0.05 and err_nse == err_nse and err_nse > 0.5:
+        hypotheses.append(
+            {
+                "id": "MODEL",
+                "strength": 0.7,
+                "phenomenon": "整体偏差不大，可冻结进入回放评估",
+                "suggested_action": "A10_FREEZE",
+                "suggested_strategy_id": None,
+                "suggested_param_groups": None,
+                "suggested_objective": None,
+            }
+        )
+    else:
+        hypotheses.append(
+            {
+                "id": "MODEL",
+                "strength": 0.55,
+                "phenomenon": "误差模式不清晰，建议有界再率定并独立验证",
+                "suggested_action": "A07_OPTIMIZE",
+                "suggested_strategy_id": "xaj-bounded-v1",
+                "suggested_param_groups": ["evap", "runoff", "routing"],
+                "suggested_objective": "nse",
+            }
+        )
+        hypotheses.append(
+            {
+                "id": "UNKNOWN",
+                "strength": 0.4,
+                "phenomenon": "也可能是资料或事件特殊性，先复核观测覆盖",
+                "suggested_action": "A01_CHECK_DATA",
+                "suggested_strategy_id": None,
+                "suggested_param_groups": None,
+                "suggested_objective": None,
+            }
+        )
+
+    primary = max(hypotheses, key=lambda item: float(item["strength"]))
     return {
-        "hypothesis": "UNKNOWN",
-        "phenomenon": "误差模式不清晰，先做有界再率定并独立验证",
-        "recommended_action": "A07_OPTIMIZE",
-        "recommended_strategy_id": "xaj-bounded-v1",
-        "metrics": {
-            "mae": float(err_mae),
-            "nse": float(err_nse) if err_nse == err_nse else 0.0,
-            "mean_bias": float(mean_bias),
-        },
+        "hypothesis": primary["id"],
+        "phenomenon": primary["phenomenon"],
+        "recommended_action": primary["suggested_action"],
+        "recommended_strategy_id": primary.get("suggested_strategy_id"),
+        "recommended_param_groups": primary.get("suggested_param_groups"),
+        "recommended_objective": primary.get("suggested_objective"),
+        "hypotheses": hypotheses,
+        "metrics": metrics,
         "notes": notes,
     }
 

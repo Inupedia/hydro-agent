@@ -61,12 +61,43 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="task not found") from exc
     scheme_row = deps.repository.get_scheme(state.current_scheme_id)
+    parameters = {
+        str(k): float(v)
+        for k, v in dict((scheme_row.config_json or {}).get("parameters") or {}).items()
+    }
+    provenance = dict((scheme_row.config_json or {}).get("provenance") or {})
+    base_parameters: dict[str, float] = {}
+    source_scheme_id = provenance.get("source_scheme_id") or provenance.get("base_scheme_id")
+    if isinstance(source_scheme_id, str) and source_scheme_id:
+        try:
+            base_row = deps.repository.get_scheme(source_scheme_id)
+            base_parameters = {
+                str(k): float(v)
+                for k, v in dict((base_row.config_json or {}).get("parameters") or {}).items()
+            }
+        except KeyError:
+            base_parameters = {}
+    if not base_parameters:
+        for row in deps.repository.list_schemes(task_id=task_id, status="base"):
+            base_parameters = {
+                str(k): float(v)
+                for k, v in dict((row.config_json or {}).get("parameters") or {}).items()
+            }
+            break
+    parameter_delta = {
+        key: float(parameters[key]) - float(base_parameters[key])
+        for key in parameters
+        if key in base_parameters and abs(float(parameters[key]) - float(base_parameters[key])) > 1e-12
+    }
     scheme = SchemeResult(
         scheme_id=scheme_row.scheme_id,
         status=scheme_row.status,
         content_hash=scheme_row.content_hash,
         model_id=scheme_row.model_id,
-        provenance=dict((scheme_row.config_json or {}).get("provenance") or {}),
+        provenance=provenance,
+        parameters=parameters,
+        base_parameters=base_parameters,
+        parameter_delta=parameter_delta,
     )
     forecasts = tuple(
         ForecastResult(
@@ -79,14 +110,33 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
         for row in deps.repository.list_forecasts(task_id)
     )
     gate = None
-    for row in reversed(deps.repository.list_evidence(task_id)):
-        if row.action == "A08_GATE":
+    diagnosis = None
+    optimize = None
+    evidence_rows = deps.repository.list_evidence(task_id)
+    for row in reversed(evidence_rows):
+        if gate is None and row.action == "A08_GATE":
+            gates = dict(row.gates_json or {})
+            reason_codes = str(gates.get("reasons") or "")
             gate = {
+                **gates,
                 "status": row.status,
                 "reasons": list(row.observations_json or []),
+                "reason_codes": [c for c in reason_codes.split(",") if c],
+                "metrics": dict(row.metrics_json or {}),
+            }
+        if diagnosis is None and row.action == "A06_DIAGNOSE":
+            diagnosis = {
+                "observations": list(row.observations_json or []),
                 "metrics": dict(row.metrics_json or {}),
                 **dict(row.gates_json or {}),
             }
+        if optimize is None and row.action == "A07_OPTIMIZE":
+            optimize = {
+                "observations": list(row.observations_json or []),
+                "metrics": dict(row.metrics_json or {}),
+                **dict(row.gates_json or {}),
+            }
+        if gate is not None and diagnosis is not None and optimize is not None:
             break
     metrics: dict[str, float | None] = {
         key: deps.metrics_by_task.get(task_id, {}).get(key) for key in ("NSE", "KGE", "MAE", "Bias")
@@ -119,6 +169,8 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
         forecasts=forecasts,
         metrics=metrics,
         gate=gate,
+        diagnosis=diagnosis,
+        optimize=optimize,
         report_artifacts=report_artifacts,
         costs=costs,
         story_zh=_story_zh(

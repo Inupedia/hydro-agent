@@ -63,6 +63,9 @@ export type ResultSummary = {
     content_hash: string
     model_id: string
     provenance: Record<string, unknown>
+    parameters?: Record<string, number>
+    base_parameters?: Record<string, number>
+    parameter_delta?: Record<string, number>
   } | null
   forecasts: Array<{
     forecast_id: string
@@ -73,6 +76,8 @@ export type ResultSummary = {
   }>
   metrics: Record<string, number | null>
   gate: Record<string, unknown> | null
+  diagnosis?: Record<string, unknown> | null
+  optimize?: Record<string, unknown> | null
   report_artifacts: string[]
   costs: Record<string, number>
   story_zh?: string

@@ -72,6 +72,9 @@ class SchemeResult(FrozenApiModel):
     content_hash: str
     model_id: str
     provenance: dict[str, object] = Field(default_factory=dict)
+    parameters: dict[str, float] = Field(default_factory=dict)
+    base_parameters: dict[str, float] = Field(default_factory=dict)
+    parameter_delta: dict[str, float] = Field(default_factory=dict)
 
 
 class ForecastResult(FrozenApiModel):
@@ -89,6 +92,8 @@ class ResultSummary(FrozenApiModel):
     forecasts: tuple[ForecastResult, ...]
     metrics: dict[str, float | None]
     gate: dict[str, object] | None
+    diagnosis: dict[str, object] | None = None
+    optimize: dict[str, object] | None = None
     report_artifacts: tuple[str, ...]
     costs: dict[str, float]
     story_zh: str = ""

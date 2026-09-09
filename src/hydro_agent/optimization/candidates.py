@@ -30,6 +30,8 @@ class CandidateSchemeService:
             "base_scheme_id": base_scheme_id,
             "created_by_action_run_id": action_run_id,
             "strategy_id": strategy_id,
+            "objective": calibration_payload.get("objective"),
+            "param_groups": calibration_payload.get("param_groups"),
         }
         short_run = action_run_id.replace("run-", "")[-12:]
         # Keep scheme ids short: Identifier max length is 128.

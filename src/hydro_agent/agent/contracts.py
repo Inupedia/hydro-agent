@@ -37,6 +37,9 @@ class AgentDecision(FrozenModel):
     action: ActionCode
     hypothesis: ProblemHypothesis
     strategy_id: str | None = None
+    # Optional optimize controls — agent selects groups/objective, never raw vectors.
+    param_groups: tuple[Literal["evap", "runoff", "routing"], ...] | None = None
+    objective: Literal["nse", "peak", "composite"] | None = None
     rationale_summary: str = Field(min_length=1, max_length=600)
 
 
@@ -103,6 +106,8 @@ class HydroContext(FrozenModel):
     latest_forecast_leads: dict[int, float] = Field(default_factory=dict)
     available_skills: tuple[str, ...] = ()
     available_strategies: tuple[str, ...] = ()
+    available_param_groups: tuple[str, ...] = ("evap", "runoff", "routing")
+    available_objectives: tuple[str, ...] = ("nse", "peak", "composite")
     diagnosis: dict[str, object] = Field(default_factory=dict)
     experiment_history: tuple[str, ...] = ()
     skill_cards: tuple[dict[str, object], ...] = ()

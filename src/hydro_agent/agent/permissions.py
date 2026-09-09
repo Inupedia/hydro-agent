@@ -48,11 +48,14 @@ IMPLEMENTED = {
 
 
 def decision_fingerprint(decision: AgentDecision, scheme_id: str) -> str:
+    groups = ",".join(decision.param_groups or ())
     return "|".join(
         [
             decision.hypothesis.value,
             decision.action.value,
             decision.strategy_id or "",
+            groups,
+            decision.objective or "",
             scheme_id,
         ]
     )
@@ -80,6 +83,16 @@ class PermissionGate:
             raise PermissionDenied(f"action {decision.action} is not safe")
         if decision.action == ActionCode.A07_OPTIMIZE and decision.strategy_id is None:
             raise PermissionDenied("optimize requires strategy_id")
+        if decision.action == ActionCode.A07_OPTIMIZE:
+            allowed_groups = set(view.hydro.available_param_groups or ("evap", "runoff", "routing"))
+            if decision.param_groups:
+                unknown = [g for g in decision.param_groups if g not in allowed_groups]
+                if unknown:
+                    raise PermissionDenied(f"unknown param_groups: {unknown}")
+            if decision.objective and decision.objective not in set(
+                view.hydro.available_objectives or ("nse", "peak", "composite")
+            ):
+                raise PermissionDenied(f"unknown objective: {decision.objective}")
         if decision.action == ActionCode.A06_DIAGNOSE and view.latest_forecast_id is None:
             raise PermissionDenied("diagnose requires a forecast first")
         fingerprint = decision_fingerprint(decision, view.scheme.scheme_id)

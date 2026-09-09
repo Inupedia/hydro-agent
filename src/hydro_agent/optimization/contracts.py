@@ -11,8 +11,13 @@ class CalibrationStrategy(FrozenModel):
     strategy_id: str = Field(min_length=1)
     max_candidates: int = Field(ge=1, le=500)
     random_seed: int
-    objective: Literal["nse"]
+    objective: Literal["nse", "peak", "composite"] = "nse"
     local_scale: float | None = Field(default=None, ge=0.0, le=1.0)
+    param_groups: tuple[Literal["evap", "runoff", "routing"], ...] = (
+        "evap",
+        "runoff",
+        "routing",
+    )
 
 
 class LeadMetrics(FrozenModel):
@@ -33,6 +38,8 @@ class GatePolicy(FrozenModel):
     min_primary_delta: float
     max_single_lead_drop: float = Field(ge=0)
     max_high_flow_mae_relative_increase: float = Field(ge=0)
+    # Absolute skill floor: even a large relative gain cannot ACCEPT below this.
+    min_candidate_primary: float = 0.0
 
 
 class GateDecision(FrozenModel):

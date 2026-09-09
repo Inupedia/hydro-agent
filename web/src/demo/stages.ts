@@ -119,28 +119,64 @@ export function stageStatuses(
   return out
 }
 
-export function gateDecisionZh(status: string | null | undefined): {
+export function gateDecisionZh(
+  status: string | null | undefined,
+  extras?: {
+    reasons?: unknown
+    metrics?: Record<string, unknown> | null
+  },
+): {
   title: string
   reason: string
   tone: 'ok' | 'keep' | 'rollback' | 'unknown'
 } {
+  const reasonCodes = Array.isArray(extras?.reasons)
+    ? extras!.reasons.map(String)
+    : typeof extras?.reasons === 'string'
+      ? extras.reasons.split(',').map((s) => s.trim()).filter(Boolean)
+      : []
+  const metrics = extras?.metrics || {}
+  const base = typeof metrics.base_primary === 'number' ? metrics.base_primary : null
+  const cand = typeof metrics.candidate_primary === 'number' ? metrics.candidate_primary : null
+  const delta = typeof metrics.primary_delta === 'number' ? metrics.primary_delta : null
+  const metricHint =
+    base != null && cand != null
+      ? `（主指标 ${base.toFixed(2)} → ${cand.toFixed(2)}${delta != null ? `，Δ=${delta.toFixed(2)}` : ''}）`
+      : ''
+
+  const reasonText = (() => {
+    if (reasonCodes.some((r) => r.includes('insufficient_absolute_skill'))) {
+      return `候选方案相对有改善，但绝对技巧仍低于门槛，因此不采纳${metricHint}。`
+    }
+    if (reasonCodes.some((r) => r.includes('insufficient_primary_delta'))) {
+      return `本次调整没有达到预设的改进幅度，因此继续使用原方案${metricHint}。`
+    }
+    if (reasonCodes.some((r) => r.includes('lead_guardrail'))) {
+      return '某个预见期指标明显变差，触发了安全限制。'
+    }
+    if (reasonCodes.some((r) => r.includes('high_flow_guardrail'))) {
+      return '高流量误差变差超过允许范围，触发了安全限制。'
+    }
+    return null
+  })()
+
   switch (status) {
     case 'ACCEPT':
       return {
         title: '采用新方案',
-        reason: '候选方案在验证窗口上达到了预设的改进要求。',
+        reason: reasonText || `候选方案在验证窗口上达到了改进要求，且绝对技巧过线${metricHint}。`,
         tone: 'ok',
       }
     case 'KEEP':
       return {
         title: '保留原方案',
-        reason: '本次调整没有达到预设的改进要求，因此继续使用原方案。',
+        reason: reasonText || `本次调整没有达到预设要求，因此继续使用原方案${metricHint}。`,
         tone: 'keep',
       }
     case 'ROLLBACK':
       return {
         title: '回退到原方案',
-        reason: '候选方案触发了安全限制，系统回退到原来的方案。',
+        reason: reasonText || '候选方案触发了安全限制，系统回退到原来的方案。',
         tone: 'rollback',
       }
     default:

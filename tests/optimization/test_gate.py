@@ -23,8 +23,10 @@ def test_gate_policy_requires_explicit_thresholds():
         min_primary_delta=0.01,
         max_single_lead_drop=0.02,
         max_high_flow_mae_relative_increase=0.05,
+        min_candidate_primary=0.0,
     )
     assert policy.min_primary_delta == 0.01
+    assert policy.min_candidate_primary == 0.0
 
 
 def _bundle(scheme_id, nses, high_flow_maes):
@@ -74,3 +76,17 @@ def test_sufficient_safe_improvement_accepts():
     )
     decision = GateEvaluator().evaluate(base, candidate, policy)
     assert decision.status == "ACCEPT"
+
+
+def test_large_relative_gain_still_keeps_when_absolute_skill_is_poor():
+    base = _bundle("scheme-base", [-300.0, -300.0, -300.0], [1.0, 1.0, 1.0])
+    candidate = _bundle("scheme-cand", [-220.0, -220.0, -220.0], [1.0, 1.0, 1.0])
+    policy = GatePolicy(
+        min_primary_delta=0.01,
+        max_single_lead_drop=0.02,
+        max_high_flow_mae_relative_increase=0.05,
+        min_candidate_primary=0.0,
+    )
+    decision = GateEvaluator().evaluate(base, candidate, policy)
+    assert decision.status == "KEEP"
+    assert "insufficient_absolute_skill" in decision.reasons

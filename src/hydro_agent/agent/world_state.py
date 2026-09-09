@@ -94,6 +94,8 @@ class WorldStateBuilder:
             ),
             available_skills=self.skills.summaries_zh(),
             available_strategies=self.strategies.list_ids(),
+            available_param_groups=("evap", "runoff", "routing"),
+            available_objectives=("nse", "peak", "composite"),
             diagnosis=diagnosis,
             experiment_history=history,
             skill_cards=tuple(self.skills.cards_for_prompt()),

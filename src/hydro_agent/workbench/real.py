@@ -53,6 +53,7 @@ GATE_POLICY = GatePolicy(
     min_primary_delta=0.01,
     max_single_lead_drop=0.02,
     max_high_flow_mae_relative_increase=0.05,
+    min_candidate_primary=0.0,
 )
 
 
@@ -309,11 +310,22 @@ class _TaskAwareOptimizeHandler:
             # Force distinct snapshot ids when issue dates differ; resolver already does.
             pass
         strategy_id = decision.strategy_id
-        if not strategy_id:
+        param_groups = decision.param_groups
+        objective = decision.objective
+        if not strategy_id or not param_groups or not objective:
             for row in reversed(self.kernel.repository.list_evidence(task_id)):
-                if row.action == ActionCode.A06_DIAGNOSE.value:
-                    strategy_id = (row.gates_json or {}).get("recommended_strategy_id") or None
-                    break
+                if row.action != ActionCode.A06_DIAGNOSE.value:
+                    continue
+                gates = row.gates_json or {}
+                strategy_id = strategy_id or gates.get("recommended_strategy_id") or None
+                if not param_groups:
+                    raw_groups = str(gates.get("recommended_param_groups") or "").strip()
+                    if raw_groups and raw_groups != "-":
+                        param_groups = tuple(
+                            g.strip() for g in raw_groups.split(",") if g.strip()
+                        ) or None
+                objective = objective or gates.get("recommended_objective") or None
+                break
         strategy_id = strategy_id or "xaj-bounded-v1"
         handler = OptimizeHandler(
             self.kernel.repository,
@@ -327,6 +339,8 @@ class _TaskAwareOptimizeHandler:
             action=decision.action,
             hypothesis=decision.hypothesis,
             strategy_id=strategy_id,
+            param_groups=param_groups,  # type: ignore[arg-type]
+            objective=objective,  # type: ignore[arg-type]
             rationale_summary=decision.rationale_summary,
         )
         packet = handler.execute(task_id, decision)

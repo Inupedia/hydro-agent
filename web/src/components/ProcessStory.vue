@@ -13,16 +13,22 @@ const gateStatus = computed(() => {
 })
 
 const decisionPlain = computed(() => {
+  const reasons = props.result?.gate?.reasons
+  const metrics = (props.result?.gate?.metrics as Record<string, unknown> | undefined) || null
+  const reasonCodes = Array.isArray(reasons) ? reasons.map(String) : []
+  const absoluteFail = reasonCodes.some((r) => r.includes('insufficient_absolute_skill'))
   if (gateStatus.value === 'KEEP') {
     return {
       title: '系统决定：先不换方案',
-      body: '它试着微调了参数，但主指标提升幅度不够大（术语叫 insufficient_primary_delta）。这不是卡死，而是主动选择“继续用原来更稳的方案”，然后照常冻结、回放并出报告。',
+      body: absoluteFail
+        ? '候选方案相对略好，但绝对技巧仍低于门槛（insufficient_absolute_skill），因此保留原方案，避免把失败技能冻结成“成功”。'
+        : '它试着微调了参数，但主指标提升幅度不够大（insufficient_primary_delta）。这不是卡死，而是主动选择“继续用原来更稳的方案”。',
     }
   }
   if (gateStatus.value === 'ACCEPT') {
     return {
       title: '系统决定：采用改进后的方案',
-      body: '微调后的参数在关键指标上有稳定提升，因此采纳新方案并继续后续锁定与评估。',
+      body: '微调后的参数在关键指标上有稳定提升，且绝对技巧过线，因此采纳新方案并继续后续锁定与评估。',
     }
   }
   if (gateStatus.value === 'ROLLBACK') {
@@ -31,10 +37,31 @@ const decisionPlain = computed(() => {
       body: '候选方案没有通过安全门槛，系统回到改动前的方案，避免把风险带进正式预报。',
     }
   }
+  void metrics
   return {
     title: '系统决策',
     body: '已完成一次“预报 → 尝试改进 → 把关 → 锁定 → 回看 → 写报告”的自动流程。',
   }
+})
+
+const paramDeltaPlain = computed(() => {
+  const delta = props.result?.scheme?.parameter_delta || {}
+  const lines = Object.entries(delta)
+    .sort((a, b) => Math.abs(Number(b[1])) - Math.abs(Number(a[1])))
+    .slice(0, 8)
+    .map(([key, value]) => `${key} ${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(3)}`)
+  return lines.length ? lines.join('，') : null
+})
+
+const optimizePlain = computed(() => {
+  const o = props.result?.optimize
+  if (!o) return null
+  const bits = [
+    typeof o.strategy_id === 'string' ? `策略 ${o.strategy_id}` : null,
+    typeof o.param_groups === 'string' && o.param_groups ? `参数组 ${o.param_groups}` : null,
+    typeof o.objective === 'string' && o.objective ? `目标 ${o.objective}` : null,
+  ].filter(Boolean)
+  return bits.length ? bits.join('；') : null
 })
 
 const steps = computed(() => {
@@ -109,6 +136,8 @@ const modelPlain = computed(() => {
       <p class="lede">{{ decisionPlain.body }}</p>
       <p v-if="schemePlain" class="lede">{{ schemePlain }}</p>
       <p v-if="modelPlain" class="lede">{{ modelPlain }}</p>
+      <p v-if="optimizePlain" class="lede">调参设定：{{ optimizePlain }}</p>
+      <p v-if="paramDeltaPlain" class="lede">相对基础方案的参数变化：{{ paramDeltaPlain }}</p>
     </header>
 
     <section>
