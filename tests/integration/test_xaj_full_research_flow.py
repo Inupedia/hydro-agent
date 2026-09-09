@@ -35,5 +35,5 @@ def test_xaj_full_research_path_one_task(tmp_path):
         "A11_REPLAY",
         "A12_EVALUATE_REPORT",
     ]
-    assert result["frozen_id"].endswith(f"--frozen--{TASK_ID}")
+    assert result["frozen_id"].startswith(f"{TASK_ID}--frozen-")
     assert result["gate_status"] in {"ACCEPT", "KEEP", "ROLLBACK"}

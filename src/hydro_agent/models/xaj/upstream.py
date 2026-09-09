@@ -1,55 +1,51 @@
-"""Load only pinned numerical modules, avoiding hydromodel's data-tool initializers.
-
-Upstream sources are installed unmodified. Namespaces are created only inside the
-numerical worker; this is not a replacement implementation of XAJ.
-"""
-
-import importlib
-import importlib.metadata
+"""Teacher v6 kernel adapter. All timesteps evolve one native Model instance."""
+import hashlib
 import json
-import sys
-import types
 from pathlib import Path
 
-from .contracts import UPSTREAM_COMMIT
+from .vendor import xaj as native
+
+MODEL_VERSION = "teacher-xaj-v6-20260908"
+MODEL_SHA256 = "9175b0edd8c80605a47463ceafe6fcaac568cdac49f98a4c00f5470e802bb8ff"
 
 
-def _pinned_install(direct: dict) -> bool:
-    url = str(direct.get("url") or "")
-    commit = str((direct.get("vcs_info") or {}).get("commit_id") or "")
-    archive = f"https://github.com/OuyangWenyu/hydromodel/archive/{UPSTREAM_COMMIT}.tar.gz"
-    git_url = "https://github.com/OuyangWenyu/hydromodel.git"
-    return url == archive or (url.startswith(git_url) and commit.startswith(UPSTREAM_COMMIT))
+def simulate(scheme, basin, inputs):
+    """Return post-warmup discharge in m3/s; preserve native cold-start units."""
+    import numpy as np
+
+    if hashlib.sha256(Path(native.__file__).read_bytes()).hexdigest() != MODEL_SHA256:
+        raise ValueError("teacher XAJ source checksum mismatch")
+    p = scheme.parameters
+    raw = dict(rivid=1, area=basin.area_km2, dp=scheme.routing.dp,
+               kc=p["K"], b=p["B"], c=p["C"], imp=p["IM"],
+               wm=p["UM"] + p["LM"] + p["DM"], wum=p["UM"], wlm=p["LM"],
+               sm=p["SM"], ex=p["EX"], kg=p["KG"], ki=p["KI"],
+               cg=p["CG"], ci=p["CI"], cs=p["CS"], lag=p["L"],
+               ke=scheme.routing.ke, xe=scheme.routing.xe)
+    model = native.Model([native.make_parameter(raw, 86400)], 86400)
+    values = []
+    for row in inputs:
+        result = model.step([float(row[0, 0])], [float(row[0, 1])])
+        values.append(float(result.sum_qsig))
+    values = np.asarray(values, dtype=float)
+    if not np.isfinite(values).all() or (values < 0).any():
+        raise ValueError("invalid teacher XAJ numerical result")
+    return values[scheme.warmup_days:]
 
 
-def _ensure_packages() -> Path:
-    dist = importlib.metadata.distribution("hydromodel")
-    direct = json.loads(dist.read_text("direct_url.json") or "{}")
-    if not _pinned_install(direct):
-        raise ValueError("hydromodel commit mismatch")
-    root = Path(dist.locate_file("hydromodel")).resolve()
-    for name, path in [("hydromodel", root), ("hydromodel.models", root / "models")]:
-        if name not in sys.modules:
-            package = types.ModuleType(name)
-            package.__path__ = [str(path)]
-            sys.modules[name] = package
-    return root
-
-
-def load_xaj():
-    _ensure_packages()
-    return importlib.import_module("hydromodel.models.xaj").xaj
-
-
-def load_param_ranges() -> dict[str, tuple[float, float]]:
-    _ensure_packages()
-    config = importlib.import_module("hydromodel.models.model_config").get_model_param_config(
-        "xaj", {"source_type": "sources", "source_book": "HF"}
-    )
+def load_param_ranges():
+    bounds = json.loads((Path(__file__).parent / "vendor/parameter_bounds.yaml").read_text(
+        encoding="utf-8"))["parameters"]
+    mapping = {"K": "KC", "IM": "IMP", "UM": "WUM", "LM": "WLM", "L": "LAG"}
+    from .contracts import XajScheme
     ranges = {}
-    for name, bounds in config["param_range"].items():
-        low, high = float(bounds[0]), float(bounds[1])
-        if high < low:
-            raise ValueError(f"invalid range for {name}")
-        ranges[name] = (low, high)
+    for name in XajScheme.PARAMETER_ORDER:
+        if name == "DM":
+            # Compatibility coordinate: WM = UM + LM + DM. Joint WM bound is
+            # enforced by the calibration caller, not by independent sampling.
+            ranges[name] = (0.001, bounds["WM"]["max"] - bounds["WUM"]["min"]
+                            - bounds["WLM"]["min"])
+        else:
+            item = bounds[mapping.get(name, name)]
+            ranges[name] = (float(item["min"]), float(item["max"]))
     return ranges

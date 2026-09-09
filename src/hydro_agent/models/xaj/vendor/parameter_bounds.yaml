@@ -1,0 +1,20 @@
+{
+  "description": "academy/xaj.py单流域教学适配参数；日尺度退水参数由原模型按时间步长转换",
+  "parameters": {
+    "KC":  {"default": 0.90, "min": 0.50, "max": 1.50, "calibrate": true,  "meaning": "蒸散发折算系数"},
+    "B":   {"default": 0.30, "min": 0.10, "max": 0.50, "calibrate": true,  "meaning": "蓄水容量曲线指数"},
+    "C":   {"default": 0.15, "min": 0.08, "max": 0.25, "calibrate": false, "meaning": "深层蒸散发系数"},
+    "IMP": {"default": 0.02, "min": 0.00, "max": 0.10, "calibrate": false, "meaning": "不透水面积比例"},
+    "WM":  {"default": 150.0,"min": 90.0, "max": 220.0,"calibrate": true,  "meaning": "流域平均蓄水容量"},
+    "WUM": {"default": 20.0, "min": 10.0, "max": 35.0, "calibrate": false, "meaning": "上层蓄水容量"},
+    "WLM": {"default": 70.0, "min": 50.0, "max": 100.0,"calibrate": false, "meaning": "下层蓄水容量"},
+    "SM":  {"default": 25.0, "min": 8.0,  "max": 55.0, "calibrate": true,  "meaning": "自由水蓄水容量"},
+    "EX":  {"default": 1.20, "min": 0.80, "max": 2.00, "calibrate": false, "meaning": "自由水容量曲线指数"},
+    "KG":  {"default": 0.30, "min": 0.08, "max": 0.50, "calibrate": true,  "meaning": "地下径流出流系数"},
+    "KI":  {"default": 0.40, "min": 0.08, "max": 0.55, "calibrate": true,  "meaning": "壤中流出流系数"},
+    "CG":  {"default": 0.98, "min": 0.90, "max": 0.995,"calibrate": false,"meaning": "地下径流消退系数"},
+    "CI":  {"default": 0.85, "min": 0.55, "max": 0.95, "calibrate": true,  "meaning": "壤中流消退系数"},
+    "CS":  {"default": 0.65, "min": 0.20, "max": 0.90, "calibrate": true,  "meaning": "河网消退系数"},
+    "LAG": {"default": 1,    "min": 0,    "max": 6,    "calibrate": false, "meaning": "滞后时段数"}
+  }
+}

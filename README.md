@@ -1,3 +1,7 @@
+# 当前 XAJ 内核
+
+机理计算已替换为老师提供的 `xaj-offline-reusable-20260908-v6/academy/xaj.py`，原文件逐字节保留，不再依赖 hydromodel。预报与 Agent 调用的率定共用该内核。参数映射、汇流配置与验收范围见 [接入说明](docs/老师XAJ内核接入.md)。旧模型的结果与参数精度结论需要重新计算。
+
 # Hydro-Agent
 
 基于证据反馈的水文预报方案构建系统。总体范围见 [课题完整方案](docs/课题完整方案.md)，开发顺序见 [执行索引](docs/superpowers/plans/2026-09-08-execution-index.md)。

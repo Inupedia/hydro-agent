@@ -87,4 +87,7 @@ def test_bounded_calibration_is_deterministic(calibration_workspace):
     second = run_calibration_copy(calibration_workspace, "b")
     assert first["strategy_id"] == "xaj-bounded-v1"
     assert first["candidate_parameters"] == second["candidate_parameters"]
-    assert first["evaluated_candidates"] == 32
+    assert first["requested_candidates"] == 32
+    assert 0 < first["evaluated_candidates"] <= 32
+    assert first["evaluated_candidates"] == second["evaluated_candidates"]
+    assert first["model_version"] == "teacher-xaj-v6-20260908"

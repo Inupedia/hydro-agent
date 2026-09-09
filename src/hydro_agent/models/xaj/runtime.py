@@ -7,9 +7,9 @@ from zoneinfo import ZoneInfo
 
 from hydro_agent.execution.contracts import ExecutionRequest
 
-from .contracts import UPSTREAM_COMMIT, XajForecastRow
-from .conversion import load_xaj_inputs, runoff_mm_day_to_m3s
-from .upstream import load_xaj
+from .contracts import XajForecastRow
+from .conversion import load_xaj_inputs
+from .upstream import MODEL_SHA256, MODEL_VERSION, simulate
 
 
 def run(workspace: Path):
@@ -31,26 +31,14 @@ def run(workspace: Path):
     issue_date = issue.astimezone(ZoneInfo(basin.day_timezone)).date()
     if dates[-3:] != [issue_date + timedelta(days=i) for i in (1, 2, 3)]:
         raise ValueError("forcing targets do not match issue date")
-    xaj = load_xaj()
-    q, _ = xaj(
-        inputs,
-        np.asarray([scheme.parameter_vector()], dtype=float),
-        return_state=False,
-        warmup_length=scheme.warmup_days,
-        normalized_params=False,
-        name="xaj",
-        source_type="sources",
-        source_book="HF",
-        time_interval_hours=24,
-    )
-    values = np.asarray(q).reshape(-1)
+    values = simulate(scheme, basin, inputs)
     if len(values) < 3 or not np.isfinite(values).all() or (values < 0).any():
         raise ValueError("invalid XAJ numerical result")
     forecast = [
         XajForecastRow(
             lead=i,
             target_date=dates[-4 + i],
-            value=runoff_mm_day_to_m3s(float(values[-4 + i]), basin.area_km2),
+            value=float(values[-4 + i]),
         ).model_dump(mode="json")
         for i in (1, 2, 3)
     ]
@@ -65,7 +53,9 @@ def run(workspace: Path):
         issue_time=request.issue_time,
         unit="m3/s",
         forecast=forecast,
-        upstream_commit=UPSTREAM_COMMIT,
+        model_version=MODEL_VERSION,
+        model_source_sha256=MODEL_SHA256,
+        routing=scheme.routing.model_dump(),
         day_timezone=basin.day_timezone,
     )
     manifest_path = workspace / "input/snapshot/snapshot-manifest.json"

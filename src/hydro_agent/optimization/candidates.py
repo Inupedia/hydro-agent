@@ -26,7 +26,10 @@ class CandidateSchemeService:
             raise ValueError("invalid calibration payload")
         config = copy.deepcopy(base.config_json)
         config["parameters"] = {str(k): float(v) for k, v in parameters.items()}
+        if calibration_payload.get("model_version"):
+            config["model_version"] = calibration_payload["model_version"]
         config["provenance"] = {
+            "model_source_sha256": calibration_payload.get("model_source_sha256"),
             "base_scheme_id": base_scheme_id,
             "created_by_action_run_id": action_run_id,
             "strategy_id": strategy_id,

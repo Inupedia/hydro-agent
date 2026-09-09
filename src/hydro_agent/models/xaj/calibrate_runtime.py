@@ -14,8 +14,8 @@ from hydro_agent.optimization.param_groups import normalize_param_groups, resolv
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 
 from .contracts import XajScheme
-from .conversion import load_xaj_inputs, runoff_mm_day_to_m3s
-from .upstream import load_param_ranges, load_xaj
+from .conversion import load_xaj_inputs
+from .upstream import MODEL_SHA256, MODEL_VERSION, load_param_ranges, simulate
 
 
 def _load_streamflow(workspace: Path) -> dict[date, float]:
@@ -124,7 +124,6 @@ def run(workspace: Path) -> dict:
             merged[name] = sampled[name]
         candidates.append(merged)
 
-    xaj = load_xaj()
     best_score = float("-inf")
     best_index = 0
     best_parameters = dict(base_parameters)
@@ -132,38 +131,28 @@ def run(workspace: Path) -> dict:
     for index, parameters in enumerate(candidates):
         try:
             candidate_scheme = XajScheme(
-                model_id="xaj", warmup_days=scheme.warmup_days, parameters=parameters
+                model_id="xaj", warmup_days=scheme.warmup_days, parameters=parameters,
+                routing=scheme.routing
             )
         except Exception:
             continue
-        q_sim, _ = xaj(
-            inputs,
-            np.asarray([candidate_scheme.parameter_vector()], dtype=float),
-            return_state=False,
-            warmup_length=scheme.warmup_days,
-            normalized_params=False,
-            name="xaj",
-            source_type="sources",
-            source_book="HF",
-            time_interval_hours=24,
-        )
-        values = np.asarray(q_sim).reshape(-1)
-        if values.size < 1 or not np.isfinite(values).all():
+        if index and not 90 <= sum(parameters[k] for k in ("UM", "LM", "DM")) <= 220:
             continue
-        # hydromodel may return full series or post-warmup only.
-        if values.size == len(dates):
-            sim_dates = dates[scheme.warmup_days :]
-            sim_values = values[scheme.warmup_days :]
-        else:
-            sim_dates = dates[-values.size :]
-            sim_values = values
+        try:
+            values = simulate(candidate_scheme, basin, inputs)
+        except ValueError:
+            if index == 0:
+                raise
+            continue
+        sim_dates = dates[scheme.warmup_days:]
+        sim_values = values
         obs = []
         sim = []
         for day, runoff in zip(sim_dates, sim_values):
             if day not in streamflow:
                 continue
             obs.append(streamflow[day])
-            sim.append(runoff_mm_day_to_m3s(float(runoff), basin.area_km2))
+            sim.append(float(runoff))
         if len(obs) < 2:
             continue
         try:
@@ -182,6 +171,8 @@ def run(workspace: Path) -> dict:
         "model_id": "xaj",
         "warmup_days": scheme.warmup_days,
         "parameters": best_parameters,
+        "routing": scheme.routing.model_dump(),
+        "model_version": MODEL_VERSION,
         "base_scheme_id": request.scheme_id,
         "strategy_id": strategy.strategy_id,
         "objective": objective,
@@ -192,7 +183,10 @@ def run(workspace: Path) -> dict:
         "scheme_id": request.scheme_id,
         "data_snapshot_id": request.data_snapshot_id,
         "strategy_id": strategy.strategy_id,
-        "evaluated_candidates": strategy.max_candidates,
+        "evaluated_candidates": evaluated,
+        "requested_candidates": strategy.max_candidates,
+        "model_version": MODEL_VERSION,
+        "model_source_sha256": MODEL_SHA256,
         "selected_candidate_index": best_index,
         "objective": objective,
         "param_groups": list(groups),

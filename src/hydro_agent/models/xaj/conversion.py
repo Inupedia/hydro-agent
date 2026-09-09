@@ -21,6 +21,7 @@ def load_xaj_inputs(workspace: Path):
         model_id=scheme_payload.get("model_id", "xaj"),
         warmup_days=scheme_payload["warmup_days"],
         parameters=scheme_payload["parameters"],
+        routing=scheme_payload.get("routing", {}),
     )
     basin = XajBasin.model_validate_json(
         (workspace / "input/snapshot/basin.json").read_text(encoding="utf-8")

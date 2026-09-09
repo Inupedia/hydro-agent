@@ -6,7 +6,18 @@ from pydantic import Field, model_validator
 
 from hydro_agent.execution.contracts import FrozenModel
 
-UPSTREAM_COMMIT = "89d7a8ed1d72ce4fffbbd9897490b089382ecbac"
+
+class XajRouting(FrozenModel):
+    # Explicit single-zone default: native hillslope routing, no river reaches.
+    dp: int = Field(default=0, ge=0, lt=50)
+    ke: float = Field(default=24.0, gt=0, allow_inf_nan=False)
+    xe: float = Field(default=0.2, ge=0, le=0.5)
+
+    @model_validator(mode="after")
+    def stable_daily_routing(self):
+        if self.dp and not 2 * self.ke * self.xe <= 24 <= 2 * self.ke * (1 - self.xe):
+            raise ValueError("unstable daily Muskingum coefficients")
+        return self
 
 
 class XajScheme(FrozenModel):
@@ -29,6 +40,7 @@ class XajScheme(FrozenModel):
     )
     model_id: Literal["xaj"] = "xaj"
     warmup_days: int = Field(ge=1)
+    routing: XajRouting = Field(default_factory=XajRouting)
     parameters: dict[str, float]
 
     @model_validator(mode="after")

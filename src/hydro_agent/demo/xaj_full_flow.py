@@ -317,7 +317,8 @@ class XajFullResearchFlow:
         if replay_ev.status != "succeeded":
             raise RuntimeError(f"replay failed: {replay_ev.status}")
 
-        self.repository.set_task_phase(TASK_ID, "E")
+        if self.repository.get_task(TASK_ID).phase != "E":
+            raise RuntimeError("replay did not advance task to E")
         self.builder.build(
             SnapshotContext(
                 task_id=TASK_ID,
