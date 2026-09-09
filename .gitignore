@@ -13,3 +13,6 @@ __pycache__/
 data/source/
 data/snapshots/
 data/hydro-agent.db*
+# Local basin downloads (DEM tiles, hydro series) and smoke/e2e artifacts.
+data/basins/
+artifacts/
