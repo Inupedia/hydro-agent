@@ -225,10 +225,17 @@ def _build_real(
 
     env_file = Path(os.getenv("HYDRO_AGENT_ENV_FILE", ".env"))
     settings = LLMSettings.from_env(env_file if env_file.exists() else None)
-    base_provider = SiliconFlowDecisionProvider(settings=settings)
 
     class TracingProvider:
+        def __init__(self):
+            self._provider = None
+
+        def bind(self, provider):
+            self._provider = provider
+
         def decide(self, view):
+            if self._provider is None:
+                raise RuntimeError("decision provider not bound")
             task_id = view.task.task_id
             state = repository.ensure_task_state(task_id)
             round_number = state.agent_rounds_used + 1
@@ -241,7 +248,7 @@ def _build_real(
                 f"已有证据 {[e.action.value for e in view.evidence_summary]}"
             )
             try:
-                decision = base_provider.decide(
+                decision = self._provider.decide(
                     view, on_delta=lambda token: deps.append_llm_trace(task_id, token)
                 )
                 deps.finish_llm_trace(task_id, action=decision.action.value)
@@ -302,6 +309,7 @@ def _build_real(
         report_root=report_root,
         warmup_days=int(os.getenv("HYDRO_AGENT_WARMUP_DAYS", "30")),
     )
+    provider.bind(SiliconFlowDecisionProvider(settings=settings, skills=kernel.skills))
     tools = kernel.build_tools(task_configs=deps.task_configs)
     deps.base_scheme_config = kernel.scheme_config
     deps.mode = "real"
@@ -406,9 +414,13 @@ def build_app(
 
     ok, detail = _can_run_real(basins_root=basins_root, legacy_source=legacy_source_root)
     if ok:
-        # Prefer basin hydro for kernel bootstrap when present.
+        # Prefer basin hydro for kernel bootstrap when present and complete.
         basin_hydro = basins_root / "camels_13235000" / "hydro"
-        boot_source = basin_hydro if (basin_hydro / "forcing.jsonl").is_file() else source
+        boot_source = (
+            basin_hydro
+            if (basin_hydro / "forcing.jsonl").is_file() and (basin_hydro / "flow.jsonl").is_file()
+            else source
+        )
         model = _build_real(
             deps,
             repository,
@@ -417,7 +429,7 @@ def build_app(
             scheme=scheme,
             report_root=report_root,
         )
-        logger.info("workbench mode=real provider=siliconflow model=%s", model)
+        logger.info("workbench mode=real provider=siliconflow model=%s source=%s", model, boot_source)
     else:
         logger.warning("workbench falling back to demo (%s)", detail)
         _build_demo(deps, repository)

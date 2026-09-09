@@ -63,6 +63,30 @@ class EvaluationService:
             key: float(sum(item[key] for item in lead_metrics.values()) / len(lead_metrics))
             for key in ("NSE", "KGE", "MAE", "Bias")
         }
+        # Attach GB/T 22482 multi-metric report on concatenated leads.
+        gbt_payload: dict = {}
+        try:
+            from hydro_agent.evaluation.gbt22482 import HydroSeries, build_gbt_accuracy_report
+            from hydro_agent.skills import SkillRegistry
+
+            obs_all: list[float] = []
+            sim_all: list[float] = []
+            for lead in (1, 2, 3):
+                obs_all.extend(lead_obs[lead])
+                sim_all.extend(lead_sim[lead])
+            if len(obs_all) >= 2:
+                cfg = SkillRegistry().gbt_accuracy_config()
+                report = build_gbt_accuracy_report(
+                    HydroSeries(obs=tuple(obs_all), sim=tuple(sim_all)),
+                    cfg,
+                )
+                gbt_payload = report.model_dump()
+                metrics.update(report.as_metrics_dict())
+        except Exception as exc:  # noqa: BLE001
+            gbt_payload = {"error": str(exc)}
+        provenance = dict((scheme.config_json or {}).get("provenance") or {})
+        if gbt_payload:
+            provenance = {**provenance, "gbt_22482": gbt_payload}
         return ReplayEvaluation(
             task_id=task_id,
             scheme_id=scheme.scheme_id,
@@ -72,7 +96,7 @@ class EvaluationService:
             lead_metrics=lead_metrics,
             sample_counts=sample_counts,
             forcing_mode=task.forcing_mode,
-            provenance=(scheme.config_json or {}).get("provenance") or {},
+            provenance=provenance,
         )
 
     def _load_streamflow(self, snapshot_id: str) -> dict:

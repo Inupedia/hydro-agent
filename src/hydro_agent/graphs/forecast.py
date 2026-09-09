@@ -31,25 +31,69 @@ def build_forecast_graph(
     gate = permissions or PermissionGate()
 
     def observe(state: ForecastGraphState) -> dict[str, Any]:
+        from hydro_agent.agent.permissions import closeout_pending
+
         task_id = state["task_id"]
         view = world_state.build(task_id)
-        if (
-            not view.needs_follow_up
-            or view.permissions.paused
-            or view.task.terminal_status
-            or view.budget.agent_rounds_remaining <= 0
-        ):
+        if not view.needs_follow_up or view.permissions.paused or view.task.terminal_status:
             reason = "paused" if view.permissions.paused else "terminal"
-            if view.budget.agent_rounds_remaining <= 0:
-                reason = "budget_exhausted"
             return {"stop": True, "stop_reason": reason, "last_packet": None}
+        # Budget exhausted stops exploration — but never blocks freeze/replay/evaluate.
+        if view.budget.agent_rounds_remaining <= 0 and not closeout_pending(view):
+            return {"stop": True, "stop_reason": "budget_exhausted", "last_packet": None}
+        if not view.permissions.safe_actions and not closeout_pending(view):
+            return {"stop": True, "stop_reason": "no_safe_actions", "last_packet": None}
         return {"stop": False, "stop_reason": ""}
 
     def act(state: ForecastGraphState) -> dict[str, Any]:
+        from hydro_agent.agent.permissions import PermissionDenied
+        from hydro_agent.agent.providers.siliconflow import _fallback_payload, normalize_decision_payload
+
         task_id = state["task_id"]
         view = world_state.build(task_id)
         decision = provider.decide(view)
-        gate.authorize(view, decision)
+        try:
+            gate.authorize(view, decision)
+        except PermissionDenied:
+            # Recover from fingerprint stalls by taking the deterministic next step.
+            safe = {a.value for a in view.permissions.safe_actions}
+            evidence_actions = tuple(item.action.value for item in view.evidence_summary)
+            fallback = normalize_decision_payload(
+                _fallback_payload(view, raw_text="no new evidence recovery"),
+                safe_actions=safe,
+                evidence_actions=evidence_actions,
+            )
+            # Prefer forward progress over repeating the blocked decision.
+            for preferred in (
+                ActionCode.A08_GATE.value,
+                ActionCode.A09_RESOLVE.value,
+                ActionCode.A10_FREEZE.value,
+                ActionCode.A07_OPTIMIZE.value,
+                ActionCode.A06_DIAGNOSE.value,
+                ActionCode.A05_FORECAST.value,
+            ):
+                if preferred in safe and preferred != decision.action.value:
+                    fallback["action"] = preferred
+                    if preferred != ActionCode.A07_OPTIMIZE.value:
+                        fallback["strategy_id"] = None
+                        fallback["param_groups"] = None
+                        fallback["objective"] = None
+                    else:
+                        fallback["strategy_id"] = fallback.get("strategy_id") or "xaj-bounded-v1"
+                        fallback["param_groups"] = fallback.get("param_groups") or [
+                            "evap",
+                            "runoff",
+                            "routing",
+                        ]
+                        fallback["objective"] = fallback.get("objective") or "nse"
+                    fallback["rationale_summary"] = (
+                        f"恢复推进：原决策 {decision.action.value} 无新证据，改为 {preferred}。"
+                    )
+                    break
+            from hydro_agent.agent.contracts import AgentDecision as AD
+
+            decision = AD.model_validate(fallback)
+            gate.authorize(view, decision)
         packet = tools.execute(task_id, decision)
         repository.add_evidence(packet)
         task_state = repository.get_task_state(task_id)
@@ -68,11 +112,16 @@ def build_forecast_graph(
                 needs_follow_up = True
             else:
                 needs_follow_up = False
+        optimize_attempt = sum(
+            1 for item in view.evidence_summary if item.action == ActionCode.A07_OPTIMIZE
+        )
         update_kwargs = dict(
             agent_rounds_used=rounds_used,
             optimization_cycles_used=opt_used,
             last_information_hash=packet.new_information_hash,
-            last_decision_fingerprint=decision_fingerprint(decision, view.scheme.scheme_id),
+            last_decision_fingerprint=decision_fingerprint(
+                decision, view.scheme.scheme_id, optimize_attempt=optimize_attempt
+            ),
             needs_follow_up=needs_follow_up,
         )
         if paused is not None:

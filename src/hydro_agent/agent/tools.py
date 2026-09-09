@@ -325,15 +325,35 @@ class OptimizeHandler:
 
 
 class GateHandler:
-    def __init__(self, repository, *, gate_evaluator, policy, bundle_provider):
+    def __init__(
+        self,
+        repository,
+        *,
+        gate_evaluator,
+        policy,
+        bundle_provider,
+        gbt_config_provider=None,
+    ):
         self.repository = repository
         self.gate_evaluator = gate_evaluator
         self.policy = policy
         self.bundle_provider = bundle_provider
+        self.gbt_config_provider = gbt_config_provider
 
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
-        base, candidate = self.bundle_provider(task_id)
-        result = self.gate_evaluator.evaluate(base, candidate, self.policy)
+        provided = self.bundle_provider(task_id)
+        gbt_report = None
+        if isinstance(provided, tuple) and len(provided) == 3:
+            base, candidate, hydro_series = provided
+            if hydro_series is not None and self.gbt_config_provider is not None:
+                from hydro_agent.graphs.gbt_accuracy import run_gbt_accuracy
+
+                gbt_report = run_gbt_accuracy(hydro_series, self.gbt_config_provider(task_id))
+        else:
+            base, candidate = provided
+        result = self.gate_evaluator.evaluate(
+            base, candidate, self.policy, gbt_report=gbt_report
+        )
         observations = (
             f"gate_status={result.status}",
             f"base_scheme_id={result.base_scheme_id}",
@@ -341,6 +361,17 @@ class GateHandler:
             f"base_primary={base.primary_score:.4f}",
             f"candidate_primary={candidate.primary_score:.4f}",
             f"min_candidate_primary={self.policy.min_candidate_primary:.4f}",
+            f"min_scheme_grade={self.policy.min_scheme_grade}",
+            *(
+                (f"scheme_grade={result.scheme_grade}",)
+                if result.scheme_grade
+                else ()
+            ),
+            *(
+                (f"gbt_summary={result.gbt_summary}",)
+                if result.gbt_summary
+                else ()
+            ),
             *result.reasons,
         )
         metrics = {
@@ -349,12 +380,20 @@ class GateHandler:
             "candidate_primary": float(candidate.primary_score),
             "min_candidate_primary": float(self.policy.min_candidate_primary),
         }
+        if gbt_report is not None:
+            metrics.update(gbt_report.as_metrics_dict())
         gates = {
             "status": result.status,
             "base_scheme_id": result.base_scheme_id,
             "candidate_scheme_id": result.candidate_scheme_id,
             "reasons": ",".join(result.reasons),
+            "scheme_grade": result.scheme_grade or "",
+            "gbt_summary": result.gbt_summary or "",
         }
+        if gbt_report is not None:
+            gates["gbt_report_json"] = __import__("json").dumps(
+                gbt_report.model_dump(), ensure_ascii=False, sort_keys=True
+            )
         return EvidencePacket(
             evidence_id=_evidence_id(),
             task_id=task_id,

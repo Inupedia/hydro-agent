@@ -49,12 +49,24 @@ from hydro_agent.workbench.validation_gate import (
 POLICY = ExecutionPolicy(
     timeout_seconds=600, network_access=False, max_output_bytes=20_000_000, device="cpu"
 )
-GATE_POLICY = GatePolicy(
-    min_primary_delta=0.01,
-    max_single_lead_drop=0.02,
-    max_high_flow_mae_relative_increase=0.05,
-    min_candidate_primary=0.0,
-)
+
+
+def gate_policy_from_skills(skills: SkillRegistry | None = None) -> GatePolicy:
+    """Gate ACCEPT requires GB/T scheme grade from gbt-22482-accuracy skill."""
+    registry = skills or SkillRegistry()
+    grade = registry.min_scheme_grade()
+    return GatePolicy(
+        min_primary_delta=0.01,
+        max_single_lead_drop=0.02,
+        max_high_flow_mae_relative_increase=0.05,
+        min_candidate_primary=0.0,
+        accept_primary_floor=registry.nse_good_enough(),
+        min_scheme_grade=grade,  # type: ignore[arg-type]
+        require_gbt_grade=True,
+    )
+
+
+GATE_POLICY = gate_policy_from_skills()
 
 
 class RealWorkbenchKernel:
@@ -79,6 +91,7 @@ class RealWorkbenchKernel:
         self.scheme_template.setdefault("model_id", "xaj")
         self.skills = SkillRegistry()
         self.strategies = CalibrationStrategyRegistry()
+        self.gate_policy = gate_policy_from_skills(self.skills)
         self._task_configs: dict = {}
 
         self.snapshot_root = self.work_root / "snapshots"
@@ -98,7 +111,7 @@ class RealWorkbenchKernel:
         self.calibration = CalibrationService(repository, runner=runner, model_id="xaj")
         self.candidates = CandidateSchemeService(repository)
         self.gate = GateEvaluator()
-        self.freeze_service = FreezeService(repository, gate_policy=GATE_POLICY.model_dump())
+        self.freeze_service = FreezeService(repository, gate_policy=self.gate_policy.model_dump())
         self.planner = ReplayPlanner(repository, resolver=self.resolver)
         self.replay_service = ReplayService(
             repository, forecast_service=self.forecast, policy=POLICY
@@ -166,8 +179,9 @@ class RealWorkbenchKernel:
             GateHandler(
                 self.repository,
                 gate_evaluator=self.gate,
-                policy=GATE_POLICY,
+                policy=self.gate_policy,
                 bundle_provider=self.validation_gate.bundles,
+                gbt_config_provider=lambda _task_id: self.skills.gbt_accuracy_config(),
             ),
         )
         tools.register(ActionCode.A09_RESOLVE, ResolveHandler(self.repository))
@@ -239,6 +253,7 @@ class RealWorkbenchKernel:
             truth=truth_from_source(self.source.flow_rows),
             lead_values=leads,
             issue_day=latest.issue_time.date(),
+            nse_good_enough=self.skills.nse_good_enough(),
         )
         notes = list(result.get("notes") or [])
         notes.insert(0, f"scheme_id={scheme_id}")

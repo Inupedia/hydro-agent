@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
-import { gsap, motionDuration, prefersReducedMotion } from '../motion/gsap'
 
 const props = defineProps<{
   forecasts: Array<{ issue_time: string; lead_values: Record<number, number> }>
@@ -10,6 +9,15 @@ const props = defineProps<{
 const el = ref<HTMLDivElement | null>(null)
 let chart: echarts.ECharts | null = null
 let observer: ResizeObserver | null = null
+
+function leadValue(
+  leads: Record<number, number> | Record<string, number> | undefined,
+  lead: number,
+): number | null {
+  if (!leads) return null
+  const raw = (leads as Record<string | number, number>)[lead] ?? (leads as Record<string, number>)[String(lead)]
+  return typeof raw === 'number' && Number.isFinite(raw) ? raw : null
+}
 
 async function render() {
   await nextTick()
@@ -21,15 +29,17 @@ async function render() {
     return
   }
   if (!el.value) return
+  // Ensure visible before init — parent GSAP must not leave opacity:0.
+  el.value.style.opacity = '1'
+  el.value.style.visibility = 'visible'
   if (!chart) chart = echarts.init(el.value)
   const categories = props.forecasts.map((f) => String(f.issue_time).slice(0, 10))
   const colors = ['#1889ee', '#47b8b0', '#8e8bd4']
-  const reduced = prefersReducedMotion()
+  const dense = props.forecasts.length > 40
   chart.setOption(
     {
-      animationDuration: reduced ? 0 : 900,
-      animationEasing: 'cubicOut',
-      animation: !reduced,
+      animationDuration: dense ? 0 : 400,
+      animation: !dense,
       textStyle: { fontFamily: '-apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif' },
       color: colors,
       tooltip: {
@@ -56,6 +66,7 @@ async function render() {
         textStyle: { color: '#698197', fontSize: 11 },
       },
       grid: { left: 12, right: 18, top: 34, bottom: 48, containLabel: true },
+      dataZoom: dense ? [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }] : undefined,
       xAxis: {
         type: 'category',
         data: categories,
@@ -84,9 +95,9 @@ async function render() {
         smooth: false,
         connectNulls: false,
         symbol: 'circle',
-        symbolSize: 6,
+        symbolSize: dense ? 3 : 6,
         showSymbol: props.forecasts.length < 8,
-        itemStyle: { color: colors[index], borderColor: '#fff', borderWidth: 2 },
+        itemStyle: { color: colors[index], borderColor: '#fff', borderWidth: dense ? 0 : 2 },
         lineStyle: { width: index === 0 ? 3 : 2, type: index === 2 ? 'dashed' : 'solid' },
         areaStyle:
           index === 0
@@ -105,23 +116,16 @@ async function render() {
               }
             : undefined,
         emphasis: { focus: 'series', scale: 1.5 },
-        animationDelay: reduced ? 0 : index * 120,
-        data: props.forecasts.map((f) => {
-          const value = f.lead_values[lead]
-          return typeof value === 'number' && Number.isFinite(value) ? value : null
-        }),
+        animationDelay: dense ? 0 : index * 80,
+        data: props.forecasts.map((f) => leadValue(f.lead_values, lead)),
       })),
     },
     { notMerge: true },
   )
-  if (el.value && !reduced) {
-    gsap.fromTo(
-      el.value,
-      { autoAlpha: 0.35, y: 16 },
-      { autoAlpha: 1, y: 0, duration: motionDuration(0.55), ease: 'power2.out' },
-    )
-  }
-  requestAnimationFrame(() => chart?.resize())
+  requestAnimationFrame(() => {
+    chart?.resize()
+    requestAnimationFrame(() => chart?.resize())
+  })
 }
 
 function onResize() {

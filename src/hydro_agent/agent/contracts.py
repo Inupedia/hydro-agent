@@ -62,6 +62,7 @@ class TaskSummary(FrozenModel):
     phase: Literal["B", "F", "E"]
     forcing_mode: Literal["R", "F"]
     terminal_status: str | None = None
+    allow_optimization: bool = True
 
 
 class ModelSummary(FrozenModel):

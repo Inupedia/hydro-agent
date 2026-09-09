@@ -21,16 +21,29 @@ const modelingAvailable = ref(false)
 const hydrologistAvailable = ref(false)
 const basins = ref<import('../types/api').BasinInfo[]>([])
 const planReady = computed(() => !!demo.draft.model_plan_id)
+/** When true, basin changes come from plan binding — do not clear model_plan_id. */
+let syncingPlanBasin = false
 function selectPlan(plan: ModelPlan | null) {
   if (demo.taskId) return
+  if (!plan) {
+    demo.draft.model_plan_id = null
+    return
+  }
   const previous = demo.draft.model_plan_id
-  demo.draft.model_plan_id = plan?.plan_id || null
-  if (plan && previous !== plan.plan_id) {
+  syncingPlanBasin = true
+  if (demo.draft.basin_id !== plan.basin_id) {
     demo.draft.basin_id = plan.basin_id
+  }
+  demo.draft.model_plan_id = plan.plan_id
+  if (previous !== plan.plan_id) {
     demo.draft.forcing_mode = 'R'
     if (plan.suggested_start) demo.draft.start_date = plan.suggested_start
     if (plan.suggested_end) demo.draft.end_date = plan.suggested_end
   }
+  // Watchers flush after this tick; keep the guard until then.
+  void nextTick(() => {
+    syncingPlanBasin = false
+  })
 }
 const now = ref(Date.now())
 const advanced = ref(false)
@@ -115,22 +128,44 @@ const title = computed(() =>
   demo.isFailed
     ? '本次计算暂时受阻'
     : demo.isCompleted
-      ? '一次预测，有据可循。'
+      ? '计算已完成'
       : demo.isRunning
         ? actionTitle(action.value)
         : demo.run?.paused
           ? '计算已暂停'
-          : '看见水流的下一程。',
+          : demo.mode === 'replay'
+            ? '案例结果'
+            : '待开始',
 )
 const description = computed(() =>
   demo.isFailed
-    ? '查看右侧记录，了解计算停在哪一步。'
+    ? '右侧记录标明停在哪一步。'
     : demo.isCompleted
-      ? '计算与判断留在同一画面，每个结果都有来处。'
+      ? '下图为当前方案预报序列，右侧为执行记录与报告。'
       : demo.isRunning
         ? actionExplain(action.value)
-        : '从资料检查到流量预测，让复杂的计算过程清晰可见。',
+        : '先完成建模与任务设定，再启动运行。',
 )
+/** Chart series: prefer frozen/current scheme, one point per issue day. */
+const chartForecasts = computed(() => {
+  const rows = demo.results?.forecasts || []
+  if (!rows.length) return []
+  const preferred =
+    demo.results?.scheme?.scheme_id ||
+    demo.run?.current_scheme_id ||
+    null
+  const scoped = preferred ? rows.filter((f) => f.scheme_id === preferred) : rows
+  const pool = scoped.length ? scoped : rows
+  const byIssue = new Map<string, (typeof rows)[number]>()
+  for (const row of pool) {
+    const key = String(row.issue_time).slice(0, 10)
+    // Keep the latest forecast id for that issue day.
+    byIssue.set(key, row)
+  }
+  return [...byIssue.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, row]) => row)
+})
 const elapsed = computed(() => {
   if (!demo.startedAt || demo.isCompleted || demo.isFailed) return demo.isCompleted ? '已结束' : '等待开始'
   const seconds = Math.max(0, Math.floor((now.value - demo.startedAt) / 1000))
@@ -221,17 +256,32 @@ function animateResultsSurfaces() {
   const tuning = tuningMount.value
   const dur = motionDuration(0.6)
   if (chart) {
+    // Always clear opacity/visibility so interrupted tweens cannot hide the chart.
     gsap.fromTo(
       chart,
-      { autoAlpha: 0, y: 28, scale: prefersReducedMotion() ? 1 : 0.96 },
-      { autoAlpha: 1, y: 0, scale: 1, duration: dur, ease: 'power3.out', clearProps: 'transform' },
+      { autoAlpha: prefersReducedMotion() ? 1 : 0.2, y: prefersReducedMotion() ? 0 : 16 },
+      {
+        autoAlpha: 1,
+        y: 0,
+        duration: dur,
+        ease: 'power3.out',
+        clearProps: 'transform,opacity,visibility',
+        onInterrupt: () => gsap.set(chart, { clearProps: 'transform,opacity,visibility' }),
+      },
     )
   }
   if (tuning) {
     gsap.fromTo(
       tuning,
-      { autoAlpha: 0, y: 36 },
-      { autoAlpha: 1, y: 0, duration: dur, delay: 0.12, ease: 'power3.out' },
+      { autoAlpha: prefersReducedMotion() ? 1 : 0.2, y: prefersReducedMotion() ? 0 : 20 },
+      {
+        autoAlpha: 1,
+        y: 0,
+        duration: dur,
+        delay: 0.08,
+        ease: 'power3.out',
+        clearProps: 'transform,opacity,visibility',
+      },
     )
   }
 }
@@ -245,6 +295,7 @@ watch(focusStage, async (enter, was) => {
 watch(
   () => demo.draft.basin_id,
   (id, prev) => {
+    if (syncingPlanBasin) return
     if (prev && id !== prev && !demo.taskId) {
       demo.draft.model_plan_id = null
     }
@@ -252,7 +303,7 @@ watch(
 )
 
 watch(
-  () => [showWorkflow.value, demo.results?.forecasts?.length, showTuning.value] as const,
+  () => [showWorkflow.value, chartForecasts.value.length, showTuning.value] as const,
   async ([workflow, forecastCount, tuning]) => {
     if (workflow) return
     await nextTick()
@@ -286,6 +337,7 @@ onMounted(async () => {
     try {
       const task = await api.getTask(id)
       demo.draft.basin_id = task.basin_id
+      demo.draft.model_plan_id = task.model_plan_id ?? null
       if (task.start_date) demo.draft.start_date = task.start_date
       if (task.end_date) demo.draft.end_date = task.end_date
       if (task.forcing_mode) demo.draft.forcing_mode = task.forcing_mode
@@ -297,7 +349,7 @@ onMounted(async () => {
   }
   await nextTick()
   if (focusStage.value) animateFocus(true)
-  else if (demo.results?.forecasts?.length || showTuning.value) animateResultsSurfaces()
+  else if (chartForecasts.value.length || showTuning.value) animateResultsSurfaces()
 })
 onUnmounted(() => {
   clearInterval(timer)
@@ -309,16 +361,16 @@ onUnmounted(() => {
 <template>
   <div class="observatory" :class="{ 'is-focus': focusStage, 'is-results': !focusStage && !!demo.results }">
     <header class="observatory-header">
-      <a href="/" class="observatory-brand"><span class="brand-symbol" aria-hidden="true">≈</span><span>Hydro<span class="brand-light">Agent</span><small>水文智能体 · 演示空间</small></span></a>
-      <div class="header-caption">{{ focusStage ? '执行中 · 计算流程' : '理解过程，看见结果' }}</div>
+      <a href="/" class="observatory-brand"><span class="brand-symbol" aria-hidden="true">≈</span><span>Hydro<span class="brand-light">Agent</span><small>水文智能体 · 课题工作台</small></span></a>
+      <div class="header-caption">{{ focusStage ? '执行中' : demo.mode === 'replay' ? '案例回放' : '工作台' }}</div>
       <div class="connection"><i :class="{ online: connected }" />{{ mode }}</div>
     </header>
 
     <main class="observatory-grid">
       <aside ref="taskPane" class="task-pane glass-pane">
-        <div class="section-heading"><span class="overline">01 / 选流域</span><span class="mini-icon" aria-hidden="true">↗</span></div>
-        <h2>从一个美国流域开始</h2>
-        <p class="muted">先选流域并完成建模，再设定时段运行。</p>
+        <div class="section-heading"><span class="overline">01 / 流域与任务</span><span class="mini-icon" aria-hidden="true">↗</span></div>
+        <h2>选择流域</h2>
+        <p class="muted">选定流域并完成建模后，设定检验时段并启动运行。</p>
         <form @submit.prevent="begin">
           <fieldset :disabled="locked">
             <label>研究流域
@@ -354,7 +406,7 @@ onUnmounted(() => {
       </aside>
 
       <section ref="mainStage" class="main-stage" :class="{ 'main-stage--focus': focusStage, 'main-stage--results': !focusStage && !!demo.results }">
-        <div class="hero-copy"><div class="overline"><span class="blue-dot" /> {{ demo.isCompleted ? '计算已完成' : demo.isRunning ? '智能体正在工作' : 'HYDROLOGY, MADE VISIBLE' }}</div><h1>{{ title }}</h1><p>{{ description }}</p></div>
+        <div class="hero-copy"><div class="overline"><span class="blue-dot" /> {{ demo.isCompleted ? '任务完成' : demo.isRunning ? '运行中' : demo.mode === 'replay' ? '案例回放' : '待命' }}</div><h1>{{ title }}</h1><p>{{ description }}</p></div>
         <LiveWorkflow
           v-if="showWorkflow"
           :action="action"
@@ -370,7 +422,7 @@ onUnmounted(() => {
           :locked="busy"
           @selected="selectPlan"
         />
-        <div class="water-scene" v-else-if="!demo.results?.forecasts.length" aria-label="抽象水流地形示意，非预测数据">
+        <div v-else-if="!chartForecasts.length" class="water-scene" aria-label="抽象水流地形示意，非预测数据">
           <svg viewBox="0 0 800 360" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><defs><linearGradient id="terrain" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#dceefa"/><stop offset="1" stop-color="#a9c9dd"/></linearGradient><linearGradient id="river" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#75e0ee"/><stop offset=".5" stop-color="#238ef5"/><stop offset="1" stop-color="#1b57bc"/></linearGradient><filter id="shadow"><feGaussianBlur stdDeviation="14"/></filter></defs>
           <ellipse cx="416" cy="289" rx="255" ry="27" fill="#6e9cb4" opacity=".18" filter="url(#shadow)"/>
           <path d="M100 220 365 62 709 172 438 329Z" fill="#a9c4d7"/><path d="M100 203 365 45 709 155 438 312Z" fill="url(#terrain)"/>
@@ -380,12 +432,12 @@ onUnmounted(() => {
           <path d="M271 121Q297 154 407 166M565 171Q513 206 380 219" fill="none" stroke="#5ebce6" stroke-width="5"/>
           <circle cx="427" cy="275" r="8" fill="white"/><circle cx="427" cy="275" r="4" fill="#007aff"/>
           </svg>
-          <div class="scene-caption"><span>资料 → 计算 → 判断</span><small>水流地形示意 · 非实测地图</small></div>
+          <div class="scene-caption"><span>资料 → 计算 → 评价</span><small>示意 · 非实测地图</small></div>
         </div>
         <div v-else ref="forecastSurface" class="forecast-surface">
-          <div class="chart-title"><h2>流量预测</h2><span>{{ mode }} · m³/s</span></div>
-          <ForecastChart :forecasts="demo.results.forecasts" />
-          <p class="chart-note">横轴为起报日期，各曲线代表提前 1、2、3 天的预测。</p>
+          <div class="chart-title"><h2>流量预报</h2><span>{{ mode }} · m³/s · {{ chartForecasts.length }} 个起报日</span></div>
+          <ForecastChart :forecasts="chartForecasts" />
+          <p class="chart-note">横轴为起报日期；曲线为提前 1 / 2 / 3 天预报（当前方案）。</p>
         </div>
         <div v-if="showHydrologist" class="hydrologist-mount">
           <HydrologistTune
@@ -402,16 +454,16 @@ onUnmounted(() => {
           />
         </div>
         <div ref="stageTrack" class="stage-track" aria-label="执行阶段"><div v-for="(item, index) in AUDIENCE_STAGES" :key="item.id" :class="{ current: stage === item.id && demo.isRunning }"><span class="stage-number">0{{ index + 1 }}</span><strong>{{ item.label }}</strong><small class="stage-state">{{ progressLabel(progress[item.id]) }}</small><span class="stage-marker" /></div></div>
-        <div ref="decisionStrip" class="decision-strip"><span class="decision-icon" aria-hidden="true">{{ demo.results?.gate ? '✓' : '◎' }}</span><div><span class="overline">{{ demo.results ? '本次方案判断' : '让每一步，都有依据' }}</span><h3>{{ demo.results ? gate.title : '系统执行，过程可见' }}</h3><p>{{ demo.results ? gate.reason : '检查资料、计算流量、比较方案，并保留执行记录。' }}</p></div><button v-if="demo.taskId" class="refresh-button" aria-label="刷新结果" @click="demo.refresh()">↻</button></div>
+        <div ref="decisionStrip" class="decision-strip"><span class="decision-icon" aria-hidden="true">{{ demo.results?.gate ? '✓' : '◎' }}</span><div><span class="overline">{{ demo.results ? '方案判断' : '状态' }}</span><h3>{{ demo.results ? gate.title : '尚未运行' }}</h3><p>{{ demo.results ? gate.reason : '运行后，这里显示 Gate 结论与依据。' }}</p></div><button v-if="demo.taskId" class="refresh-button" aria-label="刷新结果" @click="demo.refresh()">↻</button></div>
       </section>
 
-      <aside ref="journalPane" class="journal-pane glass-pane"><div class="section-heading"><span class="overline">02 / 执行记录</span><span class="record-count">{{ demo.timeline.length }}</span></div><h2>每一步，都看得见</h2><div class="journal-status"><span :class="{ 'blue-dot': demo.isRunning }">{{ demo.isRunning ? '运行中' : demo.isCompleted ? '已完成' : demo.isFailed ? '已受阻' : '等待执行' }}</span><span>{{ elapsed }}</span></div>
+      <aside ref="journalPane" class="journal-pane glass-pane"><div class="section-heading"><span class="overline">02 / 执行记录</span><span class="record-count">{{ demo.timeline.length }}</span></div><h2>执行记录</h2><div class="journal-status"><span :class="{ 'blue-dot': demo.isRunning }">{{ demo.isRunning ? '运行中' : demo.isCompleted ? '已完成' : demo.isFailed ? '已受阻' : '等待执行' }}</span><span>{{ elapsed }}</span></div>
         <div v-if="error" class="inline-error" role="alert"><strong>暂时无法继续</strong><p>{{ error }}</p><button v-if="demo.taskId" class="text-button" @click="demo.refresh()">重新读取状态</button></div>
         <div class="journal-list"><div v-if="!events.length" class="journal-empty"><span aria-hidden="true">⌁</span><h3>等待第一条记录</h3><p>开始后，这里会记录系统做了什么，以及得到了什么。</p></div><details v-for="(event, index) in events" :key="event.id" class="journal-event"><summary><span class="event-dot" :class="{ failed: ['failed', 'error'].includes(event.status) }" /><span><small>{{ String(events.length - index).padStart(2, '0') }} · {{ eventStatus(event.status) }}</small><strong>{{ event.label || actionTitle(event.action) }}</strong></span><span class="expand-icon">＋</span></summary><pre>{{ JSON.stringify(event.details, null, 2) }}</pre></details></div>
         <div class="report-area"><span class="overline">结果与报告</span><template v-if="reports.length"><a v-for="name in reports" :key="name" :href="`/api/tasks/${encodeURIComponent(demo.taskId || '')}/report/${encodeURIComponent(name)}`" target="_blank" rel="noreferrer">{{ name }} <span>↗</span></a></template><p v-else>{{ demo.isCompleted ? '尚未取得报告，可刷新结果重试。' : '运行完成后，可在这里打开报告。' }}</p></div>
       </aside>
     </main>
-    <footer class="observatory-footer"><span>HYDRO-AGENT <span class="footer-divider">/</span> 从资料到结果</span><span>新安江模型 · 可追溯执行</span></footer>
+    <footer class="observatory-footer"><span>HYDRO-AGENT <span class="footer-divider">/</span> 课题工作台</span><span>新安江模型 · 可追溯执行</span></footer>
   </div>
 </template>
 

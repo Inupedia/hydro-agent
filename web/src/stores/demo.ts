@@ -39,22 +39,24 @@ function loadSession(): SessionSnapshot | null {
   }
 }
 
+function defaultDraft(): DraftConfig {
+  return {
+    basin_id: 'usgs_02472000',
+    model_id: 'xaj',
+    start_date: '2020-01-01',
+    end_date: '2020-01-31',
+    forcing_mode: 'R',
+    base_scheme_id: 'scheme-base',
+    allow_optimization: true,
+    max_agent_decision_rounds: 20,
+    max_optimization_cycles: 4,
+    model_plan_id: null,
+  }
+}
+
 export const useDemoStore = defineStore('demo', () => {
   const saved = loadSession()
-  const draft = ref<DraftConfig>(
-    saved?.draft || {
-      basin_id: 'usgs_02472000',
-      model_id: 'xaj',
-      start_date: '2020-01-01',
-      end_date: '2020-01-31',
-      forcing_mode: 'R',
-      base_scheme_id: 'scheme-base',
-      allow_optimization: true,
-      max_agent_decision_rounds: 20,
-      max_optimization_cycles: 4,
-      model_plan_id: null,
-    },
-  )
+  const draft = ref<DraftConfig>(saved?.draft || defaultDraft())
 
   const taskId = ref<string | null>(saved?.taskId || null)
   const mode = ref<RunMode>(saved?.mode || 'live')
@@ -166,6 +168,7 @@ export const useDemoStore = defineStore('demo', () => {
   function applyTaskMeta(task: TaskSummary) {
     draft.value.basin_id = task.basin_id
     draft.value.model_id = task.model_id === 'openhydronet' ? 'openhydronet' : 'xaj'
+    draft.value.model_plan_id = task.model_plan_id ?? null
     if (task.start_date) draft.value.start_date = task.start_date
     if (task.end_date) draft.value.end_date = task.end_date
     if (task.forcing_mode === 'R' || task.forcing_mode === 'F') {
@@ -176,6 +179,9 @@ export const useDemoStore = defineStore('demo', () => {
   async function createTaskFromDraft() {
     error.value = null
     const body: TaskCreateRequest = { ...draft.value }
+    if (!body.model_plan_id) {
+      delete body.model_plan_id
+    }
     const task = await api.createTask(body)
     taskId.value = task.task_id
     mode.value = 'live'
@@ -299,6 +305,7 @@ export const useDemoStore = defineStore('demo', () => {
     followScreen.value = true
     settingsOpen.value = false
     mode.value = 'live'
+    draft.value = defaultDraft()
     sessionStorage.removeItem(SESSION_KEY)
   }
 

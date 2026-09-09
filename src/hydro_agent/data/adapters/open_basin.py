@@ -86,6 +86,21 @@ def fetch_nldi_basin(usgs_site: str, *, simplified: bool = True) -> dict[str, An
     return json.loads(_http_get(url).decode("utf-8"))
 
 
+def fetch_nldi_flowlines(
+    usgs_site: str,
+    *,
+    distance_km: float = 120.0,
+    mode: str = "UT",
+) -> dict[str, Any]:
+    """Upstream tributary (UT) or mainstem (UM) flowlines from NLDI."""
+    distance = max(5.0, float(distance_km))
+    url = (
+        f"https://api.water.usgs.gov/nldi/linked-data/nwissite/USGS-{usgs_site}"
+        f"/navigation/{mode}/flowlines?f=json&distance={distance:.0f}"
+    )
+    return json.loads(_http_get(url).decode("utf-8"))
+
+
 def polygon_bbox(geojson: dict[str, Any]) -> tuple[float, float, float, float]:
     feature = geojson["features"][0]
     geom = feature["geometry"]
@@ -320,6 +335,18 @@ def build_open_basin_case(
     gis.mkdir(parents=True, exist_ok=True)
     write_json(gis / "boundary.geojson", basin_gj)
     write_json(gis / "nldi_feature.json", feature)
+    report("nldi", "flowlines", 0.28)
+    # Upstream tributaries — enough reach to cover the catchment sketch.
+    diag_km = max(
+        40.0,
+        math.hypot((bbox[2] - bbox[0]) * 111.0, (bbox[3] - bbox[1]) * 111.0) * 0.75,
+    )
+    try:
+        flowlines = fetch_nldi_flowlines(spec.usgs_site, distance_km=diag_km, mode="UT")
+        if flowlines.get("features"):
+            write_json(gis / "flowlines.geojson", flowlines)
+    except Exception as flow_exc:  # noqa: BLE001 - map can proceed without rivers
+        write_json(gis / "flowlines_error.json", {"error": str(flow_exc)})
     write_json(
         gis / "outlet.geojson",
         {

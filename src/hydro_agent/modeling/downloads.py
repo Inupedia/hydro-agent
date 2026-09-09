@@ -8,10 +8,12 @@ import json
 import math
 import shutil
 import threading
+import time
 import uuid
+import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -185,21 +187,40 @@ class BasinDownloadService:
         destination.parent.mkdir(parents=True, exist_ok=True)
         self._progress(job_id, stage=stage, current_file=destination.name, fraction=fraction)
         request = urllib.request.Request(url, headers={"User-Agent": "Hydro-Agent/0.1"})
-        with urllib.request.urlopen(request, timeout=120) as response, destination.with_suffix(
-            destination.suffix + ".part"
-        ).open("wb") as stream:
-            shutil.copyfileobj(response, stream)
-            nbytes = stream.tell()
-        part = destination.with_suffix(destination.suffix + ".part")
-        part.replace(destination)
-        self._progress(
-            job_id,
-            stage=stage,
-            current_file=destination.name,
-            fraction=min(1.0, fraction + 0.01),
-            nbytes=nbytes,
-        )
-        return destination.read_bytes()
+        last_error: Exception | None = None
+        for attempt in range(5):
+            try:
+                with urllib.request.urlopen(request, timeout=180) as response, destination.with_suffix(
+                    destination.suffix + ".part"
+                ).open("wb") as stream:
+                    shutil.copyfileobj(response, stream)
+                    nbytes = stream.tell()
+                part = destination.with_suffix(destination.suffix + ".part")
+                part.replace(destination)
+                self._progress(
+                    job_id,
+                    stage=stage,
+                    current_file=destination.name,
+                    fraction=min(1.0, fraction + 0.01),
+                    nbytes=nbytes,
+                )
+                return destination.read_bytes()
+            except urllib.error.HTTPError as exc:
+                last_error = exc
+                # USGS often 503s on multi-decade DV pulls; back off and retry.
+                if exc.code in {429, 500, 502, 503, 504} and attempt < 4:
+                    time.sleep(2.0 * (attempt + 1))
+                    continue
+                raise
+            except (TimeoutError, urllib.error.URLError) as exc:
+                last_error = exc
+                if attempt < 4:
+                    time.sleep(2.0 * (attempt + 1))
+                    continue
+                raise
+        assert last_error is not None
+        raise last_error
+
 
     def _download_hydro(
         self,
@@ -300,35 +321,49 @@ class BasinDownloadService:
                 )
             )
         (hydro / "forcing.jsonl").write_text("\n".join(r.model_dump_json() for r in rows) + "\n", encoding="utf-8")
-        flow_url = (
-            f"https://waterservices.usgs.gov/nwis/dv/?format=json&sites={usgs_site}"
-            f"&parameterCd=00060&siteStatus=all&startDT={start.isoformat()}&endDT={end.isoformat()}"
-        )
-        flow_payload = json.loads(download(flow_url, "usgs-dv-00060.json", 0.9).decode("utf-8"))
-        dv_values = flow_payload["value"]["timeSeries"][0]["values"][0]["value"]
-        flow_rows = []
-        for item in dv_values:
-            day = date.fromisoformat(item["dateTime"][:10])
-            if day < start or day > end:
-                continue
-            value_text = item.get("value")
-            if value_text in (None, ""):
-                continue
-            try:
-                discharge = float(value_text) * CFS_TO_M3S
-            except ValueError:
-                continue
-            if discharge < 0:
-                continue
-            available_at = datetime.combine(day + timedelta(days=1), time.min, timezone.utc)
-            flow_rows.append(
-                FlowObservation(
-                    valid_date=day,
-                    discharge_m3s=discharge,
-                    source="usgs-nwis-dv-00060",
-                    available_at=available_at,
-                )
+        # USGS NWIS rejects multi-decade DV pulls (often HTTP 503); fetch ~2-year chunks.
+        flow_rows: list[FlowObservation] = []
+        chunk_start = start
+        chunk_index = 0
+        while chunk_start <= end:
+            chunk_end = min(chunk_start + timedelta(days=730), end)
+            flow_name = f"usgs-dv-00060-{chunk_start.isoformat()}_{chunk_end.isoformat()}.json"
+            flow_url = (
+                f"https://waterservices.usgs.gov/nwis/dv/?format=json&sites={usgs_site}"
+                f"&parameterCd=00060&siteStatus=all"
+                f"&startDT={chunk_start.isoformat()}&endDT={chunk_end.isoformat()}"
             )
+            frac = 0.75 + 0.2 * (chunk_index + 1) / max(((end - start).days // 730) + 1, 1)
+            flow_payload = json.loads(download(flow_url, flow_name, min(0.95, frac)).decode("utf-8"))
+            series = flow_payload.get("value", {}).get("timeSeries") or []
+            dv_values = series[0]["values"][0]["value"] if series else []
+            for item in dv_values:
+                day = date.fromisoformat(item["dateTime"][:10])
+                if day < start or day > end:
+                    continue
+                value_text = item.get("value")
+                if value_text in (None, ""):
+                    continue
+                try:
+                    discharge = float(value_text) * CFS_TO_M3S
+                except ValueError:
+                    continue
+                if discharge < 0:
+                    continue
+                available_at = datetime.combine(day + timedelta(days=1), dt_time.min, timezone.utc)
+                flow_rows.append(
+                    FlowObservation(
+                        valid_date=day,
+                        discharge_m3s=discharge,
+                        source="usgs-nwis-dv-00060",
+                        available_at=available_at,
+                    )
+                )
+            chunk_start = chunk_end + timedelta(days=1)
+            chunk_index += 1
+        # Deduplicate by day (keep last).
+        by_day = {row.valid_date: row for row in flow_rows}
+        flow_rows = [by_day[d] for d in sorted(by_day)]
         if len(flow_rows) < 2:
             raise ValueError("insufficient USGS daily discharge")
         (hydro / "flow.jsonl").write_text("\n".join(r.model_dump_json() for r in flow_rows) + "\n", encoding="utf-8")
@@ -339,6 +374,10 @@ class BasinDownloadService:
                     source="Caravan MultiMet + USGS NWIS DV",
                     basin_index=basin_index,
                     retrieved_at=retrieved.isoformat(),
+                    start=start.isoformat(),
+                    end=end.isoformat(),
+                    n_forcing=len(rows),
+                    n_flow=len(flow_rows),
                     raw_files=receipts,
                     latitude=lat,
                     longitude=lon,
@@ -371,27 +410,67 @@ class BasinDownloadService:
         outlet = json.loads(outlet_path.read_text(encoding="utf-8"))
         lat, lon = float(outlet["latitude"]), float(outlet["longitude"])
         area = float(outlet["area_km2"])
-        # Approximate catchment radius (km) from area; convert to degrees.
-        radius_km = max(5.0, math.sqrt(area / math.pi))
-        deg = radius_km / 111.0
-        ring = []
-        for i in range(33):
-            ang = 2 * math.pi * i / 32
-            ring.append([lon + deg * math.cos(ang) / max(math.cos(math.radians(lat)), 0.2), lat + deg * math.sin(ang)])
         gis = self.catalog.gis_dir(basin_id)
         if gis.exists():
             shutil.rmtree(gis)
         gis.mkdir(parents=True)
-        boundary = {
-            "type": "FeatureCollection",
-            "features": [
-                {
-                    "type": "Feature",
-                    "properties": {"basin_id": basin_id, "approximation": "equal-area-circle"},
-                    "geometry": {"type": "Polygon", "coordinates": [ring]},
-                }
-            ],
-        }
+
+        # Prefer NLDI basin + upstream flowlines so review maps show real rivers.
+        boundary = None
+        bbox = None
+        try:
+            from hydro_agent.data.adapters.open_basin import (
+                fetch_nldi_basin,
+                fetch_nldi_flowlines,
+                polygon_bbox,
+            )
+
+            self._progress(job_id, stage="gis", current_file="nldi-basin.json", fraction=base + span * 0.2)
+            basin_gj = fetch_nldi_basin(usgs_site, simplified=True)
+            if basin_gj.get("features"):
+                boundary = basin_gj
+                bbox = polygon_bbox(basin_gj)
+                write_json(gis / "nldi_basin.json", basin_gj)
+            self._progress(job_id, stage="gis", current_file="nldi-flowlines.json", fraction=base + span * 0.55)
+            diag_km = 80.0
+            if bbox:
+                diag_km = max(
+                    40.0,
+                    math.hypot((bbox[2] - bbox[0]) * 111.0, (bbox[3] - bbox[1]) * 111.0) * 0.75,
+                )
+            else:
+                diag_km = max(40.0, math.sqrt(max(area, 1.0) / math.pi) * 3.0)
+            flowlines = fetch_nldi_flowlines(usgs_site, distance_km=diag_km, mode="UT")
+            if flowlines.get("features"):
+                write_json(gis / "flowlines.geojson", flowlines)
+        except Exception as nldi_exc:  # noqa: BLE001 - fall back to circle sketch
+            write_json(gis / "nldi_error.json", {"error": str(nldi_exc)})
+
+        if boundary is None:
+            # Approximate catchment radius (km) from area; convert to degrees.
+            radius_km = max(5.0, math.sqrt(area / math.pi))
+            deg = radius_km / 111.0
+            ring = []
+            for i in range(33):
+                ang = 2 * math.pi * i / 32
+                ring.append(
+                    [
+                        lon + deg * math.cos(ang) / max(math.cos(math.radians(lat)), 0.2),
+                        lat + deg * math.sin(ang),
+                    ]
+                )
+            boundary = {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {"basin_id": basin_id, "approximation": "equal-area-circle"},
+                        "geometry": {"type": "Polygon", "coordinates": [ring]},
+                    }
+                ],
+            }
+            bbox = (lon - deg * 1.2, lat - deg * 1.2, lon + deg * 1.2, lat + deg * 1.2)
+
         outlet_fc = {
             "type": "FeatureCollection",
             "features": [
@@ -402,12 +481,12 @@ class BasinDownloadService:
                 }
             ],
         }
-        self._progress(job_id, stage="gis", current_file="boundary.geojson", fraction=base + span * 0.5)
+        self._progress(job_id, stage="gis", current_file="boundary.geojson", fraction=base + span * 0.75)
         write_json(gis / "boundary.geojson", boundary)
         write_json(gis / "outlet.geojson", outlet_fc)
         write_json(
             gis / "bbox.json",
-            dict(west=lon - deg * 1.2, south=lat - deg * 1.2, east=lon + deg * 1.2, north=lat + deg * 1.2),
+            dict(west=bbox[0], south=bbox[1], east=bbox[2], north=bbox[3]),
         )
         self._progress(job_id, stage="gis", current_file="outlet.geojson", fraction=base + span)
 

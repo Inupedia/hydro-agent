@@ -269,8 +269,8 @@ onUnmounted(() => {
       </ol>
 
       <figure v-if="showMap && !mapBroken" class="gis-map" data-test="gis-map">
-        <img :src="mapSrc" alt="流域边界与出口位置" @error="mapBroken = true" />
-        <figcaption>流域边界与出口（建模复核图）</figcaption>
+        <img :src="mapSrc" alt="流域边界、计算单元与河网" @error="mapBroken = true" />
+        <figcaption>蓝线为 NLDI 上游河网；色块为计算单元示意；红点为出口。</figcaption>
       </figure>
       <p v-else-if="showMap && mapBroken" class="basin-caption">边界图暂不可用，请重新新建方案后再复核。</p>
 

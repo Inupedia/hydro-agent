@@ -30,8 +30,9 @@ BUILTIN_BASINS: tuple[dict[str, Any], ...] = (
         "region": "Idaho, USA",
         "kind": "builtin",
         "adapter": "multimet-legacy",
-        "default_start": "2019-05-03",
-        "default_end": "2020-05-04",
+        # Caravan MultiMet ERA5-Land full archive span (forcing); USGS DV overlaps from 1941.
+        "default_start": "1950-01-01",
+        "default_end": "2024-10-31",
         "primary": False,
     },
     {

@@ -27,6 +27,8 @@ def test_gate_policy_requires_explicit_thresholds():
     )
     assert policy.min_primary_delta == 0.01
     assert policy.min_candidate_primary == 0.0
+    assert policy.require_gbt_grade is True
+    assert policy.min_scheme_grade == "丙"
 
 
 def _bundle(scheme_id, nses, high_flow_maes):
@@ -54,28 +56,34 @@ def test_guardrail_failure_rolls_back_even_when_average_improves():
     assert "lead_guardrail" in decision.reasons
 
 
-def test_small_valid_improvement_keeps_base():
-    base = _bundle("scheme-base", [0.50, 0.50, 0.50], [1.0, 1.0, 1.0])
-    candidate = _bundle("scheme-cand", [0.505, 0.505, 0.505], [1.0, 1.0, 1.0])
+def test_relative_nse_gain_alone_keeps_under_gbt_policy():
+    base = _bundle("scheme-base", [0.20, 0.20, 0.20], [1.0, 1.0, 1.0])
+    candidate = _bundle("scheme-cand", [0.35, 0.35, 0.35], [1.0, 1.0, 1.0])
     policy = GatePolicy(
         min_primary_delta=0.01,
         max_single_lead_drop=0.02,
         max_high_flow_mae_relative_increase=0.05,
+        accept_primary_floor=0.5,
+        require_gbt_grade=True,
     )
     decision = GateEvaluator().evaluate(base, candidate, policy)
     assert decision.status == "KEEP"
+    assert "insufficient_gbt_or_nse" in decision.reasons
 
 
-def test_sufficient_safe_improvement_accepts():
-    base = _bundle("scheme-base", [0.50, 0.50, 0.50], [1.0, 1.0, 1.0])
-    candidate = _bundle("scheme-cand", [0.60, 0.60, 0.60], [1.0, 1.0, 1.0])
+def test_nse_floor_fallback_accepts_without_gbt_report():
+    base = _bundle("scheme-base", [0.40, 0.40, 0.40], [1.0, 1.0, 1.0])
+    candidate = _bundle("scheme-cand", [0.55, 0.55, 0.55], [1.0, 1.0, 1.0])
     policy = GatePolicy(
         min_primary_delta=0.01,
         max_single_lead_drop=0.02,
         max_high_flow_mae_relative_increase=0.05,
+        accept_primary_floor=0.5,
+        require_gbt_grade=True,
     )
-    decision = GateEvaluator().evaluate(base, candidate, policy)
+    decision = GateEvaluator().evaluate(base, candidate, policy, gbt_report=None)
     assert decision.status == "ACCEPT"
+    assert "nse_good_enough_fallback" in decision.reasons
 
 
 def test_large_relative_gain_still_keeps_when_absolute_skill_is_poor():
@@ -89,4 +97,3 @@ def test_large_relative_gain_still_keeps_when_absolute_skill_is_poor():
     )
     decision = GateEvaluator().evaluate(base, candidate, policy)
     assert decision.status == "KEEP"
-    assert "insufficient_absolute_skill" in decision.reasons

@@ -181,8 +181,16 @@ def diagnose_forecast_errors(
     truth: dict[date, float],
     lead_values: dict[int, float],
     issue_day: date,
+    nse_good_enough: float | None = None,
 ) -> dict[str, Any]:
     """Lightweight hydrologic diagnosis from one issue's lead-1/2/3 vs observations."""
+    from hydro_agent.skills import DEFAULT_NSE_GOOD_ENOUGH
+
+    threshold = (
+        float(nse_good_enough)
+        if nse_good_enough is not None
+        else DEFAULT_NSE_GOOD_ENOUGH
+    )
     obs = []
     sim = []
     for lead, value in sorted(lead_values.items()):
@@ -224,20 +232,62 @@ def diagnose_forecast_errors(
     over_peak = peak_sim > 1.15 * peak_obs
     mean_bias = (sum(sim) - sum(obs)) / max(sum(obs), 1e-9)
     peak_ratio = float(peak_sim / peak_obs) if peak_obs else 0.0
+    peak_obs_i = int(max(range(len(obs)), key=lambda i: obs[i]))
+    peak_sim_i = int(max(range(len(sim)), key=lambda i: sim[i]))
+    peak_timing_lag_leads = peak_sim_i - peak_obs_i
     notes = [
         f"mae={err_mae:.3f}",
         f"nse={err_nse:.3f}" if err_nse == err_nse else "nse=nan",
         f"peak_obs={peak_obs:.3f}",
         f"peak_sim={peak_sim:.3f}",
         f"mean_bias={mean_bias:.3f}",
+        f"peak_timing_lag_leads={peak_timing_lag_leads}",
     ]
     metrics = {
         "mae": float(err_mae),
         "nse": float(err_nse) if err_nse == err_nse else 0.0,
         "mean_bias": float(mean_bias),
         "peak_ratio": peak_ratio,
+        "peak_timing_lag_leads": float(peak_timing_lag_leads),
     }
+    gbt_meets = False
+    try:
+        from hydro_agent.evaluation.gbt22482 import (
+            GbtAccuracyConfig,
+            HydroSeries,
+            build_gbt_accuracy_report,
+        )
+
+        gbt = build_gbt_accuracy_report(
+            HydroSeries(obs=tuple(float(x) for x in obs), sim=tuple(float(x) for x in sim)),
+            GbtAccuracyConfig(min_scheme_grade="丙", grade_dc_bing=threshold),
+        )
+        metrics["DC"] = float(gbt.dc) if gbt.dc is not None else 0.0
+        metrics["QR"] = float(gbt.accuracy_rate) if gbt.accuracy_rate is not None else 0.0
+        metrics["scheme_grade_rank"] = float(
+            {"不合格": 0, "丙": 1, "乙": 2, "甲": 3}.get(gbt.scheme_grade, 0)
+        )
+        notes.append(gbt.summary)
+        gbt_meets = bool(gbt.meets_min_grade)
+    except Exception as exc:  # noqa: BLE001
+        notes.append(f"gbt_accuracy_unavailable={exc}")
+
     hypotheses: list[dict[str, Any]] = []
+
+    if abs(peak_timing_lag_leads) >= 1 and not under_peak:
+        hypotheses.append(
+            {
+                "id": "TIMING",
+                "strength": 0.78,
+                "phenomenon": (
+                    f"峰现时差约 {peak_timing_lag_leads} 个 lead，建议检查汇流/滞后参数（GB/T 峰现）"
+                ),
+                "suggested_action": "A07_OPTIMIZE",
+                "suggested_strategy_id": "xaj-local-refine-v1",
+                "suggested_param_groups": ["routing"],
+                "suggested_objective": "nse",
+            }
+        )
 
     if under_peak and abs(mean_bias) > 0.1:
         hypotheses.append(
@@ -296,12 +346,16 @@ def diagnose_forecast_errors(
                 "suggested_objective": None,
             }
         )
-    elif abs(mean_bias) < 0.05 and err_nse == err_nse and err_nse > 0.5:
+    elif gbt_meets or (abs(mean_bias) < 0.05 and err_nse == err_nse and err_nse >= threshold):
         hypotheses.append(
             {
                 "id": "MODEL",
                 "strength": 0.7,
-                "phenomenon": "整体偏差不大，可冻结进入回放评估",
+                "phenomenon": (
+                    f"GB/T 方案等级已达丙或 NSE≥{threshold}，可冻结进入回放评估"
+                    if gbt_meets
+                    else f"整体偏差不大且 NSE≥{threshold}，可冻结进入回放评估"
+                ),
                 "suggested_action": "A10_FREEZE",
                 "suggested_strategy_id": None,
                 "suggested_param_groups": None,
@@ -391,7 +445,21 @@ class RealValidationGate:
         )
         require_enough_pairs(base_series)
         require_enough_pairs(cand_series)
+        from hydro_agent.evaluation.gbt22482 import series_from_lead_lists
+
+        area = None
+        scheme = self.repository.get_scheme(candidate_scheme_id)
+        cfg = dict(scheme.config_json or {})
+        # Prefer plan area when present on scheme routing/metadata.
+        for key in ("area_km2", "basin_area_km2"):
+            if cfg.get(key) is not None:
+                try:
+                    area = float(cfg[key])
+                except (TypeError, ValueError):
+                    pass
+        hydro = series_from_lead_lists(cand_series, area_km2=area)
         return (
             build_evaluation_bundle(base_scheme_id, base_series),
             build_evaluation_bundle(candidate_scheme_id, cand_series),
+            hydro,
         )

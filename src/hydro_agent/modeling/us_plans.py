@@ -185,7 +185,15 @@ class UsModelPlanService:
                     writer.writerows(units)
                 # Copy GIS review artifacts when present.
                 src_gis = self.catalog.gis_dir(basin_id)
-                for name in ("boundary.geojson", "outlet.geojson", "bbox.json", "boundary_check.json", "nldi_feature.json"):
+                for name in (
+                    "boundary.geojson",
+                    "outlet.geojson",
+                    "bbox.json",
+                    "boundary_check.json",
+                    "nldi_feature.json",
+                    "flowlines.geojson",
+                    "streams.geojson",
+                ):
                     if (src_gis / name).is_file():
                         shutil.copy2(src_gis / name, gis / name)
                 if (gis / "boundary_check.json").is_file():
@@ -218,9 +226,18 @@ class UsModelPlanService:
                         ),
                     )
                 write_json(gis / "boundary_check.json", boundary)
+                outlet_xy = None
+                if (gis / "outlet.geojson").is_file():
+                    outlet_fc = json.loads((gis / "outlet.geojson").read_text(encoding="utf-8"))
+                    for feature in outlet_fc.get("features") or []:
+                        geom = feature.get("geometry") or {}
+                        if geom.get("type") == "Point":
+                            outlet_xy = (float(geom["coordinates"][0]), float(geom["coordinates"][1]))
+                            break
                 try:
-                    from hydro_agent.modeling.review_map import render_basin_review_map
+                    from hydro_agent.modeling.review_map import render_basin_review_map, write_units_geojson
 
+                    write_units_geojson(gis, unit_count=len(units), outlet_xy=outlet_xy)
                     render_basin_review_map(
                         gis,
                         title=f"{basin_id} · {cfg.model_mode} · {len(units)} units",

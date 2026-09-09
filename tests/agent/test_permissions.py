@@ -11,7 +11,13 @@ from hydro_agent.agent.contracts import (
     TaskSummary,
     WorldStateView,
 )
-from hydro_agent.agent.permissions import PermissionDenied, PermissionGate, decision_fingerprint
+from hydro_agent.agent.permissions import (
+    CLOSEOUT_RESERVE_ROUNDS,
+    PermissionDenied,
+    PermissionGate,
+    closeout_pending,
+    decision_fingerprint,
+)
 
 
 @pytest.fixture
@@ -81,6 +87,77 @@ def test_agent_cannot_optimize_after_budget_exhausted(world_view):
         }
     )
     assert ActionCode.A07_OPTIMIZE not in PermissionGate().safe_actions(exhausted)
+
+
+def test_allow_optimization_false_removes_optimize(world_view):
+    view = world_view.model_copy(
+        update={"task": world_view.task.model_copy(update={"allow_optimization": False})}
+    )
+    safe = PermissionGate().safe_actions(view)
+    assert ActionCode.A07_OPTIMIZE not in safe
+    assert ActionCode.A05_FORECAST in safe
+
+
+def test_reserve_rounds_strips_exploratory_actions(world_view):
+    view = world_view.model_copy(
+        update={
+            "budget": world_view.budget.model_copy(
+                update={"agent_rounds_remaining": CLOSEOUT_RESERVE_ROUNDS}
+            )
+        }
+    )
+    safe = PermissionGate().safe_actions(view)
+    assert ActionCode.A07_OPTIMIZE not in safe
+    assert ActionCode.A05_FORECAST not in safe
+    assert ActionCode.A10_FREEZE in safe
+
+
+def test_zero_rounds_still_allows_evaluate_in_phase_e(world_view):
+    view = world_view.model_copy(
+        update={
+            "task": world_view.task.model_copy(update={"phase": "E"}),
+            "budget": world_view.budget.model_copy(update={"agent_rounds_remaining": 0}),
+        }
+    )
+    safe = PermissionGate().safe_actions(view)
+    assert safe == (ActionCode.A12_EVALUATE_REPORT,)
+    assert closeout_pending(view) is True
+
+
+def test_zero_rounds_still_allows_freeze_in_phase_b(world_view):
+    from hydro_agent.agent.contracts import EvidenceSummary
+
+    view = world_view.model_copy(
+        update={
+            "budget": world_view.budget.model_copy(
+                update={"agent_rounds_remaining": 0, "optimization_cycles_remaining": 0}
+            ),
+            "evidence_summary": (
+                EvidenceSummary(
+                    evidence_id="ev-opt",
+                    action=ActionCode.A07_OPTIMIZE,
+                    status="succeeded",
+                    new_information_hash="h-opt",
+                ),
+                EvidenceSummary(
+                    evidence_id="ev-gate",
+                    action=ActionCode.A08_GATE,
+                    status="succeeded",
+                    new_information_hash="h-gate",
+                ),
+                EvidenceSummary(
+                    evidence_id="ev-resolve",
+                    action=ActionCode.A09_RESOLVE,
+                    status="succeeded",
+                    new_information_hash="h-resolve",
+                ),
+            ),
+        }
+    )
+    safe = PermissionGate().safe_actions(view)
+    assert ActionCode.A10_FREEZE in safe
+    assert ActionCode.A07_OPTIMIZE not in safe
+    assert closeout_pending(view) is True
 
 
 def test_agent_cannot_evaluate_in_build_phase(world_view, evaluate_decision):

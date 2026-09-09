@@ -10,8 +10,10 @@ from hydro_agent.agent.contracts import (
     ProblemHypothesis,
     WorldStateView,
 )
+from hydro_agent.agent.permissions import CLOSEOUT_RESERVE_ROUNDS
 from hydro_agent.llm.client import SiliconFlowClient
 from hydro_agent.llm.settings import LLMSettings
+from hydro_agent.skills import DEFAULT_NSE_GOOD_ENOUGH, SkillRegistry
 
 _HYPOTHESES = tuple(h.value for h in ProblemHypothesis)
 _ACTIONS = tuple(a.value for a in ActionCode)
@@ -19,40 +21,27 @@ _ACTIONS = tuple(a.value for a in ActionCode)
 SYSTEM_INSTRUCTIONS = f"""You are the Hydro-Agent decision module for a hydrologist-style research loop.
 Choose exactly one ActionCode from permissions.safe_actions.
 Never invent continuous parameter vectors or call model processes directly.
+Follow activated Agent Skills below for calibration/diagnosis methods and thresholds
+(especially nse_good_enough from xaj-calibration). Do NOT invent continuous XAJ parameters.
+Do NOT choose xaj-hydrologist-manual-v1 in the automatic loop.
 
-You MUST use hydro context and skill cards:
-- Read hydro.diagnosis / evidence_summary.observations / metrics / gates
-- Diagnosis may list multiple hypotheses with strengths; YOU pick which hypothesis to act on
-- Use available_skills, available_strategies, available_param_groups, available_objectives
-- Prefer A06_DIAGNOSE after a forecast before blind re-optimization
-- After diagnose, treat recommendations as suggestions only — choose action/strategy/param_groups/objective yourself
-- After A09_RESOLVE with KEEP/ROLLBACK and remaining optimization budget, you MAY A06 or A07 again instead of freezing
-- Only A10_FREEZE when evidence supports stopping (small bias / Gate KEEP after enough experiments / budget low)
-- Gate KEEP with insufficient_absolute_skill means skill is still too poor to adopt — do not freeze a failed scheme as success
+Preferred B-phase path:
+A01/A03 -> A05_FORECAST -> A06_DIAGNOSE -> (calibrate if NSE below skill threshold) ->
+A07_OPTIMIZE -> A08_GATE -> A09_RESOLVE -> A10_FREEZE then (F) A11_REPLAY -> (E) A12_EVALUATE_REPORT
 
-- Prefer hydrologist manual compare (strategy xaj-hydrologist-manual-v1) when evidence already
-  contains a hydrologist A07 candidate; otherwise use bounded strategies only as a fallback
-- If the latest successful A07 used xaj-hydrologist-manual-v1, prefer A08_GATE next
-- Do not invent continuous parameter vectors; hydrologist UI / tools own parameter edits
-
-Preferred B-phase research loop:
-A01/A03 -> A05_FORECAST -> A06_DIAGNOSE -> (hydrologist manual compare OR A07_OPTIMIZE) -> A08_GATE -> A09_RESOLVE
-then either continue diagnose/optimize OR A10_FREEZE -> (F) A11_REPLAY -> (E) A12_EVALUATE_REPORT
-
-Return ONLY one JSON object with exactly these keys:
-- action: one ActionCode string, e.g. "A06_DIAGNOSE"
-- hypothesis: MUST be exactly one of {_HYPOTHESES} (a short enum token, NEVER a sentence)
+Return ONLY one JSON object with keys:
+- action: ActionCode string
+- hypothesis: one of {_HYPOTHESES}
 - strategy_id: null, unless action is A07_OPTIMIZE then one of hydro.available_strategies
 - param_groups: null, unless A07_OPTIMIZE then a JSON array subset of hydro.available_param_groups (e.g. ["runoff","routing"])
 - objective: null, unless A07_OPTIMIZE then one of hydro.available_objectives ("nse"|"peak"|"composite")
-- rationale_summary: Chinese preferred; state 发现/依据/为何这样调/预期验证 (1-3 short sentences)
+- rationale_summary: short Chinese or English reason (<= 600 chars)
 
 Example:
 {{"action":"A07_OPTIMIZE","hypothesis":"MODEL","strategy_id":"xaj-peak-bias-v1","param_groups":["runoff","routing"],"objective":"composite","rationale_summary":"洪峰低估，先动产汇流参数并用综合目标验证。"}}
 
 No markdown fences. No extra keys. No prose outside JSON.
 """
-
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 _HYPOTHESIS_HINTS = (
     (ProblemHypothesis.DATA, ("data", "observation", "资料", "观测")),
@@ -67,9 +56,16 @@ _HYPOTHESIS_HINTS = (
 class SiliconFlowDecisionProvider:
     """Live decision provider over SiliconFlow OpenAI-compatible chat API."""
 
-    def __init__(self, *, client: SiliconFlowClient | None = None, settings: LLMSettings | None = None):
+    def __init__(
+        self,
+        *,
+        client: SiliconFlowClient | None = None,
+        settings: LLMSettings | None = None,
+        skills: SkillRegistry | None = None,
+    ):
         self.settings = settings or LLMSettings.from_env()
         self.client = client or SiliconFlowClient(self.settings)
+        self.skills = skills or SkillRegistry()
 
     @property
     def model(self) -> str:
@@ -81,9 +77,11 @@ class SiliconFlowDecisionProvider:
         *,
         on_delta: Callable[[str], None] | None = None,
     ) -> AgentDecision:
+        skill_block = self.skills.render_activated(view)
+        system = SYSTEM_INSTRUCTIONS + "\n\n# Activated Agent Skills\n\n" + skill_block
         completion = self.client.complete_stream(
             [
-                {"role": "system", "content": SYSTEM_INSTRUCTIONS},
+                {"role": "system", "content": system},
                 {
                     "role": "user",
                     "content": (
@@ -109,30 +107,230 @@ class SiliconFlowDecisionProvider:
             safe_actions=safe,
             evidence_actions=evidence_actions,
         )
-        # After an accepted resolve, freeze rather than endless re-optimize loops.
-        accepted = any(
-            item.action == ActionCode.A09_RESOLVE and item.status == "ACCEPT"
-            for item in view.evidence_summary
+        payload = _nse_calibration_progress(
+            view,
+            payload,
+            safe_actions=safe,
+            nse_good_enough=self.skills.nse_good_enough(),
         )
-        if (
-            accepted
-            and ActionCode.A10_FREEZE.value not in evidence_actions
-            and payload["action"]
-            in {
-                ActionCode.A06_DIAGNOSE.value,
-                ActionCode.A07_OPTIMIZE.value,
-                ActionCode.A08_GATE.value,
-            }
-            and ActionCode.A10_FREEZE.value in safe
-        ):
-            payload["action"] = ActionCode.A10_FREEZE.value
-            payload["strategy_id"] = None
-            payload["param_groups"] = None
-            payload["objective"] = None
-            payload["rationale_summary"] = (
-                "Gate 已 ACCEPT 并落实候选，停止继续调参，冻结当前方案进入回放。"
-            )
         return AgentDecision.model_validate(payload)
+
+
+_BOUNDED_STRATEGIES = ("xaj-bounded-v1", "xaj-peak-bias-v1", "xaj-local-refine-v1")
+
+def _diagnosis_nse(view: WorldStateView) -> float | None:
+    diagnosis = dict(view.hydro.diagnosis or {})
+    metrics = diagnosis.get("metrics") if isinstance(diagnosis.get("metrics"), dict) else {}
+    raw = metrics.get("nse")
+    if raw is None:
+        raw = diagnosis.get("nse")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if value != value:  # NaN
+        return None
+    return value
+
+
+def _latest_status(view: WorldStateView, action: str) -> str | None:
+    for item in reversed(view.evidence_summary):
+        if item.action.value == action:
+            return item.status
+    return None
+
+
+def _rotate_strategy(view: WorldStateView, preferred: str | None) -> str:
+    used = [
+        item.gates.get("strategy_id") or ""
+        for item in view.evidence_summary
+        if item.action == ActionCode.A07_OPTIMIZE
+    ]
+    preferred = preferred or "xaj-bounded-v1"
+    if preferred == "xaj-hydrologist-manual-v1":
+        preferred = "xaj-bounded-v1"
+    order = [preferred, *[s for s in _BOUNDED_STRATEGIES if s != preferred]]
+    for strategy in order:
+        if strategy not in used:
+            return strategy
+    return order[min(len(used), len(order) - 1)]
+
+
+def _optimize_payload(view: WorldStateView, *, rationale: str) -> dict:
+    diagnosis = dict(view.hydro.diagnosis or {})
+    strategy = _rotate_strategy(view, str(diagnosis.get("recommended_strategy_id") or "") or None)
+    groups = diagnosis.get("recommended_param_groups") or ["runoff", "routing"]
+    if isinstance(groups, str):
+        groups = [g.strip() for g in groups.split(",") if g.strip()]
+    objective = str(diagnosis.get("recommended_objective") or "nse")
+    if objective not in {"nse", "peak", "composite"}:
+        objective = "nse"
+    return {
+        "action": ActionCode.A07_OPTIMIZE.value,
+        "hypothesis": ProblemHypothesis.MODEL.value,
+        "strategy_id": strategy,
+        "param_groups": list(groups) if groups else ["runoff", "routing"],
+        "objective": objective,
+        "rationale_summary": rationale,
+    }
+
+
+def _nse_calibration_progress(
+    view: WorldStateView,
+    payload: dict,
+    *,
+    safe_actions: set[str],
+    nse_good_enough: float | None = None,
+) -> dict:
+    """Deterministic NSE loop: calibrate vs observed, stop when NSE is good enough."""
+    threshold = (
+        float(nse_good_enough)
+        if nse_good_enough is not None
+        else DEFAULT_NSE_GOOD_ENOUGH
+    )
+    actions = [item.action.value for item in view.evidence_summary]
+    nse = _diagnosis_nse(view)
+    gate_status = _latest_status(view, ActionCode.A08_GATE.value)
+    resolve_status = _latest_status(view, ActionCode.A09_RESOLVE.value)
+    # Adopted candidate → freeze.
+    if (
+        resolve_status == "ACCEPT"
+        and ActionCode.A10_FREEZE.value in safe_actions
+        and ActionCode.A10_FREEZE.value not in actions
+    ):
+        return {
+            **payload,
+            "action": ActionCode.A10_FREEZE.value,
+            "strategy_id": None,
+            "param_groups": None,
+            "objective": None,
+            "rationale_summary": "候选已 ACCEPT，NSE 达到可用水平，冻结方案。",
+        }
+
+    # After optimize → always gate.
+    if (
+        ActionCode.A07_OPTIMIZE.value in actions
+        and ActionCode.A08_GATE.value not in actions
+        and ActionCode.A08_GATE.value in safe_actions
+    ):
+        return {
+            **payload,
+            "action": ActionCode.A08_GATE.value,
+            "strategy_id": None,
+            "param_groups": None,
+            "objective": None,
+            "rationale_summary": "率定候选已生成，用独立验证窗对比观测 NSE 做 Gate。",
+        }
+
+    # After gate → resolve.
+    if (
+        ActionCode.A08_GATE.value in actions
+        and ActionCode.A09_RESOLVE.value not in actions
+        and ActionCode.A09_RESOLVE.value in safe_actions
+    ):
+        return {
+            **payload,
+            "action": ActionCode.A09_RESOLVE.value,
+            "strategy_id": None,
+            "param_groups": None,
+            "objective": None,
+            "rationale_summary": f"落实 Gate 结果（{gate_status or 'unknown'}）。",
+        }
+
+    # Diagnose says NSE / GB/T grade already good enough → freeze (no more calibrate).
+    grade_rank = None
+    diagnosis = dict(view.hydro.diagnosis or {})
+    metrics = diagnosis.get("metrics") if isinstance(diagnosis.get("metrics"), dict) else {}
+    if "scheme_grade_rank" in metrics:
+        try:
+            grade_rank = float(metrics["scheme_grade_rank"])
+        except (TypeError, ValueError):
+            grade_rank = None
+    # 丙 = 1
+    gbt_ok = grade_rank is not None and grade_rank >= 1.0
+    if (
+        (gbt_ok or (nse is not None and nse >= threshold))
+        and ActionCode.A06_DIAGNOSE.value in actions
+        and ActionCode.A10_FREEZE.value in safe_actions
+        and ActionCode.A07_OPTIMIZE.value not in actions
+    ):
+        return {
+            **payload,
+            "action": ActionCode.A10_FREEZE.value,
+            "strategy_id": None,
+            "param_groups": None,
+            "objective": None,
+            "rationale_summary": (
+                f"GB/T 方案等级达标或 DC/NSE={nse if nse is not None else 'n/a'} "
+                f"≥ {threshold}，视为率定足够，停止搜索。"
+            ),
+        }
+    # After KEEP/ROLLBACK with budget → try another bounded calibrate (rotated strategy).
+    if (
+        gate_status in {"KEEP", "ROLLBACK"}
+        and view.task.allow_optimization
+        and ActionCode.A07_OPTIMIZE.value in safe_actions
+        and view.budget.optimization_cycles_remaining > 0
+        and view.budget.agent_rounds_remaining > CLOSEOUT_RESERVE_ROUNDS
+    ):
+        a07_count = sum(1 for a in actions if a == ActionCode.A07_OPTIMIZE.value)
+        gate_count = sum(1 for a in actions if a == ActionCode.A08_GATE.value)
+        if a07_count <= gate_count:  # need a new optimize after latest gate
+            return _optimize_payload(
+                view,
+                rationale=(
+                    f"Gate={gate_status} 且 NSE 仍不足，换有界策略再率定 "
+                    f"(当前诊断 NSE={nse if nse is not None else 'n/a'})。"
+                ),
+            )
+
+    # Opt budget or round reserve exhausted after KEEP → freeze base and close out.
+    if (
+        gate_status in {"KEEP", "ROLLBACK"}
+        and ActionCode.A10_FREEZE.value in safe_actions
+        and ActionCode.A10_FREEZE.value not in actions
+        and (
+            view.budget.optimization_cycles_remaining <= 0
+            or view.budget.agent_rounds_remaining <= CLOSEOUT_RESERVE_ROUNDS
+            or ActionCode.A07_OPTIMIZE.value not in safe_actions
+        )
+    ):
+        return {
+            **payload,
+            "action": ActionCode.A10_FREEZE.value,
+            "strategy_id": None,
+            "param_groups": None,
+            "objective": None,
+            "rationale_summary": (
+                f"Gate={gate_status} 且优化/收尾预算不足，停止搜索并冻结当前方案以进入回放评估。"
+            ),
+        }
+
+    # First calibrate after diagnose when NSE is poor / MODEL.
+    if (
+        view.task.allow_optimization
+        and ActionCode.A06_DIAGNOSE.value in actions
+        and ActionCode.A07_OPTIMIZE.value not in actions
+        and ActionCode.A07_OPTIMIZE.value in safe_actions
+        and view.budget.agent_rounds_remaining > CLOSEOUT_RESERVE_ROUNDS
+    ):
+        if nse is None or nse < threshold:
+            return _optimize_payload(
+                view,
+                rationale=(
+                    f"模拟与观测对比 NSE={nse if nse is not None else 'n/a'} "
+                    f"< {threshold}（skill nse_good_enough），启动有界参数率定。"
+                ),
+            )
+    # Remap manual strategy if LLM still picks it.
+    if (
+        payload.get("action") == ActionCode.A07_OPTIMIZE.value
+        and payload.get("strategy_id") == "xaj-hydrologist-manual-v1"
+    ):
+        fixed = dict(payload)
+        fixed["strategy_id"] = _rotate_strategy(view, "xaj-bounded-v1")
+        return fixed
+    return payload
 
 
 def _extract_json(text: str) -> dict:
@@ -304,6 +502,9 @@ def normalize_decision_payload(
     if strategy_id in ("", "null", "None"):
         strategy_id = None
     if action == ActionCode.A07_OPTIMIZE.value and not strategy_id:
+        strategy_id = "xaj-bounded-v1"
+    # Automatic agent loop never uses HITL-only manual strategy.
+    if action == ActionCode.A07_OPTIMIZE.value and strategy_id == "xaj-hydrologist-manual-v1":
         strategy_id = "xaj-bounded-v1"
     if action != ActionCode.A07_OPTIMIZE.value:
         strategy_id = None
