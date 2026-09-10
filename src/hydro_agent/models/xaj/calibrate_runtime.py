@@ -11,9 +11,15 @@ from pathlib import Path
 
 from hydro_agent.calibration.contracts import HydrologicGatePolicy
 from hydro_agent.calibration.signatures import compute_hydrologic_signatures
+from hydro_agent.calibration.water_balance import water_balance_progress
 from hydro_agent.evaluation.metrics import nse
 from hydro_agent.execution.contracts import ExecutionRequest
-from hydro_agent.optimization.param_groups import normalize_param_groups, resolve_param_names
+from hydro_agent.optimization.contracts import ParameterGuidance
+from hydro_agent.optimization.param_groups import (
+    normalize_param_groups,
+    resolve_param_names,
+    resolve_phase_param_names,
+)
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 
 from .contracts import XajScheme
@@ -55,23 +61,78 @@ def _load_streamflow(workspace: Path) -> dict[date, float]:
     return values
 
 
-def _sample_vector(rng, names, ranges, *, base_parameters=None, local_scale=None) -> dict[str, float]:
+def _effective_range(
+    name: str,
+    ranges: dict[str, tuple[float, float]],
+    *,
+    base_parameters: dict[str, float] | None,
+    local_scale: float | None,
+    guidance: ParameterGuidance,
+) -> tuple[float, float]:
+    low, high = (float(v) for v in ranges[name])
+    center = None
+    if base_parameters is not None and name in base_parameters:
+        center = float(base_parameters[name])
+
+    if local_scale is not None and center is not None:
+        span = (high - low) * float(local_scale)
+        low = max(low, center - span)
+        high = min(high, center + span)
+
+    bound = guidance.bounds.get(name)  # type: ignore[arg-type]
+    if bound is not None:
+        if bound.min_value is not None:
+            low = max(low, float(bound.min_value))
+        if bound.max_value is not None:
+            high = min(high, float(bound.max_value))
+
+    direction = guidance.directions.get(name)  # type: ignore[arg-type]
+    frozen = name in guidance.frozen_parameters or direction == "hold"
+    if frozen:
+        if center is None:
+            raise ValueError(f"cannot hold parameter without base value: {name}")
+        low = high = center
+    elif direction == "decrease":
+        if center is None:
+            raise ValueError(f"cannot decrease parameter without base value: {name}")
+        high = min(high, center)
+    elif direction == "increase":
+        if center is None:
+            raise ValueError(f"cannot increase parameter without base value: {name}")
+        low = max(low, center)
+
+    if high < low:
+        raise ValueError(f"empty guided range for {name}: {low}..{high}")
+    return low, high
+
+
+def _sample_vector(
+    rng,
+    names,
+    ranges,
+    *,
+    base_parameters=None,
+    local_scale=None,
+    guidance: ParameterGuidance | None = None,
+) -> dict[str, float]:
+    guidance = guidance or ParameterGuidance()
     parameters = {}
     for name in names:
-        low, high = ranges[name]
-        if local_scale is not None and base_parameters is not None and name in base_parameters:
-            center = float(base_parameters[name])
-            span = (high - low) * float(local_scale)
-            low = max(low, center - span)
-            high = min(high, center + span)
-            if high < low:
-                low, high = high, low
+        low, high = _effective_range(
+            name,
+            ranges,
+            base_parameters=base_parameters,
+            local_scale=local_scale,
+            guidance=guidance,
+        )
         if name == "L":
             lo_i = int(round(low))
             hi_i = int(round(high))
             if hi_i < lo_i:
                 raise ValueError("invalid L range")
             parameters[name] = float(rng.integers(lo_i, hi_i + 1))
+        elif abs(high - low) <= 1e-15:
+            parameters[name] = float(low)
         else:
             sample_low = low if low > 0 else min(high, max(low, 1e-6))
             if sample_low > high:
@@ -97,11 +158,7 @@ def _peak_score(obs: list[float], sim: list[float]) -> float:
 def _normalized_phase_loss(metrics: dict[str, float], objective: str) -> float:
     p = _PHASE_POLICY
     if objective == "water_balance":
-        return max(
-            metrics["volume_rel_error"] / p.water_balance_rel_error,
-            metrics["annual_volume_bias_mae"] / p.annual_water_balance_mae,
-            metrics["seasonal_volume_bias_mae"] / p.seasonal_water_balance_mae,
-        )
+        return water_balance_progress(metrics, p).loss
     if objective == "recession":
         return max(
             metrics["recession_relative_error"] / p.recession_relative_error,
@@ -147,6 +204,10 @@ def _objective_score(
     metrics = dict(signatures.metrics)
     loss = float(_normalized_phase_loss(metrics, objective))
     metrics["phase_loss"] = loss
+    if objective == "water_balance":
+        progress = water_balance_progress(metrics, _PHASE_POLICY)
+        metrics["water_balance_tier_rank"] = float(progress.rank)
+        metrics["water_balance_active_ratio"] = float(progress.active_ratio)
     if objective == "joint":
         # Joint refinement is constrained optimization: maximize NSE only inside the
         # hydrologically acceptable region. Outside it, first reduce the worst violation.
@@ -176,10 +237,26 @@ def run(workspace: Path) -> dict:
     raw_groups = request.parameters.get("param_groups")
     groups = strategy.param_groups if raw_groups is None else normalize_param_groups(raw_groups)
     requested_tunable = set(resolve_param_names(groups))
+    phase_whitelist = resolve_phase_param_names(objective)
+    if phase_whitelist is not None:
+        requested_tunable &= set(phase_whitelist)
     calibratable = set(load_calibratable_params())
     tunable = requested_tunable & calibratable
     if not tunable:
-        raise ValueError(f"no calibratable XAJ parameters in groups={groups}")
+        raise ValueError(f"no calibratable XAJ parameters in groups={groups}, objective={objective}")
+
+    guidance = ParameterGuidance.model_validate(request.parameters.get("parameter_guidance") or {})
+    guided_names = (
+        set(guidance.directions)
+        | set(guidance.bounds)
+        | set(guidance.frozen_parameters)
+    )
+    invalid_guidance = guided_names - tunable
+    if invalid_guidance:
+        raise ValueError(
+            "parameter guidance outside active phase/search space: "
+            + ",".join(sorted(invalid_guidance))
+        )
 
     scheme, basin, dates, inputs = load_xaj_inputs(workspace)
     streamflow = _load_streamflow(workspace)
@@ -190,14 +267,21 @@ def run(workspace: Path) -> dict:
     rng = np.random.default_rng(random_seed)
     names = scheme.PARAMETER_ORDER
     base_parameters = dict(scheme.parameters)
+    searchable = {
+        name
+        for name in tunable
+        if name not in guidance.frozen_parameters
+        and guidance.directions.get(name) != "hold"  # type: ignore[arg-type]
+    }
     candidates: list[dict[str, float]] = [dict(base_parameters)]
-    while len(candidates) < strategy.max_candidates:
+    while searchable and len(candidates) < strategy.max_candidates:
         sampled = _sample_vector(
             rng,
             names,
             ranges,
             base_parameters=base_parameters,
             local_scale=strategy.local_scale,
+            guidance=guidance,
         )
         merged = dict(base_parameters)
         for name in tunable:
@@ -255,6 +339,8 @@ def run(workspace: Path) -> dict:
 
     if evaluated == 0:
         raise ValueError("no evaluable calibration candidates")
+    guidance_payload = guidance.model_dump(mode="json")
+    phase_allowed = list(phase_whitelist or ())
     candidate_payload = {
         "model_id": "xaj",
         "warmup_days": scheme.warmup_days,
@@ -266,6 +352,8 @@ def run(workspace: Path) -> dict:
         "strategy_id": strategy.strategy_id,
         "objective": objective,
         "param_groups": list(groups),
+        "phase_allowed_parameters": phase_allowed,
+        "parameter_guidance": guidance_payload,
     }
     result = {
         "model_id": "xaj",
@@ -279,7 +367,10 @@ def run(workspace: Path) -> dict:
         "selected_candidate_index": best_index,
         "objective": objective,
         "param_groups": list(groups),
+        "phase_allowed_parameters": phase_allowed,
         "tunable_parameters": [name for name in names if name in tunable],
+        "searchable_parameters": [name for name in names if name in searchable],
+        "parameter_guidance": guidance_payload,
         "random_seed": random_seed,
         "objective_value": best_score,
         "objective_metrics": best_metrics,
