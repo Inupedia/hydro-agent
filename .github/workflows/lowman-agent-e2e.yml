@@ -2,9 +2,9 @@ name: Lowman XAJ hydrologist protocol E2E
 
 on:
   workflow_dispatch:
-  push:
+  pull_request:
     branches:
-      - feat/hydrologist-calibration-protocol
+      - main
     paths:
       - '.github/workflows/lowman-agent-e2e.yml'
       - 'scripts/prepare_lowman_source.py'
@@ -20,20 +20,6 @@ on:
       - 'tests/optimization/**'
       - 'pyproject.toml'
       - 'uv.lock'
-  pull_request:
-    branches:
-      - main
-    paths:
-      - 'scripts/prepare_lowman_source.py'
-      - 'scripts/run_lowman_hydrologist_protocol.py'
-      - 'src/hydro_agent/agent/**'
-      - 'src/hydro_agent/calibration/**'
-      - 'src/hydro_agent/models/xaj/**'
-      - 'src/hydro_agent/skills/**'
-      - 'src/hydro_agent/workbench/**'
-      - 'tests/calibration/**'
-      - 'tests/agent/**'
-      - 'tests/optimization/**'
 
 permissions:
   contents: read
