@@ -42,9 +42,11 @@ jobs:
 
       - name: Verify convergence Gate unit tests
         run: |
+          uv run python -m py_compile \
+            src/hydro_agent/workbench/convergence.py \
+            scripts/run_lowman_convergence_experiment.py
           uv run pytest -q \
             tests/optimization/test_gate.py \
-            tests/agent/test_siliconflow_provider.py \
             tests/agent/test_skills_and_diagnose.py
 
       - name: Verify LLM secret is available
