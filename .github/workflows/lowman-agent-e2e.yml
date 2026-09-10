@@ -33,8 +33,8 @@ jobs:
           python-version: '3.12'
           enable-cache: true
 
-      - name: Install dependencies
-        run: uv sync --frozen
+      - name: Install data, XAJ and agent runtime dependencies
+        run: uv sync --frozen --extra data --extra xaj --extra api
 
       - name: Verify LLM secret is available
         shell: bash
