@@ -6,6 +6,7 @@ from hydro_agent.calibration.contracts import (
     PhaseGateDecision,
     PhaseGateStatus,
 )
+from hydro_agent.calibration.water_balance import water_balance_progress
 
 
 def _m(metrics: dict[str, float], key: str, default: float = 0.0) -> float:
@@ -71,18 +72,24 @@ class HydrologicPhaseGate:
         return _m(metrics, "flood_event_count") >= float(self.policy.min_flood_events)
 
     def _water_loss(self, metrics: dict[str, float]) -> float:
-        p = self.policy
-        return max(
-            _ratio(_m(metrics, "volume_rel_error"), p.water_balance_rel_error),
-            _ratio(_m(metrics, "annual_volume_bias_mae"), p.annual_water_balance_mae),
-            _ratio(_m(metrics, "seasonal_volume_bias_mae"), p.seasonal_water_balance_mae),
-        )
+        return water_balance_progress(metrics, self.policy).loss
 
     def _water_balance(self, base_id, candidate_id, experiment_id, base, candidate):
-        base_loss = self._water_loss(base)
-        candidate_loss = self._water_loss(candidate)
-        improved = candidate_loss + 1e-12 < base_loss
-        passed = candidate_loss <= 1.0
+        base_progress = water_balance_progress(base, self.policy)
+        candidate_progress = water_balance_progress(candidate, self.policy)
+        improved = candidate_progress.loss + 1e-12 < base_progress.loss
+        passed = candidate_progress.passed
+
+        reasons: list[str] = []
+        if candidate_progress.rank > base_progress.rank:
+            reasons.append("water_balance_upstream_regression")
+        if passed:
+            reasons.append("water_balance_pass")
+        elif improved:
+            reasons.append(f"water_balance_{candidate_progress.tier}_improved")
+        else:
+            reasons.append(f"water_balance_{candidate_progress.tier}_not_improved")
+
         status = PhaseGateStatus.PHASE_PASS if passed else (PhaseGateStatus.CONTINUE if improved else PhaseGateStatus.ROLLBACK)
         return self._decision(
             phase=CalibrationPhase.WATER_BALANCE,
@@ -90,13 +97,24 @@ class HydrologicPhaseGate:
             base_id=base_id,
             candidate_id=candidate_id,
             experiment_id=experiment_id,
-            metric="water_balance_constraint_ratio",
-            value=candidate_loss,
+            metric="water_balance_lexicographic_loss",
+            value=candidate_progress.loss,
             higher=False,
             adopt=improved or passed,
             advance=passed,
-            reasons=("water_balance_pass" if passed else "water_balance_improved" if improved else "water_balance_not_improved",),
-            metrics={"base_phase_loss": base_loss, "candidate_phase_loss": candidate_loss},
+            reasons=reasons,
+            metrics={
+                "base_phase_loss": base_progress.loss,
+                "candidate_phase_loss": candidate_progress.loss,
+                "base_water_balance_tier_rank": float(base_progress.rank),
+                "candidate_water_balance_tier_rank": float(candidate_progress.rank),
+                "base_total_volume_ratio": base_progress.total_ratio,
+                "candidate_total_volume_ratio": candidate_progress.total_ratio,
+                "base_annual_volume_ratio": base_progress.annual_ratio,
+                "candidate_annual_volume_ratio": candidate_progress.annual_ratio,
+                "base_seasonal_volume_ratio": base_progress.seasonal_ratio,
+                "candidate_seasonal_volume_ratio": candidate_progress.seasonal_ratio,
+            },
         )
 
     def _source_recession(self, base_id, candidate_id, experiment_id, base, candidate):
