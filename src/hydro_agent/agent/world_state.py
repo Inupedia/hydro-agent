@@ -3,6 +3,7 @@ from __future__ import annotations
 from hydro_agent.agent.contracts import (
     MAX_AGENT_ROUNDS,
     MAX_OPTIMIZATION_CYCLES,
+    ActionCode,
     BudgetSummary,
     EvidenceSummary,
     HydroContext,
@@ -13,10 +14,19 @@ from hydro_agent.agent.contracts import (
     WorldStateView,
 )
 from hydro_agent.agent.permissions import PermissionGate
+from hydro_agent.calibration.protocol import CalibrationProtocol
 from hydro_agent.execution.hashing import sha256_bytes
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 from hydro_agent.skills import SkillRegistry
 from hydro_agent.workbench.validation_gate import latest_candidate_scheme_id
+
+_PHASE_OBJECTIVES = {
+    "P2_WATER_BALANCE": ("water_balance",),
+    "P3_SOURCE_RECESSION": ("recession",),
+    "P4_ROUTING_EVENT": ("routing_event",),
+    "P5_JOINT_REFINE": ("joint",),
+    "P6_DEVELOPMENT_VALIDATION": (),
+}
 
 
 class WorldStateBuilder:
@@ -40,6 +50,10 @@ class WorldStateBuilder:
         state = self.repository.ensure_task_state(task_id)
         scheme = self.repository.get_scheme(state.current_scheme_id)
         evidence_rows = self.repository.list_evidence(task_id)
+
+        # The short summary is for LLM context only. Protocol mechanics below derive
+        # lifetime facts from the full evidence ledger so old initialization/Gate facts
+        # cannot disappear when this window rolls forward.
         evidence_summary = tuple(
             EvidenceSummary(
                 evidence_id=row.evidence_id,
@@ -52,6 +66,17 @@ class WorldStateBuilder:
             )
             for row in evidence_rows[-8:]
         )
+        action_counts: dict[str, int] = {}
+        for row in evidence_rows:
+            action_counts[row.action] = action_counts.get(row.action, 0) + 1
+        latest_gate: dict[str, str] = {}
+        for row in reversed(evidence_rows):
+            if row.action != ActionCode.A08_GATE.value:
+                continue
+            latest_gate = {str(k): str(v) for k, v in dict(row.gates_json or {}).items()}
+            latest_gate.setdefault("status", str(row.status))
+            break
+
         forecasts = [
             row
             for row in self.repository.list_forecasts(task_id)
@@ -76,9 +101,8 @@ class WorldStateBuilder:
                     parameter_delta[key] = float(value) - float(current_params[key])
         diagnosis = {}
         for row in reversed(evidence_rows):
-            if row.action == "A06_DIAGNOSE" and row.gates_json:
+            if row.action == ActionCode.A06_DIAGNOSE.value and row.gates_json:
                 diagnosis = dict(row.gates_json)
-                # Surface NSE/MAE so the agent loop can stop when skill is good enough.
                 diagnosis["metrics"] = {
                     str(k): float(v) for k, v in dict(row.metrics_json or {}).items()
                 }
@@ -87,6 +111,8 @@ class WorldStateBuilder:
             f"{row.action}:{row.status}:{';'.join((row.observations_json or [])[:2])}"
             for row in evidence_rows[-6:]
         )
+        protocol = CalibrationProtocol()
+        calibration_phase = protocol.phase_from_evidence(evidence_rows)
         hydro = HydroContext(
             current_parameters={k: float(v) for k, v in current_params.items()},
             candidate_parameters=candidate_params,
@@ -97,7 +123,6 @@ class WorldStateBuilder:
                 else {}
             ),
             available_skills=self.skills.summaries_zh(),
-            # Auto agent path prefers bounded strategies; hydrologist manual is HITL-only.
             available_strategies=tuple(
                 sid
                 for sid in self.strategies.list_ids()
@@ -105,8 +130,15 @@ class WorldStateBuilder:
             )
             or self.strategies.list_ids(),
             available_param_groups=("evap", "runoff", "routing"),
-            available_objectives=("nse", "peak", "composite"),
+            available_objectives=_PHASE_OBJECTIVES.get(
+                calibration_phase.value,
+                ("nse", "peak", "composite"),
+            ),
             diagnosis=diagnosis,
+            calibration_phase=calibration_phase.value,
+            phase_history=protocol.phase_history(evidence_rows),
+            action_counts=action_counts,
+            latest_gate=latest_gate,
             experiment_history=history,
             skill_cards=tuple(self.skills.cards_for_prompt()),
         )

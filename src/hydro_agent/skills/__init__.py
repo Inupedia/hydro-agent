@@ -1,9 +1,9 @@
 """Domain skills for Hydro-Agent — agentskills.io SKILL.md packages.
 
 Progressive disclosure:
-1. Metadata (name/description + machine fields) always available on WorldStateView
-2. Full SKILL.md body activated in the LangGraph decide node when relevant
-3. references/ loaded only when calibration needs parameter detail
+1. metadata is always available on WorldStateView;
+2. only the protocol + current hydrologic phase skills are activated for LLM decisions;
+3. detailed parameter references are loaded only for XAJ calibration decisions.
 """
 
 from __future__ import annotations
@@ -12,20 +12,22 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from hydro_agent.execution.contracts import FrozenModel
-from hydro_agent.skills.loader import (
-    LoadedSkill,
-    default_skills_root,
-    load_skills,
-    parse_nse_good_enough,
-    read_reference,
-)
+from hydro_agent.skills.loader import LoadedSkill, default_skills_root, load_skills, read_reference
 
 if TYPE_CHECKING:
     from hydro_agent.agent.contracts import WorldStateView
 
 DEFAULT_NSE_GOOD_ENOUGH = 0.5
-CALIBRATION_SKILL_ID = "xaj-calibration"
+CALIBRATION_PROTOCOL_SKILL_ID = "xaj-calibration-protocol"
 GBT_SKILL_ID = "gbt-22482-accuracy"
+
+_PHASE_SKILLS = {
+    "P2_WATER_BALANCE": "xaj-water-balance",
+    "P3_SOURCE_RECESSION": "xaj-recession-analysis",
+    "P4_ROUTING_EVENT": "xaj-flood-routing",
+    "P5_JOINT_REFINE": "xaj-joint-refinement",
+    "P6_DEVELOPMENT_VALIDATION": "gbt-22482-accuracy",
+}
 
 
 class SkillCard(FrozenModel):
@@ -44,8 +46,12 @@ class SkillCard(FrozenModel):
 
 def _card_from_loaded(skill: LoadedSkill) -> SkillCard:
     nse = None
-    if "nse_good_enough" in skill.metadata:
-        nse = parse_nse_good_enough(skill.metadata)
+    raw_nse = skill.metadata.get("nse_good_enough")
+    if raw_nse:
+        try:
+            nse = float(raw_nse)
+        except ValueError:
+            nse = None
     return SkillCard(
         skill_id=skill.skill_id,
         title_zh=skill.meta("title_zh", skill.name),
@@ -72,7 +78,6 @@ class SkillRegistry:
         if loaded is not None:
             self._loaded = dict(loaded)
         elif skills is not None:
-            # Backward-compatible: cards only, no bodies.
             self._loaded = {}
             self._cards = {s.skill_id: s for s in skills}
             return
@@ -96,7 +101,6 @@ class SkillRegistry:
         return [s.model_dump(mode="json") for s in self.list()]
 
     def nse_good_enough(self) -> float:
-        """Alias for GB/T DC 丙 threshold (grade_dc_bing), with xaj-calibration fallback."""
         gbt = self._loaded.get(GBT_SKILL_ID)
         if gbt is not None:
             raw = gbt.metadata.get("grade_dc_bing") or gbt.metadata.get("nse_good_enough")
@@ -105,12 +109,6 @@ class SkillRegistry:
                     return float(raw)
                 except ValueError:
                     pass
-        skill = self._loaded.get(CALIBRATION_SKILL_ID)
-        if skill is not None:
-            return parse_nse_good_enough(skill.metadata, default=DEFAULT_NSE_GOOD_ENOUGH)
-        card = self._cards.get(CALIBRATION_SKILL_ID)
-        if card is not None and card.nse_good_enough is not None:
-            return float(card.nse_good_enough)
         return DEFAULT_NSE_GOOD_ENOUGH
 
     def min_scheme_grade(self) -> str:
@@ -147,41 +145,39 @@ class SkillRegistry:
         return "\n".join(parts)
 
     def activate_for_view(self, view: WorldStateView) -> tuple[str, ...]:
-        """Deterministic progressive disclosure for the decide node."""
         actions = [item.action.value for item in view.evidence_summary]
         has_forecast = bool(view.latest_forecast_id) or "A05_FORECAST" in actions
         has_diagnose = "A06_DIAGNOSE" in actions
-        nse = _diagnosis_nse(view)
-        threshold = self.nse_good_enough()
-        diagnosis = dict(view.hydro.diagnosis or {})
-        hypothesis = str(diagnosis.get("hypothesis") or "")
-        has_candidate = bool(view.hydro.candidate_parameters)
-        need_gate = "A07_OPTIMIZE" in actions and "A08_GATE" not in actions
-        in_calibrate_flow = (
-            need_gate
-            or has_candidate
-            or "A08_GATE" in actions
-            or "A07_OPTIMIZE" in actions
-        )
-        nse_poor = nse is None or nse < threshold
+        phase = str(view.hydro.calibration_phase or "P2_WATER_BALANCE")
 
         selected: list[str] = []
         if not has_forecast:
             selected.append("data-check")
-        elif not has_diagnose:
-            selected.append("forecast-diagnose")
         else:
             selected.append("forecast-diagnose")
-            if in_calibrate_flow or (
-                view.task.allow_optimization
-                and nse_poor
-                and (hypothesis in {"", "MODEL", "UNKNOWN", "TIMING"} or nse is not None)
-            ):
-                selected.append("xaj-calibration")
-                selected.append("gbt-22482-accuracy")
-            if "A08_GATE" in actions or "A12_EVALUATE_REPORT" in actions or need_gate:
-                if "gbt-22482-accuracy" not in selected:
-                    selected.append("gbt-22482-accuracy")
+
+        if has_diagnose and view.task.allow_optimization and view.task.phase == "B":
+            selected.append(CALIBRATION_PROTOCOL_SKILL_ID)
+            phase_skill = _PHASE_SKILLS.get(phase)
+            if phase_skill:
+                selected.append(phase_skill)
+            if phase in {
+                "P3_SOURCE_RECESSION",
+                "P4_ROUTING_EVENT",
+                "P5_JOINT_REFINE",
+                "P6_DEVELOPMENT_VALIDATION",
+            }:
+                selected.append("hydro-event-bank")
+            if phase in {
+                "P2_WATER_BALANCE",
+                "P3_SOURCE_RECESSION",
+                "P4_ROUTING_EVENT",
+                "P5_JOINT_REFINE",
+            }:
+                selected.append("calibration-convergence")
+
+        if "A08_GATE" in actions or "A12_EVALUATE_REPORT" in actions or phase == "P6_DEVELOPMENT_VALIDATION":
+            selected.append(GBT_SKILL_ID)
 
         out: list[str] = []
         for sid in selected:
@@ -193,30 +189,17 @@ class SkillRegistry:
 
     def render_activated(self, view: WorldStateView) -> str:
         ids = self.activate_for_view(view)
-        include_params = "xaj-calibration" in ids
         chunks = [
-            self.activate(sid, include_param_reference=(include_params and sid == "xaj-calibration"))
+            self.activate(
+                sid,
+                include_param_reference=(sid == CALIBRATION_PROTOCOL_SKILL_ID),
+            )
             for sid in ids
         ]
         header = (
             f"Activated skills: {', '.join(ids)}. "
-            f"nse_good_enough/DC_bing={self.nse_good_enough():.3f}; "
-            f"min_scheme_grade={self.min_scheme_grade()} "
-            f"(from {GBT_SKILL_ID} / {CALIBRATION_SKILL_ID}).\n\n"
+            f"calibration_phase={view.hydro.calibration_phase}; "
+            f"DC_bing={self.nse_good_enough():.3f}; "
+            f"min_scheme_grade={self.min_scheme_grade()}.\n\n"
         )
         return header + "\n\n====\n\n".join(chunks)
-
-
-def _diagnosis_nse(view: WorldStateView) -> float | None:
-    diagnosis = dict(view.hydro.diagnosis or {})
-    metrics = diagnosis.get("metrics") if isinstance(diagnosis.get("metrics"), dict) else {}
-    raw = metrics.get("nse")
-    if raw is None:
-        raw = diagnosis.get("nse")
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return None
-    if value != value:
-        return None
-    return value

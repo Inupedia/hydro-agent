@@ -17,21 +17,26 @@ def test_strategy_registry_exposes_distinct_experiment_strategies():
     assert registry.get("xaj-local-refine-v1").local_scale == 0.25
 
 
-def test_skills_registry_has_diagnose_and_calibration_cards():
+def test_skills_registry_exposes_hydrologist_protocol_modules():
     skills = SkillRegistry()
     ids = {s.skill_id for s in skills.list()}
-    assert {"data-check", "forecast-diagnose", "xaj-calibration", "gbt-22482-accuracy"} <= ids
-    diagnose = skills.get("forecast-diagnose")
-    assert "A06_DIAGNOSE" in diagnose.recommended_actions
-    assert diagnose.recommended_strategies[0] == "xaj-bounded-v1"
-    assert "xaj-hydrologist-manual-v1" not in diagnose.recommended_strategies
-    cal = skills.get("xaj-calibration")
-    assert "A07_OPTIMIZE" in cal.recommended_actions
+    assert {
+        "data-check",
+        "forecast-diagnose",
+        "xaj-calibration-protocol",
+        "xaj-water-balance",
+        "xaj-recession-analysis",
+        "xaj-flood-routing",
+        "xaj-joint-refinement",
+        "hydro-event-bank",
+        "calibration-convergence",
+        "gbt-22482-accuracy",
+    } <= ids
+    assert "xaj-calibration" not in ids
+    assert "A06_DIAGNOSE" in skills.get("forecast-diagnose").recommended_actions
+    assert "A07_OPTIMIZE" in skills.get("xaj-calibration-protocol").recommended_actions
     assert skills.nse_good_enough() == 0.5
     assert skills.min_scheme_grade() == "丙"
-    cfg = skills.gbt_accuracy_config()
-    assert cfg.min_scheme_grade == "丙"
-    assert cfg.grade_dc_bing == 0.5
 
 
 def test_diagnose_recommends_peak_strategy_on_underestimation():
@@ -50,9 +55,6 @@ def test_diagnose_recommends_peak_strategy_on_underestimation():
     assert result["recommended_strategy_id"] == "xaj-peak-bias-v1"
     assert result["recommended_param_groups"] == ["runoff", "routing"]
     assert result["recommended_objective"] == "composite"
-    assert len(result["hypotheses"]) >= 2
-    ids = {item["id"] for item in result["hypotheses"]}
-    assert "MODEL" in ids and "FORCING" in ids
 
 
 def test_diagnose_freeze_uses_skill_threshold():

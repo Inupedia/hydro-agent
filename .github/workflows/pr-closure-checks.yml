@@ -1,0 +1,68 @@
+name: PR Closure Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-pr-surface:
+    name: Python PR surface
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Install Python dependencies
+        run: uv sync --frozen --extra dev --extra data --extra xaj --extra api
+
+      - name: Lint Python files changed by this PR
+        shell: bash
+        run: |
+          mapfile -t changed < <(
+            git diff --name-only origin/main...HEAD -- '*.py' \
+              | grep -v '^tests/workbench/test_validation_binding.py$' || true
+          )
+          if [ "${#changed[@]}" -eq 0 ]; then
+            echo 'No changed Python files after documented baseline exclusions.'
+            exit 0
+          fi
+          printf 'Changed Python files:\n%s\n' "${changed[*]}"
+          echo 'Baseline exclusion: tests/workbench/test_validation_binding.py has pre-existing I001 on main.'
+          uv run ruff check "${changed[@]}"
+
+      - name: Run full deterministic Python test suite
+        run: uv run pytest -q
+
+  web-build:
+    name: Web production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Build Vue/TypeScript app
+        run: npm run build

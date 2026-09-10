@@ -18,6 +18,47 @@ def canonical_json(value):
     )
 
 
+def _write_forcing_csv(path: Path, forcing) -> None:
+    spatial_ids: tuple[int, ...] = ()
+    for row in forcing:
+        ids = tuple(unit.unit_id for unit in row.units)
+        if ids:
+            if not spatial_ids:
+                spatial_ids = ids
+            elif ids != spatial_ids:
+                raise DataAccessViolation("distributed forcing unit order changes between days")
+        elif spatial_ids:
+            raise DataAccessViolation("distributed forcing cannot mix spatial and lumped rows")
+
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        if not spatial_ids:
+            writer.writerow(["date", "precipitation_mm_day", "pet_mm_day"])
+            writer.writerows(
+                (row.valid_date.isoformat(), row.precipitation_mm_day, row.pet_mm_day)
+                for row in forcing
+            )
+            return
+        header = ["date"]
+        for unit_id in spatial_ids:
+            header.extend(
+                [
+                    f"unit_{unit_id}_precipitation_mm_day",
+                    f"unit_{unit_id}_pet_mm_day",
+                ]
+            )
+        writer.writerow(header)
+        for row in forcing:
+            values: list[object] = [row.valid_date.isoformat()]
+            by_id = {unit.unit_id: unit for unit in row.units}
+            for unit_id in spatial_ids:
+                unit = by_id.get(unit_id)
+                if unit is None:
+                    raise DataAccessViolation(f"missing distributed forcing unit {unit_id}")
+                values.extend([unit.precipitation_mm_day, unit.pet_mm_day])
+            writer.writerow(values)
+
+
 class SnapshotBuilder:
     def __init__(self, root: Path, policy, repository):
         self.root = root.resolve()
@@ -46,13 +87,7 @@ class SnapshotBuilder:
         path = parent / context.snapshot_id
         path.mkdir(exist_ok=False)
         try:
-            with (path / "forcing.csv").open("w", encoding="utf-8", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow(["date", "precipitation_mm_day", "pet_mm_day"])
-                writer.writerows(
-                    (r.valid_date.isoformat(), r.precipitation_mm_day, r.pet_mm_day)
-                    for r in forcing
-                )
+            _write_forcing_csv(path / "forcing.csv", forcing)
             with (path / "streamflow.csv").open("w", encoding="utf-8", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow(["date", "discharge_m3s"])

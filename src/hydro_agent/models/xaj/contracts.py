@@ -8,7 +8,7 @@ from hydro_agent.execution.contracts import FrozenModel
 
 
 class XajRouting(FrozenModel):
-    # Explicit single-zone default: native hillslope routing, no river reaches.
+    # Per-unit native hillslope routing. Reach-network routing is a future layer.
     dp: int = Field(default=0, ge=0, lt=50)
     ke: float = Field(default=24.0, gt=0, allow_inf_nan=False)
     xe: float = Field(default=0.2, ge=0, le=0.5)
@@ -18,6 +18,15 @@ class XajRouting(FrozenModel):
         if self.dp and not 2 * self.ke * self.xe <= 24 <= 2 * self.ke * (1 - self.xe):
             raise ValueError("unstable daily Muskingum coefficients")
         return self
+
+
+class XajUnit(FrozenModel):
+    """One spatial rainfall-runoff unit in a distributed XAJ scheme."""
+
+    unit_id: int = Field(ge=1)
+    area_km2: float = Field(gt=0, allow_inf_nan=False)
+    centroid_lon: float | None = Field(default=None, ge=-180, le=180)
+    centroid_lat: float | None = Field(default=None, ge=-90, le=90)
 
 
 class XajScheme(FrozenModel):
@@ -42,6 +51,7 @@ class XajScheme(FrozenModel):
     warmup_days: int = Field(ge=1)
     routing: XajRouting = Field(default_factory=XajRouting)
     parameters: dict[str, float]
+    units: tuple[XajUnit, ...] = ()
 
     @model_validator(mode="after")
     def validate_parameters(self):
@@ -57,6 +67,10 @@ class XajScheme(FrozenModel):
             raise ValueError("invalid XAJ partition or recession coefficients")
         if p["L"] < 0 or not p["L"].is_integer():
             raise ValueError("daily routing lag must be a nonnegative integer")
+        if self.units:
+            ids = [unit.unit_id for unit in self.units]
+            if len(ids) != len(set(ids)):
+                raise ValueError("distributed XAJ unit_id values must be unique")
         return self
 
     def parameter_vector(self):

@@ -12,7 +12,6 @@ class PermissionDenied(PermissionError):
     pass
 
 
-# Reserve rounds for freeze → replay → evaluate so calibration KEEP loops cannot starve closeout.
 CLOSEOUT_RESERVE_ROUNDS = 3
 
 CLOSEOUT_ACTIONS = frozenset(
@@ -85,7 +84,6 @@ def decision_fingerprint(
             groups,
             decision.objective or "",
             scheme_id,
-            # Allow a fresh A07 after Gate KEEP/ROLLBACK without tripping "no new evidence".
             f"opt{optimize_attempt}",
         ]
     )
@@ -96,7 +94,6 @@ def evidence_actions(view: WorldStateView) -> set[str]:
 
 
 def closeout_pending(view: WorldStateView) -> bool:
-    """True when freeze/replay/evaluate (or in-flight gate/resolve) still needed."""
     actions = evidence_actions(view)
     phase = view.task.phase
     if phase == "E":
@@ -104,12 +101,10 @@ def closeout_pending(view: WorldStateView) -> bool:
     if phase == "F":
         return ActionCode.A11_REPLAY.value not in actions
     if phase == "B":
-        # Mid gate cycle must finish even if rounds are gone.
         if ActionCode.A07_OPTIMIZE.value in actions and ActionCode.A08_GATE.value not in actions:
             return True
         if ActionCode.A08_GATE.value in actions and ActionCode.A09_RESOLVE.value not in actions:
             return True
-        # Opt budget gone or rounds reserved → must still be able to freeze.
         if ActionCode.A10_FREEZE.value not in actions:
             if view.budget.optimization_cycles_remaining <= 0 and ActionCode.A07_OPTIMIZE.value in actions:
                 return True
@@ -134,12 +129,10 @@ class PermissionGate:
         if "calibrate" not in view.model.capabilities and "adapt" not in view.model.capabilities:
             allowed.discard(ActionCode.A07_OPTIMIZE)
 
-        # Reserve last rounds for closeout; at zero rounds still allow closeout.
         if remaining <= CLOSEOUT_RESERVE_ROUNDS:
             allowed -= EXPLORATORY_ACTIONS
         if remaining <= 0:
-            allowed = (CLOSEOUT_ACTIONS & phase_set & IMPLEMENTED)
-            # Mid-cycle gate/resolve still needed in B.
+            allowed = CLOSEOUT_ACTIONS & phase_set & IMPLEMENTED
             if view.task.phase == "B":
                 allowed |= {
                     ActionCode.A08_GATE,
@@ -164,12 +157,25 @@ class PermissionGate:
                 unknown = [g for g in decision.param_groups if g not in allowed_groups]
                 if unknown:
                     raise PermissionDenied(f"unknown param_groups: {unknown}")
-            if decision.objective and decision.objective not in set(
-                view.hydro.available_objectives or ("nse", "peak", "composite")
-            ):
+            if decision.objective and decision.objective not in set(view.hydro.available_objectives):
                 raise PermissionDenied(f"unknown objective: {decision.objective}")
         if decision.action == ActionCode.A06_DIAGNOSE and view.latest_forecast_id is None:
-            raise PermissionDenied("diagnose requires a forecast first")
+            latest = view.evidence_summary[-1] if view.evidence_summary else None
+            refresh_after_resolve = bool(
+                latest is not None
+                and latest.action == ActionCode.A09_RESOLVE
+                and latest.status
+                in {
+                    "CONTINUE",
+                    "KEEP",
+                    "ROLLBACK",
+                    "PHASE_PASS",
+                    "PLATEAU_PASS",
+                    "PLATEAU_FAIL",
+                }
+            )
+            if not refresh_after_resolve:
+                raise PermissionDenied("diagnose requires a forecast or a freshly resolved experiment")
         optimize_attempt = sum(
             1 for item in view.evidence_summary if item.action == ActionCode.A07_OPTIMIZE
         )

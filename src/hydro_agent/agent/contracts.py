@@ -7,6 +7,16 @@ from pydantic import Field
 
 from hydro_agent.execution.contracts import FrozenModel, Identifier
 
+CalibrationObjective = Literal[
+    "nse",
+    "peak",
+    "composite",
+    "water_balance",
+    "recession",
+    "routing_event",
+    "joint",
+]
+
 
 class ActionCode(StrEnum):
     A01_CHECK_DATA = "A01_CHECK_DATA"
@@ -39,7 +49,7 @@ class AgentDecision(FrozenModel):
     strategy_id: str | None = None
     # Optional optimize controls — agent selects groups/objective, never raw vectors.
     param_groups: tuple[Literal["evap", "runoff", "routing"], ...] | None = None
-    objective: Literal["nse", "peak", "composite"] | None = None
+    objective: CalibrationObjective | None = None
     rationale_summary: str = Field(min_length=1, max_length=600)
 
 
@@ -48,7 +58,22 @@ class EvidencePacket(FrozenModel):
     task_id: Identifier
     action_run_id: Identifier | None = None
     action: ActionCode
-    status: Literal["succeeded", "failed", "blocked", "KEEP", "ACCEPT", "ROLLBACK"]
+    status: Literal[
+        "succeeded",
+        "failed",
+        "blocked",
+        "KEEP",
+        "ACCEPT",
+        "CONTINUE",
+        "PHASE_PASS",
+        "ROLLBACK",
+        "PLATEAU_PASS",
+        "PLATEAU_FAIL",
+        "DATA_LIMIT",
+        "FORCING_LIMIT",
+        "STRUCTURAL_LIMIT",
+        "HARD_BUDGET",
+    ]
     observations: tuple[str, ...] = ()
     metrics: dict[str, float] = Field(default_factory=dict)
     gates: dict[str, str] = Field(default_factory=dict)
@@ -99,7 +124,12 @@ class EvidenceSummary(FrozenModel):
 
 
 class HydroContext(FrozenModel):
-    """Decision-relevant hydrologic context beyond ids/hashes."""
+    """Decision-relevant hydrologic context beyond ids/hashes.
+
+    ``evidence_summary`` is intentionally a short prompt window. Protocol mechanics
+    must use the durable derived facts below instead of inferring lifetime state from
+    that rolling window.
+    """
 
     current_parameters: dict[str, float] = Field(default_factory=dict)
     candidate_parameters: dict[str, float] | None = None
@@ -108,8 +138,20 @@ class HydroContext(FrozenModel):
     available_skills: tuple[str, ...] = ()
     available_strategies: tuple[str, ...] = ()
     available_param_groups: tuple[str, ...] = ("evap", "runoff", "routing")
-    available_objectives: tuple[str, ...] = ("nse", "peak", "composite")
+    available_objectives: tuple[str, ...] = (
+        "water_balance",
+        "recession",
+        "routing_event",
+        "joint",
+        "nse",
+        "peak",
+        "composite",
+    )
     diagnosis: dict[str, object] = Field(default_factory=dict)
+    calibration_phase: str = "P2_WATER_BALANCE"
+    phase_history: tuple[str, ...] = ()
+    action_counts: dict[str, int] = Field(default_factory=dict)
+    latest_gate: dict[str, str] = Field(default_factory=dict)
     experiment_history: tuple[str, ...] = ()
     skill_cards: tuple[dict[str, object], ...] = ()
 
@@ -128,6 +170,7 @@ class WorldStateView(FrozenModel):
     hydro: HydroContext = Field(default_factory=HydroContext)
 
 
-MAX_AGENT_ROUNDS = 20
-MAX_OPTIMIZATION_CYCLES = 4
+# Hard ceilings only. Scientific stopping is phase/Gate/convergence controlled.
+MAX_AGENT_ROUNDS = 100
+MAX_OPTIMIZATION_CYCLES = 20
 MAX_TECHNICAL_RETRIES = 2

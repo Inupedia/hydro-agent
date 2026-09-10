@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from hydro_agent.agent.contracts import ActionCode, AgentDecision, EvidencePacket
@@ -42,6 +42,7 @@ from hydro_agent.services.workspace import MaterializingWorkspaceManager
 from hydro_agent.skills import SkillRegistry
 from hydro_agent.workbench.validation_gate import (
     RealValidationGate,
+    ValidationWindow,
     diagnose_forecast_errors,
     truth_from_source,
 )
@@ -81,6 +82,8 @@ class RealWorkbenchKernel:
         scheme_path: Path,
         report_root: Path,
         warmup_days: int = 30,
+        history_days: int | None = None,
+        diagnostic_days: int = 30,
     ):
         self.repository = repository
         self.work_root = Path(work_root)
@@ -93,11 +96,13 @@ class RealWorkbenchKernel:
         self.strategies = CalibrationStrategyRegistry()
         self.gate_policy = gate_policy_from_skills(self.skills)
         self._task_configs: dict = {}
+        self.history_days = max(60, int(history_days or (warmup_days + 120)))
+        self.diagnostic_days = max(7, int(diagnostic_days))
 
         self.snapshot_root = self.work_root / "snapshots"
         self.builder = SnapshotBuilder(self.snapshot_root, DataAccessPolicy(), repository)
         self.resolver = SnapshotResolver(
-            repository, builder=self.builder, source=self.source, history_days=max(60, warmup_days + 60)
+            repository, builder=self.builder, source=self.source, history_days=self.history_days
         )
         workspaces = MaterializingWorkspaceManager(
             self.work_root / "runs", repository, snapshot_root=self.snapshot_root
@@ -146,7 +151,7 @@ class RealWorkbenchKernel:
                 forcing_mode=task.forcing_mode,
                 capability="evaluate",
                 issue_time=issue,
-                history_days=max(60, self.scheme_template["warmup_days"] + 60),
+                history_days=self.history_days,
                 day_timezone=str(self.source.basin.get("day_timezone", "UTC")),
             ),
             forcing_rows=list(self.source.forcing_rows),
@@ -200,6 +205,7 @@ class RealWorkbenchKernel:
         return tools
 
     def _diagnose(self, task_id: str) -> dict:
+        """Diagnose on a pre-validation multi-day window, never on three lead points."""
         state = self.repository.ensure_task_state(task_id)
         scheme_id = state.current_scheme_id
         if not scheme_id:
@@ -211,57 +217,121 @@ class RealWorkbenchKernel:
                 "metrics": {},
                 "notes": ["no current scheme"],
             }
-        window = self.validation_gate.window_for(task_id)
+
+        validation = self.validation_gate.window_for(task_id)
+        diagnostic_end = validation.start - timedelta(days=1)
+        diagnostic_start = diagnostic_end - timedelta(days=self.diagnostic_days - 1)
+        diagnostic = ValidationWindow(start=diagnostic_start, end=diagnostic_end)
+        self.validation_gate.ensure_forecasts(task_id, scheme_id, diagnostic)
+
+        truth = truth_from_source(self.source.flow_rows)
         forecasts = [
             row
             for row in self.repository.list_forecasts(task_id)
             if row.scheme_id == scheme_id
-            and window.start <= row.issue_time.date() <= window.end
+            and diagnostic.start <= row.issue_time.date() <= diagnostic.end
         ]
         forecasts.sort(key=lambda row: (row.issue_time, row.forecast_id))
-        if not forecasts:
-            # Ensure at least the validation-end issue for the *current* scheme.
-            issue = datetime(
-                window.end.year, window.end.month, window.end.day, tzinfo=timezone.utc
-            )
-            issue_iso = issue.isoformat().replace("+00:00", "Z")
-            self.forecast.forecast(
-                task_id=task_id,
-                scheme_id=scheme_id,
-                issue_time=issue_iso,
-                policy=POLICY,
-            )
-            forecasts = [
-                row
-                for row in self.repository.list_forecasts(task_id)
-                if row.scheme_id == scheme_id
-                and window.start <= row.issue_time.date() <= window.end
-            ]
-            forecasts.sort(key=lambda row: (row.issue_time, row.forecast_id))
-        if not forecasts:
+        pairs: list[tuple[date, float, float]] = []
+        for row in forecasts:
+            raw = row.lead_values_json
+            if "1" not in raw:
+                continue
+            target = row.issue_time.date() + timedelta(days=1)
+            if target not in truth:
+                continue
+            pairs.append((target, float(truth[target]), float(raw["1"])))
+        if len(pairs) < 7:
             return {
                 "hypothesis": "DATA",
-                "phenomenon": "尚无当前方案预报，无法诊断",
-                "recommended_action": "A05_FORECAST",
+                "phenomenon": "诊断窗有效观测不足",
+                "recommended_action": "A01_CHECK_DATA",
                 "recommended_strategy_id": None,
-                "metrics": {},
-                "notes": [f"scheme_id={scheme_id}", "no forecast"],
+                "recommended_param_groups": None,
+                "recommended_objective": None,
+                "metrics": {"sample_count": float(len(pairs))},
+                "notes": [
+                    f"scheme_id={scheme_id}",
+                    f"diagnostic_window={diagnostic.start.isoformat()}..{diagnostic.end.isoformat()}",
+                    "need >=7 daily lead-1 pairs",
+                ],
             }
-        latest = forecasts[-1]
-        leads = {int(k): float(v) for k, v in latest.lead_values_json.items()}
+
+        anchor = pairs[0][0] - timedelta(days=1)
+        pseudo_leads = {
+            int((target - anchor).days): sim
+            for target, _obs, sim in pairs
+        }
         result = diagnose_forecast_errors(
-            truth=truth_from_source(self.source.flow_rows),
-            lead_values=leads,
-            issue_day=latest.issue_time.date(),
+            truth=truth,
+            lead_values=pseudo_leads,
+            issue_day=anchor,
             nse_good_enough=self.skills.nse_good_enough(),
         )
+
+        pair_days = {target for target, _obs, _sim in pairs}
+        forcing_rows = [row for row in self.source.forcing_rows if row.valid_date in pair_days]
+        precip_total = sum(float(row.precipitation_mm_day) for row in forcing_rows)
+        pet_total = sum(float(row.pet_mm_day) for row in forcing_rows)
+        obs_values = [obs for _target, obs, _sim in pairs]
+        area_km2 = float(self.source.basin.get("area_km2") or 0.0)
+        runoff_depth = (
+            sum(obs_values) * 86400.0 / (area_km2 * 1_000_000.0) * 1000.0
+            if area_km2 > 0
+            else 0.0
+        )
+        flow_trend_ratio = obs_values[-1] / max(obs_values[0], 1e-9)
+        runoff_to_precip = runoff_depth / max(precip_total, 1e-9)
+        forcing_warning = bool(
+            len(obs_values) >= 14
+            and flow_trend_ratio >= 1.35
+            and runoff_depth >= max(15.0, precip_total * 1.20)
+        )
+        metrics = dict(result.get("metrics") or {})
+        metrics.update(
+            {
+                "sample_count": float(len(pairs)),
+                "precip_total_mm": float(precip_total),
+                "pet_total_mm": float(pet_total),
+                "observed_runoff_depth_mm": float(runoff_depth),
+                "runoff_to_precip_ratio": float(runoff_to_precip),
+                "flow_trend_ratio": float(flow_trend_ratio),
+                "forcing_adequacy_warning": 1.0 if forcing_warning else 0.0,
+            }
+        )
+        result["metrics"] = metrics
+        hypotheses = list(result.get("hypotheses") or [])
+        if forcing_warning:
+            hypotheses.append(
+                {
+                    "id": "FORCING",
+                    "strength": 0.70,
+                    "phenomenon": (
+                        "诊断窗内观测径流持续上升且径流深明显高于同期降水；"
+                        "当前仅降水+PET 的 XAJ 可能缺少积雪融水等关键强迫/状态。"
+                    ),
+                    "suggested_action": "A01_CHECK_DATA",
+                    "suggested_strategy_id": None,
+                    "suggested_param_groups": None,
+                    "suggested_objective": None,
+                }
+            )
+        result["hypotheses"] = hypotheses
         notes = list(result.get("notes") or [])
         notes.insert(0, f"scheme_id={scheme_id}")
-        notes.insert(1, f"issue={latest.issue_time.date().isoformat()}")
+        notes.insert(
+            1,
+            f"diagnostic_window={diagnostic.start.isoformat()}..{diagnostic.end.isoformat()}",
+        )
         notes.insert(
             2,
-            f"validation_window={window.start.isoformat()}..{window.end.isoformat()}",
+            f"held_out_validation_window={validation.start.isoformat()}..{validation.end.isoformat()}",
         )
+        notes.append(
+            "diagnosis uses daily lead-1 pairs from a pre-validation window; held-out Gate data is not reused"
+        )
+        if forcing_warning:
+            notes.append("forcing_adequacy_warning=possible missing storage/snowmelt signal")
         result["notes"] = notes
         return result
 
@@ -323,7 +393,6 @@ class _TaskAwareOptimizeHandler:
         cal_id = self.kernel.resolver.resolve(task_id, "calibrate", cal_iso)
         val_id = self.kernel.resolver.resolve(task_id, "calibrate", val_iso)
         if cal_id == val_id and window.start <= window.end:
-            # Force distinct snapshot ids when issue dates differ; resolver already does.
             pass
         strategy_id = decision.strategy_id
         param_groups = decision.param_groups
@@ -360,7 +429,6 @@ class _TaskAwareOptimizeHandler:
             rationale_summary=decision.rationale_summary,
         )
         packet = handler.execute(task_id, decision)
-        # Attach calibration/validation separation into observations for the agent log.
         extra = (
             f"calibration_snapshot_id={cal_id}",
             f"validation_snapshot_id={val_id}",

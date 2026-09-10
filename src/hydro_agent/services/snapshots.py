@@ -29,9 +29,19 @@ class SnapshotResolver:
         self.source = source
         self.history_days = history_days
 
-    def resolve(self, task_id: str, capability: str, issue_time: str) -> str:
+    def resolve(
+        self,
+        task_id: str,
+        capability: str,
+        issue_time: str,
+        *,
+        history_days: int | None = None,
+    ) -> str:
         task = self.repository.get_task(task_id)
         issue = _parse_issue(issue_time)
+        effective_history = int(history_days or self.history_days)
+        if effective_history < 1 or effective_history > 36500:
+            raise ValueError("history_days must be within 1..36500")
         matches = []
         for snapshot in self.repository.list_snapshots(task_id):
             context = (snapshot.manifest_json or {}).get("context") or {}
@@ -44,6 +54,7 @@ class SnapshotResolver:
                 and context.get("phase") == task.phase
                 and context.get("forcing_mode") == task.forcing_mode
                 and context.get("capability") == capability
+                and int(context.get("history_days") or self.history_days) == effective_history
                 and _parse_issue(str(ctx_issue)) == issue
             ):
                 matches.append(snapshot)
@@ -58,7 +69,10 @@ class SnapshotResolver:
             if isinstance(self.source, NormalizedSource)
             else load_normalized_source(Path(self.source))
         )
-        snapshot_id = f"{task_id}--{task.phase}--{capability}--{issue.strftime('%Y%m%dT%H%M%SZ')}"
+        snapshot_id = (
+            f"{task_id}--{task.phase}--{capability}--h{effective_history}--"
+            f"{issue.strftime('%Y%m%dT%H%M%SZ')}"
+        )
         context = SnapshotContext(
             task_id=task_id,
             snapshot_id=snapshot_id,
@@ -67,7 +81,7 @@ class SnapshotResolver:
             forcing_mode=task.forcing_mode,
             capability=capability,  # type: ignore[arg-type]
             issue_time=issue,
-            history_days=self.history_days,
+            history_days=effective_history,
             day_timezone=str(loaded.basin.get("day_timezone", "UTC")),
         )
         path = self.builder.build(

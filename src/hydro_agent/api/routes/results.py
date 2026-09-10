@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+from datetime import timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -15,6 +17,7 @@ from hydro_agent.api.i18n_zh import (
 from hydro_agent.api.schemas import (
     AgentLogSummary,
     AgentRoundLogItem,
+    CalibrationComparisonPoint,
     ForecastResult,
     ResultSummary,
     SchemeResult,
@@ -23,33 +26,89 @@ from hydro_agent.api.schemas import (
 router = APIRouter(prefix="/api/tasks", tags=["results"])
 
 
-def _story_zh(*, phase: str, scheme, gate, metrics, forecasts, reports) -> str:
+def _story_zh(*, phase: str, scheme, gate, metrics, comparison, reports) -> str:
     parts = [f"任务已进入「{phase_zh(phase)}」阶段。"]
     if scheme is not None:
-        parts.append(
-            f"当前方案为{scheme_status_zh(scheme.status)}（{scheme.scheme_id}）。"
-        )
+        parts.append(f"当前发布候选为{scheme_status_zh(scheme.status)}（{scheme.scheme_id}）。")
     if gate:
         gate_status = str(gate.get("status") or "")
-        parts.append(f"Gate 结论：{status_zh(gate_status)}。")
+        parts.append(f"率定结论：{status_zh(gate_status)}。")
         reasons = gate.get("reasons") or []
         if reasons:
             parts.append("原因：" + "；".join(str(r) for r in reasons[:3]) + "。")
-    if any(v is not None for v in metrics.values()):
-        metric_bits = []
-        for key in ("NSE", "KGE", "MAE", "Bias"):
-            value = metrics.get(key)
-            if value is None:
-                continue
+    metric_bits = []
+    for key in ("NSE", "KGE", "MAE", "Bias"):
+        value = metrics.get(key)
+        if value is not None:
             metric_bits.append(f"{key}={float(value):.3f}")
-        if metric_bits:
-            parts.append("评估指标：" + "，".join(metric_bits) + "。")
-    if forecasts:
-        parts.append(f"共生成 {len(forecasts)} 条预报记录。")
+    if metric_bits:
+        parts.append("独立评价指标：" + "，".join(metric_bits) + "。")
+    if comparison:
+        parts.append(f"发布页可对比 {len(comparison)} 个时段的率定后计算流量与实测流量。")
     if reports:
         parts.append("报告文件：" + "、".join(reports) + "。")
-    parts.append("下方可查看智能体每轮输入输出日志。")
     return "".join(parts)
+
+
+def _observed_by_date(deps, scheme_row) -> dict[str, float]:
+    plan_id = (scheme_row.config_json or {}).get("model_plan_id")
+    if not plan_id or deps.model_plans is None:
+        return {}
+    path = deps.model_plans.directory(str(plan_id)) / "case" / "model_inputs" / "observed.csv"
+    if not path.is_file():
+        return {}
+    rows: dict[str, float] = {}
+    with path.open(encoding="utf-8", newline="") as fh:
+        for row in csv.DictReader(fh):
+            try:
+                rows[str(row["time"])[:10]] = float(row["discharge"])
+            except (KeyError, TypeError, ValueError):
+                continue
+    return rows
+
+
+def _comparison_series(deps, task_id: str, scheme_row) -> tuple[CalibrationComparisonPoint, ...]:
+    """Build the product-facing calibrated-vs-observed curve.
+
+    A published point uses the one-step-ahead value from the frozen/current scheme.
+    This keeps a single unambiguous simulated value per target day. Initial/base
+    simulation is optional and is only attached when the same target date exists.
+    """
+
+    observed = _observed_by_date(deps, scheme_row)
+    if not observed:
+        return ()
+    all_forecasts = deps.repository.list_forecasts(task_id)
+    calibrated = [row for row in all_forecasts if row.scheme_id == scheme_row.scheme_id]
+    if not calibrated:
+        return ()
+    base_ids = {row.scheme_id for row in deps.repository.list_schemes(task_id=task_id, status="base")}
+    base_forecasts = [row for row in all_forecasts if row.scheme_id in base_ids]
+
+    def one_step(rows):
+        values: dict[str, float] = {}
+        for row in rows:
+            raw = row.lead_values_json or {}
+            value = raw.get("1", raw.get(1))
+            if value is None:
+                continue
+            target = (row.issue_time.date() + timedelta(days=1)).isoformat()
+            values[target] = float(value)
+        return values
+
+    calibrated_by_date = one_step(calibrated)
+    initial_by_date = one_step(base_forecasts)
+    points = []
+    for day in sorted(set(observed) & set(calibrated_by_date)):
+        points.append(
+            CalibrationComparisonPoint(
+                time=day,
+                observed=observed[day],
+                calibrated=calibrated_by_date[day],
+                initial=initial_by_date.get(day),
+            )
+        )
+    return tuple(points)
 
 
 @router.get("/{task_id}/results", response_model=ResultSummary)
@@ -109,6 +168,8 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
         )
         for row in deps.repository.list_forecasts(task_id)
     )
+    comparison = _comparison_series(deps, task_id, scheme_row)
+
     gate = None
     diagnosis = None
     optimize = None
@@ -138,19 +199,23 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
             }
         if gate is not None and diagnosis is not None and optimize is not None:
             break
+
     metrics: dict[str, float | None] = {
         key: deps.metrics_by_task.get(task_id, {}).get(key) for key in ("NSE", "KGE", "MAE", "Bias")
     }
-    for row in reversed(deps.repository.list_evidence(task_id)):
+    comparison_scope = "unknown"
+    for row in reversed(evidence_rows):
         if row.action == "A12_EVALUATE_REPORT" and row.metrics_json:
             metrics = {
                 k: float(row.metrics_json[k]) if k in row.metrics_json else None
                 for k in ("NSE", "KGE", "MAE", "Bias")
             }
+            comparison_scope = "final_holdout"
             break
+
     report_artifacts = deps.report_artifacts.get(task_id, ())
     if not report_artifacts:
-        for row in reversed(deps.repository.list_evidence(task_id)):
+        for row in reversed(evidence_rows):
             if row.action == "A12_EVALUATE_REPORT" and row.artifact_ids_json:
                 report_artifacts = tuple(row.artifact_ids_json)
                 break
@@ -167,6 +232,8 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
         phase=task.phase,  # type: ignore[arg-type]
         scheme=scheme,
         forecasts=forecasts,
+        comparison=comparison,
+        comparison_scope=comparison_scope,  # type: ignore[arg-type]
         metrics=metrics,
         gate=gate,
         diagnosis=diagnosis,
@@ -178,7 +245,7 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
             scheme=scheme,
             gate=gate,
             metrics=metrics,
-            forecasts=forecasts,
+            comparison=comparison,
             reports=report_artifacts,
         ),
         phase_zh=phase_zh(task.phase),
@@ -195,7 +262,6 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
         raise HTTPException(status_code=404, detail="task not found") from exc
     rows = deps.list_agent_round_logs(task_id)
     if not rows:
-        # Fallback: reconstruct a thin log from persisted decisions + evidence.
         decisions = deps.repository.list_agent_decisions(task_id)
         evidence = deps.repository.list_evidence(task_id)
         by_action = {}
@@ -244,9 +310,7 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
                 tool_status=tool_status,
                 tool_status_zh=status_zh(tool_status),
                 tool_observations=tuple(row.get("tool_observations") or ()),
-                tool_metrics={
-                    str(k): float(v) for k, v in dict(row.get("tool_metrics") or {}).items()
-                },
+                tool_metrics={str(k): float(v) for k, v in dict(row.get("tool_metrics") or {}).items()},
                 error=row.get("error"),
             )
         )

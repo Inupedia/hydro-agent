@@ -3,6 +3,8 @@ from hydro_agent.optimization.contracts import GateDecision, GatePolicy
 
 
 class GateEvaluator:
+    """Generic forecast-candidate Gate; staged calibration uses calibration.phase_gate."""
+
     def evaluate(
         self,
         base,
@@ -41,7 +43,6 @@ class GateEvaluator:
                 reasons.append(f"scheme_grade={gbt_report.scheme_grade}")
                 reasons.append(f"min_scheme_grade={policy.min_scheme_grade}")
             elif candidate.primary_score >= policy.accept_primary_floor:
-                # No GBT report available — fall back to DC/NSE 丙 floor only.
                 status = "ACCEPT"
                 reasons.append("nse_good_enough_fallback")
             else:
@@ -51,19 +52,16 @@ class GateEvaluator:
             status = "ACCEPT"
             reasons.append("nse_good_enough")
         else:
-            # ΔNSE-only ACCEPT removed (does not meet GB/T).
             status = "KEEP"
             reasons.append("insufficient_gbt_scheme_grade")
             if primary_delta >= policy.min_primary_delta:
                 reasons.append("nse_improved_but_below_gbt_grade")
 
         if scheme_grade is None and gbt_report is None:
-            # Annotate whether legacy floor would have passed.
-            if grade_meets_min(
+            grade_meets_min(
                 "丙" if candidate.primary_score >= 0.5 else "不合格",
                 policy.min_scheme_grade,
-            ):
-                pass
+            )
 
         return GateDecision(
             status=status,  # type: ignore[arg-type]

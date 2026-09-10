@@ -1,7 +1,8 @@
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from typing import Literal
 
 router = APIRouter(prefix='/api/model-plans', tags=['model preparation'])
 

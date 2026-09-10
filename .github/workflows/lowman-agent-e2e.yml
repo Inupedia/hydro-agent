@@ -1,0 +1,151 @@
+name: Lowman XAJ hydrologist protocol E2E
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/lowman-agent-e2e.yml'
+      - 'scripts/prepare_lowman_source.py'
+      - 'scripts/run_lowman_hydrologist_protocol.py'
+      - 'src/hydro_agent/agent/**'
+      - 'src/hydro_agent/calibration/**'
+      - 'src/hydro_agent/models/xaj/**'
+      - 'src/hydro_agent/services/snapshots.py'
+      - 'src/hydro_agent/skills/**'
+      - 'src/hydro_agent/workbench/**'
+      - 'tests/calibration/**'
+      - 'tests/agent/**'
+      - 'tests/optimization/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+
+permissions:
+  contents: read
+
+jobs:
+  hydrologist-protocol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SILICONFLOW_API_KEY: ${{ secrets.LLM_KEY }}
+      HYDRO_LLM_TIMEOUT_SECONDS: '90'
+      HYDRO_LLM_MAX_RETRIES: '4'
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Install test, data, XAJ and agent dependencies
+        run: uv sync --frozen --extra dev --extra data --extra xaj --extra api
+
+      - name: Verify protocol modules and focused tests
+        run: |
+          uv run python -m py_compile \
+            src/hydro_agent/calibration/contracts.py \
+            src/hydro_agent/calibration/convergence.py \
+            src/hydro_agent/calibration/development.py \
+            src/hydro_agent/calibration/phase_gate.py \
+            src/hydro_agent/calibration/protocol.py \
+            src/hydro_agent/calibration/signatures.py \
+            src/hydro_agent/workbench/calibration_evaluation.py \
+            src/hydro_agent/workbench/calibration_handlers.py \
+            src/hydro_agent/workbench/calibration.py \
+            scripts/prepare_lowman_source.py \
+            scripts/run_lowman_hydrologist_protocol.py
+          uv run pytest -q \
+            tests/calibration \
+            tests/agent/test_skills_and_diagnose.py \
+            tests/agent/test_siliconflow_provider.py \
+            tests/optimization/test_gate.py
+
+      - name: Lint calibration refactor surface
+        run: |
+          uv run ruff check \
+            src/hydro_agent/calibration \
+            src/hydro_agent/agent/contracts.py \
+            src/hydro_agent/agent/permissions.py \
+            src/hydro_agent/agent/providers/siliconflow.py \
+            src/hydro_agent/agent/world_state.py \
+            src/hydro_agent/models/xaj/calibrate_runtime.py \
+            src/hydro_agent/models/xaj/upstream.py \
+            src/hydro_agent/workbench/calibration.py \
+            src/hydro_agent/workbench/calibration_evaluation.py \
+            src/hydro_agent/workbench/calibration_handlers.py \
+            scripts/prepare_lowman_source.py \
+            scripts/run_lowman_hydrologist_protocol.py \
+            tests/calibration \
+            tests/agent/test_skills_and_diagnose.py \
+            tests/agent/test_siliconflow_provider.py \
+            tests/optimization/test_gate.py
+
+      - name: Verify removed legacy calibration paths stay removed
+        run: |
+          test ! -e src/hydro_agent/workbench/convergence.py
+          test ! -e scripts/run_lowman_agent_experiment.py
+          test ! -e scripts/run_lowman_convergence_experiment.py
+          test ! -e src/hydro_agent/skills/xaj-calibration/SKILL.md
+          if grep -R --line-number --exclude-dir='__pycache__' \
+            -E 'ConvergenceWorkbenchKernel|run_lowman_convergence_experiment|_nse_calibration_progress' \
+            src scripts tests; then
+            echo 'Legacy calibration implementation reference found.' >&2
+            exit 1
+          fi
+
+      - name: Verify LLM secret is available
+        shell: bash
+        run: |
+          if [ -z "$SILICONFLOW_API_KEY" ]; then
+            echo 'Repository secret LLM_KEY is missing or empty.' >&2
+            exit 2
+          fi
+
+      - name: Prepare ten-year Lowman forcing and observed discharge
+        run: |
+          mkdir -p data/source
+          uv run python scripts/prepare_lowman_source.py \
+            --output data/source/camels_13235000 \
+            --start 2010-01-01 \
+            --end 2020-08-05
+
+      - name: Run hydrologist-style SiliconFlow XAJ calibration
+        run: |
+          uv run python scripts/run_lowman_hydrologist_protocol.py \
+            --source data/source/camels_13235000 \
+            --scheme tests/fixtures/xaj/lowman_scheme.json \
+            --output artifacts/lowman-hydrologist-protocol \
+            --calibration-start 2011-01-01 \
+            --calibration-end 2017-12-31 \
+            --development-start 2018-01-01 \
+            --development-end 2019-12-31 \
+            --final-start 2020-04-01 \
+            --final-end 2020-07-31 \
+            --warmup-days 365 \
+            --diagnostic-days 60 \
+            --max-rounds 100 \
+            --max-opt-cycles 20
+
+      - name: Print experiment summary
+        if: always()
+        run: |
+          if [ -f artifacts/lowman-hydrologist-protocol/summary.md ]; then
+            cat artifacts/lowman-hydrologist-protocol/summary.md
+          fi
+          if [ -f artifacts/lowman-hydrologist-protocol/summary.json ]; then
+            cat artifacts/lowman-hydrologist-protocol/summary.json
+          fi
+
+      - name: Upload full experiment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lowman-xaj-hydrologist-protocol
+          path: artifacts/lowman-hydrologist-protocol/
+          if-no-files-found: warn
+          retention-days: 14

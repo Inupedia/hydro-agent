@@ -12,7 +12,29 @@ from hydro_agent.api.executor import TaskExecutor
 from hydro_agent.api.routes import basins, hydrologist, model_plans, results, runs, tasks
 
 
+def _upgrade_product_services(deps: AppDependencies) -> None:
+    """Replace the legacy model-plan implementation before routes/executor use it."""
+    if deps.model_plans is None or deps.basins is None:
+        return
+    from hydro_agent.modeling.product_plans import ProductUsModelPlanService
+
+    if isinstance(deps.model_plans, ProductUsModelPlanService):
+        return
+    old = deps.model_plans
+    deps.model_plans = ProductUsModelPlanService(old.root, deps.basins)
+    # The manual hydrologist endpoint is compatibility-only, but if it remains
+    # reachable make it inspect the same plan service rather than a stale instance.
+    if deps.hydrologist is not None:
+        for attr in ("plans", "model_plans", "plan_service"):
+            if hasattr(deps.hydrologist, attr):
+                try:
+                    setattr(deps.hydrologist, attr, deps.model_plans)
+                except Exception:
+                    pass
+
+
 def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> FastAPI:
+    _upgrade_product_services(deps)
     app = FastAPI(title="Hydro-Agent Workbench", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,
@@ -31,7 +53,8 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
             "status": "ok",
             "model_preparation": deps.model_plans is not None,
             "basin_catalog": getattr(deps, "basins", None) is not None,
-            "hydrologist_tune": getattr(deps, "hydrologist", None) is not None,
+            "hydrologist_tune": False,
+            "automatic_calibration": True,
             "orchestrator": "langgraph",
             "mode": getattr(deps, "mode", "demo"),
             "provider_model": getattr(deps, "provider_model", None),
@@ -40,6 +63,8 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
     app.include_router(basins.router)
     app.include_router(basins.downloads_router)
     app.include_router(model_plans.router)
+    # Compatibility API stays mounted for old records, but the product UI no longer
+    # exposes manual tuning as a parallel workflow.
     app.include_router(hydrologist.router)
     app.include_router(tasks.router)
     app.include_router(runs.router)

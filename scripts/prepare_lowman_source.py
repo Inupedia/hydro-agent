@@ -1,11 +1,12 @@
-"""Download only official MultiMet chunks needed for Lowman, plus USGS metadata.
+"""Download official MultiMet forcing and modern USGS daily flow for Lowman.
 
-This ingestion command runs outside numerical workspaces. Raw bytes and hashes
-are retained. No secret or LLM client is used.
+This ingestion command runs outside numerical workspaces. Raw bytes and hashes are
+retained. No secret or LLM client is used. Static station area metadata is pinned to
+the current USGS monitoring-location record so transient metadata-service outages do
+not make the long-running scientific E2E irreproducible.
 """
 
 import argparse
-import csv
 import json
 import subprocess
 from datetime import date, datetime, time, timedelta, timezone
@@ -18,8 +19,12 @@ from hydro_agent.data.contracts import FlowObservation, ForcingRow
 from hydro_agent.execution.hashing import sha256_file
 
 BASE = "https://storage.googleapis.com/caravan-multimet/v1.1/ERA5_LAND/timeseries.zarr/"
-SITE = "https://waterservices.usgs.gov/nwis/site/?format=rdb&sites=13235000&siteOutput=expanded"
-DV = "https://waterservices.usgs.gov/nwis/dv/?format=json&sites=13235000&parameterCd=00060&siteStatus=all"
+USGS_DAILY = "https://api.waterdata.usgs.gov/ogcapi/v0/collections/daily/items"
+USGS_LOCATION_PAGE = "https://waterdata.usgs.gov/monitoring-location/USGS-13235000"
+USGS_LOCATION_ID = "USGS-13235000"
+USGS_SITE_NO = "13235000"
+# Current official monitoring-location metadata for USGS-13235000 reports 446 mi².
+LOWMAN_DRAINAGE_AREA_SQMI = 446.0
 CFS_TO_M3S = 0.028316846592
 
 
@@ -33,7 +38,22 @@ def prepare(output, start, end):
     def download(url, name):
         destination = raw / name
         subprocess.run(
-            ["curl", "-fsSL", "--retry", "2", "--max-time", "45", url, "-o", str(destination)],
+            [
+                "curl",
+                "-fsSL",
+                "--retry",
+                "6",
+                "--retry-delay",
+                "3",
+                "--retry-all-errors",
+                "--connect-timeout",
+                "15",
+                "--max-time",
+                "120",
+                url,
+                "-o",
+                str(destination),
+            ],
             check=True,
         )
         receipts.append(
@@ -42,9 +62,32 @@ def prepare(output, start, end):
                 file="raw/" + name,
                 sha256=sha256_file(destination),
                 bytes=destination.stat().st_size,
+                mode="downloaded",
             )
         )
         return destination.read_bytes()
+
+    def pin_station_metadata():
+        destination = raw / "usgs-site-pinned.json"
+        payload = {
+            "monitoring_location_id": USGS_LOCATION_ID,
+            "monitoring_location_number": USGS_SITE_NO,
+            "drainage_area": LOWMAN_DRAINAGE_AREA_SQMI,
+            "drainage_area_unit": "square miles",
+            "reference_url": USGS_LOCATION_PAGE,
+            "note": "Pinned static metadata; dynamic discharge is downloaded from USGS Water Data API.",
+        }
+        destination.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+        receipts.append(
+            dict(
+                url=USGS_LOCATION_PAGE,
+                file="raw/usgs-site-pinned.json",
+                sha256=sha256_file(destination),
+                bytes=destination.stat().st_size,
+                mode="pinned-reference",
+            )
+        )
+        return payload
 
     metadata = json.loads(download(BASE + ".zmetadata", "zmetadata.json"))["metadata"]
     attrs = metadata[".zattrs"]
@@ -88,15 +131,12 @@ def prepare(output, start, end):
             basin_index % info["chunks"][0]
         ]
         series[key] = values[selected]
-    site_text = download(SITE, "usgs-site.rdb").decode("utf-8")
-    lines = [s for s in site_text.splitlines() if s and not s.startswith("#")]
-    site = list(csv.DictReader([lines[0], *lines[2:]], delimiter="\t"))
-    if len(site) != 1 or site[0]["site_no"] != "13235000":
-        raise ValueError("USGS station mismatch")
-    area_km2 = float(site[0]["drain_area_va"]) * 2.589988110336
+
+    station = pin_station_metadata()
+    area_km2 = float(station["drainage_area"]) * 2.589988110336
     basin = dict(
         basin_id="camels_13235000",
-        station_id="USGS-13235000",
+        station_id=USGS_LOCATION_ID,
         area_km2=area_km2,
         day_timezone="UTC",
     )
@@ -115,31 +155,64 @@ def prepare(output, start, end):
     (output / "forcing.jsonl").write_text(
         "\n".join(r.model_dump_json() for r in rows) + "\n", encoding="utf-8"
     )
-    flow_url = f"{DV}&startDT={start.isoformat()}&endDT={end.isoformat()}"
-    flow_bytes = download(flow_url, "usgs-dv-00060.json")
-    flow_payload = json.loads(flow_bytes.decode("utf-8"))
-    dv_values = flow_payload["value"]["timeSeries"][0]["values"][0]["value"]
-    flow_rows = []
-    for item in dv_values:
-        day = date.fromisoformat(item["dateTime"][:10])
+
+    daily_url = (
+        f"{USGS_DAILY}?f=json&limit=10000"
+        f"&datetime={start.isoformat()}/{end.isoformat()}"
+        f"&monitoring_location_id={USGS_LOCATION_ID}"
+        "&parameter_code=00060&statistic_id=00003"
+    )
+    daily_payload = json.loads(download(daily_url, "usgs-daily-00060-00003.json"))
+    features = list(daily_payload.get("features") or [])
+    next_links = [
+        link for link in daily_payload.get("links") or [] if str(link.get("rel")) == "next"
+    ]
+    if next_links:
+        raise ValueError("USGS daily response exceeded one 10000-row page")
+    if not features:
+        raise ValueError("USGS daily API returned no discharge observations")
+
+    flow_by_day: dict[date, float] = {}
+    units_seen: set[str] = set()
+    for feature in features:
+        props = dict(feature.get("properties") or {})
+        if str(props.get("monitoring_location_id")) != USGS_LOCATION_ID:
+            raise ValueError("USGS monitoring location mismatch")
+        if str(props.get("parameter_code")) != "00060" or str(props.get("statistic_id")) != "00003":
+            raise ValueError("USGS daily parameter/statistic mismatch")
+        day = date.fromisoformat(str(props.get("time"))[:10])
         if day < start or day > end:
             continue
-        value_text = item.get("value")
+        value_text = props.get("value")
         if value_text in (None, ""):
             continue
         try:
-            discharge = float(value_text) * CFS_TO_M3S
-        except ValueError:
+            discharge = float(value_text)
+        except (TypeError, ValueError):
             continue
+        unit = str(props.get("unit_of_measure") or "").strip().lower()
+        units_seen.add(unit)
+        if unit in {"ft3/s", "ft^3/s", "cfs", "ft³/s"}:
+            discharge *= CFS_TO_M3S
+        elif unit in {"m3/s", "m^3/s", "m³/s"}:
+            pass
+        else:
+            raise ValueError(f"unsupported USGS discharge unit: {unit!r}")
         if discharge < 0:
             continue
-        # Daily USGS values become available at the next UTC midnight.
+        if day in flow_by_day and abs(flow_by_day[day] - discharge) > 1e-9:
+            raise ValueError(f"conflicting USGS daily discharge values for {day}")
+        flow_by_day[day] = discharge
+
+    flow_rows = []
+    for day, discharge in sorted(flow_by_day.items()):
+        # Daily USGS values become usable in this replay model at the next UTC midnight.
         available_at = datetime.combine(day + timedelta(days=1), time.min, timezone.utc)
         flow_rows.append(
             FlowObservation(
                 valid_date=day,
                 discharge_m3s=discharge,
-                source="usgs-nwis-dv-00060",
+                source="usgs-waterdata-daily-00060-00003",
                 available_at=available_at,
             )
         )
@@ -150,17 +223,24 @@ def prepare(output, start, end):
     )
     (output / "basin.json").write_text(json.dumps(basin, sort_keys=True), encoding="utf-8")
     provenance = dict(
-        source="Caravan MultiMet + USGS NWIS DV",
+        source="Caravan MultiMet + USGS Water Data API",
         version="v1.1",
         product="ERA5_LAND",
         basin_index=basin_index,
         day_timezone="UTC",
         source_attributes=attrs,
-        available_at_policy="retrieval_upper_bound for forcing; next-UTC-midnight for USGS DV flow",
+        available_at_policy="retrieval_upper_bound for forcing; next-UTC-midnight for USGS daily flow",
         retrieved_at=retrieved.isoformat(),
         raw_files=receipts,
-        area_source="USGS drain_area_va, square miles * 2.589988110336",
-        observations="usgs-nwis daily discharge 00060 (cfs->m3/s) for calibration/evaluation",
+        area_source=(
+            "Pinned current USGS monitoring-location metadata: USGS-13235000 drainage area "
+            "446 square miles"
+        ),
+        observations=(
+            "USGS Water Data OGC daily mean discharge, parameter 00060/statistic 00003, "
+            "converted to m3/s"
+        ),
+        observation_units=sorted(units_seen),
         normalized_files={
             name: sha256_file(output / name)
             for name in ("forcing.jsonl", "flow.jsonl", "basin.json")
