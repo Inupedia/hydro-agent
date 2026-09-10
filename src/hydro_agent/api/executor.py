@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class TaskExecutor:
-    """Single local worker that drives the LangGraph AgentRuntime until terminal/paused."""
+    """Single local worker that drives the task runtime until terminal/paused."""
 
     def __init__(self, deps: AppDependencies):
         self.deps = deps
@@ -28,7 +28,6 @@ class TaskExecutor:
                 raise RuntimeError("local worker busy")
             state = self.deps.repository.ensure_task_state(task_id)
             task = self.deps.repository.get_task(task_id)
-            # Completed evaluation path: refreshing the Run page must not reset follow-up.
             if task.phase == "E" and not state.needs_follow_up and not state.paused:
                 return self.status(task_id)
             self.deps.clear_llm_error(task_id)
@@ -49,7 +48,6 @@ class TaskExecutor:
             self.deps.clear_llm_error(task_id)
             self.deps.repository.update_task_state(task_id, paused=False, needs_follow_up=True)
             if self._active_task_id == task_id and not self._is_idle_locked():
-                # In-flight worker will observe cleared pause on the next round.
                 return self.status(task_id)
             if self._active_task_id is not None and not self._is_idle_locked():
                 raise RuntimeError("local worker busy")
@@ -85,11 +83,31 @@ class TaskExecutor:
             llm_decision_action=trace.decision_action,
         )
 
+    def _runtime_for(self, task_id: str):
+        """Select the product runtime.
+
+        In real mode every task backed by a reviewed model plan is an automatic
+        calibration product task, so it must use the phase-aware hydrologist protocol.
+        Legacy factories remain available only for demo/compatibility tasks.
+        """
+        state = self.deps.repository.ensure_task_state(task_id)
+        config = (
+            self.deps.repository.get_scheme(state.current_scheme_id).config_json
+            if state.current_scheme_id
+            else {}
+        )
+        if self.deps.mode == "real" and config.get("model_plan_id"):
+            from hydro_agent.api.calibration_runtime import build_product_calibration_runtime
+
+            return build_product_calibration_runtime(self.deps, task_id)
+        if self.deps.runtime_for_task:
+            return self.deps.runtime_for_task(task_id)
+        return self.deps.runtime_factory()
+
     def _run(self, task_id: str) -> None:
         try:
             self._validate_plan(task_id)
-            runtime = (self.deps.runtime_for_task(task_id) if self.deps.runtime_for_task
-                       else self.deps.runtime_factory())
+            runtime = self._runtime_for(task_id)
             runtime.run_until_terminal(task_id)
         except Exception as exc:
             logger.exception("workbench worker failed for task %s", task_id)
@@ -102,7 +120,11 @@ class TaskExecutor:
 
     def _validate_plan(self, task_id: str):
         state = self.deps.repository.ensure_task_state(task_id)
-        config = self.deps.repository.get_scheme(state.current_scheme_id).config_json if state.current_scheme_id else {}
+        config = (
+            self.deps.repository.get_scheme(state.current_scheme_id).config_json
+            if state.current_scheme_id
+            else {}
+        )
         plan_id = config.get("model_plan_id")
         if not plan_id:
             if self.deps.mode == "real":
@@ -114,6 +136,10 @@ class TaskExecutor:
             plan = self.deps.model_plans.require_ready(plan_id)
             if plan["content_hash"] != config.get("model_plan_hash"):
                 raise ValueError("模型方案版本变化，需重新创建任务")
+            task_mode = str(config.get("model_mode") or "lumped")
+            plan_mode = str(plan.get("model_mode") or "lumped")
+            if task_mode != plan_mode:
+                raise ValueError("任务模型模式与已复核方案不一致")
         except (ValueError, KeyError) as exc:
             raise RuntimeError(str(exc)) from exc
 
