@@ -30,6 +30,8 @@ def build_lumped_units(*, area_km2: float) -> SpatialBuildResult:
                 "unit_id": 1,
                 "area_km2": float(area_km2),
                 "source": "full-basin",
+                "centroid_lon": None,
+                "centroid_lat": None,
             },
         ),
         spatial_method="full-basin",
@@ -75,6 +77,7 @@ def build_pyflwdir_units(
     output_dir: Path,
     unit_area_km2: float,
     stream_area_km2: float,
+    max_units: int = 32,
 ) -> SpatialBuildResult:
     (
         np,
@@ -142,15 +145,20 @@ def build_pyflwdir_units(
         area_min=float(unit_area_km2),
         uparea=upstream_area,
     )
-    ids = [int(v) for v in np.unique(subbasins) if int(v) > 0]
+    ids = sorted(int(v) for v in np.unique(subbasins) if int(v) > 0)
     if len(ids) < 2:
         raise ValueError(
             "自动分区仅生成 1 个计算单元；请降低单元面积阈值或改用集总式模型"
         )
+    if len(ids) > max_units:
+        raise ValueError(
+            f"自动分区生成 {len(ids)} 个单元，超过产品上限 {max_units}；"
+            "请提高单元面积阈值"
+        )
 
     geod = Geod(ellps="WGS84")
-    unit_features = []
-    units = []
+    unit_features: list[dict[str, object]] = []
+    units: list[dict[str, object]] = []
     for unit_id in ids:
         pieces = [
             shape(geom)
@@ -166,15 +174,21 @@ def build_pyflwdir_units(
         geometry = unary_union(pieces)
         area_m2 = abs(float(geod.geometry_area_perimeter(geometry)[0]))
         area_km2 = area_m2 / 1_000_000.0
+        centroid = geometry.representative_point()
         props = {
             "unit_id": unit_id,
             "area_km2": area_km2,
             "source": "pyflwdir-subbasins-area",
+            "centroid_lon": float(centroid.x),
+            "centroid_lat": float(centroid.y),
         }
         unit_features.append(
             {"type": "Feature", "properties": props, "geometry": mapping(geometry)}
         )
         units.append(props)
+
+    if len(units) < 2:
+        raise ValueError("DEM 分区未形成至少两个有效计算单元")
 
     units_geojson = output_dir / "units.geojson"
     units_geojson.write_text(
@@ -185,7 +199,16 @@ def build_pyflwdir_units(
         encoding="utf-8",
     )
     with (output_dir / "units.csv").open("w", encoding="utf-8", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=["unit_id", "area_km2", "source"])
+        writer = csv.DictWriter(
+            fh,
+            fieldnames=[
+                "unit_id",
+                "area_km2",
+                "source",
+                "centroid_lon",
+                "centroid_lat",
+            ],
+        )
         writer.writeheader()
         writer.writerows(units)
 
@@ -214,8 +237,6 @@ def build_pyflwdir_units(
         encoding="utf-8",
     )
 
-    # Do not keep the intermediate mosaic in the finalized plan; original HGT receipts
-    # are the source-of-truth and the derived vectors are sufficient for review/rebuild.
     mosaic_path.unlink(missing_ok=True)
     return SpatialBuildResult(
         units=tuple(units),
