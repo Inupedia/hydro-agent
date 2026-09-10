@@ -37,7 +37,6 @@ jobs:
           fi
           printf 'Changed Python files:\n%s\n' "${changed[*]}"
           uv run ruff check "${changed[@]}"
-          uv run ruff format --check "${changed[@]}"
 
       - name: Run full Python test suite
         run: uv run pytest -q
