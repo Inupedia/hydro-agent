@@ -20,6 +20,27 @@ def test_duplicate_gate_never_becomes_a_new_curve_point():
     assert result.unique_points == 3
 
 
+def test_no_change_search_does_not_add_scientific_point():
+    controller = SearchConvergenceController()
+    history = (point("e1", 2.0), point("e2", 1.5), point("e3", 1.2))
+    first = controller.evaluate_no_change(
+        history,
+        phase=CalibrationPhase.WATER_BALANCE,
+        repeated=False,
+    )
+    repeated = controller.evaluate_no_change(
+        history,
+        phase=CalibrationPhase.WATER_BALANCE,
+        repeated=True,
+    )
+    assert first.unique_points == 3
+    assert first.plateau is False
+    assert first.reason == "no_parameter_change_try_alternate_strategy"
+    assert repeated.unique_points == 3
+    assert repeated.plateau is True
+    assert repeated.reason == "repeated_no_parameter_change"
+
+
 def test_plateau_requires_four_unique_experiments():
     controller = SearchConvergenceController()
     history = (point("e1", 1.000), point("e2", 0.995), point("e3", 0.991))
