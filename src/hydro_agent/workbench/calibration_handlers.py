@@ -35,23 +35,14 @@ class PhaseOptimizeHandler:
 
         plan = self.kernel.evaluator.plan_for(task_id)
         cal = plan.calibration
-        dev = plan.development
         warmup = int(self.kernel.scheme_template["warmup_days"])
         cal_days = (cal.end - cal.start).days + 1
-        dev_days = (dev.end - dev.start).days + 1
         cal_issue = datetime.combine(cal.end + timedelta(days=1), datetime.min.time(), timezone.utc)
-        dev_issue = datetime.combine(dev.end + timedelta(days=1), datetime.min.time(), timezone.utc)
         cal_id = self.kernel.resolver.resolve(
             task_id,
             "calibrate",
             cal_issue.isoformat().replace("+00:00", "Z"),
             history_days=warmup + cal_days + 1,
-        )
-        dev_id = self.kernel.resolver.resolve(
-            task_id,
-            "calibrate",
-            dev_issue.isoformat().replace("+00:00", "Z"),
-            history_days=warmup + dev_days + 1,
         )
         patched = AgentDecision(
             action=ActionCode.A07_OPTIMIZE,
@@ -66,7 +57,9 @@ class PhaseOptimizeHandler:
             calibration_service=self.kernel.calibration,
             candidate_service=self.kernel.candidates,
             calibration_snapshot_id=cal_id,
-            validation_snapshot_id=dev_id,
+            # The runtime contract still accepts a validation snapshot, but phase search
+            # must not see the development period. Reuse the calibration snapshot here.
+            validation_snapshot_id=cal_id,
             policy=POLICY,
         ).execute(task_id, patched)
         candidate_id = str(packet.gates.get("candidate_scheme_id") or "")
@@ -74,15 +67,15 @@ class PhaseOptimizeHandler:
         experiment_id = calibration_experiment_id(
             optimizer_run_id,
             candidate_id,
-            dev.start,
-            dev.end,
+            cal.start,
+            cal.end,
         )
         gates = {
             **dict(packet.gates),
             "calibration_phase": phase.value,
             "experiment_id": experiment_id,
             "optimizer_action_run_id": optimizer_run_id,
-            "development_window": f"{dev.start}..{dev.end}",
+            "phase_gate_window": f"{cal.start}..{cal.end}",
             "objective": objective,
         }
         observations = tuple(packet.observations) + (
@@ -91,7 +84,7 @@ class PhaseOptimizeHandler:
             f"experiment_id={experiment_id}",
             f"optimizer_action_run_id={optimizer_run_id}",
             f"calibration_window={cal.start}..{cal.end}",
-            f"development_window={dev.start}..{dev.end}",
+            "development_visible=false",
             "final_holdout_visible=false",
         )
         return packet.model_copy(update={"gates": gates, "observations": observations})
@@ -185,7 +178,7 @@ class HydrologicGateHandler:
     def _candidate_gate(self, task_id: str, evidence, phase: CalibrationPhase):
         repo = self.kernel.repository
         plan = self.kernel.evaluator.plan_for(task_id)
-        dev = plan.development
+        cal = plan.calibration
         state = repo.get_task_state(task_id)
         optimize = next(
             (row for row in reversed(evidence) if row.action == ActionCode.A07_OPTIMIZE.value),
@@ -205,8 +198,8 @@ class HydrologicGateHandler:
             experiment_id = calibration_experiment_id(
                 action_run,
                 candidate_hint,
-                dev.start,
-                dev.end,
+                cal.start,
+                cal.end,
             )
         prior_ids = {
             str((row.gates_json or {}).get("experiment_id") or "")
@@ -220,8 +213,8 @@ class HydrologicGateHandler:
         candidate_id = candidate_hint
         if not candidate_id:
             raise RuntimeError("optimization evidence missing candidate_scheme_id")
-        base_hydro, base_signatures = self.kernel.evaluator.evaluate_scheme(base_id, dev)
-        candidate_hydro, candidate_signatures = self.kernel.evaluator.evaluate_scheme(candidate_id, dev)
+        base_hydro, base_signatures = self.kernel.evaluator.evaluate_scheme(base_id, cal)
+        candidate_hydro, candidate_signatures = self.kernel.evaluator.evaluate_scheme(candidate_id, cal)
         gbt = run_gbt_accuracy(
             candidate_hydro,
             self.kernel.skills.gbt_accuracy_config(
