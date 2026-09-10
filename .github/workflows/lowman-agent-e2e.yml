@@ -1,15 +1,29 @@
-name: Lowman XAJ agent E2E
+name: Lowman XAJ convergence E2E
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - experiment/lowman-xaj-agent-e2e
+    paths:
+      - '.github/workflows/lowman-agent-e2e.yml'
+      - 'scripts/run_lowman_convergence_experiment.py'
+      - 'src/hydro_agent/agent/**'
+      - 'src/hydro_agent/optimization/**'
+      - 'src/hydro_agent/services/snapshots.py'
+      - 'src/hydro_agent/skills/**'
+      - 'src/hydro_agent/workbench/**'
+      - 'tests/optimization/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
 
 permissions:
   contents: read
 
 jobs:
-  lowman-agent-e2e:
+  lowman-convergence-e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       SILICONFLOW_API_KEY: ${{ secrets.LLM_KEY }}
       HYDRO_LLM_TIMEOUT_SECONDS: '90'
@@ -23,8 +37,15 @@ jobs:
           python-version: '3.12'
           enable-cache: true
 
-      - name: Install data, XAJ and agent runtime dependencies
-        run: uv sync --frozen --extra data --extra xaj --extra api
+      - name: Install test, data, XAJ and agent dependencies
+        run: uv sync --frozen --extra dev --extra data --extra xaj --extra api
+
+      - name: Verify convergence Gate unit tests
+        run: |
+          uv run pytest -q \
+            tests/optimization/test_gate.py \
+            tests/agent/test_siliconflow_provider.py \
+            tests/agent/test_skills_and_diagnose.py
 
       - name: Verify LLM secret is available
         shell: bash
@@ -34,41 +55,46 @@ jobs:
             exit 2
           fi
 
-      - name: Prepare real Lowman forcing and observed discharge
+      - name: Prepare ten-year Lowman forcing and observed discharge
         run: |
           mkdir -p data/source
           uv run python scripts/prepare_lowman_source.py \
             --output data/source/camels_13235000 \
-            --start 2019-10-01 \
-            --end 2020-05-05
+            --start 2010-01-01 \
+            --end 2020-08-05
 
-      - name: Run real SiliconFlow agent over lumped XAJ
+      - name: Run convergence-controlled SiliconFlow XAJ calibration
         run: |
-          uv run python scripts/run_lowman_agent_experiment.py \
+          uv run python scripts/run_lowman_convergence_experiment.py \
             --source data/source/camels_13235000 \
             --scheme tests/fixtures/xaj/lowman_scheme.json \
-            --output artifacts/lowman-agent-e2e \
-            --start-date 2020-04-15 \
-            --end-date 2020-05-01 \
-            --warmup-days 90 \
-            --max-rounds 20 \
-            --max-opt-cycles 4
+            --output artifacts/lowman-convergence-e2e \
+            --calibration-start 2011-01-01 \
+            --calibration-end 2017-12-31 \
+            --gate-start 2018-01-01 \
+            --gate-end 2019-12-31 \
+            --final-start 2020-04-01 \
+            --final-end 2020-07-31 \
+            --warmup-days 365 \
+            --diagnostic-days 60 \
+            --max-rounds 100 \
+            --max-opt-cycles 20
 
       - name: Print experiment summary
         if: always()
         run: |
-          if [ -f artifacts/lowman-agent-e2e/summary.md ]; then
-            cat artifacts/lowman-agent-e2e/summary.md
+          if [ -f artifacts/lowman-convergence-e2e/summary.md ]; then
+            cat artifacts/lowman-convergence-e2e/summary.md
           fi
-          if [ -f artifacts/lowman-agent-e2e/summary.json ]; then
-            cat artifacts/lowman-agent-e2e/summary.json
+          if [ -f artifacts/lowman-convergence-e2e/summary.json ]; then
+            cat artifacts/lowman-convergence-e2e/summary.json
           fi
 
       - name: Upload full experiment evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lowman-xaj-agent-e2e
-          path: artifacts/lowman-agent-e2e/
+          name: lowman-xaj-convergence-e2e
+          path: artifacts/lowman-convergence-e2e/
           if-no-files-found: warn
           retention-days: 14
