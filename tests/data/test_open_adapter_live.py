@@ -3,17 +3,17 @@ from datetime import date
 
 import pytest
 
-pytestmark = pytest.mark.skipif(
-    os.getenv("HYDRO_AGENT_LIVE_TESTS") != "1",
-    reason="set HYDRO_AGENT_LIVE_TESTS=1 for live open-data integration checks",
-)
-
 from hydro_agent.data.adapters.open_basin import (
     LEAF_RIVER,
     fetch_nldi_basin,
     fetch_usgs_site,
     polygon_area_km2_approx,
     polygon_bbox,
+)
+
+pytestmark = pytest.mark.skipif(
+    os.getenv("HYDRO_AGENT_LIVE_TESTS") != "1",
+    reason="set HYDRO_AGENT_LIVE_TESTS=1 for live open-data integration checks",
 )
 
 
