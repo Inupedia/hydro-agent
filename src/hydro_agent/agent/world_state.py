@@ -19,6 +19,14 @@ from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 from hydro_agent.skills import SkillRegistry
 from hydro_agent.workbench.validation_gate import latest_candidate_scheme_id
 
+_PHASE_OBJECTIVES = {
+    "P2_WATER_BALANCE": ("water_balance",),
+    "P3_SOURCE_RECESSION": ("recession",),
+    "P4_ROUTING_EVENT": ("routing_event",),
+    "P5_JOINT_REFINE": ("joint",),
+    "P6_DEVELOPMENT_VALIDATION": (),
+}
+
 
 class WorldStateBuilder:
     def __init__(
@@ -106,7 +114,10 @@ class WorldStateBuilder:
             )
             or self.strategies.list_ids(),
             available_param_groups=("evap", "runoff", "routing"),
-            available_objectives=("nse", "peak", "composite"),
+            available_objectives=_PHASE_OBJECTIVES.get(
+                calibration_phase.value,
+                ("nse", "peak", "composite"),
+            ),
             diagnosis=diagnosis,
             calibration_phase=calibration_phase.value,
             phase_history=protocol.phase_history(evidence_rows),
