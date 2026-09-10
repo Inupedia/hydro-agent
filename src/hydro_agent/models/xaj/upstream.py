@@ -33,9 +33,13 @@ def simulate(scheme, basin, inputs):
     return values[scheme.warmup_days:]
 
 
-def load_param_ranges():
-    bounds = json.loads((Path(__file__).parent / "vendor/parameter_bounds.yaml").read_text(
+def _bounds_payload():
+    return json.loads((Path(__file__).parent / "vendor/parameter_bounds.yaml").read_text(
         encoding="utf-8"))["parameters"]
+
+
+def load_param_ranges():
+    bounds = _bounds_payload()
     mapping = {"K": "KC", "IM": "IMP", "UM": "WUM", "LM": "WLM", "L": "LAG"}
     from .contracts import XajScheme
     ranges = {}
@@ -49,3 +53,30 @@ def load_param_ranges():
             item = bounds[mapping.get(name, name)]
             ranges[name] = (float(item["min"]), float(item["max"]))
     return ranges
+
+
+def load_calibratable_params() -> tuple[str, ...]:
+    """Map teacher calibration flags onto this adapter's scheme coordinates.
+
+    The teacher source calibrates WM rather than WUM/WLM independently. This adapter
+    represents WM as UM + LM + DM, so DM is the single residual coordinate used to
+    change total tension-water capacity while UM/LM remain fixed.
+    """
+    bounds = _bounds_payload()
+    native_to_scheme = {
+        "KC": "K",
+        "B": "B",
+        "WM": "DM",
+        "SM": "SM",
+        "KG": "KG",
+        "KI": "KI",
+        "CI": "CI",
+        "CS": "CS",
+    }
+    selected = {
+        native_to_scheme[name]
+        for name, item in bounds.items()
+        if bool(item.get("calibrate")) and name in native_to_scheme
+    }
+    from .contracts import XajScheme
+    return tuple(name for name in XajScheme.PARAMETER_ORDER if name in selected)
