@@ -48,20 +48,14 @@ class CalibrationEvaluationService:
             )
             if not dated_flow:
                 raise ValueError("没有可用于自动率定的数据")
-
-            # Only dedicated record_* fields are allowed to trim the source history.
-            # start_date/end_date belong to the user-facing task/result context and
-            # must never silently turn a multi-year calibration into a short replay.
             requested_start = self._day(cfg.get("record_start_date"))
             requested_end = self._day(cfg.get("record_end_date"))
-
-            # Preserve forcing before the first scored calibration day for model warmup.
-            # The task kernel injects warmup_days; 30 days is the product fallback.
             warmup_days = max(1, int(cfg.get("warmup_days") or 30))
             source_start = dated_flow[0][0]
             earliest_scored = source_start + timedelta(days=warmup_days)
-            requested_start = max(requested_start, earliest_scored) if requested_start else earliest_scored
-
+            requested_start = (
+                max(requested_start, earliest_scored) if requested_start else earliest_scored
+            )
             self._auto_plans[task_id] = plan_calibration_dataset(
                 dated_flow,
                 record_start=requested_start,
@@ -116,6 +110,25 @@ class CalibrationEvaluationService:
     def calibration_window_for(self, task_id: str) -> ValidationWindow:
         return self.plan_for(task_id).calibration
 
+    @staticmethod
+    def _forcing_vector(row, scheme: XajScheme) -> list[list[float]]:
+        if not scheme.units:
+            return [[float(row.precipitation_mm_day), float(row.pet_mm_day)]]
+        by_unit = {int(unit.unit_id): unit for unit in row.units}
+        expected = [int(unit.unit_id) for unit in scheme.units]
+        missing = [unit_id for unit_id in expected if unit_id not in by_unit]
+        if missing:
+            raise RuntimeError(
+                f"distributed forcing missing unit(s) {missing[:5]} on {row.valid_date}"
+            )
+        return [
+            [
+                float(by_unit[unit_id].precipitation_mm_day),
+                float(by_unit[unit_id].pet_mm_day),
+            ]
+            for unit_id in expected
+        ]
+
     def evaluate_scheme(
         self,
         scheme_id: str,
@@ -147,15 +160,9 @@ class CalibrationEvaluationService:
             raise RuntimeError(f"forcing incomplete: {missing[0]}..{missing[-1]}")
 
         inputs = np.asarray(
-            [
-                [
-                    float(forcing_by_day[d].precipitation_mm_day),
-                    float(forcing_by_day[d].pet_mm_day),
-                ]
-                for d in days
-            ],
+            [self._forcing_vector(forcing_by_day[d], scheme) for d in days],
             dtype=float,
-        )[:, None, :]
+        )
         values = simulate(scheme, basin, inputs)
         sim_days = days[scheme.warmup_days :]
         aligned = [
@@ -166,9 +173,9 @@ class CalibrationEvaluationService:
         if len(aligned) < 30:
             raise RuntimeError("calibration evaluation requires at least 30 observed daily pairs")
 
-        obs = tuple(row[1] for row in aligned)
-        sim = tuple(row[2] for row in aligned)
-        precip = tuple(row[3] for row in aligned)
+        obs = tuple(item[1] for item in aligned)
+        sim = tuple(item[2] for item in aligned)
+        precip = tuple(item[3] for item in aligned)
         times = tuple(
             datetime(d.year, d.month, d.day, tzinfo=timezone.utc) for d, *_ in aligned
         )
