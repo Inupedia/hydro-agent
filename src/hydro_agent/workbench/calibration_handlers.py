@@ -19,8 +19,8 @@ from hydro_agent.workbench.real import POLICY
 class PhaseOptimizeHandler:
     _DEFAULTS = {
         CalibrationPhase.WATER_BALANCE: (("evap", "runoff"), "water_balance"),
-        CalibrationPhase.SOURCE_RECESSION: (("runoff", "routing"), "recession"),
-        CalibrationPhase.ROUTING_EVENT: (("runoff", "routing"), "routing_event"),
+        CalibrationPhase.SOURCE_RECESSION: (("runoff",), "recession"),
+        CalibrationPhase.ROUTING_EVENT: (("routing",), "routing_event"),
         CalibrationPhase.JOINT_REFINE: (("evap", "runoff", "routing"), "joint"),
     }
 
@@ -54,6 +54,7 @@ class PhaseOptimizeHandler:
             strategy_id=decision.strategy_id or "xaj-bounded-v1",
             param_groups=selected_groups,  # type: ignore[arg-type]
             objective=objective,  # type: ignore[arg-type]
+            parameter_guidance=decision.parameter_guidance,
             rationale_summary=decision.rationale_summary,
         )
         packet = OptimizeHandler(
