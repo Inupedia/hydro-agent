@@ -20,7 +20,13 @@ class CalibrationPlan:
 
 
 class CalibrationEvaluationService:
-    """Continuous multi-year evaluation + hydrologic signatures for one XAJ scheme."""
+    """Continuous multi-year evaluation + hydrologic signatures for one XAJ scheme.
+
+    Product tasks intentionally do not use the task display/test dates as calibration
+    boundaries. Unless an expert supplies explicit phase windows, one long historical
+    record is split automatically into calibration, development and sealed final
+    holdout windows. This keeps the UI simple and prevents accidental holdout leakage.
+    """
 
     def __init__(self, *, repository, source, task_configs: dict):
         self.repository = repository
@@ -37,11 +43,25 @@ class CalibrationEvaluationService:
 
     def _automatic_plan(self, task_id: str, cfg: dict) -> CalibrationPlan:
         if task_id not in self._auto_plans:
-            requested_start = self._day(cfg.get("start_date"))
-            requested_end = self._day(cfg.get("end_date"))
             dated_flow = tuple(
                 (row.valid_date, float(row.discharge_m3s)) for row in self.source.flow_rows
             )
+            if not dated_flow:
+                raise ValueError("没有可用于自动率定的数据")
+
+            # Only dedicated record_* fields are allowed to trim the source history.
+            # start_date/end_date belong to the user-facing task/result context and
+            # must never silently turn a multi-year calibration into a short replay.
+            requested_start = self._day(cfg.get("record_start_date"))
+            requested_end = self._day(cfg.get("record_end_date"))
+
+            # Preserve forcing before the first scored calibration day for model warmup.
+            # The task kernel injects warmup_days; 30 days is the product fallback.
+            warmup_days = max(1, int(cfg.get("warmup_days") or 30))
+            source_start = dated_flow[0][0]
+            earliest_scored = source_start + timedelta(days=warmup_days)
+            requested_start = max(requested_start, earliest_scored) if requested_start else earliest_scored
+
             self._auto_plans[task_id] = plan_calibration_dataset(
                 dated_flow,
                 record_start=requested_start,
@@ -73,11 +93,17 @@ class CalibrationEvaluationService:
         cal_end = self._day(cfg.get("calibration_end_date"), "2017-12-31")
         dev_start = self._day(cfg.get("gate_start_date"), "2018-01-01")
         dev_end = self._day(cfg.get("gate_end_date"), "2019-12-31")
-        final_start = self._day(cfg.get("final_start_date") or cfg.get("start_date"), "2020-04-01")
-        final_end = self._day(cfg.get("final_end_date") or cfg.get("end_date"), "2020-07-31")
+        final_start = self._day(
+            cfg.get("final_start_date") or cfg.get("start_date"), "2020-04-01"
+        )
+        final_end = self._day(
+            cfg.get("final_end_date") or cfg.get("end_date"), "2020-07-31"
+        )
         assert cal_start and cal_end and dev_start and dev_end and final_start and final_end
         if not (cal_start <= cal_end < dev_start <= dev_end < final_start <= final_end):
-            raise ValueError("calibration, development and final holdout windows must be ordered and disjoint")
+            raise ValueError(
+                "calibration, development and final holdout windows must be ordered and disjoint"
+            )
         return CalibrationPlan(
             calibration=ValidationWindow(cal_start, cal_end),
             development=ValidationWindow(dev_start, dev_end),
@@ -104,6 +130,7 @@ class CalibrationEvaluationService:
             warmup_days=int(cfg.get("warmup_days") or 365),
             parameters=dict(cfg.get("parameters") or {}),
             routing=cfg.get("routing") or {},
+            units=tuple(cfg.get("units") or ()),
         )
         basin = XajBasin(**dict(self.source.basin))
         first = window.start - timedelta(days=scheme.warmup_days)
@@ -142,7 +169,9 @@ class CalibrationEvaluationService:
         obs = tuple(row[1] for row in aligned)
         sim = tuple(row[2] for row in aligned)
         precip = tuple(row[3] for row in aligned)
-        times = tuple(datetime(d.year, d.month, d.day, tzinfo=timezone.utc) for d, *_ in aligned)
+        times = tuple(
+            datetime(d.year, d.month, d.day, tzinfo=timezone.utc) for d, *_ in aligned
+        )
         hydro = HydroSeries(
             obs=obs,
             sim=sim,
