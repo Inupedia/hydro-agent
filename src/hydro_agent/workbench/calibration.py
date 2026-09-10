@@ -18,6 +18,7 @@ from hydro_agent.calibration.convergence import SearchConvergenceController
 from hydro_agent.calibration.phase_gate import HydrologicPhaseGate
 from hydro_agent.calibration.protocol import CalibrationProtocol
 from hydro_agent.graphs.gbt_accuracy import run_gbt_accuracy
+from hydro_agent.optimization.contracts import ParameterGuidance
 from hydro_agent.workbench.calibration_evaluation import CalibrationEvaluationService
 from hydro_agent.workbench.calibration_handlers import (
     HydrologicGateHandler,
@@ -104,7 +105,7 @@ class CalibrationWorkbenchKernel(RealWorkbenchKernel):
                 f"mid={metrics['recession_mid_rel_error']:.3f}, "
                 f"tail={metrics['recession_tail_rel_error']:.3f}"
             )
-            groups = ("runoff", "routing")
+            groups = ("runoff",)
             objective = "recession"
         elif phase == CalibrationPhase.ROUTING_EVENT:
             phenomenon = (
@@ -112,7 +113,7 @@ class CalibrationWorkbenchKernel(RealWorkbenchKernel):
                 f"峰现={metrics['event_peak_timing_steps_median']:.2f}步; "
                 f"洪量={metrics['event_volume_rel_error_median']:.3f}"
             )
-            groups = ("runoff", "routing")
+            groups = ("routing",)
             objective = "routing_event"
         elif phase == CalibrationPhase.JOINT_REFINE:
             phenomenon = (
@@ -162,6 +163,11 @@ class CalibrationWorkbenchKernel(RealWorkbenchKernel):
                 f"signature_window={window.start}..{window.end}",
                 f"flood_event_count={len(signatures.events)}",
                 "diagnosis_uses_continuous_hydrologic_signatures=true",
+                (
+                    "forcing_warning_blocks_parameter_compensation=true"
+                    if forcing_warning
+                    else "forcing_warning_blocks_parameter_compensation=false"
+                ),
             ],
         }
 
@@ -183,8 +189,8 @@ class HydrologistProtocolDecisionProvider:
     }
     _PHASE_DEFAULTS = {
         CalibrationPhase.WATER_BALANCE.value: (("evap", "runoff"), "water_balance"),
-        CalibrationPhase.SOURCE_RECESSION.value: (("runoff", "routing"), "recession"),
-        CalibrationPhase.ROUTING_EVENT.value: (("runoff", "routing"), "routing_event"),
+        CalibrationPhase.SOURCE_RECESSION.value: (("runoff",), "recession"),
+        CalibrationPhase.ROUTING_EVENT.value: (("routing",), "routing_event"),
         CalibrationPhase.JOINT_REFINE.value: (("evap", "runoff", "routing"), "joint"),
     }
 
@@ -326,6 +332,28 @@ class HydrologistProtocolDecisionProvider:
                     "优化hard ceiling已到，冻结当前best并保留预算终止证据。",
                     ProblemHypothesis.RESOURCE,
                 )
+
+            forcing_warning = float(latest.metrics.get("forcing_adequacy_warning", 0.0)) >= 0.5
+            if forcing_warning and ActionCode.A07_OPTIMIZE.value in safe:
+                groups, objective = self._PHASE_DEFAULTS.get(
+                    phase,
+                    (("evap", "runoff", "routing"), "joint"),
+                )
+                return AgentDecision(
+                    action=ActionCode.A07_OPTIMIZE,
+                    hypothesis=ProblemHypothesis.FORCING,
+                    strategy_id="xaj-local-refine-v1",
+                    param_groups=groups,  # type: ignore[arg-type]
+                    objective=objective,  # type: ignore[arg-type]
+                    parameter_guidance=ParameterGuidance(
+                        frozen_parameters=tuple(view.hydro.available_tunable_parameters)  # type: ignore[arg-type]
+                    ),
+                    rationale_summary=(
+                        "forcing adequacy warning 已成立；禁止用 XAJ 参数补偿潜在缺失过程。"
+                        "本轮只执行 frozen no-change probe，让 Gate 形成可审计的 FORCING_LIMIT 证据。"
+                    ),
+                )
+
             delegated = self.delegate.decide(view)
             if delegated.action != ActionCode.A07_OPTIMIZE:
                 if (
@@ -339,6 +367,7 @@ class HydrologistProtocolDecisionProvider:
                     strategy_id=delegated.strategy_id or "xaj-local-refine-v1",
                     param_groups=None,
                     objective=None,
+                    parameter_guidance=delegated.parameter_guidance,
                     rationale_summary=(
                         f"{delegated.rationale_summary}；按当前phase执行最小范围率定实验。"
                     ),
