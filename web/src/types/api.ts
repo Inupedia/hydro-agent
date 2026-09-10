@@ -1,11 +1,15 @@
+export type SpatialMode = 'lumped' | 'distributed'
+
 export type TaskSummary = {
   task_id: string
   basin_id: string
   model_id: string
+  model_mode: SpatialMode
   phase: 'B' | 'F' | 'E'
   status: string
   paused: boolean
   current_scheme_id: string | null
+  model_plan_id?: string | null
   agent_rounds_used: number
   optimization_cycles_used: number
   start_date?: string | null
@@ -17,6 +21,7 @@ export type TaskSummary = {
 export type TaskCreateRequest = {
   basin_id: string
   model_id: 'xaj' | 'openhydronet'
+  model_mode: SpatialMode
   start_date: string
   end_date: string
   forcing_mode: 'R' | 'F'
@@ -55,6 +60,13 @@ export type TimelineItem = {
   details: Record<string, unknown>
 }
 
+export type CalibrationComparisonPoint = {
+  time: string
+  observed: number
+  calibrated: number
+  initial?: number | null
+}
+
 export type ResultSummary = {
   task_id: string
   phase: 'B' | 'F' | 'E'
@@ -75,6 +87,8 @@ export type ResultSummary = {
     lead_values: Record<number, number>
     unit: string
   }>
+  comparison: CalibrationComparisonPoint[]
+  comparison_scope: 'calibration' | 'development' | 'final_holdout' | 'unknown'
   metrics: Record<string, number | null>
   gate: Record<string, unknown> | null
   diagnosis?: Record<string, unknown> | null
@@ -90,11 +104,12 @@ export type ModelPlan = {
   plan_id: string
   basin_id: string
   status: string
-  model_mode?: 'lumped' | 'distributed'
+  model_mode?: SpatialMode
+  spatial_method?: string
   current_stage?: string
-  stages: {code:string;label:string;status:string;detail:string}[]
+  stages: { code: string; label: string; status: string; detail: string }[]
   boundary_hash?: string
-  boundary?: {dem_area_km2:number;[key:string]:unknown}
+  boundary?: { dem_area_km2: number; [key: string]: unknown }
   unit_count?: number
   area_km2?: number
   suggested_start?: string
