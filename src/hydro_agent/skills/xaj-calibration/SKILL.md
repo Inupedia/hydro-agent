@@ -1,121 +1,164 @@
 ---
 name: xaj-calibration
-description: Expert hydrologist workflow for bounded XAJ calibration. Diagnose water balance, peak magnitude, timing and recession separately; choose only identifiable parameter groups; validate every candidate on held-out observations; stop rather than compensate for missing forcing or model structure.
+description: Expert hydrologist workflow for bounded XAJ calibration. Use multi-year or representative flood-period calibration, separate development Gate and final holdout data, diagnose water balance/peak/timing/recession, and stop from validation-curve convergence rather than exhausting a fixed loop count.
 metadata:
   title_zh: "新安江模型专家率定"
-  purpose_zh: "把水文员的分阶段率定判断固化为可审计 Agent Skill，在有限决策轮次内高效提高可验证精度。"
-  when_to_use_zh: "已有多日模拟-观测诊断|NSE/GB/T未达标且允许率定|Gate拒绝后已重新诊断"
-  required_evidence_zh: "至少7日且优先30日以上独立诊断序列|水量偏差|洪峰比|峰现时差|退水形态|降水/PET与观测径流一致性|最近Gate结果"
+  purpose_zh: "把水文员的分阶段率定、洪水期验证和收敛停止判断固化为可审计 Agent Skill。"
+  when_to_use_zh: "已有连续模拟-观测序列|NSE/GB/T未达标且允许率定|Gate要求继续或回滚后已重新诊断"
+  required_evidence_zh: "多年或代表性洪水期率定集|独立Gate开发集|最终不可见留出集|水量偏差|洪峰比|峰现|退水|最近best-so-far曲线"
   recommended_actions: "A06_DIAGNOSE,A07_OPTIMIZE,A08_GATE,A09_RESOLVE,A10_FREEZE"
   recommended_strategies: "xaj-bounded-v1,xaj-peak-bias-v1,xaj-local-refine-v1"
-  stop_conditions_zh: "held-out NSE/GB/T达标|优化预算耗尽|连续两轮Gate变差且强迫/结构不充分|候选重复"
-  counterexamples_zh: "不要用3个lead点的NSE指导长期率定|不要每轮同时乱动全部参数|不要用验证窗反向调参|不要用参数补偿缺失的融雪/调度/观测问题"
+  stop_conditions_zh: "Gate达到目标等级|验证NSE增益曲线趋平|低水平平台且存在强迫/结构警告|硬预算上限"
+  counterexamples_zh: "不要把20轮当必须跑满|不要用3个lead点NSE做长期率定|不要反复查看最终留出集|不要因预算剩余继续无效搜索|不要用参数补偿缺失融雪/调度过程"
   nse_good_enough: "0.5"
 ---
 
 # 新安江模型专家率定
 
-## 角色分工
+## 核心原则
 
-Agent 负责像水文员一样**判断问题、选择实验和解释证据**；数值优化器负责在合法参数边界内搜索连续参数。Agent 不直接猜 15 维参数向量。
+Agent 的职责不是“把循环跑满”，而是像经验水文员一样判断：**下一次调整还有没有信息增益。**
 
-核心循环不是“看到 NSE 低就继续随机搜”，而是：
+硬预算（如最多 20 次优化）只是安全上限。真正停止由 Gate 的验证曲线决定：
 
-`诊断 -> 选择一个水文问题 -> 选择最小参数组/目标 -> A07 -> held-out A08 -> A09 -> 重新诊断`
+`多年率定 -> 开发验证 Gate -> best-so-far 曲线 -> 重新诊断 -> 下一实验 / 收敛停止`
 
-每个被拒绝的 Gate 都是新证据。必须重新 A06，禁止沿用旧诊断机械重复实验。
+最终独立留出期只在方案冻结后运行一次，不参与任何参数选择。
 
-## 0. 先判断这是不是一个“可率定问题”
+## 0. 数据时段必须先合格
 
-1. 诊断样本不少于 7 个日尺度点，优先 30 日以上；3 个 lead 点只能用于即时预报诊断，不能作为参数识别依据。
-2. 校准数据与 held-out 验证窗严格分离，不能根据 Gate 窗的具体观测去改参数。
-3. 检查降水、PET、观测流量的水量和趋势是否具有基本物理一致性。
-4. 若观测径流持续上升、同期降水不足，而模型只有降水+PET，考虑积雪融水、上游调度、地下水释放等未建模过程。
-5. 连续两轮候选在 held-out Gate 中都比基线差，同时存在强迫充分性警告时，停止参数补偿，输出 `FORCING/STRUCTURE` 升级结论。
+参数率定不能只取十几天普通过程。优先顺序：
 
-**专家水平不是任何数据都把 NSE 调高，而是知道什么时候参数率定没有可识别性。**
+1. **多年连续资料**：条件允许时至少覆盖多个丰、平、枯水年；课题实验优先 5~10 年量级。
+2. **代表性洪水过程**：若资料不足，率定与验证至少要覆盖若干独立洪水，包含涨水、洪峰、退水。
+3. 校准集、开发 Gate 集、最终 holdout 三者必须时间上分离。
+4. 开发 Gate 可以被 Agent 反复查看，因此它不是最终测试集。
+5. 最终 holdout 在 `A10_FREEZE` 后才允许读取，用于论文/结题的真正泛化结果。
 
-## 1. 按水文现象分阶段，不同时解决所有问题
+对 Lowman 当前实验采用：多年 calibration + 多年 Gate-development + 最终独立洪水期 holdout。
 
-按以下优先级读 `hydro.diagnosis.metrics`。
+## 1. 先判断是不是“可率定问题”
 
-### A. 水量平衡先行
+检查降水、PET、观测流量的水量与趋势是否具有基本物理一致性。若观测径流持续上升而同期降水无法解释，且模型只有降水+PET，应考虑积雪融水、调度、地下水释放或资料问题。
 
-看：`mean_bias`、累计水量、`observed_runoff_depth_mm`、NSE。
+**专家级行为包括停止错误率定。** 如果 best-so-far NSE 已进入低水平平台，同时存在 forcing/structure warning，应输出 `STRUCTURAL_LIMIT`，而不是继续用参数补偿模型缺项。
 
-- 模拟总量明显偏低：优先 `evap + runoff`，通常关注 `K`、总蓄水容量 `WM`（本适配器用 `DM` 作为残余坐标）、`B`。
-- 模拟总量明显偏高：同组反向约束。
-- 水量还没基本对上之前，不要把主要精力放在峰现微调。
-- 目标优先 `nse`；若同时存在明显洪峰问题可用 `composite`。
+## 2. 分阶段判断水文误差
 
-物理方向提示：`K↑` 通常蒸散增强、径流减小；总 `WM↑` 通常更难产流；`B↑` 往往使局部更早达到蓄满产流。方向只用于解释和缩小搜索，不允许越界直接编造参数值。
+### A. 水量平衡
+
+先看 Bias、累计径流深、降水/PET 和 NSE。
+
+- 模拟总量偏低：优先 `evap + runoff`，重点关注 K、总蓄水能力（当前适配器以 DM 残余坐标体现）、B。
+- 模拟总量偏高：同组反向约束。
+- 水量没有基本对上前，不要优先微调峰现。
 
 ### B. 洪峰量级
 
-在水量大致合理后看 `peak_ratio`：
+水量合理后再看 `peak_ratio`、高流量 MAE、洪水段水量误差。
 
-- 洪峰明显低估：`runoff + routing`，优先 `xaj-peak-bias-v1` + `composite`；重点由数值搜索在可率定参数 `B/SM/KI/KG/CS/CI` 中寻找组合。
-- 洪峰明显高估：`runoff + routing` 或局部细化，优先 `xaj-local-refine-v1`。
-- `SM↑` 往往使自由水调蓄增强、洪峰更平缓；`CS↑` 往往增强河网记忆、峰值更低/更滞后。
+- 洪峰低估：`runoff + routing`，优先 `xaj-peak-bias-v1` + `composite`。
+- 洪峰高估：`runoff + routing` 或 `xaj-local-refine-v1`。
+- Gate 必须单独检查高流量/洪水表现，不能只看全时段 NSE。
 
-### C. 峰现时间
+### C. 峰现
 
-只有在峰值量级不再严重失真时才单独追峰现：
-
-- 峰偏晚：优先 `routing`，检查汇流记忆。
-- 峰偏早：同理反向检查。
-- 不要为了修峰现把产流参数全部重新全局搜索。
+峰值量级接近后再判断峰现误差，优先 routing；不要为了修一两天峰现重新放开全部产流参数。
 
 ### D. 退水与基流
 
-看退水段是否系统过慢/过快：
+退水过慢/过快时检查 CI、CS 以及 KI/KG 分配。teacher 标记 `calibrate:false` 的参数默认冻结。
 
-- 退水过慢、记忆过强：关注 `CI/CS` 及 `KI/KG` 分配。
-- 退水过快：反向检查。
-- `CG` 等 teacher 明确标记 `calibrate:false` 的参数默认冻结，不得因为搜索方便而擅自放开。
+## 3. 最小可识别参数原则
 
-参数意义和方向详见 `references/xaj-parameters.md`，完整操作表见 `references/hydrologist-calibration-playbook.md`。
-
-## 2. 参数可识别性与最小改动原则
-
-自动率定只允许 teacher 参数边界中 `calibrate:true` 的自由度。当前适配坐标为：
+自动率定仅允许 teacher 参数边界中 `calibrate:true` 的自由度。目前主要为：
 
 `K, B, DM(代表总WM调整), SM, KG, KI, CI, CS`
 
-其余参数默认冻结。即便 Agent 选择 `runoff+routing`，数值运行时也必须再次与这份白名单求交集。
+Agent 选择的是**参数组与实验假说**，数值优化器在组内做有界搜索；LLM 不直接发明连续参数向量。
 
-每轮只选择能够解释当前主要误差的参数组。不要因为“多参数更容易找到高 NSE”而把不可识别参数一起放开。
+## 4. 每轮 A07 必须是一个实验
 
-## 3. 数值搜索策略
+每次优化前需要回答：
 
-- 第一次、误差模式不清：`xaj-bounded-v1`，做足够深的全局有界探索。
-- 明显洪峰系统偏差：`xaj-peak-bias-v1`。
-- 已接近有效区域：`xaj-local-refine-v1`。
-- 同一策略再次使用时必须换可复现的新 seed；禁止生成完全相同的候选。
-- Agent 决策轮次可以 <=20，但每个 A07 内部允许几百次廉价 XAJ 计算。不要把“20 个 agent round”误解成“只能算 20 个参数向量”。
+- 当前主要误差是什么？
+- 哪个物理环节最可能解释它？
+- 最小需要放开的参数组是什么？
+- 本轮目标用 NSE、peak 还是 composite？
+- 上一轮为什么失败或成功？
 
-## 4. Gate 后如何复盘
+Gate `ROLLBACK` 后必须重新 A06；禁止只换 random seed 或 strategy 名称继续盲搜。
 
-A08 后必须 A09。若 `KEEP/ROLLBACK` 且仍有预算：
+## 5. Gate 是收敛控制器，不是静态阈值门
 
-1. A06 重新诊断当前基线；
-2. 比较本轮 candidate 的参数组与 Gate 变化；
-3. 判断失败属于水量、峰值、峰现、退水，还是强迫/结构；
-4. 下一 A07 必须形成**不同的实验假说**，而不是只轮换 strategy 名称；
-5. 若同一基线连续两轮 Gate 变差且存在 forcing adequacy warning，停止率定。
+Gate 维护开发验证集上的 **best-so-far NSE/DC 曲线**。
 
-## 5. 20 轮预算模板
+状态语义：
 
-推荐最多 3 个有意义的数值实验，而不是 4 个没有复盘的随机实验：
+- `ACCEPT`：达到要求的 GB/T 等级/绝对精度，立即停止。
+- `CONTINUE`：候选在开发集上确实更好；晋升为新的 base，重新诊断后继续。
+- `ROLLBACK`：候选没有泛化增益或破坏洪水/高流量 guardrail；保留旧 base，重新诊断。
+- `CONVERGED`：最近若干次 best-so-far 增益、斜率、波动均趋近于零；即使还有预算也停止。
+- `STRUCTURAL_LIMIT`：低水平收敛/连续失败，并有强迫或模型结构不足证据；停止参数补偿并升级模型/数据问题。
 
-`A01 -> A03 -> A05 -> A06 -> [A07 -> A08 -> A09 -> A06] x 2~3 -> A10 -> A11 -> A12`
+### 收敛判断
 
-三次完整“率定-验证-复盘”通常可控制在 20 个 Agent round 内。若更早 ACCEPT，立即冻结；若确认结构不适用，也应提前停止。
+不要只比较本轮 `candidate - base`。至少观察最近 3~4 个 best-so-far 点：
 
-## 6. 成功标准
+- 窗口累计增益很小；
+- 增长斜率接近 0；
+- best-so-far 波动/跨度很小；
+- 同时没有新的洪水期泛化改善。
 
-优先以 held-out Gate 和最终 replay/evaluate 判断，而不是校准集最好分数：
+满足这些条件就说明继续搜索的边际价值很低。**剩余轮数不是继续率定的理由。**
 
-- 目标：`NSE/DC >= nse_good_enough` 且 GB/T 最低方案等级满足项目要求；
-- 同时看 Bias/水量误差、洪峰误差、峰现和过程精度，防止单指标过拟合；
-- 若模型结构/强迫不足，正确结果是明确升级模型或数据需求，不得伪造“高 NSE”。
+## 6. 洪水期 Gate guardrail
+
+多年 NSE 改善仍可能牺牲洪水。Gate 必须同步看：
+
+- 高流量（如 Q90 以上）MAE；
+- 洪峰相对误差；
+- 峰现误差；
+- 洪水段水量偏差；
+- GB/T 22482 指标与方案等级。
+
+候选全时段 NSE 更高但洪水表现显著变差时，应 `ROLLBACK`。
+
+## 7. 三段数据角色
+
+推荐课题实验：
+
+`Calibration 多年连续期 -> Gate-development 多年/多洪水期 -> Freeze -> Final holdout 洪水期`
+
+例如 Lowman 基准可使用：
+
+- 2011-01-01 ~ 2017-12-31：率定；
+- 2018-01-01 ~ 2019-12-31：开发 Gate，允许反复查看；
+- 2020-04-01 ~ 2020-07-31：最终独立洪水/融雪高流量期，只在冻结后读取。
+
+这些日期是基准实验划分，不应写死到通用 Skill；真实项目应按资料年限和洪水代表性配置。
+
+## 8. 关于“20次”
+
+`max_optimization_cycles <= 20` 可以作为硬上限，但绝不是目标次数。
+
+可能出现：
+
+- 第 3 次已达到目标 → ACCEPT；
+- 第 5 次曲线已经明显趋平 → CONVERGED；
+- 第 2~4 次低水平平台且发现融雪强迫缺失 → STRUCTURAL_LIMIT；
+- 只有仍持续获得可靠开发集增益时才继续，最多不超过硬上限。
+
+XAJ 单次计算便宜，因此每个 A07 内部可以评估数百个有界参数候选；要节省的是无意义的 Agent 实验轮次，而不是数值函数调用次数。
+
+## 9. 最终成功标准
+
+最终论文/结题结果只看 Freeze 后的 final holdout：
+
+- NSE/DC、KGE、Bias；
+- 洪峰误差、峰现、洪水段水量；
+- GB/T 方案等级；
+- calibration / development Gate / final holdout 三者差距；
+- 实际用了多少次优化，以及为什么停止。
+
+如果开发集很好但最终 holdout 明显掉点，应明确报告泛化失败，而不能重新打开 final holdout 继续调参。
