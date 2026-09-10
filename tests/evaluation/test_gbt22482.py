@@ -11,9 +11,8 @@ from hydro_agent.evaluation.gbt22482 import (
     resolve_basin_class,
 )
 from hydro_agent.graphs.gbt_accuracy import build_gbt_accuracy_graph, run_gbt_accuracy
-from hydro_agent.optimization.contracts import GatePolicy
+from hydro_agent.optimization.contracts import EvaluationBundle, GatePolicy, LeadMetrics
 from hydro_agent.optimization.gate import GateEvaluator
-from hydro_agent.optimization.contracts import EvaluationBundle, LeadMetrics
 
 
 def _good_series() -> HydroSeries:
