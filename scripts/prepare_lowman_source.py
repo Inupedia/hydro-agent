@@ -33,7 +33,22 @@ def prepare(output, start, end):
     def download(url, name):
         destination = raw / name
         subprocess.run(
-            ["curl", "-fsSL", "--retry", "2", "--max-time", "45", url, "-o", str(destination)],
+            [
+                "curl",
+                "-fsSL",
+                "--retry",
+                "6",
+                "--retry-delay",
+                "3",
+                "--retry-all-errors",
+                "--connect-timeout",
+                "15",
+                "--max-time",
+                "60",
+                url,
+                "-o",
+                str(destination),
+            ],
             check=True,
         )
         receipts.append(
