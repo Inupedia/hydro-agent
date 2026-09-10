@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
+from hydro_agent.calibration.dataset import CalibrationDatasetPlan, plan_calibration_dataset
 from hydro_agent.calibration.signatures import HydrologicSignatures, compute_hydrologic_signatures
 from hydro_agent.evaluation.gbt22482 import HydroSeries
 from hydro_agent.models.xaj.contracts import XajBasin, XajScheme
@@ -15,6 +16,7 @@ class CalibrationPlan:
     calibration: ValidationWindow
     development: ValidationWindow
     final_holdout: ValidationWindow
+    dataset: CalibrationDatasetPlan | None = None
 
 
 class CalibrationEvaluationService:
@@ -24,20 +26,56 @@ class CalibrationEvaluationService:
         self.repository = repository
         self.source = source
         self.task_configs = task_configs
+        self._auto_plans: dict[str, CalibrationDatasetPlan] = {}
 
     @staticmethod
-    def _day(value, fallback: str) -> date:
+    def _day(value, fallback: str | None = None) -> date | None:
         raw = value or fallback
+        if raw is None:
+            return None
         return date.fromisoformat(raw[:10]) if isinstance(raw, str) else raw
+
+    def _automatic_plan(self, task_id: str, cfg: dict) -> CalibrationPlan:
+        if task_id not in self._auto_plans:
+            requested_start = self._day(cfg.get("start_date"))
+            requested_end = self._day(cfg.get("end_date"))
+            dated_flow = tuple(
+                (row.valid_date, float(row.discharge_m3s)) for row in self.source.flow_rows
+            )
+            self._auto_plans[task_id] = plan_calibration_dataset(
+                dated_flow,
+                record_start=requested_start,
+                record_end=requested_end,
+            )
+        dataset = self._auto_plans[task_id]
+        return CalibrationPlan(
+            calibration=ValidationWindow(dataset.calibration.start, dataset.calibration.end),
+            development=ValidationWindow(dataset.development.start, dataset.development.end),
+            final_holdout=ValidationWindow(dataset.final_holdout.start, dataset.final_holdout.end),
+            dataset=dataset,
+        )
 
     def plan_for(self, task_id: str) -> CalibrationPlan:
         cfg = self.task_configs.get(task_id) or {}
+        explicit = all(
+            cfg.get(key)
+            for key in (
+                "calibration_start_date",
+                "calibration_end_date",
+                "gate_start_date",
+                "gate_end_date",
+            )
+        )
+        if not explicit:
+            return self._automatic_plan(task_id, cfg)
+
         cal_start = self._day(cfg.get("calibration_start_date"), "2011-01-01")
         cal_end = self._day(cfg.get("calibration_end_date"), "2017-12-31")
         dev_start = self._day(cfg.get("gate_start_date"), "2018-01-01")
         dev_end = self._day(cfg.get("gate_end_date"), "2019-12-31")
-        final_start = self._day(cfg.get("start_date"), "2020-04-01")
-        final_end = self._day(cfg.get("end_date"), "2020-07-31")
+        final_start = self._day(cfg.get("final_start_date") or cfg.get("start_date"), "2020-04-01")
+        final_end = self._day(cfg.get("final_end_date") or cfg.get("end_date"), "2020-07-31")
+        assert cal_start and cal_end and dev_start and dev_end and final_start and final_end
         if not (cal_start <= cal_end < dev_start <= dev_end < final_start <= final_end):
             raise ValueError("calibration, development and final holdout windows must be ordered and disjoint")
         return CalibrationPlan(
