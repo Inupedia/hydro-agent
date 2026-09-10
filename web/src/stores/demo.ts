@@ -1,7 +1,14 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { api } from '../api/client'
-import type { ResultSummary, RunSummary, TaskCreateRequest, TaskSummary, TimelineItem } from '../types/api'
+import type {
+  ResultSummary,
+  RunSummary,
+  SpatialMode,
+  TaskCreateRequest,
+  TaskSummary,
+  TimelineItem,
+} from '../types/api'
 
 export type RunMode = 'live' | 'replay' | 'simulated'
 
@@ -9,6 +16,7 @@ export type DraftConfig = {
   model_plan_id?: string | null
   basin_id: string
   model_id: 'xaj' | 'openhydronet'
+  model_mode: SpatialMode
   start_date: string
   end_date: string
   forcing_mode: 'R' | 'F'
@@ -33,7 +41,9 @@ function loadSession(): SessionSnapshot | null {
   try {
     const raw = sessionStorage.getItem(SESSION_KEY)
     if (!raw) return null
-    return JSON.parse(raw) as SessionSnapshot
+    const parsed = JSON.parse(raw) as SessionSnapshot
+    parsed.draft.model_mode ||= 'lumped'
+    return parsed
   } catch {
     return null
   }
@@ -43,13 +53,14 @@ function defaultDraft(): DraftConfig {
   return {
     basin_id: 'usgs_02472000',
     model_id: 'xaj',
+    model_mode: 'lumped',
     start_date: '2020-01-01',
-    end_date: '2020-01-31',
+    end_date: '2020-12-31',
     forcing_mode: 'R',
     base_scheme_id: 'scheme-base',
     allow_optimization: true,
-    max_agent_decision_rounds: 20,
-    max_optimization_cycles: 4,
+    max_agent_decision_rounds: 100,
+    max_optimization_cycles: 20,
     model_plan_id: null,
   }
 }
@@ -83,9 +94,7 @@ export const useDemoStore = defineStore('demo', () => {
     () => Boolean(run.value?.worker_active) || run.value?.status === 'running',
   )
   const isCompleted = computed(
-    () =>
-      run.value?.status === 'completed' ||
-      (run.value?.phase === 'E' && run.value?.needs_follow_up === false),
+    () => run.value?.status === 'completed' || (run.value?.phase === 'E' && !run.value?.needs_follow_up),
   )
   const isFailed = computed(
     () => run.value?.status === 'failed' || run.value?.status === 'error',
@@ -138,27 +147,19 @@ export const useDemoStore = defineStore('demo', () => {
       conditions.value.model = 'fail'
       conditions.value.modelDetail = '无法确认模型状态'
     }
-
-    // No dedicated source-readiness endpoint yet — stay honest.
     conditions.value.source = 'unchecked'
-    conditions.value.sourceDetail =
-      '资料是否齐全将在任务启动后由服务端检查；此处尚未检查'
+    conditions.value.sourceDetail = '资料完整性将在模型准备与 Agent 数据审查阶段自动检查'
   }
 
   async function loadCaseLibrary() {
     try {
       const tasks = await api.listTasks()
-      caseLibrary.value = tasks
-        .filter((t) => t.status === 'completed')
-        .slice(0, 12)
+      caseLibrary.value = tasks.filter((t) => t.status === 'completed').slice(0, 12)
     } catch {
-      // Service may still be starting after compose recreate.
       try {
         await new Promise((r) => setTimeout(r, 1200))
         const tasks = await api.listTasks()
-        caseLibrary.value = tasks
-          .filter((t) => t.status === 'completed')
-          .slice(0, 12)
+        caseLibrary.value = tasks.filter((t) => t.status === 'completed').slice(0, 12)
       } catch {
         caseLibrary.value = []
       }
@@ -168,6 +169,7 @@ export const useDemoStore = defineStore('demo', () => {
   function applyTaskMeta(task: TaskSummary) {
     draft.value.basin_id = task.basin_id
     draft.value.model_id = task.model_id === 'openhydronet' ? 'openhydronet' : 'xaj'
+    draft.value.model_mode = task.model_mode || 'lumped'
     draft.value.model_plan_id = task.model_plan_id ?? null
     if (task.start_date) draft.value.start_date = task.start_date
     if (task.end_date) draft.value.end_date = task.end_date
@@ -178,10 +180,11 @@ export const useDemoStore = defineStore('demo', () => {
 
   async function createTaskFromDraft() {
     error.value = null
-    const body: TaskCreateRequest = { ...draft.value }
-    if (!body.model_plan_id) {
-      delete body.model_plan_id
+    const body: TaskCreateRequest = {
+      ...draft.value,
+      allow_optimization: true,
     }
+    if (!body.model_plan_id) delete body.model_plan_id
     const task = await api.createTask(body)
     taskId.value = task.task_id
     mode.value = 'live'
@@ -211,7 +214,6 @@ export const useDemoStore = defineStore('demo', () => {
   async function startRun() {
     if (!taskId.value) throw new Error('尚未创建任务')
     if (mode.value === 'replay') {
-      // Replay only follows recorded state; never restart compute.
       await refresh()
       return
     }
@@ -248,9 +250,7 @@ export const useDemoStore = defineStore('demo', () => {
   function startPolling() {
     stopPolling()
     void refresh()
-    polling.value = window.setInterval(() => {
-      void refresh()
-    }, 800)
+    polling.value = window.setInterval(() => void refresh(), 800)
   }
 
   function stopPolling() {
