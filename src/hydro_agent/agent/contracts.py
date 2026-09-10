@@ -52,11 +52,17 @@ class EvidencePacket(FrozenModel):
         "succeeded",
         "failed",
         "blocked",
+        "KEEP",
         "ACCEPT",
         "CONTINUE",
-        "CONVERGED",
+        "PHASE_PASS",
         "ROLLBACK",
+        "PLATEAU_PASS",
+        "PLATEAU_FAIL",
+        "DATA_LIMIT",
+        "FORCING_LIMIT",
         "STRUCTURAL_LIMIT",
+        "HARD_BUDGET",
     ]
     observations: tuple[str, ...] = ()
     metrics: dict[str, float] = Field(default_factory=dict)
@@ -119,6 +125,8 @@ class HydroContext(FrozenModel):
     available_param_groups: tuple[str, ...] = ("evap", "runoff", "routing")
     available_objectives: tuple[str, ...] = ("nse", "peak", "composite")
     diagnosis: dict[str, object] = Field(default_factory=dict)
+    calibration_phase: str = "P2_WATER_BALANCE"
+    phase_history: tuple[str, ...] = ()
     experiment_history: tuple[str, ...] = ()
     skill_cards: tuple[dict[str, object], ...] = ()
 
@@ -137,7 +145,7 @@ class WorldStateView(FrozenModel):
     hydro: HydroContext = Field(default_factory=HydroContext)
 
 
-# Hard ceilings only. Scientific stopping is controlled by Gate convergence.
+# Hard ceilings only. Scientific stopping is phase/Gate/convergence controlled.
 MAX_AGENT_ROUNDS = 100
 MAX_OPTIMIZATION_CYCLES = 20
 MAX_TECHNICAL_RETRIES = 2
