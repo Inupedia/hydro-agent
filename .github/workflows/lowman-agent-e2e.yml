@@ -1,0 +1,84 @@
+name: Lowman XAJ agent E2E
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/lowman-xaj-agent-e2e
+    paths:
+      - '.github/workflows/lowman-agent-e2e.yml'
+      - 'scripts/run_lowman_agent_experiment.py'
+      - 'src/**'
+      - 'tests/fixtures/xaj/lowman_scheme.json'
+      - 'pyproject.toml'
+      - 'uv.lock'
+
+permissions:
+  contents: read
+
+jobs:
+  lowman-agent-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SILICONFLOW_API_KEY: ${{ secrets.LLM_KEY }}
+      HYDRO_LLM_TIMEOUT_SECONDS: '90'
+      HYDRO_LLM_MAX_RETRIES: '4'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Verify LLM secret is available
+        shell: bash
+        run: |
+          if [ -z "$SILICONFLOW_API_KEY" ]; then
+            echo 'Repository secret LLM_KEY is missing or empty.' >&2
+            exit 2
+          fi
+
+      - name: Prepare real Lowman forcing and observed discharge
+        run: |
+          mkdir -p data/source
+          uv run python scripts/prepare_lowman_source.py \
+            --output data/source/camels_13235000 \
+            --start 2019-10-01 \
+            --end 2020-05-05
+
+      - name: Run real SiliconFlow agent over lumped XAJ
+        run: |
+          uv run python scripts/run_lowman_agent_experiment.py \
+            --source data/source/camels_13235000 \
+            --scheme tests/fixtures/xaj/lowman_scheme.json \
+            --output artifacts/lowman-agent-e2e \
+            --start-date 2020-04-15 \
+            --end-date 2020-05-01 \
+            --warmup-days 90 \
+            --max-rounds 20 \
+            --max-opt-cycles 4
+
+      - name: Print experiment summary
+        if: always()
+        run: |
+          if [ -f artifacts/lowman-agent-e2e/summary.md ]; then
+            cat artifacts/lowman-agent-e2e/summary.md
+          fi
+          if [ -f artifacts/lowman-agent-e2e/summary.json ]; then
+            cat artifacts/lowman-agent-e2e/summary.json
+          fi
+
+      - name: Upload full experiment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lowman-xaj-agent-e2e
+          path: artifacts/lowman-agent-e2e/
+          if-no-files-found: warn
+          retention-days: 14
