@@ -22,12 +22,7 @@ def _ratio(value: float, threshold: float) -> float:
 
 
 class HydrologicPhaseGate:
-    """Evaluate whether the *current hydrologic problem* improved or is solved.
-
-    This class intentionally does not decide search convergence. It answers the
-    hydrology question; SearchConvergenceController separately answers whether more
-    numerical experiments are still informative.
-    """
+    """Judge hydrologic phase quality; search convergence is handled separately."""
 
     def __init__(self, policy: HydrologicGatePolicy | None = None):
         self.policy = policy or HydrologicGatePolicy()
@@ -44,30 +39,36 @@ class HydrologicPhaseGate:
         development_grade_ok: bool = False,
     ) -> PhaseGateDecision:
         if phase == CalibrationPhase.WATER_BALANCE:
-            return self._water_balance(
-                base_scheme_id, candidate_scheme_id, experiment_id, base_metrics, candidate_metrics
-            )
+            return self._water_balance(base_scheme_id, candidate_scheme_id, experiment_id, base_metrics, candidate_metrics)
         if phase == CalibrationPhase.SOURCE_RECESSION:
-            return self._source_recession(
-                base_scheme_id, candidate_scheme_id, experiment_id, base_metrics, candidate_metrics
-            )
+            return self._source_recession(base_scheme_id, candidate_scheme_id, experiment_id, base_metrics, candidate_metrics)
         if phase == CalibrationPhase.ROUTING_EVENT:
-            return self._routing_event(
-                base_scheme_id, candidate_scheme_id, experiment_id, base_metrics, candidate_metrics
-            )
+            return self._routing_event(base_scheme_id, candidate_scheme_id, experiment_id, base_metrics, candidate_metrics)
         if phase == CalibrationPhase.JOINT_REFINE:
-            return self._joint_refine(
-                base_scheme_id, candidate_scheme_id, experiment_id, base_metrics, candidate_metrics
-            )
+            return self._joint_refine(base_scheme_id, candidate_scheme_id, experiment_id, base_metrics, candidate_metrics)
         if phase == CalibrationPhase.DEVELOPMENT_VALIDATION:
-            return self._development_validation(
-                base_scheme_id,
-                candidate_scheme_id,
-                experiment_id,
-                candidate_metrics,
-                development_grade_ok,
-            )
+            return self._development_validation(base_scheme_id, candidate_scheme_id, experiment_id, candidate_metrics, development_grade_ok)
         raise ValueError(f"phase {phase} is not a calibration Gate phase")
+
+    def _decision(self, *, phase, status, base_id, candidate_id, experiment_id, metric, value, higher, adopt=False, advance=False, stop=False, reasons=(), metrics=None):
+        return PhaseGateDecision(
+            phase=phase,
+            status=status,
+            base_scheme_id=base_id,
+            candidate_scheme_id=candidate_id,
+            experiment_id=experiment_id,
+            adopt_candidate=adopt,
+            advance_phase=advance,
+            stop_search=stop,
+            progress_metric=metric,
+            progress_value=float(value),
+            higher_is_better=higher,
+            reasons=tuple(reasons),
+            metrics=metrics or {},
+        )
+
+    def _event_evidence_ok(self, metrics: dict[str, float]) -> bool:
+        return _m(metrics, "flood_event_count") >= float(self.policy.min_flood_events)
 
     def _water_loss(self, metrics: dict[str, float]) -> float:
         p = self.policy
@@ -82,20 +83,18 @@ class HydrologicPhaseGate:
         candidate_loss = self._water_loss(candidate)
         improved = candidate_loss + 1e-12 < base_loss
         passed = candidate_loss <= 1.0
-        status = PhaseGateStatus.PHASE_PASS if passed else (
-            PhaseGateStatus.CONTINUE if improved else PhaseGateStatus.ROLLBACK
-        )
-        return PhaseGateDecision(
+        status = PhaseGateStatus.PHASE_PASS if passed else (PhaseGateStatus.CONTINUE if improved else PhaseGateStatus.ROLLBACK)
+        return self._decision(
             phase=CalibrationPhase.WATER_BALANCE,
             status=status,
-            base_scheme_id=base_id,
-            candidate_scheme_id=candidate_id,
+            base_id=base_id,
+            candidate_id=candidate_id,
             experiment_id=experiment_id,
-            adopt_candidate=improved or passed,
-            advance_phase=passed,
-            progress_metric="water_balance_constraint_ratio",
-            progress_value=float(candidate_loss),
-            higher_is_better=False,
+            metric="water_balance_constraint_ratio",
+            value=candidate_loss,
+            higher=False,
+            adopt=improved or passed,
+            advance=passed,
             reasons=("water_balance_pass" if passed else "water_balance_improved" if improved else "water_balance_not_improved",),
             metrics={"base_phase_loss": base_loss, "candidate_phase_loss": candidate_loss},
         )
@@ -110,29 +109,25 @@ class HydrologicPhaseGate:
             _ratio(_m(candidate, "recession_relative_error"), p.recession_relative_error),
             _ratio(_m(candidate, "event_recession_rel_error_median"), p.recession_relative_error),
         )
-        upstream_ok = _m(candidate, "volume_rel_error") <= (
-            _m(base, "volume_rel_error") + p.max_water_balance_regression
-        )
+        upstream_ok = _m(candidate, "volume_rel_error") <= _m(base, "volume_rel_error") + p.max_water_balance_regression
         improved = candidate_loss + 1e-12 < base_loss and upstream_ok
         passed = candidate_loss <= 1.0 and upstream_ok
         reasons = []
         if not upstream_ok:
             reasons.append("water_balance_regression")
         reasons.append("recession_pass" if passed else "recession_improved" if improved else "recession_not_improved")
-        return PhaseGateDecision(
+        return self._decision(
             phase=CalibrationPhase.SOURCE_RECESSION,
-            status=PhaseGateStatus.PHASE_PASS if passed else (
-                PhaseGateStatus.CONTINUE if improved else PhaseGateStatus.ROLLBACK
-            ),
-            base_scheme_id=base_id,
-            candidate_scheme_id=candidate_id,
+            status=PhaseGateStatus.PHASE_PASS if passed else (PhaseGateStatus.CONTINUE if improved else PhaseGateStatus.ROLLBACK),
+            base_id=base_id,
+            candidate_id=candidate_id,
             experiment_id=experiment_id,
-            adopt_candidate=improved or passed,
-            advance_phase=passed,
-            progress_metric="recession_constraint_ratio",
-            progress_value=float(candidate_loss),
-            higher_is_better=False,
-            reasons=tuple(reasons),
+            metric="recession_constraint_ratio",
+            value=candidate_loss,
+            higher=False,
+            adopt=improved or passed,
+            advance=passed,
+            reasons=reasons,
             metrics={"base_phase_loss": base_loss, "candidate_phase_loss": candidate_loss},
         )
 
@@ -145,83 +140,110 @@ class HydrologicPhaseGate:
         )
 
     def _routing_event(self, base_id, candidate_id, experiment_id, base, candidate):
+        if not self._event_evidence_ok(candidate):
+            return self._decision(
+                phase=CalibrationPhase.ROUTING_EVENT,
+                status=PhaseGateStatus.DATA_LIMIT,
+                base_id=base_id,
+                candidate_id=candidate_id,
+                experiment_id=experiment_id,
+                metric="flood_event_count",
+                value=_m(candidate, "flood_event_count"),
+                higher=True,
+                stop=True,
+                reasons=("insufficient_representative_flood_events",),
+            )
         p = self.policy
         base_loss = self._routing_loss(base)
         candidate_loss = self._routing_loss(candidate)
-        upstream_ok = _m(candidate, "volume_rel_error") <= (
-            _m(base, "volume_rel_error") + p.max_water_balance_regression
-        )
+        upstream_ok = _m(candidate, "volume_rel_error") <= _m(base, "volume_rel_error") + p.max_water_balance_regression
         improved = candidate_loss + 1e-12 < base_loss and upstream_ok
         passed = candidate_loss <= 1.0 and upstream_ok
         reasons = []
         if not upstream_ok:
             reasons.append("water_balance_regression")
         reasons.append("routing_event_pass" if passed else "routing_event_improved" if improved else "routing_event_not_improved")
-        return PhaseGateDecision(
+        return self._decision(
             phase=CalibrationPhase.ROUTING_EVENT,
-            status=PhaseGateStatus.PHASE_PASS if passed else (
-                PhaseGateStatus.CONTINUE if improved else PhaseGateStatus.ROLLBACK
-            ),
-            base_scheme_id=base_id,
-            candidate_scheme_id=candidate_id,
+            status=PhaseGateStatus.PHASE_PASS if passed else (PhaseGateStatus.CONTINUE if improved else PhaseGateStatus.ROLLBACK),
+            base_id=base_id,
+            candidate_id=candidate_id,
             experiment_id=experiment_id,
-            adopt_candidate=improved or passed,
-            advance_phase=passed,
-            progress_metric="routing_event_constraint_ratio",
-            progress_value=float(candidate_loss),
-            higher_is_better=False,
-            reasons=tuple(reasons),
+            metric="routing_event_constraint_ratio",
+            value=candidate_loss,
+            higher=False,
+            adopt=improved or passed,
+            advance=passed,
+            reasons=reasons,
             metrics={"base_phase_loss": base_loss, "candidate_phase_loss": candidate_loss},
         )
 
     def _joint_constraints_ok(self, metrics: dict[str, float]) -> bool:
         p = self.policy
         return (
-            _m(metrics, "volume_rel_error") <= p.water_balance_rel_error + p.max_water_balance_regression
+            self._event_evidence_ok(metrics)
+            and _m(metrics, "volume_rel_error") <= p.water_balance_rel_error + p.max_water_balance_regression
             and _m(metrics, "event_peak_rel_error_median") <= p.flood_peak_rel_error + p.max_event_error_regression
             and _m(metrics, "event_volume_rel_error_median") <= p.flood_volume_rel_error + p.max_event_error_regression
             and _m(metrics, "event_peak_timing_steps_median") <= p.peak_timing_steps + 1.0
         )
 
     def _joint_refine(self, base_id, candidate_id, experiment_id, base, candidate):
+        if not self._event_evidence_ok(candidate):
+            return self._decision(
+                phase=CalibrationPhase.JOINT_REFINE,
+                status=PhaseGateStatus.DATA_LIMIT,
+                base_id=base_id,
+                candidate_id=candidate_id,
+                experiment_id=experiment_id,
+                metric="flood_event_count",
+                value=_m(candidate, "flood_event_count"),
+                higher=True,
+                stop=True,
+                reasons=("insufficient_representative_flood_events",),
+            )
         p = self.policy
-        base_nse = _m(base, "nse", float("-inf"))
-        candidate_nse = _m(candidate, "nse", float("-inf"))
+        base_nse = _m(base, "nse", -1e9)
+        candidate_nse = _m(candidate, "nse", -1e9)
         constraints_ok = self._joint_constraints_ok(candidate)
         improved = candidate_nse > base_nse + 1e-12 and constraints_ok
-        passed = (
-            candidate_nse >= p.joint_nse_floor
-            and _m(candidate, "kge", float("-inf")) >= p.joint_kge_floor
-            and constraints_ok
-        )
+        passed = candidate_nse >= p.joint_nse_floor and _m(candidate, "kge", -1e9) >= p.joint_kge_floor and constraints_ok
         reasons = []
         if not constraints_ok:
             reasons.append("hydrologic_guardrail_failed")
         reasons.append("joint_skill_pass" if passed else "joint_skill_improved" if improved else "joint_skill_not_improved")
-        return PhaseGateDecision(
+        return self._decision(
             phase=CalibrationPhase.JOINT_REFINE,
-            status=PhaseGateStatus.PHASE_PASS if passed else (
-                PhaseGateStatus.CONTINUE if improved else PhaseGateStatus.ROLLBACK
-            ),
-            base_scheme_id=base_id,
-            candidate_scheme_id=candidate_id,
+            status=PhaseGateStatus.PHASE_PASS if passed else (PhaseGateStatus.CONTINUE if improved else PhaseGateStatus.ROLLBACK),
+            base_id=base_id,
+            candidate_id=candidate_id,
             experiment_id=experiment_id,
-            adopt_candidate=improved or passed,
-            advance_phase=passed,
-            progress_metric="development_nse",
-            progress_value=float(candidate_nse),
-            higher_is_better=True,
-            reasons=tuple(reasons),
+            metric="development_nse",
+            value=candidate_nse,
+            higher=True,
+            adopt=improved or passed,
+            advance=passed,
+            reasons=reasons,
             metrics={"base_phase_loss": -base_nse, "candidate_phase_loss": -candidate_nse},
         )
 
     def _development_validation(self, base_id, candidate_id, experiment_id, metrics, grade_ok):
+        if not self._event_evidence_ok(metrics):
+            return self._decision(
+                phase=CalibrationPhase.DEVELOPMENT_VALIDATION,
+                status=PhaseGateStatus.DATA_LIMIT,
+                base_id=base_id,
+                candidate_id=candidate_id,
+                experiment_id=experiment_id,
+                metric="flood_event_count",
+                value=_m(metrics, "flood_event_count"),
+                higher=True,
+                stop=True,
+                reasons=("insufficient_representative_flood_events",),
+            )
         p = self.policy
         physical_ok = self._joint_constraints_ok(metrics)
-        statistical_ok = (
-            _m(metrics, "nse", float("-inf")) >= p.joint_nse_floor
-            and _m(metrics, "kge", float("-inf")) >= p.joint_kge_floor
-        )
+        statistical_ok = _m(metrics, "nse", -1e9) >= p.joint_nse_floor and _m(metrics, "kge", -1e9) >= p.joint_kge_floor
         passed = physical_ok and statistical_ok and grade_ok
         reasons = []
         if not physical_ok:
@@ -232,18 +254,16 @@ class HydrologicPhaseGate:
             reasons.append("development_gbt_grade_failed")
         if passed:
             reasons.append("development_validation_pass")
-        return PhaseGateDecision(
+        return self._decision(
             phase=CalibrationPhase.DEVELOPMENT_VALIDATION,
             status=PhaseGateStatus.PHASE_PASS if passed else PhaseGateStatus.PLATEAU_FAIL,
-            base_scheme_id=base_id,
-            candidate_scheme_id=candidate_id,
+            base_id=base_id,
+            candidate_id=candidate_id,
             experiment_id=experiment_id,
-            adopt_candidate=False,
-            advance_phase=passed,
-            stop_search=True,
-            progress_metric="development_nse",
-            progress_value=_m(metrics, "nse", float("-inf")),
-            higher_is_better=True,
-            reasons=tuple(reasons),
-            metrics={},
+            metric="development_nse",
+            value=_m(metrics, "nse", -1e9),
+            higher=True,
+            advance=passed,
+            stop=True,
+            reasons=reasons,
         )
