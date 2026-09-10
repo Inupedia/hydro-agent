@@ -192,6 +192,7 @@ def main() -> int:
 
     gate_trace = []
     calibration_experiments: set[str] = set()
+    no_change_search_attempts = 0
     p6_passed = False
     terminal_calibration_status = None
     terminal_calibration_phase = None
@@ -203,8 +204,12 @@ def main() -> int:
         experiment_id = str(gates.get("experiment_id") or "")
         phase = str(gates.get("calibration_phase") or "")
         status = str(gates.get("status") or row.status)
-        if experiment_id and phase != CalibrationPhase.DEVELOPMENT_VALIDATION.value:
-            calibration_experiments.add(experiment_id)
+        parameter_changed = str(gates.get("parameter_changed") or "true").lower() == "true"
+        if phase != CalibrationPhase.DEVELOPMENT_VALIDATION.value:
+            if parameter_changed and experiment_id:
+                calibration_experiments.add(experiment_id)
+            elif not parameter_changed:
+                no_change_search_attempts += 1
         if phase == CalibrationPhase.DEVELOPMENT_VALIDATION.value and status == "PHASE_PASS":
             p6_passed = True
         if status in _TERMINAL_CALIBRATION_STATUSES and not gates.get("return_phase"):
@@ -215,6 +220,7 @@ def main() -> int:
                 "phase": phase,
                 "status": status,
                 "experiment_id": experiment_id,
+                "parameter_changed": parameter_changed,
                 "return_phase": gates.get("return_phase") or None,
                 "progress_metric": gates.get("progress_metric"),
                 "progress_value": metrics.get("phase_progress_value"),
@@ -258,6 +264,7 @@ def main() -> int:
         "rounds_used": state.agent_rounds_used,
         "optimization_cycles_used": state.optimization_cycles_used,
         "unique_calibration_experiments": len(calibration_experiments),
+        "no_change_search_attempts": no_change_search_attempts,
         "task_phase": task.phase,
         "calibration_phase": calibration_phase,
         "phase_history": list(kernel.protocol.phase_history(evidence)),
@@ -289,8 +296,9 @@ def main() -> int:
         f"- development: `{args.development_start}..{args.development_end}`\n"
         f"- final holdout: `{args.final_start}..{args.final_end}`\n"
         f"- Agent rounds: `{state.agent_rounds_used}/{args.max_rounds}` (hard ceiling)\n"
-        f"- optimization experiments: `{state.optimization_cycles_used}/{args.max_opt_cycles}` (hard ceiling)\n"
-        f"- unique calibration experiments: `{len(calibration_experiments)}`\n"
+        f"- optimization attempts: `{state.optimization_cycles_used}/{args.max_opt_cycles}` (hard ceiling)\n"
+        f"- unique calibration parameter experiments: `{len(calibration_experiments)}`\n"
+        f"- no-change search attempts: `{no_change_search_attempts}`\n"
         f"- protocol completed: `{protocol_completed}`\n"
         f"- calibration succeeded: `{calibration_succeeded}`\n"
         f"- terminal calibration: `{terminal_calibration_phase}:{terminal_calibration_status}`\n"
