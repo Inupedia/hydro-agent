@@ -1,4 +1,5 @@
 """Teacher v6 kernel adapter. All timesteps evolve one native Model instance."""
+
 import hashlib
 import json
 from pathlib import Path
@@ -9,46 +10,101 @@ MODEL_VERSION = "teacher-xaj-v6-20260908"
 MODEL_SHA256 = "9175b0edd8c80605a47463ceafe6fcaac568cdac49f98a4c00f5470e802bb8ff"
 
 
+def _raw_parameter(scheme, *, rivid: int, area_km2: float):
+    p = scheme.parameters
+    return dict(
+        rivid=int(rivid),
+        area=float(area_km2),
+        dp=scheme.routing.dp,
+        kc=p["K"],
+        b=p["B"],
+        c=p["C"],
+        imp=p["IM"],
+        wm=p["UM"] + p["LM"] + p["DM"],
+        wum=p["UM"],
+        wlm=p["LM"],
+        sm=p["SM"],
+        ex=p["EX"],
+        kg=p["KG"],
+        ki=p["KI"],
+        cg=p["CG"],
+        ci=p["CI"],
+        cs=p["CS"],
+        lag=p["L"],
+        ke=scheme.routing.ke,
+        xe=scheme.routing.xe,
+    )
+
+
 def simulate(scheme, basin, inputs):
-    """Return post-warmup discharge in m3/s; preserve native cold-start units."""
+    """Return post-warmup outlet discharge in m3/s.
+
+    Lumped schemes use one native XAJ zone for the full basin. Distributed schemes
+    use one native zone per pyflwdir subbasin and require one P/PET column per unit.
+    The teacher kernel aggregates all zone discharges into ``sum_qsig``. This is a
+    spatially distributed rainfall-runoff calculation with shared calibrated XAJ
+    parameters; explicit river-network routing between subbasins is not claimed.
+    """
+
     import numpy as np
 
     if hashlib.sha256(Path(native.__file__).read_bytes()).hexdigest() != MODEL_SHA256:
         raise ValueError("teacher XAJ source checksum mismatch")
-    p = scheme.parameters
-    raw = dict(rivid=1, area=basin.area_km2, dp=scheme.routing.dp,
-               kc=p["K"], b=p["B"], c=p["C"], imp=p["IM"],
-               wm=p["UM"] + p["LM"] + p["DM"], wum=p["UM"], wlm=p["LM"],
-               sm=p["SM"], ex=p["EX"], kg=p["KG"], ki=p["KI"],
-               cg=p["CG"], ci=p["CI"], cs=p["CS"], lag=p["L"],
-               ke=scheme.routing.ke, xe=scheme.routing.xe)
-    model = native.Model([native.make_parameter(raw, 86400)], 86400)
+    array = np.asarray(inputs, dtype=float)
+    if array.ndim != 3 or array.shape[2] != 2:
+        raise ValueError("XAJ inputs must have shape [time, unit, 2] for P/PET")
+
+    if scheme.units:
+        units = tuple(scheme.units)
+        if array.shape[1] != len(units):
+            raise ValueError(
+                f"distributed XAJ forcing unit mismatch: input={array.shape[1]}, scheme={len(units)}"
+            )
+        area_sum = sum(unit.area_km2 for unit in units)
+        if abs(area_sum - basin.area_km2) / basin.area_km2 > 0.05:
+            raise ValueError("distributed XAJ unit areas do not close to basin area within 5%")
+    else:
+        if array.shape[1] != 1:
+            raise ValueError("lumped XAJ requires exactly one forcing unit")
+        units = (type("LumpedUnit", (), {"unit_id": 1, "area_km2": basin.area_km2})(),)
+
+    params = [
+        native.make_parameter(
+            _raw_parameter(scheme, rivid=unit.unit_id, area_km2=unit.area_km2),
+            86400,
+            zone_index=index,
+        )
+        for index, unit in enumerate(units)
+    ]
+    model = native.Model(params, 86400)
     values = []
-    for row in inputs:
-        result = model.step([float(row[0, 0])], [float(row[0, 1])])
+    for row in array:
+        result = model.step(row[:, 0].tolist(), row[:, 1].tolist())
         values.append(float(result.sum_qsig))
     values = np.asarray(values, dtype=float)
     if not np.isfinite(values).all() or (values < 0).any():
         raise ValueError("invalid teacher XAJ numerical result")
-    return values[scheme.warmup_days:]
+    return values[scheme.warmup_days :]
 
 
 def _bounds_payload():
-    return json.loads((Path(__file__).parent / "vendor/parameter_bounds.yaml").read_text(
-        encoding="utf-8"))["parameters"]
+    return json.loads(
+        (Path(__file__).parent / "vendor/parameter_bounds.yaml").read_text(encoding="utf-8")
+    )["parameters"]
 
 
 def load_param_ranges():
     bounds = _bounds_payload()
     mapping = {"K": "KC", "IM": "IMP", "UM": "WUM", "LM": "WLM", "L": "LAG"}
     from .contracts import XajScheme
+
     ranges = {}
     for name in XajScheme.PARAMETER_ORDER:
         if name == "DM":
-            # Compatibility coordinate: WM = UM + LM + DM. Joint WM bound is
-            # enforced by the calibration caller, not by independent sampling.
-            ranges[name] = (0.001, bounds["WM"]["max"] - bounds["WUM"]["min"]
-                            - bounds["WLM"]["min"])
+            ranges[name] = (
+                0.001,
+                bounds["WM"]["max"] - bounds["WUM"]["min"] - bounds["WLM"]["min"],
+            )
         else:
             item = bounds[mapping.get(name, name)]
             ranges[name] = (float(item["min"]), float(item["max"]))
@@ -62,6 +118,7 @@ def load_calibratable_params() -> tuple[str, ...]:
     represents WM as UM + LM + DM, so DM is the single residual coordinate used to
     change total tension-water capacity while UM/LM remain fixed.
     """
+
     bounds = _bounds_payload()
     native_to_scheme = {
         "KC": "K",
@@ -79,4 +136,5 @@ def load_calibratable_params() -> tuple[str, ...]:
         if bool(item.get("calibrate")) and name in native_to_scheme
     }
     from .contracts import XajScheme
+
     return tuple(name for name in XajScheme.PARAMETER_ORDER if name in selected)
