@@ -47,7 +47,10 @@ def build_forecast_graph(
 
     def act(state: ForecastGraphState) -> dict[str, Any]:
         from hydro_agent.agent.permissions import PermissionDenied
-        from hydro_agent.agent.providers.siliconflow import _fallback_payload, normalize_decision_payload
+        from hydro_agent.agent.providers.siliconflow import (
+            _fallback_payload,
+            normalize_decision_payload,
+        )
 
         task_id = state["task_id"]
         view = world_state.build(task_id)
@@ -62,6 +65,7 @@ def build_forecast_graph(
                 _fallback_payload(view, raw_text="no new evidence recovery"),
                 safe_actions=safe,
                 evidence_actions=evidence_actions,
+                allowed_parameters=set(view.hydro.available_tunable_parameters),
             )
             # Prefer forward progress over repeating the blocked decision.
             for preferred in (
@@ -78,6 +82,7 @@ def build_forecast_graph(
                         fallback["strategy_id"] = None
                         fallback["param_groups"] = None
                         fallback["objective"] = None
+                        fallback["parameter_guidance"] = None
                     else:
                         fallback["strategy_id"] = fallback.get("strategy_id") or "xaj-bounded-v1"
                         fallback["param_groups"] = fallback.get("param_groups") or [
