@@ -106,6 +106,41 @@ def _effective_range(
     return low, high
 
 
+def _validate_parameter_guidance(
+    guidance: ParameterGuidance,
+    *,
+    tunable: set[str],
+    guidance_allowed: set[str],
+) -> None:
+    """Validate scientific guidance without rejecting redundant freeze/hold intent.
+
+    A parameter may be phase-legal yet omitted from this round's coarse search group.
+    Saying that such a parameter is held/frozen is harmless and documents scientific
+    intent. Moving it or applying numeric bounds, however, would contradict the active
+    search space and remains a hard error.
+    """
+
+    guided_names = (
+        set(guidance.directions) | set(guidance.bounds) | set(guidance.frozen_parameters)
+    )
+    outside_phase = guided_names - guidance_allowed
+    if outside_phase:
+        raise ValueError(
+            "parameter guidance outside phase/model capability: "
+            + ",".join(sorted(outside_phase))
+        )
+
+    moving_names = {
+        name for name, direction in guidance.directions.items() if direction != "hold"
+    } | set(guidance.bounds)
+    outside_search = moving_names - tunable
+    if outside_search:
+        raise ValueError(
+            "parameter movement outside active search space: "
+            + ",".join(sorted(outside_search))
+        )
+
+
 def _sample_vector(
     rng,
     names,
@@ -280,13 +315,14 @@ def run(workspace: Path) -> dict:
         raise ValueError(f"no calibratable XAJ parameters in groups={groups}, objective={objective}")
 
     guidance = ParameterGuidance.model_validate(request.parameters.get("parameter_guidance") or {})
-    guided_names = set(guidance.directions) | set(guidance.bounds) | set(guidance.frozen_parameters)
-    invalid_guidance = guided_names - tunable
-    if invalid_guidance:
-        raise ValueError(
-            "parameter guidance outside active phase/search space: "
-            + ",".join(sorted(invalid_guidance))
-        )
+    guidance_allowed = calibratable & (
+        set(phase_whitelist) if phase_whitelist is not None else calibratable
+    )
+    _validate_parameter_guidance(
+        guidance,
+        tunable=tunable,
+        guidance_allowed=guidance_allowed,
+    )
 
     scheme, basin, dates, inputs = load_xaj_inputs(workspace)
     streamflow = _load_streamflow(workspace)
