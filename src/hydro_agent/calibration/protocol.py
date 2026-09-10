@@ -16,7 +16,12 @@ _PHASE_ORDER = (
 
 
 class CalibrationProtocol:
-    """Derive calibration phase from immutable evidence instead of a second DB state machine."""
+    """Derive calibration phase from immutable Gate evidence.
+
+    Development validation may explicitly route back to the hydrologic phase that
+    failed. This keeps the return path auditable without maintaining a second mutable
+    phase column in the database.
+    """
 
     @staticmethod
     def first_calibration_phase() -> CalibrationPhase:
@@ -31,12 +36,6 @@ class CalibrationProtocol:
 
     @classmethod
     def phase_from_evidence(cls, evidence_rows) -> CalibrationPhase:
-        """Use A08 evidence as the authoritative phase transition log.
-
-        P0/P1 map to A01/A03 and therefore are considered complete once the iterative
-        calibration loop starts. Every A08 packet records the hydrologic phase it judged.
-        """
-
         phase = cls.first_calibration_phase()
         for row in evidence_rows:
             action = getattr(row, "action", None)
@@ -49,6 +48,15 @@ class CalibrationProtocol:
                 judged_phase = CalibrationPhase(raw_phase) if raw_phase else phase
             except ValueError:
                 judged_phase = phase
+
+            raw_return = str(gates.get("return_phase") or "")
+            if raw_return:
+                try:
+                    phase = CalibrationPhase(raw_return)
+                    continue
+                except ValueError:
+                    pass
+
             raw_status = str(gates.get("status") or getattr(row, "status", ""))
             advance = str(gates.get("advance_phase") or "false").lower() == "true"
             if advance or raw_status in {
@@ -72,6 +80,8 @@ class CalibrationProtocol:
             phase = str(gates.get("calibration_phase") or "")
             status = str(gates.get("status") or getattr(row, "status", ""))
             experiment = str(gates.get("experiment_id") or "")
+            return_phase = str(gates.get("return_phase") or "")
             if phase:
-                history.append(f"{phase}:{status}:{experiment}")
+                suffix = f"-> {return_phase}" if return_phase else ""
+                history.append(f"{phase}:{status}:{experiment}{suffix}")
         return tuple(history)
