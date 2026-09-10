@@ -121,6 +121,15 @@ class WorldStateBuilder:
         phase_params = (
             resolve_phase_param_names(phase_objectives[0]) if phase_objectives else None
         ) or ()
+        # Phase policy and model-kernel capability are separate constraints. The Agent
+        # must only see their intersection; e.g. P4 conceptually owns L, but the current
+        # teacher XAJ marks LAG as non-calibratable, so advertising L would create a
+        # guidance/runtime contract error.
+        if self.model_id == "xaj" and phase_params:
+            from hydro_agent.models.xaj.upstream import load_calibratable_params
+
+            calibratable = set(load_calibratable_params())
+            phase_params = tuple(name for name in phase_params if name in calibratable)
         hydro = HydroContext(
             current_parameters={k: float(v) for k, v in current_params.items()},
             candidate_parameters=candidate_params,
