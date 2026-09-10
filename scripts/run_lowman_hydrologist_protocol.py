@@ -21,6 +21,7 @@ from pathlib import Path
 from hydro_agent.agent.providers.siliconflow import SiliconFlowDecisionProvider
 from hydro_agent.agent.runtime import AgentRuntime
 from hydro_agent.agent.world_state import WorldStateBuilder
+from hydro_agent.calibration.contracts import CalibrationPhase
 from hydro_agent.llm.settings import LLMSettings
 from hydro_agent.persistence.database import Database
 from hydro_agent.persistence.repository import HydroRepository
@@ -31,6 +32,13 @@ from hydro_agent.workbench.calibration import (
 
 TASK_ID = "lowman-hydrologist-protocol"
 BASIN_ID = "camels_13235000"
+_TERMINAL_CALIBRATION_STATUSES = {
+    "DATA_LIMIT",
+    "FORCING_LIMIT",
+    "STRUCTURAL_LIMIT",
+    "HARD_BUDGET",
+    "PLATEAU_FAIL",
+}
 
 
 def stable_hash(payload: dict) -> str:
@@ -55,6 +63,8 @@ class TracingProvider:
                 "budget": view.budget.model_dump(mode="json"),
                 "diagnosis": view.hydro.diagnosis,
                 "phase_history": list(view.hydro.phase_history),
+                "action_counts": dict(view.hydro.action_counts),
+                "latest_gate": dict(view.hydro.latest_gate),
                 "decision": decision.model_dump(mode="json"),
             }
         )
@@ -181,19 +191,29 @@ def main() -> int:
     schemes = repo.list_schemes(TASK_ID)
 
     gate_trace = []
-    unique_experiments: set[str] = set()
+    calibration_experiments: set[str] = set()
+    p6_passed = False
+    terminal_calibration_status = None
+    terminal_calibration_phase = None
     for row in evidence:
         if row.action != "A08_GATE":
             continue
         gates = dict(row.gates_json or {})
         metrics = dict(row.metrics_json or {})
         experiment_id = str(gates.get("experiment_id") or "")
-        if experiment_id:
-            unique_experiments.add(experiment_id)
+        phase = str(gates.get("calibration_phase") or "")
+        status = str(gates.get("status") or row.status)
+        if experiment_id and phase != CalibrationPhase.DEVELOPMENT_VALIDATION.value:
+            calibration_experiments.add(experiment_id)
+        if phase == CalibrationPhase.DEVELOPMENT_VALIDATION.value and status == "PHASE_PASS":
+            p6_passed = True
+        if status in _TERMINAL_CALIBRATION_STATUSES and not gates.get("return_phase"):
+            terminal_calibration_status = status
+            terminal_calibration_phase = phase
         gate_trace.append(
             {
-                "phase": gates.get("calibration_phase"),
-                "status": gates.get("status") or row.status,
+                "phase": phase,
+                "status": status,
                 "experiment_id": experiment_id,
                 "return_phase": gates.get("return_phase") or None,
                 "progress_metric": gates.get("progress_metric"),
@@ -220,6 +240,9 @@ def main() -> int:
             final_metrics = dict(row.metrics_json or {})
             break
 
+    calibration_phase = kernel.protocol.phase_from_evidence(evidence).value
+    protocol_completed = not state.needs_follow_up and error is None
+    calibration_succeeded = p6_passed and terminal_calibration_status is None
     summary = {
         "experiment": "Lowman XAJ / hydrologist calibration protocol",
         "model": settings.model,
@@ -234,14 +257,16 @@ def main() -> int:
         },
         "rounds_used": state.agent_rounds_used,
         "optimization_cycles_used": state.optimization_cycles_used,
-        "unique_calibration_experiments": len(
-            [e for e in unique_experiments if not e.startswith("development-validation:")]
-        ),
+        "unique_calibration_experiments": len(calibration_experiments),
         "task_phase": task.phase,
-        "calibration_phase": kernel.protocol.phase_from_evidence(evidence).value,
+        "calibration_phase": calibration_phase,
         "phase_history": list(kernel.protocol.phase_history(evidence)),
         "current_scheme_id": state.current_scheme_id,
-        "terminal": not state.needs_follow_up and error is None,
+        "protocol_completed": protocol_completed,
+        "calibration_succeeded": calibration_succeeded,
+        "development_validation_passed": p6_passed,
+        "terminal_calibration_status": terminal_calibration_status,
+        "terminal_calibration_phase": terminal_calibration_phase,
         "gate_trace": gate_trace,
         "actions": [row.action for row in evidence],
         "decision_count": len(decisions),
@@ -265,8 +290,11 @@ def main() -> int:
         f"- final holdout: `{args.final_start}..{args.final_end}`\n"
         f"- Agent rounds: `{state.agent_rounds_used}/{args.max_rounds}` (hard ceiling)\n"
         f"- optimization experiments: `{state.optimization_cycles_used}/{args.max_opt_cycles}` (hard ceiling)\n"
-        f"- unique Gate experiments: `{summary['unique_calibration_experiments']}`\n"
-        f"- calibration phase: `{summary['calibration_phase']}`\n"
+        f"- unique calibration experiments: `{len(calibration_experiments)}`\n"
+        f"- protocol completed: `{protocol_completed}`\n"
+        f"- calibration succeeded: `{calibration_succeeded}`\n"
+        f"- terminal calibration: `{terminal_calibration_phase}:{terminal_calibration_status}`\n"
+        f"- calibration phase: `{calibration_phase}`\n"
         f"- phase history: `{summary['phase_history']}`\n"
         f"- final holdout metrics: `{final_metrics}`\n"
         f"- error: `{error}`\n",
