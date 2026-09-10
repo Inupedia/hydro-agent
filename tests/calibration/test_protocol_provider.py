@@ -30,13 +30,19 @@ class Delegate:
         )
 
 
-def _evidence(action: ActionCode, status: str = "succeeded", gates=None) -> EvidenceSummary:
+def _evidence(
+    action: ActionCode,
+    status: str = "succeeded",
+    gates=None,
+    metrics=None,
+) -> EvidenceSummary:
     return EvidenceSummary(
         evidence_id=f"ev-{action.value.lower()}",
         action=action,
         status=status,
         new_information_hash=f"hash-{action.value.lower()}",
         gates=gates or {},
+        metrics=metrics or {},
     )
 
 
@@ -100,6 +106,40 @@ def test_initialization_does_not_repeat_when_old_rows_leave_prompt_window():
     decision = provider.decide(view)
     assert decision.action == ActionCode.A07_OPTIMIZE
     assert delegate.calls == 1
+
+
+def test_forcing_warning_uses_frozen_probe_instead_of_parameter_compensation():
+    delegate = Delegate()
+    provider = HydrologistProtocolDecisionProvider(delegate)
+    view = _view(
+        evidence=(
+            _evidence(
+                ActionCode.A06_DIAGNOSE,
+                metrics={"forcing_adequacy_warning": 1.0},
+            ),
+        ),
+        counts={
+            ActionCode.A01_CHECK_DATA.value: 1,
+            ActionCode.A03_VALIDATE_SCHEME.value: 1,
+            ActionCode.A05_FORECAST.value: 1,
+            ActionCode.A06_DIAGNOSE.value: 1,
+        },
+    )
+    view = view.model_copy(
+        update={
+            "hydro": view.hydro.model_copy(
+                update={"available_tunable_parameters": ("K", "B", "DM")}
+            )
+        }
+    )
+
+    decision = provider.decide(view)
+
+    assert decision.action == ActionCode.A07_OPTIMIZE
+    assert decision.hypothesis == ProblemHypothesis.FORCING
+    assert decision.parameter_guidance is not None
+    assert decision.parameter_guidance.frozen_parameters == ("K", "B", "DM")
+    assert delegate.calls == 0
 
 
 def test_unmatched_optimization_forces_gate_from_lifetime_counts():
