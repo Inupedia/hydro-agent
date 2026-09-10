@@ -7,6 +7,16 @@ from pydantic import Field
 
 from hydro_agent.execution.contracts import FrozenModel, Identifier
 
+CalibrationObjective = Literal[
+    "nse",
+    "peak",
+    "composite",
+    "water_balance",
+    "recession",
+    "routing_event",
+    "joint",
+]
+
 
 class ActionCode(StrEnum):
     A01_CHECK_DATA = "A01_CHECK_DATA"
@@ -39,7 +49,7 @@ class AgentDecision(FrozenModel):
     strategy_id: str | None = None
     # Optional optimize controls — agent selects groups/objective, never raw vectors.
     param_groups: tuple[Literal["evap", "runoff", "routing"], ...] | None = None
-    objective: Literal["nse", "peak", "composite"] | None = None
+    objective: CalibrationObjective | None = None
     rationale_summary: str = Field(min_length=1, max_length=600)
 
 
@@ -123,7 +133,15 @@ class HydroContext(FrozenModel):
     available_skills: tuple[str, ...] = ()
     available_strategies: tuple[str, ...] = ()
     available_param_groups: tuple[str, ...] = ("evap", "runoff", "routing")
-    available_objectives: tuple[str, ...] = ("nse", "peak", "composite")
+    available_objectives: tuple[str, ...] = (
+        "water_balance",
+        "recession",
+        "routing_event",
+        "joint",
+        "nse",
+        "peak",
+        "composite",
+    )
     diagnosis: dict[str, object] = Field(default_factory=dict)
     calibration_phase: str = "P2_WATER_BALANCE"
     phase_history: tuple[str, ...] = ()
