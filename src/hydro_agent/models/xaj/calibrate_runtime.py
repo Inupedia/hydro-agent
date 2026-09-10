@@ -216,6 +216,7 @@ def run(workspace: Path) -> dict:
                 warmup_days=scheme.warmup_days,
                 parameters=parameters,
                 routing=scheme.routing,
+                units=scheme.units,
             )
         except Exception:
             continue
@@ -259,6 +260,7 @@ def run(workspace: Path) -> dict:
         "warmup_days": scheme.warmup_days,
         "parameters": best_parameters,
         "routing": scheme.routing.model_dump(),
+        "units": [unit.model_dump(mode="json") for unit in scheme.units],
         "model_version": MODEL_VERSION,
         "base_scheme_id": request.scheme_id,
         "strategy_id": strategy.strategy_id,
