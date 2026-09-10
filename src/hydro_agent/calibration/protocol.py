@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from hydro_agent.calibration.contracts import CalibrationPhase, PhaseGateStatus
-
+from hydro_agent.calibration.contracts import (
+    CalibrationPhase,
+    PhaseGateStatus,
+)
 
 _PHASE_ORDER = (
     CalibrationPhase.DATA_REGIME,
