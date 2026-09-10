@@ -7,6 +7,12 @@ from pydantic import AwareDatetime, Field, field_validator, model_validator
 from hydro_agent.execution.contracts import ExecutionCapability, FrozenModel, Identifier
 
 
+class UnitForcing(FrozenModel):
+    unit_id: int = Field(ge=1)
+    precipitation_mm_day: float = Field(ge=0, allow_inf_nan=False)
+    pet_mm_day: float = Field(ge=0, allow_inf_nan=False)
+
+
 class ForcingRow(FrozenModel):
     valid_date: date
     precipitation_mm_day: float = Field(ge=0, allow_inf_nan=False)
@@ -14,6 +20,14 @@ class ForcingRow(FrozenModel):
     source_kind: Literal["observation", "reanalysis", "forecast"]
     source: str = Field(min_length=1)
     available_at: AwareDatetime
+    units: tuple[UnitForcing, ...] = ()
+
+    @model_validator(mode="after")
+    def unique_spatial_units(self):
+        ids = [unit.unit_id for unit in self.units]
+        if len(ids) != len(set(ids)):
+            raise ValueError("forcing unit_id values must be unique within one day")
+        return self
 
 
 class FlowObservation(FrozenModel):
