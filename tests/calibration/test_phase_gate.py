@@ -126,6 +126,33 @@ def test_recession_improvement_rolls_back_if_water_balance_regresses():
     assert "water_balance_regression" in result.reasons
 
 
+def test_recession_cannot_reopen_passed_annual_or_seasonal_water_balance():
+    gate = HydrologicPhaseGate()
+    result = gate.evaluate(
+        phase=CalibrationPhase.SOURCE_RECESSION,
+        base_scheme_id="base",
+        candidate_scheme_id="cand",
+        experiment_id="p3-upstream-lock",
+        base_metrics=base_metrics(
+            volume_rel_error=0.08,
+            annual_volume_bias_mae=0.10,
+            seasonal_volume_bias_mae=0.18,
+            recession_relative_error=0.50,
+            event_recession_rel_error_median=0.45,
+        ),
+        candidate_metrics=base_metrics(
+            volume_rel_error=0.08,
+            annual_volume_bias_mae=0.10,
+            seasonal_volume_bias_mae=0.25,
+            recession_relative_error=0.20,
+            event_recession_rel_error_median=0.20,
+        ),
+    )
+    assert result.status == PhaseGateStatus.ROLLBACK
+    assert result.adopt_candidate is False
+    assert "water_balance_regression" in result.reasons
+
+
 def test_routing_requires_representative_flood_events():
     gate = HydrologicPhaseGate()
     result = gate.evaluate(
@@ -143,6 +170,39 @@ def test_routing_requires_representative_flood_events():
     )
     assert result.status == PhaseGateStatus.DATA_LIMIT
     assert result.stop_search is True
+
+
+def test_routing_cannot_break_passed_recession_phase():
+    gate = HydrologicPhaseGate()
+    result = gate.evaluate(
+        phase=CalibrationPhase.ROUTING_EVENT,
+        base_scheme_id="base",
+        candidate_scheme_id="cand",
+        experiment_id="p4-upstream-lock",
+        base_metrics=base_metrics(
+            volume_rel_error=0.08,
+            annual_volume_bias_mae=0.10,
+            seasonal_volume_bias_mae=0.18,
+            recession_relative_error=0.20,
+            event_recession_rel_error_median=0.20,
+            event_peak_rel_error_median=0.40,
+            event_peak_timing_steps_median=2.0,
+            event_volume_rel_error_median=0.30,
+        ),
+        candidate_metrics=base_metrics(
+            volume_rel_error=0.08,
+            annual_volume_bias_mae=0.10,
+            seasonal_volume_bias_mae=0.18,
+            recession_relative_error=0.40,
+            event_recession_rel_error_median=0.35,
+            event_peak_rel_error_median=0.20,
+            event_peak_timing_steps_median=1.0,
+            event_volume_rel_error_median=0.15,
+        ),
+    )
+    assert result.status == PhaseGateStatus.ROLLBACK
+    assert result.adopt_candidate is False
+    assert "recession_regression" in result.reasons
 
 
 def test_joint_nse_gain_cannot_break_hydrologic_guardrails():
@@ -173,6 +233,10 @@ def test_development_validation_needs_physics_statistics_and_standard_grade():
         nse=0.75,
         kge=0.65,
         volume_rel_error=0.08,
+        annual_volume_bias_mae=0.10,
+        seasonal_volume_bias_mae=0.18,
+        recession_relative_error=0.20,
+        event_recession_rel_error_median=0.20,
         event_peak_rel_error_median=0.20,
         event_peak_timing_steps_median=1.0,
         event_volume_rel_error_median=0.15,
