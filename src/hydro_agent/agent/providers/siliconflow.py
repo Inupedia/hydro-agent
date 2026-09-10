@@ -16,6 +16,15 @@ from hydro_agent.skills import SkillRegistry
 
 _HYPOTHESES = tuple(h.value for h in ProblemHypothesis)
 _ACTIONS = tuple(a.value for a in ActionCode)
+_CALIBRATION_OBJECTIVES = {
+    "nse",
+    "peak",
+    "composite",
+    "water_balance",
+    "recession",
+    "routing_event",
+    "joint",
+}
 
 SYSTEM_INSTRUCTIONS = f"""You are the Hydro-Agent scientific decision module.
 Choose exactly one ActionCode from permissions.safe_actions.
@@ -40,7 +49,7 @@ Return ONLY one JSON object with keys:
 - rationale_summary: short Chinese or English reason (<= 600 chars)
 
 Example:
-{{"action":"A07_OPTIMIZE","hypothesis":"MODEL","strategy_id":"xaj-local-refine-v1","param_groups":["evap","runoff"],"objective":"nse","rationale_summary":"当前P2先修多年水量平衡，只开放产流相关自由度。"}}
+{{"action":"A07_OPTIMIZE","hypothesis":"MODEL","strategy_id":"xaj-local-refine-v1","param_groups":["evap","runoff"],"objective":"water_balance","rationale_summary":"当前P2先修多年水量平衡，只开放产流相关自由度。"}}
 
 No markdown fences. No extra keys. No prose outside JSON.
 """
@@ -156,6 +165,11 @@ def _repair_truncated_json(text: str) -> str | None:
     return fragment
 
 
+def _default_objective(view: WorldStateView) -> str:
+    available = tuple(view.hydro.available_objectives or ())
+    return available[0] if available else "nse"
+
+
 def _fallback_payload(view: WorldStateView, *, raw_text: str) -> dict:
     """Minimal format recovery; protocol ordering belongs to the workbench controller."""
     safe = {a.value for a in view.permissions.safe_actions}
@@ -180,12 +194,13 @@ def _fallback_payload(view: WorldStateView, *, raw_text: str) -> dict:
         preferred = next((code for code in preferred_order if code in safe), None)
     if preferred is None:
         preferred = next(iter(sorted(safe)), ActionCode.A01_CHECK_DATA.value)
+    optimize = preferred == ActionCode.A07_OPTIMIZE.value
     return {
         "action": preferred,
         "hypothesis": ProblemHypothesis.UNKNOWN.value,
-        "strategy_id": "xaj-bounded-v1" if preferred == ActionCode.A07_OPTIMIZE.value else None,
-        "param_groups": ["evap", "runoff", "routing"] if preferred == ActionCode.A07_OPTIMIZE.value else None,
-        "objective": "nse" if preferred == ActionCode.A07_OPTIMIZE.value else None,
+        "strategy_id": "xaj-bounded-v1" if optimize else None,
+        "param_groups": list(view.hydro.available_param_groups) if optimize else None,
+        "objective": _default_objective(view) if optimize else None,
         "rationale_summary": "模型输出格式不完整，按当前安全动作做最小恢复。",
     }
 
@@ -197,7 +212,7 @@ def normalize_decision_payload(
     evidence_actions: tuple[str, ...] = (),
 ) -> dict:
     """Coerce common LLM formatting mistakes without imposing scientific policy."""
-    del evidence_actions  # protocol state is handled outside the LLM adapter
+    del evidence_actions
     data = dict(payload)
     action = str(data.get("action") or "").strip()
     if action not in _ACTIONS:
@@ -268,7 +283,7 @@ def normalize_decision_payload(
             param_groups = cleaned or None
         if objective in ("", "null", "None", None):
             objective = None
-        elif str(objective) not in {"nse", "peak", "composite"}:
+        elif str(objective) not in _CALIBRATION_OBJECTIVES:
             objective = "nse"
         if not param_groups:
             param_groups = ["evap", "runoff", "routing"]
