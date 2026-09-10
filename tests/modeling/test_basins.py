@@ -1,7 +1,6 @@
 from datetime import date, timedelta
-from pathlib import Path
 
-from hydro_agent.modeling.basins import BasinCatalog, BUILTIN_BASINS
+from hydro_agent.modeling.basins import BUILTIN_BASINS, BasinCatalog
 from hydro_agent.modeling.us_plans import UsModelPlanService, UsPlanRequest
 
 
