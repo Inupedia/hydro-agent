@@ -18,6 +18,8 @@ def _forcing_layout(fieldnames: list[str] | None, scheme: XajScheme) -> tuple[in
         return ()
     if not fieldnames or fieldnames[0] != "date":
         raise ValueError("invalid forcing columns")
+    if not scheme.units:
+        raise ValueError("invalid forcing columns")
 
     pattern = re.compile(r"^unit_(\d+)_precipitation_mm_day$")
     unit_ids: list[int] = []

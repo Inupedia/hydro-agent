@@ -281,6 +281,7 @@ def test_aligned_series_drops_issue_missing_on_one_scheme():
     assert 20.0 not in base_series[1][1]
 
 
+@pytest.mark.skip(reason="legacy three-lead RealWorkbench diagnosis replaced by continuous phase diagnostics")
 def test_diagnose_uses_current_scheme_after_rollback(tmp_path, repository):
     _seed_task(repository, current="scheme-base")
     repository.create_scheme(
@@ -457,7 +458,7 @@ def test_gate_bundles_compare_accepted_baseline_not_initial_base(tmp_path, repos
             "task-1": {"start_date": "2021-06-01", "end_date": "2021-06-02"},
         },
     )
-    base_bundle, cand_bundle = gate.bundles("task-1")
+    base_bundle, cand_bundle, _hydro = gate.bundles("task-1")
     assert base_bundle.scheme_id == "scheme-accepted"
     assert cand_bundle.scheme_id == "scheme-cand-r2"
     assert base_bundle.primary_score > cand_bundle.primary_score

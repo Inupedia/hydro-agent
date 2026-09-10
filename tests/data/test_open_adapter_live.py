@@ -1,4 +1,12 @@
+import os
 from datetime import date
+
+import pytest
+
+pytestmark = pytest.mark.skipif(
+    os.getenv("HYDRO_AGENT_LIVE_TESTS") != "1",
+    reason="set HYDRO_AGENT_LIVE_TESTS=1 for live open-data integration checks",
+)
 
 from hydro_agent.data.adapters.open_basin import (
     LEAF_RIVER,
