@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 from datetime import date
 from pathlib import Path
@@ -15,7 +16,13 @@ from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 
 from .contracts import XajScheme
 from .conversion import load_xaj_inputs
-from .upstream import MODEL_SHA256, MODEL_VERSION, load_param_ranges, simulate
+from .upstream import (
+    MODEL_SHA256,
+    MODEL_VERSION,
+    load_calibratable_params,
+    load_param_ranges,
+    simulate,
+)
 
 
 def _load_streamflow(workspace: Path) -> dict[date, float]:
@@ -53,12 +60,17 @@ def _sample_vector(rng, names, ranges, *, base_parameters=None, local_scale=None
                 raise ValueError("invalid L range")
             parameters[name] = float(rng.integers(lo_i, hi_i + 1))
         else:
-            # Keep capacities strictly positive when upstream allows a zero lower bound.
             sample_low = low if low > 0 else min(high, max(low, 1e-6))
             if sample_low > high:
                 sample_low = high
             parameters[name] = float(rng.uniform(sample_low, high))
     return parameters
+
+
+def _derived_seed(base_seed: int, action_run_id: str) -> int:
+    """Reproducible per-action seed so repeated strategies explore new candidates."""
+    digest = hashlib.sha256(action_run_id.encode("utf-8")).digest()
+    return (int(base_seed) ^ int.from_bytes(digest[:8], "big")) % (2**32)
 
 
 def _peak_score(obs: list[float], sim: list[float]) -> float:
@@ -101,13 +113,19 @@ def run(workspace: Path) -> dict:
         groups = strategy.param_groups
     else:
         groups = normalize_param_groups(raw_groups)
-    tunable = set(resolve_param_names(groups))
+    requested_tunable = set(resolve_param_names(groups))
+    calibratable = set(load_calibratable_params())
+    tunable = requested_tunable & calibratable
+    if not tunable:
+        raise ValueError(f"no calibratable XAJ parameters in groups={groups}")
+
     scheme, basin, dates, inputs = load_xaj_inputs(workspace)
     streamflow = _load_streamflow(workspace)
     ranges = load_param_ranges()
     if set(ranges) != set(scheme.PARAMETER_ORDER):
         raise ValueError("upstream parameter set mismatch")
-    rng = np.random.default_rng(strategy.random_seed)
+    random_seed = _derived_seed(strategy.random_seed, request.action_run_id)
+    rng = np.random.default_rng(random_seed)
     names = scheme.PARAMETER_ORDER
     base_parameters = dict(scheme.parameters)
     candidates: list[dict[str, float]] = [dict(base_parameters)]
@@ -190,6 +208,8 @@ def run(workspace: Path) -> dict:
         "selected_candidate_index": best_index,
         "objective": objective,
         "param_groups": list(groups),
+        "tunable_parameters": [name for name in names if name in tunable],
+        "random_seed": random_seed,
         "objective_value": best_score,
         "candidate_parameters": best_parameters,
     }
