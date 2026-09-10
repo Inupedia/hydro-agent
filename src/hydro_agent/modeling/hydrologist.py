@@ -315,9 +315,9 @@ class HydrologistTuneService:
             observations = (
                 f"candidate_scheme_id={candidate_id}",
                 f"base_scheme_id={base_scheme_id}",
-                f"strategy_id=xaj-hydrologist-manual-v1",
-                f"objective=nse",
-                f"param_groups=evap,runoff,routing",
+                "strategy_id=xaj-hydrologist-manual-v1",
+                "objective=nse",
+                "param_groups=evap,runoff,routing",
                 f"hydrologist_session={session_id}",
                 f"parameter_delta={json.dumps(delta, sort_keys=True)}",
             )
