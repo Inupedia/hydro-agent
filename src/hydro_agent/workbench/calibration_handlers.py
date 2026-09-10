@@ -7,7 +7,11 @@ from hydro_agent.agent.contracts import ActionCode, AgentDecision, EvidencePacke
 from hydro_agent.agent.tools import OptimizeHandler, information_hash
 from hydro_agent.calibration.contracts import CalibrationPhase, PhaseGateStatus, SearchProgressPoint
 from hydro_agent.calibration.development import infer_rework_phase
-from hydro_agent.calibration.identity import calibration_experiment_id, development_validation_id
+from hydro_agent.calibration.identity import (
+    calibration_experiment_id,
+    development_validation_id,
+    parameter_signature,
+)
 from hydro_agent.graphs.gbt_accuracy import run_gbt_accuracy
 from hydro_agent.workbench.real import POLICY
 
@@ -62,27 +66,51 @@ class PhaseOptimizeHandler:
             validation_snapshot_id=cal_id,
             policy=POLICY,
         ).execute(task_id, patched)
-        candidate_id = str(packet.gates.get("candidate_scheme_id") or "")
+        packet_gates = dict(packet.gates)
+        candidate_id = str(packet_gates.get("candidate_scheme_id") or "")
+        base_id = str(
+            packet_gates.get("base_scheme_id")
+            or self.kernel.repository.get_task_state(task_id).current_scheme_id
+        )
+        if not candidate_id:
+            raise RuntimeError("optimization evidence missing candidate_scheme_id")
+        base_scheme = self.kernel.repository.get_scheme(base_id)
+        candidate_scheme = self.kernel.repository.get_scheme(candidate_id)
+        base_parameters = dict((base_scheme.config_json or {}).get("parameters") or {})
+        candidate_parameters = dict((candidate_scheme.config_json or {}).get("parameters") or {})
+        base_parameter_signature = parameter_signature(base_parameters)
+        candidate_parameter_signature = parameter_signature(candidate_parameters)
+        parameter_changed = base_parameter_signature != candidate_parameter_signature
         optimizer_run_id = str(packet.action_run_id or packet.evidence_id)
+        strategy_id = str(patched.strategy_id or "xaj-bounded-v1")
         experiment_id = calibration_experiment_id(
-            optimizer_run_id,
-            candidate_id,
-            cal.start,
-            cal.end,
+            phase=phase.value,
+            base_parameters=base_parameters,
+            candidate_parameters=candidate_parameters,
+            strategy_id=strategy_id,
+            objective=objective,
+            calibration_start=cal.start,
+            calibration_end=cal.end,
         )
         gates = {
-            **dict(packet.gates),
+            **packet_gates,
             "calibration_phase": phase.value,
             "experiment_id": experiment_id,
             "optimizer_action_run_id": optimizer_run_id,
             "phase_gate_window": f"{cal.start}..{cal.end}",
             "objective": objective,
+            "base_parameter_signature": base_parameter_signature,
+            "candidate_parameter_signature": candidate_parameter_signature,
+            "parameter_changed": "true" if parameter_changed else "false",
         }
         observations = tuple(packet.observations) + (
             f"calibration_phase={phase.value}",
             f"phase_objective={objective}",
             f"experiment_id={experiment_id}",
             f"optimizer_action_run_id={optimizer_run_id}",
+            f"base_parameter_signature={base_parameter_signature}",
+            f"candidate_parameter_signature={candidate_parameter_signature}",
+            f"parameter_changed={parameter_changed}",
             f"calibration_window={cal.start}..{cal.end}",
             "development_visible=false",
             "final_holdout_visible=false",
@@ -115,6 +143,8 @@ class HydrologicGateHandler:
             gates = dict(row.gates_json or {})
             if gates.get("calibration_phase") != phase.value:
                 continue
+            if str(gates.get("parameter_changed") or "true").lower() == "false":
+                continue
             experiment_id = str(gates.get("experiment_id") or "")
             if not experiment_id or experiment_id in seen:
                 continue
@@ -131,6 +161,17 @@ class HydrologicGateHandler:
                 )
             )
         return tuple(points)
+
+    @staticmethod
+    def _prior_no_change_count(evidence, phase: CalibrationPhase) -> int:
+        return sum(
+            1
+            for row in evidence
+            if row.action == ActionCode.A08_GATE.value
+            and str((row.gates_json or {}).get("calibration_phase") or "") == phase.value
+            and str((row.gates_json or {}).get("parameter_changed") or "true").lower()
+            == "false"
+        )
 
     def _development_gate(self, task_id: str, evidence, phase: CalibrationPhase):
         repo = self.kernel.repository
@@ -187,32 +228,37 @@ class HydrologicGateHandler:
         if optimize is None:
             raise RuntimeError("phase Gate requires a fresh optimization experiment")
         optimize_gates = dict(optimize.gates_json or {})
-        candidate_hint = str(optimize_gates.get("candidate_scheme_id") or "")
-        action_run = str(
-            getattr(optimize, "action_run_id", None)
-            or optimize_gates.get("optimizer_action_run_id")
-            or optimize.evidence_id
+        candidate_id = str(optimize_gates.get("candidate_scheme_id") or "")
+        base_id = str(optimize_gates.get("base_scheme_id") or state.current_scheme_id)
+        if not candidate_id:
+            raise RuntimeError("optimization evidence missing candidate_scheme_id")
+
+        base_scheme = repo.get_scheme(base_id)
+        candidate_scheme = repo.get_scheme(candidate_id)
+        base_parameters = dict((base_scheme.config_json or {}).get("parameters") or {})
+        candidate_parameters = dict((candidate_scheme.config_json or {}).get("parameters") or {})
+        base_signature = str(
+            optimize_gates.get("base_parameter_signature") or parameter_signature(base_parameters)
         )
+        candidate_signature = str(
+            optimize_gates.get("candidate_parameter_signature")
+            or parameter_signature(candidate_parameters)
+        )
+        parameter_changed = base_signature != candidate_signature
+        strategy_id = str(optimize_gates.get("strategy_id") or "xaj-bounded-v1")
+        objective = str(optimize_gates.get("objective") or "")
         experiment_id = str(optimize_gates.get("experiment_id") or "")
         if not experiment_id:
             experiment_id = calibration_experiment_id(
-                action_run,
-                candidate_hint,
-                cal.start,
-                cal.end,
+                phase=phase.value,
+                base_parameters=base_parameters,
+                candidate_parameters=candidate_parameters,
+                strategy_id=strategy_id,
+                objective=objective,
+                calibration_start=cal.start,
+                calibration_end=cal.end,
             )
-        prior_ids = {
-            str((row.gates_json or {}).get("experiment_id") or "")
-            for row in evidence
-            if row.action == ActionCode.A08_GATE.value
-        }
-        if experiment_id in prior_ids:
-            raise RuntimeError(f"duplicate Gate for calibration experiment {experiment_id}")
 
-        base_id = str(optimize_gates.get("base_scheme_id") or state.current_scheme_id)
-        candidate_id = candidate_hint
-        if not candidate_id:
-            raise RuntimeError("optimization evidence missing candidate_scheme_id")
         base_hydro, base_signatures = self.kernel.evaluator.evaluate_scheme(base_id, cal)
         candidate_hydro, candidate_signatures = self.kernel.evaluator.evaluate_scheme(candidate_id, cal)
         gbt = run_gbt_accuracy(
@@ -230,17 +276,23 @@ class HydrologicGateHandler:
             candidate_metrics=candidate_signatures.metrics,
             development_grade_ok=gbt.meets_min_grade,
         )
-        point = SearchProgressPoint(
-            experiment_id=experiment_id,
-            phase=phase,
-            value=assessment.progress_value,
-            higher_is_better=assessment.higher_is_better,
-        )
-        convergence = self.kernel.convergence.evaluate(self._history(evidence, phase), point)
-        if convergence.duplicate:
-            raise RuntimeError(f"duplicate convergence point {experiment_id}")
+        history = self._history(evidence, phase)
+        if parameter_changed:
+            point = SearchProgressPoint(
+                experiment_id=experiment_id,
+                phase=phase,
+                value=assessment.progress_value,
+                higher_is_better=assessment.higher_is_better,
+            )
+            convergence = self.kernel.convergence.evaluate(history, point)
+        else:
+            convergence = self.kernel.convergence.evaluate_no_change(
+                history,
+                phase=phase,
+                repeated=self._prior_no_change_count(evidence, phase) >= 1,
+            )
         status = assessment.status
-        if convergence.plateau and status != PhaseGateStatus.PHASE_PASS:
+        if (convergence.duplicate or convergence.plateau) and status != PhaseGateStatus.PHASE_PASS:
             status = (
                 PhaseGateStatus.FORCING_LIMIT
                 if self._forcing_warning(evidence)
@@ -258,6 +310,7 @@ class HydrologicGateHandler:
             convergence,
             None,
             base_signatures,
+            parameter_changed,
         )
 
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
@@ -280,6 +333,7 @@ class HydrologicGateHandler:
                 convergence,
                 return_phase,
             ) = self._development_gate(task_id, evidence, phase)
+            parameter_changed = False
         else:
             (
                 assessment,
@@ -293,6 +347,7 @@ class HydrologicGateHandler:
                 convergence,
                 return_phase,
                 base_signatures,
+                parameter_changed,
             ) = self._candidate_gate(task_id, evidence, phase)
 
         metrics = {
@@ -321,6 +376,8 @@ class HydrologicGateHandler:
         } or (status == PhaseGateStatus.PLATEAU_FAIL and return_phase is None)
         adopt = assessment.adopt_candidate and phase != CalibrationPhase.DEVELOPMENT_VALIDATION
         reasons = list(assessment.reasons)
+        if not parameter_changed and phase != CalibrationPhase.DEVELOPMENT_VALIDATION:
+            reasons.append("no_parameter_change")
         if convergence is not None:
             reasons.append(convergence.reason)
         if return_phase is not None:
@@ -330,6 +387,7 @@ class HydrologicGateHandler:
             f"calibration_phase={phase.value}",
             f"gate_status={status.value}",
             f"experiment_id={experiment_id}",
+            f"parameter_changed={parameter_changed}",
             f"progress_metric={assessment.progress_metric}",
             f"progress_value={assessment.progress_value:.6f}",
             f"adopt_candidate={adopt}",
@@ -344,6 +402,7 @@ class HydrologicGateHandler:
             "experiment_id": experiment_id,
             "base_scheme_id": base_id,
             "candidate_scheme_id": candidate_id,
+            "parameter_changed": "true" if parameter_changed else "false",
             "adopt_candidate": "true" if adopt else "false",
             "advance_phase": "true" if advance else "false",
             "return_phase": return_phase.value if return_phase else "",
@@ -409,6 +468,7 @@ class ProtocolResolveHandler:
                 "status": status,
                 "calibration_phase": str(gates.get("calibration_phase") or ""),
                 "experiment_id": str(gates.get("experiment_id") or ""),
+                "parameter_changed": str(gates.get("parameter_changed") or "true"),
                 "adopt_candidate": "true" if adopt else "false",
                 "advance_phase": str(gates.get("advance_phase") or "false"),
                 "return_phase": return_phase,
