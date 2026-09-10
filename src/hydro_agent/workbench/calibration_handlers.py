@@ -7,7 +7,6 @@ from hydro_agent.agent.contracts import ActionCode, AgentDecision, EvidencePacke
 from hydro_agent.agent.tools import OptimizeHandler, information_hash
 from hydro_agent.calibration.contracts import CalibrationPhase, PhaseGateStatus, SearchProgressPoint
 from hydro_agent.calibration.development import infer_rework_phase
-from hydro_agent.evaluation.gbt22482 import HydroSeries
 from hydro_agent.graphs.gbt_accuracy import run_gbt_accuracy
 from hydro_agent.workbench.real import POLICY
 
