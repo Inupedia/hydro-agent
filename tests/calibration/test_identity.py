@@ -1,11 +1,10 @@
-from datetime import date
 import re
+from datetime import date
 
 from hydro_agent.calibration.identity import (
     calibration_experiment_id,
     development_validation_id,
 )
-
 
 IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
