@@ -1,6 +1,10 @@
 import pytest
 
-from hydro_agent.models.xaj.calibrate_runtime import _effective_range, _normalized_phase_loss
+from hydro_agent.models.xaj.calibrate_runtime import (
+    _effective_range,
+    _normalized_phase_loss,
+    _validate_parameter_guidance,
+)
 from hydro_agent.models.xaj.upstream import load_calibratable_params
 from hydro_agent.optimization.contracts import ParameterBounds, ParameterGuidance
 from hydro_agent.optimization.param_groups import resolve_phase_param_names
@@ -108,6 +112,41 @@ def test_joint_optimizer_uses_same_strict_upstream_envelope_as_gate():
     assert feasible <= 1.0
     assert broken_annual > 1.0
     assert broken_recession > 1.0
+
+
+def test_guidance_allows_holding_phase_parameter_outside_current_coarse_group():
+    guidance = ParameterGuidance(
+        directions={"K": "decrease", "B": "hold", "DM": "hold"},
+        frozen_parameters=("B", "DM"),
+    )
+
+    _validate_parameter_guidance(
+        guidance,
+        tunable={"K", "DM"},
+        guidance_allowed={"K", "B", "DM"},
+    )
+
+
+def test_guidance_rejects_moving_parameter_outside_current_coarse_group():
+    guidance = ParameterGuidance(directions={"B": "increase"})
+
+    with pytest.raises(ValueError, match="movement outside active search space"):
+        _validate_parameter_guidance(
+            guidance,
+            tunable={"K", "DM"},
+            guidance_allowed={"K", "B", "DM"},
+        )
+
+
+def test_guidance_rejects_parameter_outside_phase_model_capability():
+    guidance = ParameterGuidance(directions={"SM": "hold"})
+
+    with pytest.raises(ValueError, match="outside phase/model capability"):
+        _validate_parameter_guidance(
+            guidance,
+            tunable={"K", "DM"},
+            guidance_allowed={"K", "B", "DM"},
+        )
 
 
 def test_parameter_guidance_constrains_search_relative_to_current_value():
