@@ -7,6 +7,7 @@ from hydro_agent.agent.contracts import ActionCode, AgentDecision, EvidencePacke
 from hydro_agent.agent.tools import OptimizeHandler, information_hash
 from hydro_agent.calibration.contracts import CalibrationPhase, PhaseGateStatus, SearchProgressPoint
 from hydro_agent.calibration.development import infer_rework_phase
+from hydro_agent.calibration.identity import calibration_experiment_id, development_validation_id
 from hydro_agent.graphs.gbt_accuracy import run_gbt_accuracy
 from hydro_agent.workbench.real import POLICY
 
@@ -69,17 +70,26 @@ class PhaseOptimizeHandler:
             policy=POLICY,
         ).execute(task_id, patched)
         candidate_id = str(packet.gates.get("candidate_scheme_id") or "")
-        experiment_id = f"{packet.action_run_id}:{candidate_id}:{dev.start}:{dev.end}"
+        optimizer_run_id = str(packet.action_run_id or packet.evidence_id)
+        experiment_id = calibration_experiment_id(
+            optimizer_run_id,
+            candidate_id,
+            dev.start,
+            dev.end,
+        )
         gates = {
             **dict(packet.gates),
             "calibration_phase": phase.value,
             "experiment_id": experiment_id,
+            "optimizer_action_run_id": optimizer_run_id,
+            "development_window": f"{dev.start}..{dev.end}",
             "objective": objective,
         }
         observations = tuple(packet.observations) + (
             f"calibration_phase={phase.value}",
             f"phase_objective={objective}",
             f"experiment_id={experiment_id}",
+            f"optimizer_action_run_id={optimizer_run_id}",
             f"calibration_window={cal.start}..{cal.end}",
             f"development_window={dev.start}..{dev.end}",
             "final_holdout_visible=false",
@@ -142,7 +152,7 @@ class HydrologicGateHandler:
                 area_km2=float(self.kernel.source.basin.get("area_km2") or 0.0)
             ),
         )
-        experiment_id = f"development-validation:{scheme_id}:{dev.start}:{dev.end}"
+        experiment_id = development_validation_id(scheme_id, dev.start, dev.end)
         assessment = self.kernel.phase_gate.evaluate(
             phase=phase,
             base_scheme_id=scheme_id,
@@ -184,11 +194,20 @@ class HydrologicGateHandler:
         if optimize is None:
             raise RuntimeError("phase Gate requires a fresh optimization experiment")
         optimize_gates = dict(optimize.gates_json or {})
+        candidate_hint = str(optimize_gates.get("candidate_scheme_id") or "")
+        action_run = str(
+            getattr(optimize, "action_run_id", None)
+            or optimize_gates.get("optimizer_action_run_id")
+            or optimize.evidence_id
+        )
         experiment_id = str(optimize_gates.get("experiment_id") or "")
         if not experiment_id:
-            action_run = getattr(optimize, "action_run_id", None) or optimize.evidence_id
-            candidate_hint = str(optimize_gates.get("candidate_scheme_id") or "")
-            experiment_id = f"{action_run}:{candidate_hint}:{dev.start}:{dev.end}"
+            experiment_id = calibration_experiment_id(
+                action_run,
+                candidate_hint,
+                dev.start,
+                dev.end,
+            )
         prior_ids = {
             str((row.gates_json or {}).get("experiment_id") or "")
             for row in evidence
@@ -198,7 +217,7 @@ class HydrologicGateHandler:
             raise RuntimeError(f"duplicate Gate for calibration experiment {experiment_id}")
 
         base_id = str(optimize_gates.get("base_scheme_id") or state.current_scheme_id)
-        candidate_id = str(optimize_gates.get("candidate_scheme_id") or "")
+        candidate_id = candidate_hint
         if not candidate_id:
             raise RuntimeError("optimization evidence missing candidate_scheme_id")
         base_hydro, base_signatures = self.kernel.evaluator.evaluate_scheme(base_id, dev)
