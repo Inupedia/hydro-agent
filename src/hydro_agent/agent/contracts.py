@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import Field
 
 from hydro_agent.execution.contracts import FrozenModel, Identifier
+from hydro_agent.optimization.contracts import ParameterGuidance
 
 CalibrationObjective = Literal[
     "nse",
@@ -47,9 +48,11 @@ class AgentDecision(FrozenModel):
     action: ActionCode
     hypothesis: ProblemHypothesis
     strategy_id: str | None = None
-    # Optional optimize controls — agent selects groups/objective, never raw vectors.
+    # The Agent chooses a coarse family plus hydrologist-style constraints; the
+    # numerical optimizer still owns concrete parameter vectors.
     param_groups: tuple[Literal["evap", "runoff", "routing"], ...] | None = None
     objective: CalibrationObjective | None = None
+    parameter_guidance: ParameterGuidance | None = None
     rationale_summary: str = Field(min_length=1, max_length=600)
 
 
@@ -138,6 +141,7 @@ class HydroContext(FrozenModel):
     available_skills: tuple[str, ...] = ()
     available_strategies: tuple[str, ...] = ()
     available_param_groups: tuple[str, ...] = ("evap", "runoff", "routing")
+    available_tunable_parameters: tuple[str, ...] = ()
     available_objectives: tuple[str, ...] = (
         "water_balance",
         "recession",
