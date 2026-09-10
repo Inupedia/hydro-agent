@@ -12,7 +12,7 @@ class PermissionDenied(PermissionError):
     pass
 
 
-# Reserve rounds for freeze → replay → evaluate so calibration KEEP loops cannot starve closeout.
+# Reserve rounds for freeze → replay → evaluate so calibration loops cannot starve closeout.
 CLOSEOUT_RESERVE_ROUNDS = 3
 
 CLOSEOUT_ACTIONS = frozenset(
@@ -85,7 +85,7 @@ def decision_fingerprint(
             groups,
             decision.objective or "",
             scheme_id,
-            # Allow a fresh A07 after Gate KEEP/ROLLBACK without tripping "no new evidence".
+            # Allow a fresh A07 after a resolved experiment without tripping no-new-evidence.
             f"opt{optimize_attempt}",
         ]
     )
@@ -138,8 +138,7 @@ class PermissionGate:
         if remaining <= CLOSEOUT_RESERVE_ROUNDS:
             allowed -= EXPLORATORY_ACTIONS
         if remaining <= 0:
-            allowed = (CLOSEOUT_ACTIONS & phase_set & IMPLEMENTED)
-            # Mid-cycle gate/resolve still needed in B.
+            allowed = CLOSEOUT_ACTIONS & phase_set & IMPLEMENTED
             if view.task.phase == "B":
                 allowed |= {
                     ActionCode.A08_GATE,
@@ -169,7 +168,19 @@ class PermissionGate:
             ):
                 raise PermissionDenied(f"unknown objective: {decision.objective}")
         if decision.action == ActionCode.A06_DIAGNOSE and view.latest_forecast_id is None:
-            raise PermissionDenied("diagnose requires a forecast first")
+            # After Gate adopts a new best candidate, that scheme may not yet own an A05
+            # forecast record. A resolved calibration experiment is nevertheless fresh
+            # evidence; the real diagnose handler is allowed to materialize its own
+            # pre-Gate diagnostic forecasts. This prevents the generic recovery path from
+            # incorrectly repeating A08 on the already-gated candidate.
+            latest = view.evidence_summary[-1] if view.evidence_summary else None
+            refresh_after_resolve = bool(
+                latest is not None
+                and latest.action == ActionCode.A09_RESOLVE
+                and latest.status in {"CONTINUE", "KEEP", "ROLLBACK"}
+            )
+            if not refresh_after_resolve:
+                raise PermissionDenied("diagnose requires a forecast or a freshly resolved experiment")
         optimize_attempt = sum(
             1 for item in view.evidence_summary if item.action == ActionCode.A07_OPTIMIZE
         )
