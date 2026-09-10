@@ -73,6 +73,26 @@ jobs:
           uv run pytest -q \
             tests/calibration \
             tests/agent/test_skills_and_diagnose.py \
+            tests/agent/test_siliconflow_provider.py \
+            tests/optimization/test_gate.py
+
+      - name: Lint calibration refactor surface
+        run: |
+          uv run ruff check \
+            src/hydro_agent/calibration \
+            src/hydro_agent/agent/contracts.py \
+            src/hydro_agent/agent/permissions.py \
+            src/hydro_agent/agent/providers/siliconflow.py \
+            src/hydro_agent/agent/world_state.py \
+            src/hydro_agent/models/xaj/calibrate_runtime.py \
+            src/hydro_agent/models/xaj/upstream.py \
+            src/hydro_agent/workbench/calibration.py \
+            src/hydro_agent/workbench/calibration_evaluation.py \
+            src/hydro_agent/workbench/calibration_handlers.py \
+            scripts/run_lowman_hydrologist_protocol.py \
+            tests/calibration \
+            tests/agent/test_skills_and_diagnose.py \
+            tests/agent/test_siliconflow_provider.py \
             tests/optimization/test_gate.py
 
       - name: Verify removed legacy calibration paths stay removed
@@ -82,7 +102,7 @@ jobs:
           test ! -e scripts/run_lowman_convergence_experiment.py
           test ! -e src/hydro_agent/skills/xaj-calibration/SKILL.md
           if grep -R --line-number --exclude-dir='__pycache__' \
-            -E 'ConvergenceWorkbenchKernel|run_lowman_convergence_experiment|skills/xaj-calibration' \
+            -E 'ConvergenceWorkbenchKernel|run_lowman_convergence_experiment|_nse_calibration_progress' \
             src scripts tests; then
             echo 'Legacy calibration implementation reference found.' >&2
             exit 1
