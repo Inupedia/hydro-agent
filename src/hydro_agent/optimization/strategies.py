@@ -25,7 +25,7 @@ XAJ_LOCAL_REFINE_V1 = CalibrationStrategy(
     max_candidates=192,
     random_seed=20260912,
     objective="nse",
-    local_scale=0.15,
+    local_scale=0.25,
     param_groups=("evap", "runoff", "routing"),
 )
 
