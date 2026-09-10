@@ -7,6 +7,7 @@ on:
       - feat/hydrologist-calibration-protocol
     paths:
       - '.github/workflows/lowman-agent-e2e.yml'
+      - 'scripts/prepare_lowman_source.py'
       - 'scripts/run_lowman_hydrologist_protocol.py'
       - 'src/hydro_agent/agent/**'
       - 'src/hydro_agent/calibration/**'
@@ -23,6 +24,7 @@ on:
     branches:
       - main
     paths:
+      - 'scripts/prepare_lowman_source.py'
       - 'scripts/run_lowman_hydrologist_protocol.py'
       - 'src/hydro_agent/agent/**'
       - 'src/hydro_agent/calibration/**'
@@ -69,6 +71,7 @@ jobs:
             src/hydro_agent/workbench/calibration_evaluation.py \
             src/hydro_agent/workbench/calibration_handlers.py \
             src/hydro_agent/workbench/calibration.py \
+            scripts/prepare_lowman_source.py \
             scripts/run_lowman_hydrologist_protocol.py
           uv run pytest -q \
             tests/calibration \
@@ -89,6 +92,7 @@ jobs:
             src/hydro_agent/workbench/calibration.py \
             src/hydro_agent/workbench/calibration_evaluation.py \
             src/hydro_agent/workbench/calibration_handlers.py \
+            scripts/prepare_lowman_source.py \
             scripts/run_lowman_hydrologist_protocol.py \
             tests/calibration \
             tests/agent/test_skills_and_diagnose.py \
