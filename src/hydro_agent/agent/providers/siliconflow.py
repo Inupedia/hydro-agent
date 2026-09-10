@@ -25,6 +25,24 @@ _CALIBRATION_OBJECTIVES = {
     "routing_event",
     "joint",
 }
+_XAJ_PARAMETERS = {
+    "K",
+    "UM",
+    "LM",
+    "DM",
+    "C",
+    "B",
+    "IM",
+    "SM",
+    "EX",
+    "KI",
+    "KG",
+    "CS",
+    "CI",
+    "CG",
+    "L",
+}
+_DIRECTIONS = {"increase", "decrease", "hold"}
 
 SYSTEM_INSTRUCTIONS = f"""You are the Hydro-Agent scientific decision module.
 Choose exactly one ActionCode from permissions.safe_actions.
@@ -36,9 +54,13 @@ Do not choose xaj-hydrologist-manual-v1 in the automatic loop.
 
 The runtime owns protocol mechanics such as optimize -> Gate -> resolve and phase
 transitions. You own the scientific choice after diagnosis: hypothesis, smallest
-parameter group, numerical strategy and objective that match the current phase.
-If evidence points to DATA/FORCING/STRUCTURAL limitations, do not hide them by
-parameter compensation.
+parameter group, numerical strategy, objective, and parameter guidance that match
+the current phase. hydro.available_tunable_parameters is a HARD phase whitelist.
+Never request or guide a parameter outside that list. If evidence says a parameter
+should go down/up/stay fixed, encode that in parameter_guidance instead of only
+mentioning it in rationale_summary. Prefer direction/hold constraints; use explicit
+numeric bounds only when evidence provides a defensible bound. If evidence points to
+DATA/FORCING/STRUCTURAL limitations, do not hide them by parameter compensation.
 
 Return ONLY one JSON object with keys:
 - action: ActionCode string
@@ -46,10 +68,14 @@ Return ONLY one JSON object with keys:
 - strategy_id: null, unless action is A07_OPTIMIZE then one of hydro.available_strategies
 - param_groups: null, unless A07_OPTIMIZE then a JSON array subset of hydro.available_param_groups
 - objective: null, unless A07_OPTIMIZE then one of hydro.available_objectives
+- parameter_guidance: null unless A07_OPTIMIZE; otherwise optionally an object with:
+  - directions: map of allowed parameter name -> increase | decrease | hold
+  - bounds: map of allowed parameter name -> {{"min_value": number|null, "max_value": number|null}}
+  - frozen_parameters: array of allowed parameter names
 - rationale_summary: short Chinese or English reason (<= 600 chars)
 
 Example:
-{{"action":"A07_OPTIMIZE","hypothesis":"MODEL","strategy_id":"xaj-local-refine-v1","param_groups":["evap","runoff"],"objective":"water_balance","rationale_summary":"当前P2先修多年水量平衡，只开放产流相关自由度。"}}
+{{"action":"A07_OPTIMIZE","hypothesis":"MODEL","strategy_id":"xaj-local-refine-v1","param_groups":["evap","runoff"],"objective":"water_balance","parameter_guidance":{{"directions":{{"K":"decrease","B":"increase"}},"bounds":{{}},"frozen_parameters":["DM"]}},"rationale_summary":"P2 总水量已接近阈值，按诊断约束 K 下调并冻结 DM，避免优化器反向补偿。"}}
 
 No markdown fences. No extra keys. No prose outside JSON.
 """
@@ -117,6 +143,7 @@ class SiliconFlowDecisionProvider:
             payload,
             safe_actions=safe,
             evidence_actions=evidence_actions,
+            allowed_parameters=set(view.hydro.available_tunable_parameters),
         )
         return AgentDecision.model_validate(payload)
 
@@ -201,7 +228,62 @@ def _fallback_payload(view: WorldStateView, *, raw_text: str) -> dict:
         "strategy_id": "xaj-bounded-v1" if optimize else None,
         "param_groups": list(view.hydro.available_param_groups) if optimize else None,
         "objective": _default_objective(view) if optimize else None,
+        "parameter_guidance": None,
         "rationale_summary": "模型输出格式不完整，按当前安全动作做最小恢复。",
+    }
+
+
+def _normalize_guidance(raw, *, allowed_parameters: set[str] | None) -> dict | None:
+    if not isinstance(raw, dict):
+        return None
+    allowed = set(allowed_parameters or _XAJ_PARAMETERS) & _XAJ_PARAMETERS
+    directions: dict[str, str] = {}
+    raw_directions = raw.get("directions")
+    if isinstance(raw_directions, dict):
+        for key, value in raw_directions.items():
+            name = str(key).strip().upper()
+            direction = str(value).strip().lower()
+            if name in allowed and direction in _DIRECTIONS:
+                directions[name] = direction
+
+    bounds: dict[str, dict[str, float | None]] = {}
+    raw_bounds = raw.get("bounds")
+    if isinstance(raw_bounds, dict):
+        for key, value in raw_bounds.items():
+            name = str(key).strip().upper()
+            if name not in allowed or not isinstance(value, dict):
+                continue
+            normalized: dict[str, float | None] = {"min_value": None, "max_value": None}
+            valid = False
+            for bound_key in ("min_value", "max_value"):
+                bound_value = value.get(bound_key)
+                if bound_value is None:
+                    continue
+                try:
+                    normalized[bound_key] = float(bound_value)
+                    valid = True
+                except (TypeError, ValueError):
+                    pass
+            if valid:
+                lo = normalized["min_value"]
+                hi = normalized["max_value"]
+                if lo is None or hi is None or lo <= hi:
+                    bounds[name] = normalized
+
+    frozen: list[str] = []
+    raw_frozen = raw.get("frozen_parameters")
+    if isinstance(raw_frozen, (list, tuple)):
+        for item in raw_frozen:
+            name = str(item).strip().upper()
+            if name in allowed and name not in frozen:
+                frozen.append(name)
+
+    if not directions and not bounds and not frozen:
+        return None
+    return {
+        "directions": directions,
+        "bounds": bounds,
+        "frozen_parameters": frozen,
     }
 
 
@@ -210,6 +292,7 @@ def normalize_decision_payload(
     *,
     safe_actions: set[str] | None = None,
     evidence_actions: tuple[str, ...] = (),
+    allowed_parameters: set[str] | None = None,
 ) -> dict:
     """Coerce common LLM formatting mistakes without imposing scientific policy."""
     del evidence_actions
@@ -266,9 +349,11 @@ def normalize_decision_payload(
 
     param_groups = data.get("param_groups")
     objective = data.get("objective")
+    guidance = data.get("parameter_guidance")
     if action != ActionCode.A07_OPTIMIZE.value:
         param_groups = None
         objective = None
+        guidance = None
     else:
         if isinstance(param_groups, str):
             param_groups = [p.strip() for p in param_groups.split(",") if p.strip()]
@@ -289,10 +374,12 @@ def normalize_decision_payload(
             param_groups = ["evap", "runoff", "routing"]
         if not objective:
             objective = "nse"
+        guidance = _normalize_guidance(guidance, allowed_parameters=allowed_parameters)
 
     data["hypothesis"] = hypothesis
     data["rationale_summary"] = rationale
     data["strategy_id"] = strategy_id
     data["param_groups"] = param_groups
     data["objective"] = objective
+    data["parameter_guidance"] = guidance
     return data
