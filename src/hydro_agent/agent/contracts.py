@@ -48,7 +48,16 @@ class EvidencePacket(FrozenModel):
     task_id: Identifier
     action_run_id: Identifier | None = None
     action: ActionCode
-    status: Literal["succeeded", "failed", "blocked", "KEEP", "ACCEPT", "ROLLBACK"]
+    status: Literal[
+        "succeeded",
+        "failed",
+        "blocked",
+        "ACCEPT",
+        "CONTINUE",
+        "CONVERGED",
+        "ROLLBACK",
+        "STRUCTURAL_LIMIT",
+    ]
     observations: tuple[str, ...] = ()
     metrics: dict[str, float] = Field(default_factory=dict)
     gates: dict[str, str] = Field(default_factory=dict)
@@ -128,6 +137,7 @@ class WorldStateView(FrozenModel):
     hydro: HydroContext = Field(default_factory=HydroContext)
 
 
-MAX_AGENT_ROUNDS = 20
-MAX_OPTIMIZATION_CYCLES = 4
+# Hard ceilings only. Scientific stopping is controlled by Gate convergence.
+MAX_AGENT_ROUNDS = 100
+MAX_OPTIMIZATION_CYCLES = 20
 MAX_TECHNICAL_RETRIES = 2
