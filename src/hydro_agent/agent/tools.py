@@ -265,6 +265,7 @@ class OptimizeHandler:
             policy=self.policy,
             param_groups=decision.param_groups,
             objective=decision.objective,
+            parameter_guidance=decision.parameter_guidance,
         )
         base_params = dict(
             (self.repository.get_scheme(outcome.base_scheme_id).config_json or {}).get("parameters")
@@ -277,6 +278,7 @@ class OptimizeHandler:
             and abs(float(outcome.candidate_parameters[key]) - float(base_params[key])) > 1e-12
         }
         groups_text = ",".join(outcome.param_groups)
+        guidance_json = json.dumps(outcome.parameter_guidance, sort_keys=True)
         candidate_id = self.candidate_service.register_candidate(
             base_scheme_id=outcome.base_scheme_id,
             action_run_id=outcome.action_run_id,
@@ -285,6 +287,7 @@ class OptimizeHandler:
                 "strategy_id": outcome.strategy_id,
                 "objective": outcome.objective,
                 "param_groups": list(outcome.param_groups),
+                "parameter_guidance": outcome.parameter_guidance,
             },
         )
         observations = (
@@ -293,6 +296,7 @@ class OptimizeHandler:
             f"strategy_id={outcome.strategy_id}",
             f"objective={outcome.objective}",
             f"param_groups={groups_text}",
+            f"parameter_guidance={guidance_json}",
             f"objective_value={outcome.objective_value}",
             f"parameter_delta={json.dumps(delta, sort_keys=True)}",
         )
@@ -303,6 +307,7 @@ class OptimizeHandler:
             "strategy_id": str(outcome.strategy_id),
             "objective": outcome.objective,
             "param_groups": groups_text,
+            "parameter_guidance_json": guidance_json,
             "parameter_delta_json": json.dumps(delta, sort_keys=True),
         }
         return EvidencePacket(
