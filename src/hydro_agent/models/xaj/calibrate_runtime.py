@@ -155,28 +155,62 @@ def _peak_score(obs: list[float], sim: list[float]) -> float:
     return float(1.0 - min(1.0, abs(peak_sim - peak_obs) / peak_obs))
 
 
-def _normalized_phase_loss(metrics: dict[str, float], objective: str) -> float:
+def _water_constraint_loss(metrics: dict[str, float]) -> float:
     p = _PHASE_POLICY
+    return max(
+        metrics["volume_rel_error"] / p.water_balance_rel_error,
+        metrics["annual_volume_bias_mae"] / p.annual_water_balance_mae,
+        metrics["seasonal_volume_bias_mae"] / p.seasonal_water_balance_mae,
+    )
+
+
+def _recession_constraint_loss(metrics: dict[str, float]) -> float:
+    p = _PHASE_POLICY
+    return max(
+        metrics["recession_relative_error"] / p.recession_relative_error,
+        metrics["event_recession_rel_error_median"] / p.recession_relative_error,
+    )
+
+
+def _routing_constraint_loss(metrics: dict[str, float]) -> float:
+    p = _PHASE_POLICY
+    return max(
+        metrics["event_peak_rel_error_median"] / p.flood_peak_rel_error,
+        metrics["event_peak_timing_steps_median"] / p.peak_timing_steps,
+        metrics["event_volume_rel_error_median"] / p.flood_volume_rel_error,
+    )
+
+
+def _normalized_phase_loss(metrics: dict[str, float], objective: str) -> float:
+    """Return phase loss while preserving already-passed upstream phases.
+
+    P2 itself is lexicographic. For P3/P4, violating an upstream phase receives a
+    large infeasibility penalty so the numerical optimizer cannot select a candidate
+    that the deterministic Gate must immediately roll back. P5 uses the exact strict
+    P2+P3+P4 constraint envelope before NSE is allowed to rank candidates.
+    """
+
     if objective == "water_balance":
-        return water_balance_progress(metrics, p).loss
+        return water_balance_progress(metrics, _PHASE_POLICY).loss
+
+    water_loss = _water_constraint_loss(metrics)
+    recession_loss = _recession_constraint_loss(metrics)
+
     if objective == "recession":
-        return max(
-            metrics["recession_relative_error"] / p.recession_relative_error,
-            metrics["event_recession_rel_error_median"] / p.recession_relative_error,
-        )
+        if water_loss > 1.0:
+            return float(1000.0 + water_loss)
+        return recession_loss
+
+    routing_loss = _routing_constraint_loss(metrics)
     if objective == "routing_event":
-        return max(
-            metrics["event_peak_rel_error_median"] / p.flood_peak_rel_error,
-            metrics["event_peak_timing_steps_median"] / p.peak_timing_steps,
-            metrics["event_volume_rel_error_median"] / p.flood_volume_rel_error,
-        )
+        upstream_loss = max(water_loss, recession_loss)
+        if upstream_loss > 1.0:
+            return float(1000.0 + upstream_loss)
+        return routing_loss
+
     if objective == "joint":
-        return max(
-            metrics["volume_rel_error"] / (p.water_balance_rel_error + p.max_water_balance_regression),
-            metrics["event_peak_rel_error_median"] / (p.flood_peak_rel_error + p.max_event_error_regression),
-            metrics["event_peak_timing_steps_median"] / (p.peak_timing_steps + 1.0),
-            metrics["event_volume_rel_error_median"] / (p.flood_volume_rel_error + p.max_event_error_regression),
-        )
+        return max(water_loss, recession_loss, routing_loss)
+
     raise ValueError(f"unsupported phase objective: {objective}")
 
 
@@ -210,7 +244,7 @@ def _objective_score(
         metrics["water_balance_active_ratio"] = float(progress.active_ratio)
     if objective == "joint":
         # Joint refinement is constrained optimization: maximize NSE only inside the
-        # hydrologically acceptable region. Outside it, first reduce the worst violation.
+        # exact P2+P3+P4 acceptance envelope. Outside it, reduce the worst violation.
         score = nse_value if loss <= 1.0 else float(-1000.0 - loss)
     else:
         score = -loss
@@ -246,11 +280,7 @@ def run(workspace: Path) -> dict:
         raise ValueError(f"no calibratable XAJ parameters in groups={groups}, objective={objective}")
 
     guidance = ParameterGuidance.model_validate(request.parameters.get("parameter_guidance") or {})
-    guided_names = (
-        set(guidance.directions)
-        | set(guidance.bounds)
-        | set(guidance.frozen_parameters)
-    )
+    guided_names = set(guidance.directions) | set(guidance.bounds) | set(guidance.frozen_parameters)
     invalid_guidance = guided_names - tunable
     if invalid_guidance:
         raise ValueError(
@@ -314,7 +344,7 @@ def run(workspace: Path) -> dict:
             if index == 0:
                 raise
             continue
-        sim_dates = dates[scheme.warmup_days:]
+        sim_dates = dates[scheme.warmup_days :]
         obs: list[float] = []
         sim: list[float] = []
         aligned_dates: list[date] = []
