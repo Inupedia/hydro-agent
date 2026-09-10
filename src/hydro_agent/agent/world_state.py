@@ -3,6 +3,7 @@ from __future__ import annotations
 from hydro_agent.agent.contracts import (
     MAX_AGENT_ROUNDS,
     MAX_OPTIMIZATION_CYCLES,
+    ActionCode,
     BudgetSummary,
     EvidenceSummary,
     HydroContext,
@@ -49,6 +50,10 @@ class WorldStateBuilder:
         state = self.repository.ensure_task_state(task_id)
         scheme = self.repository.get_scheme(state.current_scheme_id)
         evidence_rows = self.repository.list_evidence(task_id)
+
+        # The short summary is for LLM context only. Protocol mechanics below derive
+        # lifetime facts from the full evidence ledger so old initialization/Gate facts
+        # cannot disappear when this window rolls forward.
         evidence_summary = tuple(
             EvidenceSummary(
                 evidence_id=row.evidence_id,
@@ -61,6 +66,17 @@ class WorldStateBuilder:
             )
             for row in evidence_rows[-8:]
         )
+        action_counts: dict[str, int] = {}
+        for row in evidence_rows:
+            action_counts[row.action] = action_counts.get(row.action, 0) + 1
+        latest_gate: dict[str, str] = {}
+        for row in reversed(evidence_rows):
+            if row.action != ActionCode.A08_GATE.value:
+                continue
+            latest_gate = {str(k): str(v) for k, v in dict(row.gates_json or {}).items()}
+            latest_gate.setdefault("status", str(row.status))
+            break
+
         forecasts = [
             row
             for row in self.repository.list_forecasts(task_id)
@@ -85,7 +101,7 @@ class WorldStateBuilder:
                     parameter_delta[key] = float(value) - float(current_params[key])
         diagnosis = {}
         for row in reversed(evidence_rows):
-            if row.action == "A06_DIAGNOSE" and row.gates_json:
+            if row.action == ActionCode.A06_DIAGNOSE.value and row.gates_json:
                 diagnosis = dict(row.gates_json)
                 diagnosis["metrics"] = {
                     str(k): float(v) for k, v in dict(row.metrics_json or {}).items()
@@ -121,6 +137,8 @@ class WorldStateBuilder:
             diagnosis=diagnosis,
             calibration_phase=calibration_phase.value,
             phase_history=protocol.phase_history(evidence_rows),
+            action_counts=action_counts,
+            latest_gate=latest_gate,
             experiment_history=history,
             skill_cards=tuple(self.skills.cards_for_prompt()),
         )
