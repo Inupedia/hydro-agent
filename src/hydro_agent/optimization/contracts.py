@@ -1,11 +1,57 @@
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from hydro_agent.execution.contracts import FrozenModel, Identifier
 
 GateStatus = Literal["ACCEPT", "KEEP", "ROLLBACK"]
 SchemeGrade = Literal["甲", "乙", "丙", "不合格"]
+XajParameterName = Literal[
+    "K",
+    "UM",
+    "LM",
+    "DM",
+    "C",
+    "B",
+    "IM",
+    "SM",
+    "EX",
+    "KI",
+    "KG",
+    "CS",
+    "CI",
+    "CG",
+    "L",
+]
+ParameterDirection = Literal["increase", "decrease", "hold"]
+
+
+class ParameterBounds(FrozenModel):
+    min_value: float | None = None
+    max_value: float | None = None
+
+    @model_validator(mode="after")
+    def validate_order(self):
+        if (
+            self.min_value is not None
+            and self.max_value is not None
+            and self.min_value > self.max_value
+        ):
+            raise ValueError("parameter bound min_value cannot exceed max_value")
+        return self
+
+
+class ParameterGuidance(FrozenModel):
+    """Hydrologist constraints passed from the Agent to the numerical optimizer.
+
+    Directions are interpreted relative to the current/base parameter value. Bounds
+    are optional hard local bounds and are always intersected with the upstream XAJ
+    parameter range. ``hold`` and ``frozen_parameters`` both keep a coordinate fixed.
+    """
+
+    directions: dict[XajParameterName, ParameterDirection] = Field(default_factory=dict)
+    bounds: dict[XajParameterName, ParameterBounds] = Field(default_factory=dict)
+    frozen_parameters: tuple[XajParameterName, ...] = ()
 
 
 class CalibrationStrategy(FrozenModel):
