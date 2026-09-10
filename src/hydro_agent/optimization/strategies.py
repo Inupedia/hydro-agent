@@ -1,8 +1,10 @@
 from hydro_agent.optimization.contracts import CalibrationStrategy
 
+# Agent rounds are expensive reasoning steps; XAJ candidate evaluations are cheap CPU work.
+# Give each hydrologist-selected experiment enough numerical depth to be meaningful.
 XAJ_BOUNDED_V1 = CalibrationStrategy(
     strategy_id="xaj-bounded-v1",
-    max_candidates=32,
+    max_candidates=256,
     random_seed=20260908,
     objective="nse",
     local_scale=None,
@@ -11,7 +13,7 @@ XAJ_BOUNDED_V1 = CalibrationStrategy(
 
 XAJ_PEAK_BIAS_V1 = CalibrationStrategy(
     strategy_id="xaj-peak-bias-v1",
-    max_candidates=40,
+    max_candidates=320,
     random_seed=20260911,
     objective="composite",
     local_scale=None,
@@ -20,10 +22,10 @@ XAJ_PEAK_BIAS_V1 = CalibrationStrategy(
 
 XAJ_LOCAL_REFINE_V1 = CalibrationStrategy(
     strategy_id="xaj-local-refine-v1",
-    max_candidates=24,
+    max_candidates=192,
     random_seed=20260912,
     objective="nse",
-    local_scale=0.25,
+    local_scale=0.15,
     param_groups=("evap", "runoff", "routing"),
 )
 
