@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from hydro_agent.calibration.contracts import (
+    CalibrationPhase,
     SearchConvergenceDecision,
     SearchConvergencePolicy,
     SearchProgressPoint,
@@ -13,6 +14,8 @@ class SearchConvergenceController:
     The controller is deliberately hydrology-agnostic. Phase gates define the
     progress value; this class only tracks unique experiment outcomes and detects
     diminishing returns. Duplicate Gate evaluations never become new curve points.
+    Numerical searches that return the unchanged base vector are convergence
+    evidence, but they are not counted as new scientific experiment points.
     """
 
     def __init__(self, policy: SearchConvergencePolicy | None = None):
@@ -21,6 +24,36 @@ class SearchConvergenceController:
     @staticmethod
     def _utility(point: SearchProgressPoint) -> float:
         return float(point.value) if point.higher_is_better else -float(point.value)
+
+    def evaluate_no_change(
+        self,
+        history: tuple[SearchProgressPoint, ...],
+        *,
+        phase: CalibrationPhase,
+        repeated: bool,
+    ) -> SearchConvergenceDecision:
+        """Record a search that found no new parameter vector.
+
+        One no-change search may justify trying a different numerical strategy.
+        Repeated no-change outcomes in the same phase are a plateau signal. Neither
+        outcome adds a fake point to the scientific progress curve.
+        """
+
+        same_phase = [point for point in history if point.phase == phase]
+        best_value = None
+        if same_phase:
+            best_value = float(max(same_phase, key=self._utility).value)
+        return SearchConvergenceDecision(
+            plateau=repeated,
+            duplicate=False,
+            unique_points=len({point.experiment_id for point in same_phase}),
+            best_value=best_value,
+            reason=(
+                "repeated_no_parameter_change"
+                if repeated
+                else "no_parameter_change_try_alternate_strategy"
+            ),
+        )
 
     def evaluate(
         self,
