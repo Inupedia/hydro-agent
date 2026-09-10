@@ -2,16 +2,6 @@ name: Lowman XAJ agent E2E
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - experiment/lowman-xaj-agent-e2e
-    paths:
-      - '.github/workflows/lowman-agent-e2e.yml'
-      - 'scripts/run_lowman_agent_experiment.py'
-      - 'src/**'
-      - 'tests/fixtures/xaj/lowman_scheme.json'
-      - 'pyproject.toml'
-      - 'uv.lock'
 
 permissions:
   contents: read
