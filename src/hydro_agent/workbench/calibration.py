@@ -167,7 +167,12 @@ class CalibrationWorkbenchKernel(RealWorkbenchKernel):
 
 
 class HydrologistProtocolDecisionProvider:
-    """Own protocol mechanics while the LLM owns scientific experiment choices."""
+    """Own protocol mechanics while the LLM owns scientific experiment choices.
+
+    Lifetime mechanics use ``HydroContext.action_counts/latest_gate`` derived from the
+    full evidence ledger. The rolling evidence summary is used only for the immediate
+    previous action and scientific context.
+    """
 
     _TERMINAL_LIMITS = {
         "DATA_LIMIT",
@@ -200,10 +205,14 @@ class HydrologistProtocolDecisionProvider:
 
     def decide(self, view):
         evidence = list(view.evidence_summary)
-        actions = [item.action.value for item in evidence]
         safe = {a.value for a in view.permissions.safe_actions}
         latest = evidence[-1] if evidence else None
         phase = str(view.hydro.calibration_phase)
+        counts = dict(view.hydro.action_counts or {})
+        latest_gate = dict(view.hydro.latest_gate or {})
+
+        def count(action: ActionCode) -> int:
+            return int(counts.get(action.value, 0))
 
         if view.task.phase == "F" and ActionCode.A11_REPLAY.value in safe:
             return self._decision(
@@ -216,35 +225,40 @@ class HydrologistProtocolDecisionProvider:
                 "读取最终holdout并形成一次性终评。",
             )
 
-        if ActionCode.A01_CHECK_DATA.value not in actions and ActionCode.A01_CHECK_DATA.value in safe:
+        # One-time initialization is durable; never infer it from the rolling prompt window.
+        if count(ActionCode.A01_CHECK_DATA) == 0 and ActionCode.A01_CHECK_DATA.value in safe:
             return self._decision(
                 ActionCode.A01_CHECK_DATA,
                 "先验证资料与任务可用性。",
                 ProblemHypothesis.DATA,
             )
-        if ActionCode.A03_VALIDATE_SCHEME.value not in actions and ActionCode.A03_VALIDATE_SCHEME.value in safe:
+        if count(ActionCode.A03_VALIDATE_SCHEME) == 0 and ActionCode.A03_VALIDATE_SCHEME.value in safe:
             return self._decision(ActionCode.A03_VALIDATE_SCHEME, "确认XAJ参数初值和方案合法。")
-        if ActionCode.A05_FORECAST.value not in actions and ActionCode.A05_FORECAST.value in safe:
+        if count(ActionCode.A05_FORECAST) == 0 and ActionCode.A05_FORECAST.value in safe:
             return self._decision(ActionCode.A05_FORECAST, "建立初始过程证据。")
-        if ActionCode.A06_DIAGNOSE.value not in actions and ActionCode.A06_DIAGNOSE.value in safe:
+        if count(ActionCode.A06_DIAGNOSE) == 0 and ActionCode.A06_DIAGNOSE.value in safe:
             return self._decision(ActionCode.A06_DIAGNOSE, "按当前水文阶段提取连续signature并诊断。")
 
-        if latest is not None and latest.action == ActionCode.A07_OPTIMIZE:
+        # Recover protocol order from lifetime counts even if a transient fallback action
+        # was inserted or the originating evidence fell out of the prompt window.
+        if count(ActionCode.A07_OPTIMIZE) > count(ActionCode.A08_GATE):
             if ActionCode.A08_GATE.value in safe:
                 return self._decision(
                     ActionCode.A08_GATE,
-                    "新unique experiment已生成，运行当前HydrologicPhaseGate。",
+                    "存在未Gate的新unique experiment，运行当前HydrologicPhaseGate。",
                 )
-        if latest is not None and latest.action == ActionCode.A08_GATE:
+        if count(ActionCode.A08_GATE) > count(ActionCode.A09_RESOLVE):
             if ActionCode.A09_RESOLVE.value in safe:
                 return self._decision(
                     ActionCode.A09_RESOLVE,
-                    f"落实阶段Gate={latest.status}的采用、回滚或返工路由。",
+                    f"落实阶段Gate={latest_gate.get('status', 'unknown')}的采用、回滚或返工路由。",
                 )
 
         if latest is not None and latest.action == ActionCode.A09_RESOLVE:
-            status = str(latest.gates.get("status") or latest.status)
-            return_phase = str(latest.gates.get("return_phase") or "")
+            status = str(latest.gates.get("status") or latest_gate.get("status") or latest.status)
+            return_phase = str(
+                latest.gates.get("return_phase") or latest_gate.get("return_phase") or ""
+            )
             if phase == CalibrationPhase.FINAL_HOLDOUT.value and ActionCode.A10_FREEZE.value in safe:
                 return self._decision(
                     ActionCode.A10_FREEZE,
@@ -271,6 +285,27 @@ class HydrologistProtocolDecisionProvider:
                     ActionCode.A06_DIAGNOSE,
                     f"上一实验={status}，按新的{phase}重新提取signature。",
                 )
+
+        # Defensive terminal recovery: if the resolve happened but its row is no longer
+        # the latest prompt item, a terminal latest Gate still owns the next transition.
+        if (
+            count(ActionCode.A08_GATE) == count(ActionCode.A09_RESOLVE)
+            and count(ActionCode.A08_GATE) > 0
+            and str(latest_gate.get("status") or "") in self._TERMINAL_LIMITS
+            and not str(latest_gate.get("return_phase") or "")
+            and ActionCode.A10_FREEZE.value in safe
+        ):
+            status = str(latest_gate.get("status"))
+            hypothesis = (
+                ProblemHypothesis.FORCING
+                if status == "FORCING_LIMIT"
+                else ProblemHypothesis.MODEL
+            )
+            return self._decision(
+                ActionCode.A10_FREEZE,
+                f"最新已解析Gate={status}为终止状态，不再生成新的率定实验。",
+                hypothesis,
+            )
 
         if phase == CalibrationPhase.FINAL_HOLDOUT.value and ActionCode.A10_FREEZE.value in safe:
             return self._decision(
