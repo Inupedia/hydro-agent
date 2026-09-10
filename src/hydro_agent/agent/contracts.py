@@ -124,7 +124,12 @@ class EvidenceSummary(FrozenModel):
 
 
 class HydroContext(FrozenModel):
-    """Decision-relevant hydrologic context beyond ids/hashes."""
+    """Decision-relevant hydrologic context beyond ids/hashes.
+
+    ``evidence_summary`` is intentionally a short prompt window. Protocol mechanics
+    must use the durable derived facts below instead of inferring lifetime state from
+    that rolling window.
+    """
 
     current_parameters: dict[str, float] = Field(default_factory=dict)
     candidate_parameters: dict[str, float] | None = None
@@ -145,6 +150,8 @@ class HydroContext(FrozenModel):
     diagnosis: dict[str, object] = Field(default_factory=dict)
     calibration_phase: str = "P2_WATER_BALANCE"
     phase_history: tuple[str, ...] = ()
+    action_counts: dict[str, int] = Field(default_factory=dict)
+    latest_gate: dict[str, str] = Field(default_factory=dict)
     experiment_history: tuple[str, ...] = ()
     skill_cards: tuple[dict[str, object], ...] = ()
 
