@@ -13,20 +13,22 @@ class FrozenApiModel(BaseModel):
 class TaskCreateRequest(FrozenApiModel):
     basin_id: str = Field(min_length=1)
     model_id: Literal["xaj", "openhydronet"]
+    model_mode: Literal["lumped", "distributed"] = "lumped"
     start_date: date
     end_date: date
-    forcing_mode: Literal["R", "F"]
-    base_scheme_id: str = Field(min_length=1)
+    forcing_mode: Literal["R", "F"] = "R"
+    base_scheme_id: str = Field(default="scheme-base", min_length=1)
     model_plan_id: str | None = None
-    allow_optimization: bool
-    max_agent_decision_rounds: int = Field(default=20, ge=1, le=20)
-    max_optimization_cycles: int = Field(default=4, ge=0, le=4)
+    allow_optimization: bool = True
+    max_agent_decision_rounds: int = Field(default=100, ge=1, le=100)
+    max_optimization_cycles: int = Field(default=20, ge=0, le=20)
 
 
 class TaskSummary(FrozenApiModel):
     task_id: str
     basin_id: str
     model_id: str
+    model_mode: Literal["lumped", "distributed"] = "lumped"
     phase: Literal["B", "F", "E"]
     status: str
     paused: bool
@@ -87,11 +89,20 @@ class ForecastResult(FrozenApiModel):
     unit: str
 
 
+class CalibrationComparisonPoint(FrozenApiModel):
+    time: date
+    observed: float
+    calibrated: float
+    initial: float | None = None
+
+
 class ResultSummary(FrozenApiModel):
     task_id: str
     phase: Literal["B", "F", "E"]
     scheme: SchemeResult | None
     forecasts: tuple[ForecastResult, ...]
+    comparison: tuple[CalibrationComparisonPoint, ...] = ()
+    comparison_scope: Literal["calibration", "development", "final_holdout", "unknown"] = "unknown"
     metrics: dict[str, float | None]
     gate: dict[str, object] | None
     diagnosis: dict[str, object] | None = None
