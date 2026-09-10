@@ -38,7 +38,6 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
         }
 
     app.include_router(basins.router)
-    app.include_router(basins.downloads_router)
     app.include_router(model_plans.router)
     app.include_router(hydrologist.router)
     app.include_router(tasks.router)

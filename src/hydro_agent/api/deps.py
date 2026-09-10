@@ -33,7 +33,6 @@ class AppDependencies:
     provider_model: str | None = None
     model_plans: Any = None
     basins: Any = None
-    basin_downloads: Any = None
     hydrologist: Any = None
     hydrologist_graph: Any = None
     runtime_for_task: Callable[[str], AgentRuntime] | None = None

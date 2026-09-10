@@ -1,0 +1,8 @@
+{
+  "rain_semantics_confirmed": true,
+  "rain_missing_policy": "owner_authorized_zero",
+  "selected_events": 10,
+  "ranking": "Largest observed hourly-endpoint peak among evaporation/flow-complete candidates; not all historical floods",
+  "no_evaporation_or_discharge_zero_fill": true,
+  "full_flood_boundaries_verified": false
+}

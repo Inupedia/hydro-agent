@@ -117,14 +117,3 @@ export type BasinInfo = {
   default_end?: string
 }
 
-export type DownloadJob = {
-  job_id: string
-  basin_id: string
-  status: string
-  stage: string
-  current_file?: string | null
-  bytes?: number
-  fraction?: number
-  error?: string | null
-  log_tail?: string
-}

@@ -1,0 +1,43 @@
+{
+  "provider": "Mapzen / Tilezen Terrain Tiles, AWS public bucket",
+  "reference_bbox_wgs84": [
+    111.9875,
+    22.350833,
+    112.41,
+    22.918333
+  ],
+  "download_bbox_wgs84": [
+    111.9375,
+    22.300833,
+    112.46,
+    22.968333
+  ],
+  "attribution": "Terrain Tiles contains blended elevation sources; SRTM data courtesy of the U.S. Geological Survey. Not a surveyed bare-earth DTM.",
+  "documentation": "https://github.com/tilezen/joerd/blob/master/docs/attribution.md",
+  "tiles": [
+    {
+      "file": "N22E111.hgt.gz",
+      "url": "https://s3.amazonaws.com/elevation-tiles-prod/skadi/N22/N22E111.hgt.gz",
+      "sha256": "d026b9b589c36fa98d27c2e0535390bdbf9c628b44912cf41e59df03cca38cdb",
+      "hgt_sha256": "9ef337591e0aa248ba7c142051aec3460f8fedf364f4091e86275d70e38d1444",
+      "bytes": 14500913,
+      "samples_per_side": 3601,
+      "arcseconds": 1.0,
+      "latitude": 22,
+      "longitude": 111,
+      "downloaded_utc": "2026-09-07T07:56:18.649394+00:00"
+    },
+    {
+      "file": "N22E112.hgt.gz",
+      "url": "https://s3.amazonaws.com/elevation-tiles-prod/skadi/N22/N22E112.hgt.gz",
+      "sha256": "3a8fd83efa71830f7b01e5fb6d89490815f4cfc0e0ba5bc010e7b244cb14fa59",
+      "hgt_sha256": "5d561f801be80ecb76358225a5fe465c6b0b8d3422b02316d70f91232c038d7b",
+      "bytes": 12270218,
+      "samples_per_side": 3601,
+      "arcseconds": 1.0,
+      "latitude": 22,
+      "longitude": 112,
+      "downloaded_utc": "2026-09-07T07:56:18.637497+00:00"
+    }
+  ]
+}

@@ -141,8 +141,8 @@ class HydrologistTuneService:
         params_path = root / "case" / "parameters" / "parameters.csv"
         with params_path.open(encoding="utf-8", newline="") as fh:
             rows = list(csv.DictReader(fh))
-        if len(rows) != 1:
-            raise ValueError("当前仅支持集总式单单元手工调参")
+        if not rows:
+            raise ValueError("模型方案缺少参数表，无法按老师流程调参")
         baseline_params = product_from_native_row(rows[0])
         session = {
             "session_id": session_id,
@@ -154,6 +154,7 @@ class HydrologistTuneService:
             "orchestrator": "langgraph",
             "workflow": "hydrologist-manual-compare",
             "area_km2": plan.get("area_km2"),
+            "unit_count": len(rows),
             "baseline_params": baseline_params,
             "current_params": dict(baseline_params),
             "editable": list(EDITABLE_PARAMS),
@@ -383,11 +384,12 @@ class HydrologistTuneService:
         with path.open(encoding="utf-8", newline="") as fh:
             rows = list(csv.DictReader(fh))
             fieldnames = list(rows[0].keys())
-        rows[0] = apply_product_to_native_row(rows[0], product)
+        # Teacher academy uses shared uncalibrated parameters across units; keep rivid/area.
+        updated = [apply_product_to_native_row(row, product) for row in rows]
         with path.open("w", encoding="utf-8", newline="") as fh:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)
             writer.writeheader()
-            writer.writerow(rows[0])
+            writer.writerows(updated)
 
     def _run_case(self, session_id: str, *, label: str) -> dict[str, Any]:
         case = self.directory(session_id) / "case"

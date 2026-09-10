@@ -1,6 +1,5 @@
 import type {
   BasinInfo,
-  DownloadJob,
   ModelPlan,
   ResultSummary,
   RunSummary,
@@ -9,7 +8,7 @@ import type {
   TimelineItem,
 } from '../types/api'
 
-export type { BasinInfo, DownloadJob, ModelPlan }
+export type { BasinInfo, ModelPlan }
 
 export type HealthResponse = {
   status: string
@@ -63,15 +62,6 @@ export const api = {
   },
   getBasin(id: string) {
     return request<BasinInfo>(`/api/basins/${id}`)
-  },
-  startBasinDownload(id: string, body: { components?: string[]; start?: string; end?: string } = {}) {
-    return request<DownloadJob>(`/api/basins/${id}/download`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    })
-  },
-  getDownloadJob(id: string) {
-    return request<DownloadJob>(`/api/basin-downloads/${id}`)
   },
   listModelPlans() {
     return request<ModelPlan[]>('/api/model-plans')

@@ -75,12 +75,8 @@ function statusZh(status: string) {
           <div class="field">
             <span class="key">流域</span>
             <div class="val">
-              <select v-model="demo.draft.basin_id" required>
-                <option value="usgs_02472000">Leaf River near Collins (MS)</option>
-                <option value="camels_13235000">Lowman · South Fork Payette (ID)</option>
-                <option value="camels_01123000">Pendleton Hill · Housatonic (CT)</option>
-              </select>
-              <small>{{ demo.draft.basin_id }}</small>
+              <strong>腰古</strong>
+              <small>yaogu · 内置资料，不可改选</small>
             </div>
           </div>
 

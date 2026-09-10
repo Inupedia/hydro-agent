@@ -1434,7 +1434,7 @@
       </section>
       <div class="grid">
         <label>流域
-          <input id="hydro-basin" value="camels_13235000" autocomplete="off" />
+          <input id="hydro-basin" value="yaogu" autocomplete="off" />
         </label>
         <label>开始日期
           <input id="hydro-start-date" type="date" value="2020-04-29" />

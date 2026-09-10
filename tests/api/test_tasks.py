@@ -16,7 +16,7 @@ def test_create_task_returns_persisted_task(client):
     response = client.post(
         "/api/tasks",
         json={
-            "basin_id": "camels_13235000",
+            "basin_id": "yaogu",
             "model_id": "xaj",
             "start_date": "2025-05-01",
             "end_date": "2025-05-10",
@@ -29,7 +29,7 @@ def test_create_task_returns_persisted_task(client):
     )
     assert response.status_code == 201
     task = response.json()
-    assert task["basin_id"] == "camels_13235000"
+    assert task["basin_id"] == "yaogu"
     assert task["status"] == "created"
     assert client.get("/api/tasks").json()[0]["task_id"] == task["task_id"]
 

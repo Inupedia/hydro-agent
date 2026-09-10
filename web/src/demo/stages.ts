@@ -194,11 +194,7 @@ export function gateDecisionZh(
 }
 
 export const BASIN_LABELS: Record<string, string> = {
-  usgs_02472000: 'Leaf River near Collins (MS)',
-  camels_13235000: 'Lowman · South Fork Payette (ID)',
-  camels_01123000: 'Pendleton Hill · Housatonic (CT)',
-  camels_05455500: 'Iowa City · Iowa River (IA)',
-  yaogu: '腰古（旁路实验）',
+  yaogu: '腰古',
 }
 
 export function basinLabel(basinId: string): string {

@@ -61,7 +61,30 @@ class FakePlans:
         return self.root / plan_id
 
 
-def test_product_native_roundtrip():
+def test_hydrologist_shared_params_apply_to_all_units(tmp_path):
+    plans = FakePlans(tmp_path / "plans")
+    case = plans.root / "plan-demo" / "case" / "parameters" / "parameters.csv"
+    with case.open(encoding="utf-8", newline="") as fh:
+        rows = list(csv.DictReader(fh))
+        fields = list(rows[0].keys())
+    second = dict(rows[0], rivid="2", area="50")
+    with case.open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows([rows[0], second])
+    service = HydrologistTuneService(tmp_path / "sessions", plans)
+    session = service.create(plan_id="plan-demo")
+    assert session["unit_count"] == 2
+    service._write_parameters_csv(session["session_id"], {**session["baseline_params"], "K": 1.1})
+    with (service.directory(session["session_id"]) / "case" / "parameters" / "parameters.csv").open(
+        encoding="utf-8", newline=""
+    ) as fh:
+        written = list(csv.DictReader(fh))
+    assert len(written) == 2
+    assert float(written[0]["kc"]) == 1.1
+    assert float(written[1]["kc"]) == 1.1
+    assert written[0]["rivid"] == "1"
+    assert written[1]["rivid"] == "2"
     row = {"kc": "0.9", "wum": "20", "wlm": "70", "wm": "150", "b": "0.3", "imp": "0.01",
            "c": "0.1", "sm": "25", "ex": "1.2", "ki": "0.4", "kg": "0.3", "cs": "0.6",
            "lag": "1", "ci": "0.8", "cg": "0.98"}

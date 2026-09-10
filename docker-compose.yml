@@ -10,9 +10,8 @@ services:
       - .env
     volumes:
       - hydro-agent-data:/data
-      # Host US basin library (downloads land here) + legacy Lowman hydro seed.
       - ./data:/app/data
-      - ./tests/fixtures/xaj/lowman_scheme.json:/app/tests/fixtures/xaj/lowman_scheme.json:ro
+      - ./tests/fixtures:/app/tests/fixtures:ro
       # Keep runtime in sync with the workspace so hotfixes cannot drift from the image.
       - ./src:/app/src
       - ./scripts/run_workbench_api.py:/app/scripts/run_workbench_api.py:ro
@@ -26,8 +25,8 @@ services:
       HYDRO_AGENT_WORK_ROOT: "/data/runtime"
       HYDRO_AGENT_DATA_ROOT: "/app/data"
       HYDRO_AGENT_BASINS: "/app/data/basins"
-      HYDRO_AGENT_SOURCE_ROOT: "/app/data/source"
-      HYDRO_AGENT_SOURCE: "/app/data/source/camels_13235000"
+      HYDRO_AGENT_ACADEMY: "/app/data/academy"
+      HYDRO_AGENT_SOURCE: "/app/tests/fixtures/lowman_reanalysis_source"
       HYDRO_AGENT_SCHEME: "/app/tests/fixtures/xaj/lowman_scheme.json"
       HYDRO_AGENT_MODE: "real"
       HYDRO_LLM_TIMEOUT_SECONDS: "180"

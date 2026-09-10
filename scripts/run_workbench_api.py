@@ -188,15 +188,13 @@ def _build_demo(deps: AppDependencies, repository) -> None:
     deps.provider_model = None
 
 
-def _can_run_real(*, basins_root: Path, legacy_source: Path) -> tuple[bool, str]:
+def _can_run_real(*, academy: Path) -> tuple[bool, str]:
     if os.getenv("HYDRO_AGENT_MODE", "").lower() == "demo":
         return False, "HYDRO_AGENT_MODE=demo"
-    hydro_ok = (basins_root / "camels_13235000" / "hydro" / "forcing.jsonl").is_file() or (
-        legacy_source / "forcing.jsonl"
-    ).is_file() or (legacy_source / "camels_13235000" / "forcing.jsonl").is_file()
-    if not hydro_ok:
-        # Still allow real mode so download UI can run; forecast needs a ready plan.
-        hydro_ok = True
+    from hydro_agent.modeling.plans import academy_materials_ready
+
+    if not academy_materials_ready(academy):
+        return False, f"bundled academy missing at {academy}"
     try:
         from hydro_agent.llm.settings import LLMSettings
 
@@ -386,17 +384,14 @@ def build_app(
     report_root.mkdir(parents=True, exist_ok=True)
     from hydro_agent.graphs.hydrologist import build_hydrologist_tune_graph
     from hydro_agent.modeling.basins import BasinCatalog
-    from hydro_agent.modeling.downloads import BasinDownloadService
     from hydro_agent.modeling.hydrologist import HydrologistTuneService
-    from hydro_agent.modeling.us_plans import UsModelPlanService
+    from hydro_agent.modeling.plans import ModelPlanService, bundled_academy_root
 
     data_root = Path(os.getenv("HYDRO_AGENT_DATA_ROOT", "data"))
     basins_root = Path(os.getenv("HYDRO_AGENT_BASINS", str(data_root / "basins")))
-    legacy_source_root = Path(os.getenv("HYDRO_AGENT_SOURCE_ROOT", str(data_root / "source")))
-    deps.basins = BasinCatalog(basins_root, legacy_source=legacy_source_root)
-    deps.basin_downloads = BasinDownloadService(deps.basins)
-    deps.model_plans = UsModelPlanService(report_root.parent / "model-plans", deps.basins)
-    # Hydrologist tune stays available when a plan case exists; US cases may be limited.
+    academy = Path(os.getenv("HYDRO_AGENT_ACADEMY", str(bundled_academy_root())))
+    deps.basins = BasinCatalog(basins_root, academy=academy)
+    deps.model_plans = ModelPlanService(report_root.parent / "model-plans", academy)
     deps.hydrologist = HydrologistTuneService(
         report_root.parent / "hydrologist-sessions",
         deps.model_plans,
@@ -406,30 +401,23 @@ def build_app(
 
     work_root = work_root or Path(os.getenv("HYDRO_AGENT_WORK_ROOT", "artifacts/workbench/runtime"))
     source = source_dir or Path(
-        os.getenv("HYDRO_AGENT_SOURCE", "data/source/camels_13235000")
+        os.getenv("HYDRO_AGENT_SOURCE", "tests/fixtures/lowman_reanalysis_source")
     )
     scheme = scheme_path or Path(
         os.getenv("HYDRO_AGENT_SCHEME", "tests/fixtures/xaj/lowman_scheme.json")
     )
 
-    ok, detail = _can_run_real(basins_root=basins_root, legacy_source=legacy_source_root)
+    ok, detail = _can_run_real(academy=academy)
     if ok:
-        # Prefer basin hydro for kernel bootstrap when present and complete.
-        basin_hydro = basins_root / "camels_13235000" / "hydro"
-        boot_source = (
-            basin_hydro
-            if (basin_hydro / "forcing.jsonl").is_file() and (basin_hydro / "flow.jsonl").is_file()
-            else source
-        )
         model = _build_real(
             deps,
             repository,
             work_root=work_root,
-            source=boot_source,
+            source=source,
             scheme=scheme,
             report_root=report_root,
         )
-        logger.info("workbench mode=real provider=siliconflow model=%s source=%s", model, boot_source)
+        logger.info("workbench mode=real provider=siliconflow model=%s academy=%s", model, academy)
     else:
         logger.warning("workbench falling back to demo (%s)", detail)
         _build_demo(deps, repository)

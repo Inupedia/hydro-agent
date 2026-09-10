@@ -21,9 +21,9 @@ class DataAccessPolicy:
             for row in rows:
                 if row.valid_date not in context.dates:
                     continue
-                if row.source_kind == "reanalysis":
+                if row.source_kind in ("reanalysis", "observation"):
                     existing = by_date.get(row.valid_date)
-                    if existing is not None and existing.source_kind == "reanalysis":
+                    if existing is not None and existing.source_kind in ("reanalysis", "observation"):
                         raise DataAccessViolation("ambiguous duplicate forcing dates")
                     by_date[row.valid_date] = row
                 elif (

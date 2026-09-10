@@ -159,6 +159,23 @@ def test_r_mode_may_use_future_reanalysis(r_context, forcing_rows):
     assert any(r.valid_date > ISSUE.date() and r.source_kind == "reanalysis" for r in selected)
 
 
+def test_r_mode_accepts_teacher_observation_forcing(r_context):
+    rows = [
+        ForcingRow(
+            valid_date=day,
+            precipitation_mm_day=1.0,
+            pet_mm_day=1.0,
+            source_kind="observation",
+            source="teacher-yaogu-daily",
+            available_at=datetime(2025, 5, 2, 8, tzinfo=timezone.utc),
+        )
+        for day in (date(2025, 4, 30), date(2025, 5, 1), date(2025, 5, 2), date(2025, 5, 3))
+    ]
+    selected = DataAccessPolicy().select_forcing(r_context, rows)
+    assert selected
+    assert all(r.source_kind == "observation" for r in selected)
+
+
 def test_forecast_never_sees_future_observed_discharge(f_context, flow_rows):
     selected = DataAccessPolicy().select_flow(f_context, flow_rows)
     assert all(r.valid_date <= ISSUE.date() for r in selected)

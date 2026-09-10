@@ -1,4 +1,4 @@
-"""US basin catalog and local materials registry (open-data + legacy CAMELS)."""
+"""Bundled basin catalog. Workbench currently ships only Yaogu academy data."""
 
 from __future__ import annotations
 
@@ -8,43 +8,25 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from hydro_agent.modeling.plans import write_json
+from hydro_agent.modeling.plans import (
+    BUNDLED_BASIN_ID,
+    academy_materials_ready,
+    bundled_academy_root,
+    write_json,
+)
 
-# Builtin product catalog. Leaf River is the professor-recommended primary site.
+# Product catalog. Other public US basins are out of scope until Yaogu calibration is complete.
 BUILTIN_BASINS: tuple[dict[str, Any], ...] = (
     {
-        "basin_id": "usgs_02472000",
-        "usgs_site": "02472000",
-        "label": "Leaf River near Collins (MS)",
-        "region": "Mississippi, USA",
-        "kind": "builtin",
-        "adapter": "open-v1",
-        "default_start": "2019-10-01",
-        "default_end": "2020-03-31",
+        "basin_id": BUNDLED_BASIN_ID,
+        "label": "腰古",
+        "region": "广东",
+        "kind": "bundled",
+        "adapter": "teacher-academy",
+        "default_start": "1991-01-01",
+        "default_end": "1991-03-31",
         "primary": True,
-    },
-    {
-        "basin_id": "camels_13235000",
-        "usgs_site": "13235000",
-        "label": "Lowman · South Fork Payette (ID)",
-        "region": "Idaho, USA",
-        "kind": "builtin",
-        "adapter": "multimet-legacy",
-        # Caravan MultiMet ERA5-Land full archive span (forcing); USGS DV overlaps from 1941.
-        "default_start": "1950-01-01",
-        "default_end": "2024-10-31",
-        "primary": False,
-    },
-    {
-        "basin_id": "camels_01123000",
-        "usgs_site": "01123000",
-        "label": "Pendleton Hill · Housatonic (CT)",
-        "region": "Connecticut, USA",
-        "kind": "builtin",
-        "adapter": "multimet-legacy",
-        "default_start": "2019-05-03",
-        "default_end": "2020-05-04",
-        "primary": False,
+        "outlet_station": "腰古",
     },
 )
 
@@ -68,16 +50,24 @@ class MaterialsStatus:
 
 
 class BasinCatalog:
-    def __init__(self, root: Path, *, legacy_source: Path | None = None):
+    def __init__(
+        self,
+        root: Path,
+        *,
+        academy: Path | None = None,
+        legacy_source: Path | None = None,
+    ):
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
+        self.academy = Path(academy).resolve() if academy else bundled_academy_root()
         self.legacy_source = Path(legacy_source).resolve() if legacy_source else None
         self._seed_builtin_metadata()
         self._link_legacy_lowman_if_present()
 
     def directory(self, basin_id: str) -> Path:
-        if not (basin_id.startswith("camels_") or basin_id.startswith("usgs_")):
-            raise ValueError("basin id must be camels_* or usgs_*")
+        allowed = basin_id == BUNDLED_BASIN_ID or basin_id.startswith("camels_") or basin_id.startswith("usgs_")
+        if not allowed:
+            raise ValueError("unknown basin id")
         path = (self.root / basin_id).resolve()
         if not path.is_relative_to(self.root):
             raise ValueError("invalid basin id")
@@ -142,6 +132,11 @@ class BasinCatalog:
         self._refresh_catalog_status("camels_13235000")
 
     def materials(self, basin_id: str) -> MaterialsStatus:
+        if basin_id == BUNDLED_BASIN_ID:
+            ready = academy_materials_ready(self.academy)
+            gis = any((self.academy / "examples" / "data").rglob("*.shp"))
+            dem = (self.academy / "examples" / "dem" / "yaogu" / "sources.json").is_file()
+            return MaterialsStatus(hydro=ready, dem=dem, gis=gis)
         root = self.directory(basin_id)
         hydro = (root / "hydro" / "forcing.jsonl").is_file() and (root / "hydro" / "flow.jsonl").is_file()
         dem = (root / "dem" / "sources.json").is_file() or any((root / "dem").glob("*.hgt"))
@@ -177,17 +172,12 @@ class BasinCatalog:
         return json.loads(path.read_text(encoding="utf-8"))
 
     def list(self) -> list[dict[str, Any]]:
-        ids = {b["basin_id"] for b in BUILTIN_BASINS}
-        for path in self.root.glob("*/catalog.json"):
-            ids.add(path.parent.name)
-        rows = [self._refresh_catalog_status(basin_id) for basin_id in sorted(ids)]
-        rows.sort(key=lambda r: (not r.get("primary", False), r["basin_id"]))
-        return rows
+        return [self._refresh_catalog_status(entry["basin_id"]) for entry in BUILTIN_BASINS]
 
     def require_buildable(self, basin_id: str) -> dict[str, Any]:
         meta = self._refresh_catalog_status(basin_id)
         if not meta.get("ready_for_build"):
-            raise ValueError(f"流域资料不足，请先下载：{basin_id}")
+            raise ValueError(f"流域资料不足：{basin_id}")
         return meta
 
     def hydro_dir(self, basin_id: str) -> Path:

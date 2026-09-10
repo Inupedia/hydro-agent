@@ -7,7 +7,7 @@ const router = useRouter()
 const tasks = useTasksStore()
 const showAdvanced = ref(false)
 const form = reactive({
-  basin_id: 'camels_13235000',
+  basin_id: 'yaogu',
   model_id: 'xaj' as 'xaj' | 'openhydronet',
   start_date: '2020-04-29',
   end_date: '2020-05-01',
@@ -39,8 +39,8 @@ async function onSubmit() {
     </p>
     <form class="form" @submit.prevent="onSubmit">
       <label>
-        流域（演示默认即可）
-        <input v-model="form.basin_id" name="basin_id" required />
+        流域
+        <input name="basin_id" value="yaogu" readonly />
       </label>
       <label>
         模型

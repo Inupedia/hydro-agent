@@ -1,7 +1,8 @@
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from typing import Literal
 
 router = APIRouter(prefix='/api/model-plans', tags=['model preparation'])
 
@@ -19,21 +20,21 @@ def list_plans(request: Request):
 
 
 class CreatePlanBody(BaseModel):
-    basin_id: str = Field(min_length=3)
+    basin_id: str = Field(default='yaogu', min_length=3)
     model_mode: Literal['lumped', 'distributed'] = 'lumped'
     resolution_m: float = Field(default=90, ge=30, le=1000)
     stream_area_km2: float = Field(default=50, gt=0, le=10000)
     unit_area_km2: float = Field(default=50, gt=0, le=10000)
-    warmup_days: int = Field(default=30, ge=1, le=1000)
+    warmup_days: int = Field(default=365, ge=1, le=1000)
     unit_count: int = Field(default=4, ge=2, le=32)
 
 
 @router.post('', status_code=202)
 def create_plan(payload: CreatePlanBody, request: Request):
-    from hydro_agent.modeling.us_plans import UsPlanRequest
+    from hydro_agent.modeling.plans import PlanRequest
 
     try:
-        return service(request).create(UsPlanRequest.model_validate(payload.model_dump()))
+        return service(request).create(PlanRequest.model_validate(payload.model_dump()))
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
 

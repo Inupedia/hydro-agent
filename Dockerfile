@@ -29,11 +29,14 @@ COPY --from=ghcr.io/astral-sh/uv:0.8.4 /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 COPY scripts ./scripts
+COPY data/academy ./data/academy
+COPY tests/fixtures/lowman_reanalysis_source ./tests/fixtures/lowman_reanalysis_source
+COPY tests/fixtures/xaj/lowman_scheme.json ./tests/fixtures/xaj/lowman_scheme.json
 
 # Prefer a reachable index when building behind unstable PyPI routes.
 ENV UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
-RUN uv sync --frozen --extra api --extra data --extra xaj --no-dev \
+RUN uv sync --frozen --extra api --extra data --extra xaj --extra xaj-dem --no-dev \
     && mkdir -p /data/reports /data/runtime
 
 COPY --from=web /web/dist /app/web/dist

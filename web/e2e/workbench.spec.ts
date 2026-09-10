@@ -10,7 +10,7 @@ test('click first Archify step to input, then run without hash thrash', async ({
         contentType: 'application/json',
         body: JSON.stringify({
           task_id: 'task-demo',
-          basin_id: 'camels_13235000',
+          basin_id: 'yaogu',
           model_id: 'xaj',
           phase: 'B',
           status: 'created',

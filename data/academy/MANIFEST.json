@@ -1,0 +1,407 @@
+{
+  "release": "xaj-offline-reusable-20260908-v6",
+  "source": "/Users/inupedia/Downloads/xaj-offline-reusable-20260908-v6/academy/examples",
+  "copied": "examples/data + examples/dem/yaogu (.hgt, .hgt.gz, sources.json); excluded OS junk",
+  "files": {
+    "examples/data/GIS图层/分区.cpg": {
+      "bytes": 5,
+      "sha256": "3ad3031f5503a4404af825262ee8232cc04d4ea6683d42c5dd0a2f2a27ac9824"
+    },
+    "examples/data/GIS图层/分区.dbf": {
+      "bytes": 77,
+      "sha256": "943fbc7e28a2e32b8a82068da6422f6ce4a53a46d65a241a73b0b0d10081a01e"
+    },
+    "examples/data/GIS图层/分区.prj": {
+      "bytes": 145,
+      "sha256": "a02a27b1d1982c8516d83398e85a3c8b1aef1713c13ef4d84d7bde17430c07c4"
+    },
+    "examples/data/GIS图层/分区.shp": {
+      "bytes": 12268,
+      "sha256": "3d19f30202d3348541400c6abf8da82fdd7aa095a8b25fd6554e0e1367e3503f"
+    },
+    "examples/data/GIS图层/分区.shx": {
+      "bytes": 108,
+      "sha256": "c6ba5c5ee564d73b6d0d6e4e5dad97b2f55f1ab532b1f24110e15166074d7d44"
+    },
+    "examples/data/GIS图层/流域河网.cpg": {
+      "bytes": 5,
+      "sha256": "3ad3031f5503a4404af825262ee8232cc04d4ea6683d42c5dd0a2f2a27ac9824"
+    },
+    "examples/data/GIS图层/流域河网.dbf": {
+      "bytes": 2148,
+      "sha256": "4579b7ebc2e4fcf4e3a4c1778b0cbb32a14d8e90f24803cafbb4535d38742baa"
+    },
+    "examples/data/GIS图层/流域河网.prj": {
+      "bytes": 156,
+      "sha256": "844ef8398e3fd4285898654ee57bc405b07397d9ec93a4f8a5fbdef4d906bb44"
+    },
+    "examples/data/GIS图层/流域河网.shp": {
+      "bytes": 20684,
+      "sha256": "94258ffdd969220d16a39071e50a5aa2410390cb2c6df13cd5edae73a56c09f7"
+    },
+    "examples/data/GIS图层/流域河网.shx": {
+      "bytes": 204,
+      "sha256": "6dec2acd85968152ae2318821916e0a767e6b43e20e0be2f9d41cdecc2c08c28"
+    },
+    "examples/data/GIS图层/流域站网.cpg": {
+      "bytes": 5,
+      "sha256": "3ad3031f5503a4404af825262ee8232cc04d4ea6683d42c5dd0a2f2a27ac9824"
+    },
+    "examples/data/GIS图层/流域站网.dbf": {
+      "bytes": 2542,
+      "sha256": "56d05cab4cf192efee4fe1444c3beb9463a72cef5dfa421e1e5e5cdbade5404d"
+    },
+    "examples/data/GIS图层/流域站网.prj": {
+      "bytes": 156,
+      "sha256": "844ef8398e3fd4285898654ee57bc405b07397d9ec93a4f8a5fbdef4d906bb44"
+    },
+    "examples/data/GIS图层/流域站网.shp": {
+      "bytes": 352,
+      "sha256": "e4732b4d8b1bdebcdce123604431dba9497f52b6c75f185a1fb36e6105f390ce"
+    },
+    "examples/data/GIS图层/流域站网.shx": {
+      "bytes": 172,
+      "sha256": "e12da84a486d2ba7d7d50683b969e723b9d7a0ae5ee409cd9a72f2189dcdf4b9"
+    },
+    "examples/data/ST_STNM.xlsx": {
+      "bytes": 9557,
+      "sha256": "12e710418d6fc87b4efad7c5bc9e702a0d84b65552ef4f3597367b0f8d9c26ce"
+    },
+    "examples/data/日数据/1989.csv": {
+      "bytes": 20550,
+      "sha256": "fb96aa0a1c1a14ef90c0bea3b3d4bc1c72e472257f84c60263901e377006919e"
+    },
+    "examples/data/日数据/1990.csv": {
+      "bytes": 20602,
+      "sha256": "e15a81ce5f9e1dd96d227752847c6b295e8b562dffe0b353c91c99bd5c0de6c0"
+    },
+    "examples/data/日数据/1991.csv": {
+      "bytes": 20293,
+      "sha256": "9e98b5fee13d8acad10306070e4905fe16218be2dd0375086caa4237d90ba194"
+    },
+    "examples/data/日数据/1992.csv": {
+      "bytes": 20841,
+      "sha256": "065de61775473adc602a8f927ace4fd1ad95770070bbba7252cab3d12d93c975"
+    },
+    "examples/data/日数据/1993.csv": {
+      "bytes": 20397,
+      "sha256": "fb5d732adde09a8ec1c46b7a2b58da70a0f964355ef5211e824ee209b1d2a9e5"
+    },
+    "examples/data/日数据/1994.csv": {
+      "bytes": 20628,
+      "sha256": "c44fdd198995931463b323385424d55b078f3421fac5d46e9813d4245b1c4e44"
+    },
+    "examples/data/日数据/1995.csv": {
+      "bytes": 20476,
+      "sha256": "675558f9dd4bcd09aeadfd35ff6f85225868049a9f59d4e05bef5cda05c11026"
+    },
+    "examples/data/日数据/1996.csv": {
+      "bytes": 20454,
+      "sha256": "d5a3d0fd4145bc667efba1df4da69da13e5da4182d95e3b179f723586c51369e"
+    },
+    "examples/data/日数据/1997.csv": {
+      "bytes": 20769,
+      "sha256": "2f88d10dc3d7cb7d7db9db04efcee94ede3db20ce7aa28fa63fe3999872de5fd"
+    },
+    "examples/data/日数据/1998.csv": {
+      "bytes": 20779,
+      "sha256": "a8ad6b208d8538e44431bd3a4a381846abac42d38e385fe892fbcd109de8eee0"
+    },
+    "examples/data/日数据/1999.csv": {
+      "bytes": 20453,
+      "sha256": "1520b2e1066826da2323e41385660c9ed4dc19d4b5a7c9d9fa22999fc8626f6c"
+    },
+    "examples/data/日数据/2000.csv": {
+      "bytes": 20624,
+      "sha256": "aa8e6868bd00e2ff486ffd9cf09869468d455ff0f5b487f8a812f38c92c3dfa9"
+    },
+    "examples/data/日数据/2001.csv": {
+      "bytes": 20898,
+      "sha256": "2b9e63f31c442196c2da39c0d98a60f4350b4c590c2f76b55fefd1328aafc7fe"
+    },
+    "examples/data/日数据/2002.csv": {
+      "bytes": 19869,
+      "sha256": "c3599e4aee84b574c92e499939d95eb046b46c823d12ae190fa0f62e69da9ae1"
+    },
+    "examples/data/日数据/2003.csv": {
+      "bytes": 19610,
+      "sha256": "4ac80927b31956b142690e53829dbaef9762628dfa7e927e167e17088f77f9ee"
+    },
+    "examples/data/次洪数据/学员精选10场/README.md": {
+      "bytes": 557,
+      "sha256": "ab3e0183040b37d58574da1b66e2519b8dad459fbad4e8ee07313ac02b3a937a"
+    },
+    "examples/data/次洪数据/学员精选10场/event-003-19890520/discharge_hourly.csv": {
+      "bytes": 27524,
+      "sha256": "11ca042ed2902420c10eca00a847fca380870df313a90f8183b32e4f7c628518"
+    },
+    "examples/data/次洪数据/学员精选10场/event-003-19890520/evaporation_discharge_hourly.csv": {
+      "bytes": 69654,
+      "sha256": "d56331384585f1b6c2ca083fae37b7bfceaa637259ab44db67ed34b271696579"
+    },
+    "examples/data/次洪数据/学员精选10场/event-003-19890520/evaporation_hourly.csv": {
+      "bytes": 49335,
+      "sha256": "432469bdd49c64869cc9ec7a51cd788f240975f4f57e9334ad61c169c48d8f99"
+    },
+    "examples/data/次洪数据/学员精选10场/event-003-19890520/rainfall_coverage_hours.csv": {
+      "bytes": 27026,
+      "sha256": "818e3379d5d832115e73bbc1a0b9ee77f45cacd4565674e8e190c2c359f07ad9"
+    },
+    "examples/data/次洪数据/学员精选10场/event-003-19890520/rainfall_hourly.csv": {
+      "bytes": 35321,
+      "sha256": "14d32488b87f676b4bbf1233e7ae6f061fde5ac18ef63c4201bae276ea8ee60e"
+    },
+    "examples/data/次洪数据/学员精选10场/event-003-19890520/rainfall_zero_filled.csv": {
+      "bytes": 18368,
+      "sha256": "8649548a0344925c8903d86081f3a438b6c94a75b9cf5bea80f5957acb6028d2"
+    },
+    "examples/data/次洪数据/学员精选10场/event-022-19920906/discharge_hourly.csv": {
+      "bytes": 9214,
+      "sha256": "39e5fb11107063be5e941cc591de06dde4cbac4e0e024afc69b6ba6be47267ff"
+    },
+    "examples/data/次洪数据/学员精选10场/event-022-19920906/evaporation_discharge_hourly.csv": {
+      "bytes": 23552,
+      "sha256": "ea96a2ebfc613d5e944f93d92c6660f30f3f96bb96abd65d3ad32e27b1f57d7c"
+    },
+    "examples/data/次洪数据/学员精选10场/event-022-19920906/evaporation_hourly.csv": {
+      "bytes": 16773,
+      "sha256": "c458f912be56e310bc782e2cf03a73aa2af5673d958a64d43c256060830ad370"
+    },
+    "examples/data/次洪数据/学员精选10场/event-022-19920906/rainfall_coverage_hours.csv": {
+      "bytes": 9218,
+      "sha256": "1c0f50a74a7ba2a3becad806ab2355d12e142da552a1907a63c94185b86b6b61"
+    },
+    "examples/data/次洪数据/学员精选10场/event-022-19920906/rainfall_hourly.csv": {
+      "bytes": 11536,
+      "sha256": "f955b66b19beece137758b58c45f3b70aeb2753e5a0b62bb0d788dd8f7a7737d"
+    },
+    "examples/data/次洪数据/学员精选10场/event-022-19920906/rainfall_zero_filled.csv": {
+      "bytes": 6284,
+      "sha256": "319964b7c0e37f47d052ab8d4a92d2717363dc2877ea50e47e14f74fbbe774bf"
+    },
+    "examples/data/次洪数据/学员精选10场/event-025-19930627/discharge_hourly.csv": {
+      "bytes": 8544,
+      "sha256": "8b434aaabb92a08c79e03b1232227ea9f9e7c719fb387bdb29623c0ecd60d3dd"
+    },
+    "examples/data/次洪数据/学员精选10场/event-025-19930627/evaporation_discharge_hourly.csv": {
+      "bytes": 21229,
+      "sha256": "962243a6976fca2d12c07959c991f605d6b4c1fd52fbf0f7f3a0ba9a870549d5"
+    },
+    "examples/data/次洪数据/学员精选10场/event-025-19930627/evaporation_hourly.csv": {
+      "bytes": 14850,
+      "sha256": "800e29c77c820dbbacae5caf98efd0092f0a237174d29e5d318557bc2fb8b599"
+    },
+    "examples/data/次洪数据/学员精选10场/event-025-19930627/rainfall_coverage_hours.csv": {
+      "bytes": 8210,
+      "sha256": "26834c6a4ad21de09df828b1095c1e879ffdf4e428aa4c1e2fce355f84dab438"
+    },
+    "examples/data/次洪数据/学员精选10场/event-025-19930627/rainfall_hourly.csv": {
+      "bytes": 9210,
+      "sha256": "117b1c4ece926bd321a2350c20f56c02fab17756002e4352f01dc3ce605e516e"
+    },
+    "examples/data/次洪数据/学员精选10场/event-025-19930627/rainfall_zero_filled.csv": {
+      "bytes": 5600,
+      "sha256": "8ebfd593e47e54c21de7058deea8100f2b688dc6d6f6b0c814384f538dc7e1f8"
+    },
+    "examples/data/次洪数据/学员精选10场/event-026-19930820/discharge_hourly.csv": {
+      "bytes": 8591,
+      "sha256": "2367496aa303ca083bde7aeecd95b5734f5d7482ec4651894e7bf655cf902840"
+    },
+    "examples/data/次洪数据/学员精选10场/event-026-19930820/evaporation_discharge_hourly.csv": {
+      "bytes": 21282,
+      "sha256": "b5419d35df8d73f9229827924347984d2b6fc8f69b9fac3da4801710fbb33b2d"
+    },
+    "examples/data/次洪数据/学员精选10场/event-026-19930820/evaporation_hourly.csv": {
+      "bytes": 14856,
+      "sha256": "7c51e75374738a367ce7325a7763b69de7df68273347731532c9170a3b8dc0e6"
+    },
+    "examples/data/次洪数据/学员精选10场/event-026-19930820/rainfall_coverage_hours.csv": {
+      "bytes": 8210,
+      "sha256": "07949fe5967b8b54c990604882b2a2b44d589782ea02556916a965891188720b"
+    },
+    "examples/data/次洪数据/学员精选10场/event-026-19930820/rainfall_hourly.csv": {
+      "bytes": 8948,
+      "sha256": "f1448e913a4886326dee18366b3ccef49f7ca8fbdca3f55b91f7030fd411831d"
+    },
+    "examples/data/次洪数据/学员精选10场/event-026-19930820/rainfall_zero_filled.csv": {
+      "bytes": 5600,
+      "sha256": "e7730ea0454baf674d39b95c32875beda4ffe51d49ec667935437fa209a1d044"
+    },
+    "examples/data/次洪数据/学员精选10场/event-027-19930917/discharge_hourly.csv": {
+      "bytes": 20295,
+      "sha256": "57fb56ea0672700d7bf9813e412b5c93480a78050fdc39c445aea1fda0a76698"
+    },
+    "examples/data/次洪数据/学员精选10场/event-027-19930917/evaporation_discharge_hourly.csv": {
+      "bytes": 52357,
+      "sha256": "031ba3cc60e2f222b8a3eb55056db4535dfc98d1f70691b46108b25afd3ce892"
+    },
+    "examples/data/次洪数据/学员精选10场/event-027-19930917/evaporation_hourly.csv": {
+      "bytes": 37407,
+      "sha256": "5599ef83bf501b83f881976c1d4fac103f57d990e1595dd1d62a42479c45895e"
+    },
+    "examples/data/次洪数据/学员精选10场/event-027-19930917/rainfall_coverage_hours.csv": {
+      "bytes": 20082,
+      "sha256": "715eccc6fc004b46c76ee59b186ca39c6183f1aedd7ec7debb278e213c0ff559"
+    },
+    "examples/data/次洪数据/学员精选10场/event-027-19930917/rainfall_hourly.csv": {
+      "bytes": 22345,
+      "sha256": "cc120263b932098cdb5022f5496e506aee516d03da33ce664ea61c61285b7a06"
+    },
+    "examples/data/次洪数据/学员精选10场/event-027-19930917/rainfall_zero_filled.csv": {
+      "bytes": 13656,
+      "sha256": "7fd086b7f325337f6d82fdfdc62d8641eb5a2e7398d8b623d39bd3869f122f48"
+    },
+    "examples/data/次洪数据/学员精选10场/event-028-19931104/discharge_hourly.csv": {
+      "bytes": 8287,
+      "sha256": "3af3bed6961125f4c56c537660a0bcbbf7b9631a5dde8f981c7e0e2001473051"
+    },
+    "examples/data/次洪数据/学员精选10场/event-028-19931104/evaporation_discharge_hourly.csv": {
+      "bytes": 21290,
+      "sha256": "e790f28c8e49c4042c64f3d7f1391ff75f9b00561b5c581fd8f691b21275bbad"
+    },
+    "examples/data/次洪数据/学员精选10场/event-028-19931104/evaporation_hourly.csv": {
+      "bytes": 15168,
+      "sha256": "c38df60fa45e186f3ecf5b1f55c71f1f298cde0d1f2901b98d64c8fbe3aa7bf7"
+    },
+    "examples/data/次洪数据/学员精选10场/event-028-19931104/rainfall_coverage_hours.csv": {
+      "bytes": 8210,
+      "sha256": "cf713e4374fd52ed9349609724b315b70a86d7ff4bcaf7b60f6a6ee9aa3f6fc1"
+    },
+    "examples/data/次洪数据/学员精选10场/event-028-19931104/rainfall_hourly.csv": {
+      "bytes": 9322,
+      "sha256": "399d48b98c562bddf193e34a3011ab98a9dc996dc0fa438710a065be73200a32"
+    },
+    "examples/data/次洪数据/学员精选10场/event-028-19931104/rainfall_zero_filled.csv": {
+      "bytes": 5600,
+      "sha256": "2d362ab7555e0a47efa31113156e887c9b22424bddf1b559e5b74273612acc11"
+    },
+    "examples/data/次洪数据/学员精选10场/event-039-19960418/discharge_hourly.csv": {
+      "bytes": 10373,
+      "sha256": "b78a960aec6ec7ae1d6045dde3993e0ae98e81c004066559e8104db741b522ef"
+    },
+    "examples/data/次洪数据/学员精选10场/event-039-19960418/evaporation_discharge_hourly.csv": {
+      "bytes": 26175,
+      "sha256": "f261e96ee8b5579fafd6fce5e1ffb5eb97ca85fd9c5d4f4a3976111466bf51b2"
+    },
+    "examples/data/次洪数据/学员精选10场/event-039-19960418/evaporation_hourly.csv": {
+      "bytes": 18567,
+      "sha256": "617c4671560238e46502888bb68405d123d380fad23db6a21f486e42d18e35c3"
+    },
+    "examples/data/次洪数据/学员精选10场/event-039-19960418/rainfall_coverage_hours.csv": {
+      "bytes": 10450,
+      "sha256": "9f5d02b8b641c926c62fb5c5c70a7eecccb949155acca95f6117a22c156d12d4"
+    },
+    "examples/data/次洪数据/学员精选10场/event-039-19960418/rainfall_hourly.csv": {
+      "bytes": 10661,
+      "sha256": "e1d0c388dc5e4acfae23767099a0fb768a79940cf44c3293e1ef797a6dc579c0"
+    },
+    "examples/data/次洪数据/学员精选10场/event-039-19960418/rainfall_zero_filled.csv": {
+      "bytes": 7120,
+      "sha256": "6b5530f9a65f664cab8d93a1faa2fc8960a71f17b9764da1b459d82281f73ec7"
+    },
+    "examples/data/次洪数据/学员精选10场/event-040-19960524/discharge_hourly.csv": {
+      "bytes": 5769,
+      "sha256": "d2a97d8ddcdd69497c21f3772f45086ae1a98ab9ebe48c18367795c91f89321e"
+    },
+    "examples/data/次洪数据/学员精选10场/event-040-19960524/evaporation_discharge_hourly.csv": {
+      "bytes": 14383,
+      "sha256": "a19cb7ce19f3ce9dd3e51f061ca5fea5f03cf386ecc97de15974854aaadd0d60"
+    },
+    "examples/data/次洪数据/学员精选10场/event-040-19960524/evaporation_hourly.csv": {
+      "bytes": 10179,
+      "sha256": "8d26b4876f347c3e4318bcd4116b11e76a4ecc686a72fe75ae6ea3541ba8a5dd"
+    },
+    "examples/data/次洪数据/学员精选10场/event-040-19960524/rainfall_coverage_hours.csv": {
+      "bytes": 5970,
+      "sha256": "7c3a21715688da6d38015b6c4fae55ff5e73e9ad3e917dcb69ce39756704fded"
+    },
+    "examples/data/次洪数据/学员精选10场/event-040-19960524/rainfall_hourly.csv": {
+      "bytes": 6199,
+      "sha256": "96fa87f5d7e167ed3b78e751ef504f93a9c23cbfddff32d5ead0bafa44dce31d"
+    },
+    "examples/data/次洪数据/学员精选10场/event-040-19960524/rainfall_zero_filled.csv": {
+      "bytes": 4080,
+      "sha256": "c4d22390b3d0d5d5843c51aa560513c469d17d3146fa7971db1df984618961d8"
+    },
+    "examples/data/次洪数据/学员精选10场/event-041-19960726/discharge_hourly.csv": {
+      "bytes": 9832,
+      "sha256": "a4e178aa0d41ead8f0926965a7505e1d85d2afcb19ae3cce339f4b5223212c18"
+    },
+    "examples/data/次洪数据/学员精选10场/event-041-19960726/evaporation_discharge_hourly.csv": {
+      "bytes": 25715,
+      "sha256": "cfa6cee54856912ea1a1f29c847e3ea1f3f4842732e06d6da5bb17116a2978a6"
+    },
+    "examples/data/次洪数据/学员精选10场/event-041-19960726/evaporation_hourly.csv": {
+      "bytes": 18528,
+      "sha256": "5a462c03853902b2e1d957f4eaa9758b1b63be04dc577b131e53ff38432c6f9e"
+    },
+    "examples/data/次洪数据/学员精选10场/event-041-19960726/rainfall_coverage_hours.csv": {
+      "bytes": 10002,
+      "sha256": "ddadc5659ddd47698bbb89ef076d2fd1ae2d06c9f339182a32130e6bddbe0f28"
+    },
+    "examples/data/次洪数据/学员精选10场/event-041-19960726/rainfall_hourly.csv": {
+      "bytes": 10580,
+      "sha256": "e71bf0517f91f506667d488663ada5552a55ebd47d32699dfaea15c2bb9dc801"
+    },
+    "examples/data/次洪数据/学员精选10场/event-041-19960726/rainfall_zero_filled.csv": {
+      "bytes": 6816,
+      "sha256": "47a6130113b0f431cfd979592400f02dca5ddd39bcc9872f56ecf12a5de841d2"
+    },
+    "examples/data/次洪数据/学员精选10场/event-072-20010725/discharge_hourly.csv": {
+      "bytes": 7915,
+      "sha256": "6ba21a5e2aaf9b01a32cb7bff38cf3291fe4a5cb16e588f251c41bce1f3892bd"
+    },
+    "examples/data/次洪数据/学员精选10场/event-072-20010725/evaporation_discharge_hourly.csv": {
+      "bytes": 19757,
+      "sha256": "fdac75969c5c28d1b8ba45452773fcc079f69cb53b2739861e69b6dfa369a871"
+    },
+    "examples/data/次洪数据/学员精选10场/event-072-20010725/evaporation_hourly.csv": {
+      "bytes": 13887,
+      "sha256": "54952ff73dc0be84a6b33534488e28a7cbebe39f0ed9bbbb13cf36b965270428"
+    },
+    "examples/data/次洪数据/学员精选10场/event-072-20010725/rainfall_coverage_hours.csv": {
+      "bytes": 7762,
+      "sha256": "080a9c203ac449e8ceb0b35051bdc1d3a8f45b815bd4eacf15b87b3cf0893423"
+    },
+    "examples/data/次洪数据/学员精选10场/event-072-20010725/rainfall_hourly.csv": {
+      "bytes": 7941,
+      "sha256": "f0c6499c604228ae5d45652facdcdb7cca59d1edd1fe49d21359148e797b6e2c"
+    },
+    "examples/data/次洪数据/学员精选10场/event-072-20010725/rainfall_zero_filled.csv": {
+      "bytes": 5296,
+      "sha256": "2195f1cd3bfae1eb32784c3699eab168407922222d06df7eb5cdcef7049e5f18"
+    },
+    "examples/data/次洪数据/学员精选10场/event_catalog.csv": {
+      "bytes": 1596,
+      "sha256": "7f00c8c51ea2b982102103f96ff7ae269a936eb95ae936d0e04d3849ae192d03"
+    },
+    "examples/data/次洪数据/学员精选10场/quality_report.json": {
+      "bytes": 329,
+      "sha256": "b7a40eb8e0eb0f3b0297597dfb79f00203c62609a8a378400e68547e037346c0"
+    },
+    "examples/data/次洪数据/学员精选10场/stations.csv": {
+      "bytes": 1347,
+      "sha256": "252cd213cc49dcdba9d6f9101b1122d6d3cb6ff464ab19fc3e511d2b567dd4cc"
+    },
+    "examples/dem/yaogu/N22E111.hgt": {
+      "bytes": 25934402,
+      "sha256": "9ef337591e0aa248ba7c142051aec3460f8fedf364f4091e86275d70e38d1444"
+    },
+    "examples/dem/yaogu/N22E111.hgt.gz": {
+      "bytes": 14500913,
+      "sha256": "d026b9b589c36fa98d27c2e0535390bdbf9c628b44912cf41e59df03cca38cdb"
+    },
+    "examples/dem/yaogu/N22E112.hgt": {
+      "bytes": 25934402,
+      "sha256": "5d561f801be80ecb76358225a5fe465c6b0b8d3422b02316d70f91232c038d7b"
+    },
+    "examples/dem/yaogu/N22E112.hgt.gz": {
+      "bytes": 12270218,
+      "sha256": "3a8fd83efa71830f7b01e5fb6d89490815f4cfc0e0ba5bc010e7b244cb14fa59"
+    },
+    "examples/dem/yaogu/sources.json": {
+      "bytes": 1481,
+      "sha256": "24c837cc5a33e0d657566651ec4c81bdf174150665a6f6e1f6a2c6848e8c5e75"
+    }
+  }
+}

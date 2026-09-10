@@ -71,3 +71,5 @@
   .observatory.is-focus .main-stage--focus{grid-column:auto;grid-row:1}
   .observatory.is-focus .journal-pane{grid-column:auto;grid-row:2}
 }
+.locked-basin{display:flex;align-items:baseline;justify-content:space-between;gap:8px;min-height:42px;border:1px solid #d6e1ec;border-radius:11px;background:#eef3f7;color:var(--ink);padding:9px 12px;font-size:12px;font-weight:600}
+.locked-basin small{font-weight:500;color:var(--muted)}

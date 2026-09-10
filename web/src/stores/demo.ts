@@ -41,10 +41,10 @@ function loadSession(): SessionSnapshot | null {
 
 function defaultDraft(): DraftConfig {
   return {
-    basin_id: 'usgs_02472000',
+    basin_id: 'yaogu',
     model_id: 'xaj',
-    start_date: '2020-01-01',
-    end_date: '2020-01-31',
+    start_date: '1991-01-01',
+    end_date: '1991-01-31',
     forcing_mode: 'R',
     base_scheme_id: 'scheme-base',
     allow_optimization: true,

@@ -8,7 +8,7 @@ vi.mock('../api/client', () => ({
   api: {
     createTask: vi.fn(async () => ({
       task_id: 'task-demo',
-      basin_id: 'camels_13235000',
+      basin_id: 'yaogu',
       model_id: 'xaj',
       phase: 'B',
       status: 'created',

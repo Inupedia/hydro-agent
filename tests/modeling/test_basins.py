@@ -1,7 +1,7 @@
 from datetime import date, timedelta
-from pathlib import Path
 
-from hydro_agent.modeling.basins import BasinCatalog, BUILTIN_BASINS
+from hydro_agent.modeling.basins import BUILTIN_BASINS, BasinCatalog
+from hydro_agent.modeling.plans import academy_materials_ready, bundled_academy_root
 from hydro_agent.modeling.us_plans import UsModelPlanService, UsPlanRequest
 
 
@@ -31,17 +31,22 @@ def _seed_hydro(catalog: BasinCatalog, basin_id: str = "camels_13235000", days: 
     catalog._refresh_catalog_status(basin_id)
 
 
-def test_catalog_lists_builtin_and_marks_ready(tmp_path):
-    catalog = BasinCatalog(tmp_path / "basins")
+def test_catalog_lists_bundled_yaogu_ready(tmp_path):
+    catalog = BasinCatalog(tmp_path / "basins", academy=bundled_academy_root())
     rows = catalog.list()
-    ids = {r["basin_id"] for r in rows}
-    assert {b["basin_id"] for b in BUILTIN_BASINS} <= ids
-    lowman = next(r for r in rows if r["basin_id"] == "camels_13235000")
-    assert lowman["ready_for_build"] is False
-    _seed_hydro(catalog)
-    lowman = catalog._refresh_catalog_status("camels_13235000")
-    assert lowman["ready_for_build"] is True
-    assert lowman["materials"]["hydro"] is True
+    assert [r["basin_id"] for r in rows] == ["yaogu"]
+    assert {b["basin_id"] for b in BUILTIN_BASINS} == {"yaogu"}
+    yaogu = rows[0]
+    assert academy_materials_ready()
+    assert yaogu["ready_for_build"] is True
+    assert yaogu["materials"]["hydro"] is True
+    assert yaogu["materials"]["dem"] is True
+
+
+def test_catalog_missing_academy_not_ready(tmp_path):
+    catalog = BasinCatalog(tmp_path / "basins", academy=tmp_path / "empty-academy")
+    yaogu = catalog._refresh_catalog_status("yaogu")
+    assert yaogu["ready_for_build"] is False
 
 
 def test_us_plan_lumped_build_to_ready(tmp_path):
@@ -71,31 +76,3 @@ def test_us_plan_lumped_build_to_ready(tmp_path):
     assert plan["basin_id"] == "camels_13235000"
     service.pool.shutdown(wait=False)
 
-
-def test_download_job_progress_record(tmp_path, monkeypatch):
-    from hydro_agent.modeling.downloads import BasinDownloadService
-
-    catalog = BasinCatalog(tmp_path / "basins")
-    service = BasinDownloadService(catalog)
-
-    def fake_run(job_id):
-        service._update(job_id, status="running", stage="multimet", current_file="zmetadata.json", fraction=0.2)
-        service._update(job_id, status="succeeded", stage="done", fraction=1.0, current_file=None)
-        catalog.hydro_dir("camels_01123000").mkdir(parents=True, exist_ok=True)
-        (catalog.hydro_dir("camels_01123000") / "forcing.jsonl").write_text("{}\n", encoding="utf-8")
-        (catalog.hydro_dir("camels_01123000") / "flow.jsonl").write_text("{}\n", encoding="utf-8")
-        catalog._refresh_catalog_status("camels_01123000")
-
-    monkeypatch.setattr(service, "_run", fake_run)
-    job = service.start("camels_01123000", components=["hydro"])
-    assert job["job_id"].startswith("dl-")
-    import time
-
-    for _ in range(40):
-        done = service.get_job(job["job_id"])
-        if done["status"] in ("succeeded", "failed"):
-            break
-        time.sleep(0.05)
-    assert done["status"] == "succeeded"
-    assert done["fraction"] == 1.0
-    service.pool.shutdown(wait=False)
