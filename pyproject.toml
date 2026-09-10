@@ -23,8 +23,14 @@ packages = ["src/hydro_agent"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/hydro_agent/skills/data-check" = "hydro_agent/skills/data-check"
 "src/hydro_agent/skills/forecast-diagnose" = "hydro_agent/skills/forecast-diagnose"
-"src/hydro_agent/skills/xaj-calibration" = "hydro_agent/skills/xaj-calibration"
 "src/hydro_agent/skills/gbt-22482-accuracy" = "hydro_agent/skills/gbt-22482-accuracy"
+"src/hydro_agent/skills/xaj-calibration-protocol" = "hydro_agent/skills/xaj-calibration-protocol"
+"src/hydro_agent/skills/xaj-water-balance" = "hydro_agent/skills/xaj-water-balance"
+"src/hydro_agent/skills/xaj-recession-analysis" = "hydro_agent/skills/xaj-recession-analysis"
+"src/hydro_agent/skills/xaj-flood-routing" = "hydro_agent/skills/xaj-flood-routing"
+"src/hydro_agent/skills/xaj-joint-refinement" = "hydro_agent/skills/xaj-joint-refinement"
+"src/hydro_agent/skills/hydro-event-bank" = "hydro_agent/skills/hydro-event-bank"
+"src/hydro_agent/skills/calibration-convergence" = "hydro_agent/skills/calibration-convergence"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
