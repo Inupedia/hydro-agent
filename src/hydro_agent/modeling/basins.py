@@ -10,7 +10,12 @@ from typing import Any
 
 from hydro_agent.modeling.plans import write_json
 
-# Builtin product catalog. Leaf River is the professor-recommended primary site.
+# Product defaults intentionally span ten complete US water years. The calibration
+# planner then owns the calibration/development/final holdout split; the UI does not
+# ask users to invent those windows manually.
+_DEFAULT_CALIBRATION_START = "2010-10-01"
+_DEFAULT_CALIBRATION_END = "2020-09-30"
+
 BUILTIN_BASINS: tuple[dict[str, Any], ...] = (
     {
         "basin_id": "usgs_02472000",
@@ -19,8 +24,8 @@ BUILTIN_BASINS: tuple[dict[str, Any], ...] = (
         "region": "Mississippi, USA",
         "kind": "builtin",
         "adapter": "open-v1",
-        "default_start": "2019-10-01",
-        "default_end": "2020-03-31",
+        "default_start": _DEFAULT_CALIBRATION_START,
+        "default_end": _DEFAULT_CALIBRATION_END,
         "primary": True,
     },
     {
@@ -30,9 +35,8 @@ BUILTIN_BASINS: tuple[dict[str, Any], ...] = (
         "region": "Idaho, USA",
         "kind": "builtin",
         "adapter": "multimet-legacy",
-        # Caravan MultiMet ERA5-Land full archive span (forcing); USGS DV overlaps from 1941.
-        "default_start": "1950-01-01",
-        "default_end": "2024-10-31",
+        "default_start": _DEFAULT_CALIBRATION_START,
+        "default_end": _DEFAULT_CALIBRATION_END,
         "primary": False,
     },
     {
@@ -42,8 +46,8 @@ BUILTIN_BASINS: tuple[dict[str, Any], ...] = (
         "region": "Connecticut, USA",
         "kind": "builtin",
         "adapter": "multimet-legacy",
-        "default_start": "2019-05-03",
-        "default_end": "2020-05-04",
+        "default_start": _DEFAULT_CALIBRATION_START,
+        "default_end": _DEFAULT_CALIBRATION_END,
         "primary": False,
     },
 )
@@ -93,9 +97,16 @@ class BasinCatalog:
             folder.mkdir(parents=True, exist_ok=True)
             meta_path = self._meta_path(basin_id)
             if meta_path.is_file():
-                # Refresh label/adapter fields without wiping user status.
                 existing = json.loads(meta_path.read_text(encoding="utf-8"))
-                for key in ("label", "region", "adapter", "usgs_site", "primary", "default_start", "default_end"):
+                for key in (
+                    "label",
+                    "region",
+                    "adapter",
+                    "usgs_site",
+                    "primary",
+                    "default_start",
+                    "default_end",
+                ):
                     if key in entry:
                         existing[key] = entry[key]
                 write_json(meta_path, existing)
@@ -143,9 +154,15 @@ class BasinCatalog:
 
     def materials(self, basin_id: str) -> MaterialsStatus:
         root = self.directory(basin_id)
-        hydro = (root / "hydro" / "forcing.jsonl").is_file() and (root / "hydro" / "flow.jsonl").is_file()
-        dem = (root / "dem" / "sources.json").is_file() or any((root / "dem").glob("*.hgt"))
-        gis = (root / "gis" / "boundary.geojson").is_file() or (root / "gis" / "outlet.geojson").is_file()
+        hydro = (root / "hydro" / "forcing.jsonl").is_file() and (
+            root / "hydro" / "flow.jsonl"
+        ).is_file()
+        dem = (root / "dem" / "sources.json").is_file() or any(
+            (root / "dem").glob("*.hgt")
+        )
+        gis = (root / "gis" / "boundary.geojson").is_file() or (
+            root / "gis" / "outlet.geojson"
+        ).is_file()
         return MaterialsStatus(hydro=hydro, dem=dem, gis=gis)
 
     def _refresh_catalog_status(self, basin_id: str) -> dict[str, Any]:
@@ -156,21 +173,32 @@ class BasinCatalog:
         meta["missing"] = missing
         meta["ready_for_build"] = mats.ready_for_build
         meta["complete"] = mats.complete
-        meta["status"] = "complete" if mats.complete else ("partial" if mats.hydro else "registered")
+        meta["status"] = (
+            "complete" if mats.complete else ("partial" if mats.hydro else "registered")
+        )
         write_json(self._meta_path(basin_id), meta)
         return meta
 
     def get(self, basin_id: str) -> dict[str, Any]:
         path = self._meta_path(basin_id)
         if not path.is_file():
-            builtin = next((b for b in BUILTIN_BASINS if b["basin_id"] == basin_id), None)
+            builtin = next(
+                (b for b in BUILTIN_BASINS if b["basin_id"] == basin_id), None
+            )
             if builtin is None and not self.directory(basin_id).exists():
                 raise KeyError(basin_id)
             self.directory(basin_id).mkdir(parents=True, exist_ok=True)
             write_json(
                 path,
                 {
-                    **(builtin or {"basin_id": basin_id, "label": basin_id, "kind": "downloaded"}),
+                    **(
+                        builtin
+                        or {
+                            "basin_id": basin_id,
+                            "label": basin_id,
+                            "kind": "downloaded",
+                        }
+                    ),
                     "status": "registered",
                 },
             )
