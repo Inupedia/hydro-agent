@@ -9,8 +9,6 @@ from hydro_agent.execution.contracts import FrozenModel, Identifier
 
 
 class CalibrationPhase(StrEnum):
-    """Hydrologist workflow phases, ordered from data checks to final holdout."""
-
     DATA_REGIME = "P0_DATA_REGIME"
     PARAMETER_PRIOR = "P1_PARAMETER_PRIOR"
     WATER_BALANCE = "P2_WATER_BALANCE"
@@ -34,11 +32,7 @@ class PhaseGateStatus(StrEnum):
 
 
 class HydrologicGatePolicy(FrozenModel):
-    """Phase-specific hydrologic acceptance thresholds.
-
-    Values are intentionally explicit and configurable. They are research defaults,
-    not universal constants for every basin or forecast time step.
-    """
+    """Configurable research defaults; not universal basin constants."""
 
     water_balance_rel_error: float = Field(default=0.10, ge=0.0)
     annual_water_balance_mae: float = Field(default=0.15, ge=0.0)
@@ -47,10 +41,9 @@ class HydrologicGatePolicy(FrozenModel):
     flood_peak_rel_error: float = Field(default=0.30, ge=0.0)
     flood_volume_rel_error: float = Field(default=0.20, ge=0.0)
     peak_timing_steps: float = Field(default=1.0, ge=0.0)
+    min_flood_events: int = Field(default=3, ge=1)
     joint_nse_floor: float = 0.50
     joint_kge_floor: float = 0.30
-    # Guardrails: a candidate may improve a phase objective but must not destroy
-    # already-solved upstream hydrologic behaviour.
     max_water_balance_regression: float = Field(default=0.03, ge=0.0)
     max_event_error_regression: float = Field(default=0.10, ge=0.0)
 
