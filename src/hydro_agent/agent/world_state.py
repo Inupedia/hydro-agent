@@ -16,6 +16,7 @@ from hydro_agent.agent.contracts import (
 from hydro_agent.agent.permissions import PermissionGate
 from hydro_agent.calibration.protocol import CalibrationProtocol
 from hydro_agent.execution.hashing import sha256_bytes
+from hydro_agent.optimization.param_groups import resolve_phase_param_names
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 from hydro_agent.skills import SkillRegistry
 from hydro_agent.workbench.validation_gate import latest_candidate_scheme_id
@@ -113,6 +114,13 @@ class WorldStateBuilder:
         )
         protocol = CalibrationProtocol()
         calibration_phase = protocol.phase_from_evidence(evidence_rows)
+        phase_objectives = _PHASE_OBJECTIVES.get(
+            calibration_phase.value,
+            ("nse", "peak", "composite"),
+        )
+        phase_params = (
+            resolve_phase_param_names(phase_objectives[0]) if phase_objectives else None
+        ) or ()
         hydro = HydroContext(
             current_parameters={k: float(v) for k, v in current_params.items()},
             candidate_parameters=candidate_params,
@@ -130,10 +138,8 @@ class WorldStateBuilder:
             )
             or self.strategies.list_ids(),
             available_param_groups=("evap", "runoff", "routing"),
-            available_objectives=_PHASE_OBJECTIVES.get(
-                calibration_phase.value,
-                ("nse", "peak", "composite"),
-            ),
+            available_tunable_parameters=tuple(phase_params),
+            available_objectives=phase_objectives,
             diagnosis=diagnosis,
             calibration_phase=calibration_phase.value,
             phase_history=protocol.phase_history(evidence_rows),
