@@ -13,6 +13,7 @@ from hydro_agent.agent.contracts import (
     WorldStateView,
 )
 from hydro_agent.agent.permissions import PermissionGate
+from hydro_agent.calibration.protocol import CalibrationProtocol
 from hydro_agent.execution.hashing import sha256_bytes
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 from hydro_agent.skills import SkillRegistry
@@ -78,7 +79,6 @@ class WorldStateBuilder:
         for row in reversed(evidence_rows):
             if row.action == "A06_DIAGNOSE" and row.gates_json:
                 diagnosis = dict(row.gates_json)
-                # Surface NSE/MAE so the agent loop can stop when skill is good enough.
                 diagnosis["metrics"] = {
                     str(k): float(v) for k, v in dict(row.metrics_json or {}).items()
                 }
@@ -87,6 +87,8 @@ class WorldStateBuilder:
             f"{row.action}:{row.status}:{';'.join((row.observations_json or [])[:2])}"
             for row in evidence_rows[-6:]
         )
+        protocol = CalibrationProtocol()
+        calibration_phase = protocol.phase_from_evidence(evidence_rows)
         hydro = HydroContext(
             current_parameters={k: float(v) for k, v in current_params.items()},
             candidate_parameters=candidate_params,
@@ -97,7 +99,6 @@ class WorldStateBuilder:
                 else {}
             ),
             available_skills=self.skills.summaries_zh(),
-            # Auto agent path prefers bounded strategies; hydrologist manual is HITL-only.
             available_strategies=tuple(
                 sid
                 for sid in self.strategies.list_ids()
@@ -107,6 +108,8 @@ class WorldStateBuilder:
             available_param_groups=("evap", "runoff", "routing"),
             available_objectives=("nse", "peak", "composite"),
             diagnosis=diagnosis,
+            calibration_phase=calibration_phase.value,
+            phase_history=protocol.phase_history(evidence_rows),
             experiment_history=history,
             skill_cards=tuple(self.skills.cards_for_prompt()),
         )
