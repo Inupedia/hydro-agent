@@ -1,6 +1,7 @@
 import pytest
 
 from hydro_agent.models.xaj.calibrate_runtime import _effective_range
+from hydro_agent.models.xaj.upstream import load_calibratable_params
 from hydro_agent.optimization.contracts import ParameterBounds, ParameterGuidance
 from hydro_agent.optimization.param_groups import resolve_phase_param_names
 
@@ -21,6 +22,19 @@ def test_staged_xaj_objectives_have_disjoint_phase_whitelists():
         "L",
     )
     assert resolve_phase_param_names("nse") is None
+
+
+def test_phase_whitelist_is_intersected_with_teacher_calibratable_coordinates():
+    calibratable = set(load_calibratable_params())
+    p2 = tuple(name for name in resolve_phase_param_names("water_balance") or () if name in calibratable)
+    p3 = tuple(name for name in resolve_phase_param_names("recession") or () if name in calibratable)
+    p4 = tuple(name for name in resolve_phase_param_names("routing_event") or () if name in calibratable)
+
+    assert p2 == ("K", "B", "DM")
+    assert p3 == ("SM", "KI", "KG")
+    # L belongs to the P4 hydrologic phase, but the pinned teacher kernel marks LAG
+    # non-calibratable. Do not advertise it to the Agent until that kernel policy changes.
+    assert p4 == ("CS", "CI")
 
 
 def test_parameter_guidance_constrains_search_relative_to_current_value():
@@ -52,6 +66,6 @@ def test_explicit_bounds_are_intersected_with_upstream_and_local_ranges():
     low, high = _effective_range(
         "K", ranges, base_parameters=base, local_scale=0.10, guidance=guidance
     )
-    # local_scale=0.10 means 15% of the full 1.5-wide upstream span around current.
+    # local_scale=0.10 means 10% of the full 1.5-wide upstream span around current.
     assert low == pytest.approx(0.85)
     assert high == pytest.approx(1.15)
