@@ -91,3 +91,12 @@ def test_bounded_calibration_is_deterministic(calibration_workspace):
     assert 0 < first["evaluated_candidates"] <= 32
     assert first["evaluated_candidates"] == second["evaluated_candidates"]
     assert first["model_version"] == "teacher-xaj-v6-20260908"
+    csv_path = calibration_workspace.parent / "a" / "output" / "calibration-comparison.csv"
+    assert csv_path.is_file()
+    header = csv_path.read_text(encoding="utf-8").splitlines()[0]
+    assert header.startswith("time,observed_m3s,baseline_m3s,candidate_m3s")
+    metrics = json.loads(
+        (calibration_workspace.parent / "a" / "output" / "calibration-metrics.json").read_text()
+    )
+    assert metrics["calibrated"] is False
+    assert metrics["kind"] == "calibration"

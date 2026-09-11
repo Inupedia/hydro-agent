@@ -28,3 +28,4 @@ class ReplayEvaluation(FrozenModel):
     sample_counts: dict[str, int]
     forcing_mode: Literal["R", "F"]
     provenance: dict[str, object] = {}
+    hydrograph: dict[str, object] | None = None

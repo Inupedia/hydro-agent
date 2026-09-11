@@ -14,8 +14,8 @@ services:
       - ./tests/fixtures:/app/tests/fixtures:ro
       # Keep runtime in sync with the workspace so hotfixes cannot drift from the image.
       - ./src:/app/src
+      - ./workflow:/app/workflow:ro
       - ./scripts/run_workbench_api.py:/app/scripts/run_workbench_api.py:ro
-      - ./web/dist:/app/web/dist:ro
     environment:
       HYDRO_AGENT_HOST: "0.0.0.0"
       HYDRO_AGENT_PORT: "8000"
@@ -29,6 +29,7 @@ services:
       HYDRO_AGENT_SOURCE: "/app/tests/fixtures/lowman_reanalysis_source"
       HYDRO_AGENT_SCHEME: "/app/tests/fixtures/xaj/lowman_scheme.json"
       HYDRO_AGENT_MODE: "real"
+      HYDRO_WORKFLOW_DIR: "/app/workflow"
       HYDRO_LLM_TIMEOUT_SECONDS: "180"
       HYDRO_LLM_MAX_RETRIES: "5"
     restart: unless-stopped

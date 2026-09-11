@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 
@@ -25,6 +25,7 @@ class Database:
         from . import models  # noqa: F401
 
         Base.metadata.create_all(self.engine)
+        self._add_missing_columns()
         # Immutability must survive direct SQL writes, not just repository conventions.
         with self.engine.begin() as conn:
             for table in ("schemes", "data_snapshots", "forecasts"):
@@ -36,6 +37,27 @@ class Database:
                 """CREATE UNIQUE INDEX IF NOT EXISTS forecasts_task_scheme_issue
                    ON forecasts(task_id, scheme_id, issue_time)"""
             )
+
+    def _add_missing_columns(self) -> None:
+        """SQLite create_all never ALTERs existing tables; add new nullable columns in place."""
+        inspector = inspect(self.engine)
+        existing_tables = set(inspector.get_table_names())
+        with self.engine.begin() as conn:
+            for table in Base.metadata.sorted_tables:
+                if table.name not in existing_tables:
+                    continue
+                existing_columns = {column["name"] for column in inspector.get_columns(table.name)}
+                for column in table.columns:
+                    if column.name in existing_columns:
+                        continue
+                    if not column.nullable and column.server_default is None:
+                        raise RuntimeError(
+                            f"cannot add non-nullable column {table.name}.{column.name} without a default"
+                        )
+                    sql_type = column.type.compile(dialect=self.engine.dialect)
+                    conn.exec_driver_sql(
+                        f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {sql_type}'
+                    )
 
     @contextmanager
     def session(self):

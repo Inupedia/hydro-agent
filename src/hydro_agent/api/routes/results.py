@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -16,19 +17,73 @@ from hydro_agent.api.schemas import (
     AgentLogSummary,
     AgentRoundLogItem,
     ForecastResult,
+    HydrographComparisonResult,
     ResultSummary,
     SchemeResult,
 )
 
 router = APIRouter(prefix="/api/tasks", tags=["results"])
 
+REPORT_ARTIFACT_NAMES = {
+    "report.json",
+    "report.md",
+    "agent-log.jsonl",
+    "calibration-comparison.csv",
+    "calibration-comparison.json",
+    "calibration-comparison.png",
+    "calibration-metrics.json",
+    "test-hydrograph.csv",
+    "test-hydrograph.json",
+    "test-hydrograph.png",
+    "test-metrics.json",
+}
+
+
+def _load_hydrograph(root: Path | None, task_id: str, name: str) -> dict | None:
+    if not root:
+        return None
+    path = Path(root) / task_id / name
+    if not path.is_file():
+        path = Path(root) / name
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _annotate_hydrograph(
+    payload: dict | None, *, gate_status: str | None
+) -> HydrographComparisonResult | None:
+    if not payload:
+        return None
+    from hydro_agent.evaluation.hydrograph import calibrated_flag, title_for
+
+    data = dict(payload)
+    kind = data.get("kind")
+    if kind not in {"calibration", "independent_test"}:
+        return None
+    data["gate_status"] = gate_status or data.get("gate_status")
+    calibrated = calibrated_flag(
+        gate_status=data.get("gate_status"),
+        frozen_is_candidate=data.get("gate_status") == "ACCEPT",
+    )
+    data["calibrated"] = bool(calibrated)
+    data["title"] = title_for(
+        kind, calibrated=bool(data["calibrated"]), gate_status=data.get("gate_status")
+    )
+    try:
+        return HydrographComparisonResult.model_validate(data)
+    except ValueError:
+        return None
+
 
 def _story_zh(*, phase: str, scheme, gate, metrics, forecasts, reports) -> str:
     parts = [f"任务已进入「{phase_zh(phase)}」阶段。"]
     if scheme is not None:
-        parts.append(
-            f"当前方案为{scheme_status_zh(scheme.status)}（{scheme.scheme_id}）。"
-        )
+        parts.append(f"当前方案为{scheme_status_zh(scheme.status)}（{scheme.scheme_id}）。")
     if gate:
         gate_status = str(gate.get("status") or "")
         parts.append(f"Gate 结论：{status_zh(gate_status)}。")
@@ -87,7 +142,8 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
     parameter_delta = {
         key: float(parameters[key]) - float(base_parameters[key])
         for key in parameters
-        if key in base_parameters and abs(float(parameters[key]) - float(base_parameters[key])) > 1e-12
+        if key in base_parameters
+        and abs(float(parameters[key]) - float(base_parameters[key])) > 1e-12
     }
     scheme = SchemeResult(
         scheme_id=scheme_row.scheme_id,
@@ -162,6 +218,24 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
         except KeyError:
             continue
     run_status = "completed" if task.phase == "E" and not state.needs_follow_up else task.phase
+    gate_status = str(gate.get("status") or "") if gate else None
+    report_root = Path(deps.report_root) if deps.report_root else None
+    calibration_hydrograph = _annotate_hydrograph(
+        _load_hydrograph(report_root, task_id, "calibration-comparison.json"),
+        gate_status=gate_status,
+    )
+    test_hydrograph = _annotate_hydrograph(
+        _load_hydrograph(report_root, task_id, "test-hydrograph.json"),
+        gate_status=gate_status,
+    )
+    extra_reports = []
+    if report_root is not None:
+        folder = report_root / task_id
+        for name in sorted(REPORT_ARTIFACT_NAMES):
+            if (folder / name).is_file() and name not in report_artifacts:
+                extra_reports.append(name)
+    if extra_reports:
+        report_artifacts = tuple(list(report_artifacts) + extra_reports)
     return ResultSummary(
         task_id=task_id,
         phase=task.phase,  # type: ignore[arg-type]
@@ -171,6 +245,8 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
         gate=gate,
         diagnosis=diagnosis,
         optimize=optimize,
+        calibration_hydrograph=calibration_hydrograph,
+        test_hydrograph=test_hydrograph,
         report_artifacts=report_artifacts,
         costs=costs,
         story_zh=_story_zh(
@@ -261,7 +337,7 @@ def get_forecasts(task_id: str, request: Request) -> list[ForecastResult]:
 @router.get("/{task_id}/report/{artifact_name}")
 def get_report_artifact(task_id: str, artifact_name: str, request: Request):
     deps = request.app.state.deps
-    if artifact_name not in {"report.json", "report.md", "agent-log.jsonl"}:
+    if artifact_name not in REPORT_ARTIFACT_NAMES:
         raise HTTPException(status_code=404, detail="artifact not found")
     root = deps.report_root
     if not root:

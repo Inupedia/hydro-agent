@@ -231,48 +231,49 @@ function fmtDelta(value: number | null) {
 <style scoped>
 .param-tuning {
   margin: 8px 0 18px;
-  padding: 18px 16px 14px;
-  border: 1px solid #ffffffe0;
-  border-radius: 20px;
-  background: #ffffffa8;
+  padding: 20px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow);
 }
 .param-tuning-head {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   align-items: flex-start;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 .param-tuning-head h2 {
   margin: 6px 0 6px;
-  font-size: 16px;
-  font-weight: 650;
+  font-size: 18px;
+  font-weight: 600;
   letter-spacing: -0.3px;
 }
 .param-tuning-head p {
   margin: 0;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.6;
-  color: var(--muted, #6b8196);
+  color: var(--text-secondary);
 }
 .status-pill {
   flex-shrink: 0;
-  font-size: 10px;
-  padding: 4px 8px;
+  font-size: 12px;
+  padding: 4px 10px;
   border-radius: 999px;
-  background: #e8f2fb;
-  color: #2a6fa8;
+  background: var(--info-soft);
+  color: var(--info);
 }
 .tuning-block + .tuning-block {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid #e4edf4;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--separator);
 }
 .tuning-block h3 {
   margin: 0 0 8px;
-  font-size: 12px;
-  font-weight: 650;
-  color: #4d6f8c;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 .hypothesis-list {
   list-style: none;
@@ -282,26 +283,26 @@ function fmtDelta(value: number | null) {
   gap: 8px;
 }
 .hypothesis-list li {
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: #f3f8fc;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  background: var(--surface-secondary);
 }
 .hyp-top {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .hypothesis-list p {
   margin: 6px 0 0;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.55;
 }
 .hypothesis-list small {
   display: block;
   margin-top: 6px;
-  color: #6b8196;
-  font-size: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 .tuning-meta {
   display: grid;
@@ -310,54 +311,58 @@ function fmtDelta(value: number | null) {
   margin: 0;
 }
 .tuning-meta div {
-  background: #f3f8fc;
-  border-radius: 12px;
-  padding: 8px 10px;
+  background: var(--surface-secondary);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
 }
 .tuning-meta dt {
-  font-size: 10px;
-  color: #6b8196;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 .tuning-meta dd {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
 }
 .param-table-wrap {
   overflow: auto;
-  border-radius: 12px;
-  border: 1px solid #e4edf4;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--separator);
 }
-table {
+.param-table-wrap table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
-th,
-td {
-  padding: 8px 10px;
+.param-table-wrap th,
+.param-table-wrap td {
+  padding: 14px 16px;
   text-align: left;
-  border-bottom: 1px solid #edf3f8;
+  border-bottom: 1px solid var(--separator);
   white-space: nowrap;
 }
-th {
-  background: #f5f9fc;
-  color: #5c7a94;
+.param-table-wrap th {
+  background: var(--surface-secondary);
+  color: var(--text-secondary);
   font-weight: 600;
+  font-size: 13px;
 }
-tr.changed td {
-  background: #f7fbff;
+.param-table-wrap td {
+  font-size: 14px;
 }
-td.up {
-  color: #0b7a4b;
+.param-table-wrap tbody tr:hover td {
+  background: var(--table-hover);
 }
-td.down {
-  color: #b0442e;
+.param-table-wrap tr.changed td {
+  background: var(--accent-soft);
 }
+.param-table-wrap td.up { color: var(--success); }
+.param-table-wrap td.down { color: var(--danger); }
+.param-table-wrap th:nth-child(n+3),
+.param-table-wrap td:nth-child(n+3) { text-align: right; }
 .hint {
   margin: 8px 0 0;
-  font-size: 11px;
-  color: #6b8196;
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 </style>

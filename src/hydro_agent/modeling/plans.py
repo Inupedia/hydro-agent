@@ -132,6 +132,13 @@ class ModelPlanService:
         plans = [self.get(p.parent.name) for p in sorted(self.root.glob('plan-*/plan.json'), reverse=True)]
         return [p for p in plans if p.get('basin_id') == BUNDLED_BASIN_ID]
 
+    def delete(self, plan_id: str) -> None:
+        with self.lock:
+            plan = self.get(plan_id)
+            if plan.get('status') in ('queued', 'running'):
+                raise ValueError('建模进行中，无法删除')
+            shutil.rmtree(self.directory(plan_id))
+
     def _update(self, plan_id, **fields):
         with self.lock:
             plan = self.get(plan_id)

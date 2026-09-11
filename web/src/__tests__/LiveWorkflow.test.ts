@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import LiveWorkflow from '../components/LiveWorkflow.vue'
 import { diagramHtmlFor, displayNodeFor } from '../generated/workflow'
 
@@ -54,5 +54,32 @@ describe('live Archify state', () => {
     expect(displayNodeFor('A09_RESOLVE', 'ROLLBACK')).toBe('rollback')
     expect(diagramHtmlFor('1.0.0')).toBe('hydro-agent.v1.workflow.html')
     expect(diagramHtmlFor('9.9.9')).toBe('hydro-agent.v1.workflow.html')
+  })
+
+  it('reveals the current node through Archify without stretching the svg', async () => {
+    const reveal = vi.fn()
+    const wrapper = mount(LiveWorkflow, {
+      attachTo: document.body,
+      props: { action: 'A05_FORECAST', status: 'running', completedActions: ['A01_CHECK_DATA'] },
+    })
+    const iframe = wrapper.find('iframe')
+    const el = iframe.element as HTMLIFrameElement
+    const doc = el.contentDocument!
+    doc.appendChild(doc.createElement('html'))
+    doc.documentElement.appendChild(doc.createElement('head'))
+    doc.documentElement.appendChild(doc.createElement('body'))
+    doc.body.innerHTML = '<svg><g data-node-id="forecast"><rect /></g><g data-node-id="diagnose"><rect /></g></svg>'
+    const win = (doc.defaultView || el.contentWindow) as Window & { Archify?: { view: { reveal: typeof reveal } } }
+    if (win) win.Archify = { view: { reveal } }
+    await iframe.trigger('load')
+    expect(wrapper.attributes('data-camera-node')).toBe('forecast')
+    const injected = doc.getElementById('hydro-live-style')?.textContent || ''
+    expect(injected).toContain('.diagram-container > svg { width:100%!important; height:auto!important;')
+    if (reveal.mock.calls.length) {
+      expect(reveal.mock.calls[0][0]).toEqual(['forecast'])
+    }
+    await wrapper.setProps({ action: 'A06_DIAGNOSE', status: 'running', completedActions: ['A05_FORECAST'] })
+    expect(wrapper.attributes('data-camera-node')).toBe('diagnose')
+    wrapper.unmount()
   })
 })

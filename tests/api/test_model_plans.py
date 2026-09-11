@@ -68,6 +68,14 @@ def test_wrong_basin_and_future_forcing_rejected(client, app_dependencies, tmp_p
     service.pool.shutdown()
 
 
+def test_delete_model_plan(client, app_dependencies, tmp_path):
+    service, plan_id = setup_plan(app_dependencies, tmp_path)
+    assert client.delete(f'/api/model-plans/{plan_id}').status_code == 204
+    assert client.get(f'/api/model-plans/{plan_id}').status_code == 404
+    assert client.delete(f'/api/model-plans/{plan_id}').status_code == 404
+    service.pool.shutdown()
+
+
 def test_list_basins_endpoint(client, app_dependencies, tmp_path):
     from hydro_agent.modeling.plans import bundled_academy_root
 

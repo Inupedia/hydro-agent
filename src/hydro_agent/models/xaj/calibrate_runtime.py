@@ -8,6 +8,7 @@ import json
 from datetime import date
 from pathlib import Path
 
+from hydro_agent.evaluation.hydrograph import build_comparison, write_bundle
 from hydro_agent.evaluation.metrics import nse
 from hydro_agent.execution.contracts import ExecutionRequest
 from hydro_agent.optimization.param_groups import normalize_param_groups, resolve_param_names
@@ -35,7 +36,9 @@ def _load_streamflow(workspace: Path) -> dict[date, float]:
     return values
 
 
-def _sample_vector(rng, names, ranges, *, base_parameters=None, local_scale=None) -> dict[str, float]:
+def _sample_vector(
+    rng, names, ranges, *, base_parameters=None, local_scale=None
+) -> dict[str, float]:
     parameters = {}
     for name in names:
         low, high = ranges[name]
@@ -128,27 +131,31 @@ def run(workspace: Path) -> dict:
     best_index = 0
     best_parameters = dict(base_parameters)
     evaluated = 0
+    baseline_full: list[float] | None = None
+    best_full: list[float] | None = None
     for index, parameters in enumerate(candidates):
         try:
             candidate_scheme = XajScheme(
-                model_id="xaj", warmup_days=scheme.warmup_days, parameters=parameters,
-                routing=scheme.routing
+                model_id="xaj",
+                warmup_days=scheme.warmup_days,
+                parameters=parameters,
+                routing=scheme.routing,
             )
         except Exception:
             continue
         if index and not 90 <= sum(parameters[k] for k in ("UM", "LM", "DM")) <= 220:
             continue
         try:
-            values = simulate(candidate_scheme, basin, inputs)
+            full_values = simulate(candidate_scheme, basin, inputs, include_warmup=True)
+            values = full_values[scheme.warmup_days :]
         except ValueError:
             if index == 0:
                 raise
             continue
-        sim_dates = dates[scheme.warmup_days:]
-        sim_values = values
+        sim_dates = dates[scheme.warmup_days :]
         obs = []
         sim = []
-        for day, runoff in zip(sim_dates, sim_values):
+        for day, runoff in zip(sim_dates, values):
             if day not in streamflow:
                 continue
             obs.append(streamflow[day])
@@ -160,10 +167,13 @@ def run(workspace: Path) -> dict:
         except ValueError:
             continue
         evaluated += 1
+        if index == 0:
+            baseline_full = [float(v) for v in full_values]
         if score > best_score:
             best_score = score
             best_index = index
             best_parameters = dict(candidate_scheme.parameters)
+            best_full = [float(v) for v in full_values]
 
     if evaluated == 0:
         raise ValueError("no evaluable calibration candidates")
@@ -193,6 +203,40 @@ def run(workspace: Path) -> dict:
         "objective_value": best_score,
         "candidate_parameters": best_parameters,
     }
+    output_dir = workspace / "output"
+    if baseline_full is not None and best_full is not None and len(baseline_full) == len(dates):
+        delta = {
+            key: float(best_parameters[key]) - float(base_parameters[key])
+            for key in best_parameters
+            if key in base_parameters
+            and abs(float(best_parameters[key]) - float(base_parameters[key])) > 1e-12
+        }
+        start = (
+            dates[scheme.warmup_days].isoformat()
+            if len(dates) > scheme.warmup_days
+            else dates[0].isoformat()
+        )
+        comparison = build_comparison(
+            kind="calibration",
+            dates=list(dates),
+            observed=streamflow,
+            warmup_days=scheme.warmup_days,
+            evaluated_window="calibration",
+            baseline=baseline_full,
+            candidate=best_full,
+            gate_status=None,
+            frozen_is_candidate=False,
+            parameter_delta=delta,
+            windows={
+                "calibration": f"{start}..{dates[-1].isoformat()}",
+                "warmup": f"{dates[0].isoformat()}..{dates[min(scheme.warmup_days, len(dates)) - 1].isoformat()}",
+            },
+        )
+        artifacts = write_bundle(output_dir, comparison, stem="calibration-comparison")
+        result["hydrograph_artifacts"] = artifacts
+        result["baseline_metrics"] = comparison["baseline_metrics"]
+        result["candidate_metrics"] = comparison["candidate_metrics"]
+        result["calibrated"] = False
     (workspace / "output/candidate-scheme.json").write_text(
         json.dumps(candidate_payload, sort_keys=True, allow_nan=False), encoding="utf-8"
     )

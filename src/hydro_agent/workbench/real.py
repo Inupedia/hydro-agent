@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -97,7 +98,10 @@ class RealWorkbenchKernel:
         self.snapshot_root = self.work_root / "snapshots"
         self.builder = SnapshotBuilder(self.snapshot_root, DataAccessPolicy(), repository)
         self.resolver = SnapshotResolver(
-            repository, builder=self.builder, source=self.source, history_days=max(60, warmup_days + 60)
+            repository,
+            builder=self.builder,
+            source=self.source,
+            history_days=max(60, warmup_days + 60),
         )
         workspaces = MaterializingWorkspaceManager(
             self.work_root / "runs", repository, snapshot_root=self.snapshot_root
@@ -218,15 +222,12 @@ class RealWorkbenchKernel:
         forecasts = [
             row
             for row in self.repository.list_forecasts(task_id)
-            if row.scheme_id == scheme_id
-            and window.start <= row.issue_time.date() <= window.end
+            if row.scheme_id == scheme_id and window.start <= row.issue_time.date() <= window.end
         ]
         forecasts.sort(key=lambda row: (row.issue_time, row.forecast_id))
         if not forecasts:
             # Ensure at least the validation-end issue for the *current* scheme.
-            issue = datetime(
-                window.end.year, window.end.month, window.end.day, tzinfo=timezone.utc
-            )
+            issue = datetime(window.end.year, window.end.month, window.end.day, tzinfo=timezone.utc)
             issue_iso = issue.isoformat().replace("+00:00", "Z")
             self.forecast.forecast(
                 task_id=task_id,
@@ -340,9 +341,9 @@ class _TaskAwareOptimizeHandler:
                 if not param_groups:
                     raw_groups = str(gates.get("recommended_param_groups") or "").strip()
                     if raw_groups and raw_groups != "-":
-                        param_groups = tuple(
-                            g.strip() for g in raw_groups.split(",") if g.strip()
-                        ) or None
+                        param_groups = (
+                            tuple(g.strip() for g in raw_groups.split(",") if g.strip()) or None
+                        )
                 objective = objective or gates.get("recommended_objective") or None
                 break
         strategy_id = strategy_id or "xaj-bounded-v1"
@@ -363,6 +364,7 @@ class _TaskAwareOptimizeHandler:
             rationale_summary=decision.rationale_summary,
         )
         packet = handler.execute(task_id, decision)
+        self._promote_calibration_hydrograph(task_id, packet.action_run_id)
         # Attach calibration/validation separation into observations for the agent log.
         extra = (
             f"calibration_snapshot_id={cal_id}",
@@ -370,9 +372,23 @@ class _TaskAwareOptimizeHandler:
             f"calibration_issue={cal_iso}",
             f"validation_window={window.start.isoformat()}..{window.end.isoformat()}",
         )
-        return packet.model_copy(
-            update={"observations": tuple(packet.observations) + extra}
-        )
+        return packet.model_copy(update={"observations": tuple(packet.observations) + extra})
+
+    def _promote_calibration_hydrograph(self, task_id: str, action_run_id: str | None) -> None:
+        if not action_run_id:
+            return
+        src = self.kernel.calibration.runner.workspaces.root / task_id / action_run_id / "output"
+        dest = self.kernel.report_root / task_id
+        dest.mkdir(parents=True, exist_ok=True)
+        for name in (
+            "calibration-comparison.csv",
+            "calibration-comparison.json",
+            "calibration-comparison.png",
+            "calibration-metrics.json",
+        ):
+            path = src / name
+            if path.is_file():
+                shutil.copy2(path, dest / name)
 
 
 class _TaskAwareReplayHandler:

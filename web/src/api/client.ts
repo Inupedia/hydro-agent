@@ -78,6 +78,9 @@ export const api = {
       body: JSON.stringify({ boundary_hash }),
     })
   },
+  deleteModelPlan(id: string) {
+    return request<void>(`/api/model-plans/${id}`, { method: 'DELETE' })
+  },
   createHydrologistSession(body: { plan_id: string; task_id?: string | null }) {
     return request<HydrologistSession>('/api/hydrologist/sessions', {
       method: 'POST',

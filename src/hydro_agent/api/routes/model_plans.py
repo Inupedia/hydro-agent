@@ -47,6 +47,16 @@ def get_plan(plan_id: str, request: Request):
         raise HTTPException(404, '模型方案不存在') from exc
 
 
+@router.delete('/{plan_id}', status_code=204)
+def delete_plan(plan_id: str, request: Request):
+    try:
+        service(request).delete(plan_id)
+    except KeyError as exc:
+        raise HTTPException(404, '模型方案不存在') from exc
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
 class BoundaryReview(BaseModel):
     boundary_hash: str
 

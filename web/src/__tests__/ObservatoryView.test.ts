@@ -6,6 +6,7 @@ import ObservatoryView from '../views/ObservatoryView.vue'
 import { useDemoStore } from '../stores/demo'
 import { api } from '../api/client'
 vi.mock('../components/ForecastChart.vue', () => ({ default: { template: '<div data-test="chart" />' } }))
+vi.mock('../components/HydrographComparisonChart.vue', () => ({ default: { template: '<div data-test="hydrograph" />' } }))
 vi.mock('../api/client', () => ({ api: { health: vi.fn(async () => ({ status: 'ok', mode: 'demo' })), listTasks: vi.fn(async () => []), createTask: vi.fn(async () => ({task_id:'test-task'})), startRun: vi.fn(async () => ({ status:'running',worker_active:true })), getRun: vi.fn(async () => ({ status:'running',worker_active:true })), getTimeline: vi.fn(async () => []), getTask: vi.fn(async () => ({ basin_id:'basin-restored',start_date:'2021-01-01',end_date:'2021-01-03',forcing_mode:'R' })) } }))
 async function setup(path='/') {
   const router = createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:ObservatoryView}]})
@@ -27,6 +28,20 @@ describe('single page observatory',()=>{
   expect(wrapper.find('[data-test="live-workflow"]').exists()).toBe(true)
   expect(wrapper.find('.water-scene').exists()).toBe(false)
   expect(wrapper.find('fieldset').attributes('disabled')).toBeDefined()
+  wrapper.unmount()
+ })
+ it('places data preparation left of the task pane and leaves the journal unnumbered',async()=>{
+  const {wrapper}=await setup()
+  const children=[...wrapper.find('.observatory-grid').element.children]
+  expect(children[0].className).toContain('main-stage')
+  expect(children[1].className).toContain('task-pane')
+  expect(children[2].className).toContain('journal-pane')
+  expect(wrapper.find('.task-pane .overline').text()).toBe('02 / 流域与任务')
+  expect(wrapper.find('.journal-pane .overline').text()).toBe('执行记录')
+  expect(wrapper.find('.record-count').exists()).toBe(false)
+  expect(wrapper.find('.water-scene').exists()).toBe(false)
+  expect(wrapper.find('.stage-track').exists()).toBe(false)
+  expect(wrapper.find('.hero-copy').exists()).toBe(false)
   wrapper.unmount()
  })
  it('renders arriving results in place and exposes report links',async()=>{
@@ -56,11 +71,29 @@ describe('single page observatory',()=>{
   }
   await flushPromises()
   expect(wrapper.find('[data-test="chart"]').exists()).toBe(true)
+  expect(wrapper.find('[data-test="live-workflow"]').exists()).toBe(false)
+  expect(wrapper.find('[data-test="forecast-surface"]').exists()).toBe(true)
+  expect(wrapper.find('.observatory').classes()).toContain('is-results')
+  expect(wrapper.find('[data-test="header-new-task"]').text()).toBe('新建任务')
+  expect(wrapper.find('[data-test="header-case-picker"]').exists()).toBe(true)
   expect(wrapper.find('[data-test="param-tuning"]').exists()).toBe(true)
   expect(wrapper.text()).toContain('新安江参数如何被调整')
   expect(wrapper.text()).toContain('保留原方案')
   expect(wrapper.find('a[href*="/report/"]').attributes('href')).toBe('/api/tasks/test-task/report/report.md')
   expect(router.currentRoute.value.path).toBe('/')
+  wrapper.unmount()
+ })
+ it('shows the results surface even before forecast series arrive',async()=>{
+  const {wrapper,store}=await setup()
+  store.taskId='test-task'
+  store.run={status:'completed',worker_active:false,phase:'E',needs_follow_up:false} as typeof store.run
+  store.results={task_id:'test-task',phase:'E',scheme:null,forecasts:[],metrics:{},gate:{status:'KEEP'},report_artifacts:[],costs:{}}
+  await flushPromises()
+  expect(wrapper.find('[data-test="live-workflow"]').exists()).toBe(false)
+  expect(wrapper.find('[data-test="forecast-surface"]').exists()).toBe(true)
+  expect(wrapper.text()).toContain('正在整理过程线与预报记录')
+  expect(wrapper.find('.observatory').classes()).toContain('is-results')
+  expect(wrapper.find('[data-test="header-new-task"]').exists()).toBe(true)
   wrapper.unmount()
  })
  it('restores existing sessions without restarting compute',async()=>{

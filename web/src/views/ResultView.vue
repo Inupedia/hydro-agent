@@ -2,12 +2,14 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ForecastChart from '../components/ForecastChart.vue'
+import HydrographComparisonChart from '../components/HydrographComparisonChart.vue'
 import ProcessStory from '../components/ProcessStory.vue'
 import ReportLinks from '../components/ReportLinks.vue'
 import ArchifyWorkflow from '../components/ArchifyWorkflow.vue'
 import { api } from '../api/client'
 import { useResultsStore } from '../stores/results'
 import type { TimelineItem } from '../types/api'
+import { hydrographTitleZh } from '../chartTheme'
 
 const route = useRoute()
 const router = useRouter()
@@ -45,9 +47,21 @@ onMounted(async () => {
 
     <ArchifyWorkflow view="gate-keep" height="480px" />
 
+    <section v-if="store.result?.test_hydrograph?.series?.length" class="chart-block">
+      <h3>{{ hydrographTitleZh(store.result.test_hydrograph) }}</h3>
+      <p class="lede">独立检验窗上的观测与最终冻结方案。KEEP/ROLLBACK 时冻结的仍是原方案，不会标成已率定。</p>
+      <HydrographComparisonChart :comparison="store.result.test_hydrograph" />
+    </section>
+
+    <section v-if="store.result?.calibration_hydrograph?.series?.length" class="chart-block">
+      <h3>{{ hydrographTitleZh(store.result.calibration_hydrograph) }}</h3>
+      <p class="lede">率定窗上的观测、基线方案与候选方案，含预热期阴影。</p>
+      <HydrographComparisonChart :comparison="store.result.calibration_hydrograph" />
+    </section>
+
     <section class="chart-block">
-      <h3>预报曲线（演示数据）</h3>
-      <p class="lede">横轴是起报日期，纵轴是流量（立方米/秒）。三条线分别是提前 1 / 2 / 3 天的预报。</p>
+      <h3>预报记录（提前 1 / 2 / 3 天）</h3>
+      <p class="lede">横轴是起报日期。这是滚动预报存档，不能替代上面的过程线对比。</p>
       <ForecastChart :forecasts="store.result?.forecasts || []" />
     </section>
 

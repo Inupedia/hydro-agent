@@ -4,6 +4,7 @@ import csv
 from datetime import timedelta
 from pathlib import Path
 
+from hydro_agent.evaluation.hydrograph import build_comparison, write_bundle
 from hydro_agent.evaluation.metrics import bias, kge, mae, nse
 from hydro_agent.replay.contracts import ReplayEvaluation
 
@@ -14,7 +15,13 @@ class EvaluationService:
         self.snapshot_root = Path(snapshot_root)
         self.observation_loader = observation_loader or self._load_streamflow
 
-    def evaluate(self, task_id: str, observation_snapshot_id: str) -> ReplayEvaluation:
+    def evaluate(
+        self,
+        task_id: str,
+        observation_snapshot_id: str,
+        *,
+        output_dir: Path | None = None,
+    ) -> ReplayEvaluation:
         task = self.repository.get_task(task_id)
         if task.phase != "E":
             raise ValueError("evaluation requires E phase")
@@ -87,6 +94,15 @@ class EvaluationService:
         provenance = dict((scheme.config_json or {}).get("provenance") or {})
         if gbt_payload:
             provenance = {**provenance, "gbt_22482": gbt_payload}
+        gate_status = self._latest_gate_status(task_id)
+        frozen_is_candidate = gate_status == "ACCEPT"
+        hydrograph = self._try_test_hydrograph(
+            observation_snapshot_id,
+            scheme,
+            output_dir=output_dir,
+            gate_status=gate_status,
+            frozen_is_candidate=frozen_is_candidate,
+        )
         return ReplayEvaluation(
             task_id=task_id,
             scheme_id=scheme.scheme_id,
@@ -97,7 +113,95 @@ class EvaluationService:
             sample_counts=sample_counts,
             forcing_mode=task.forcing_mode,
             provenance=provenance,
+            hydrograph=hydrograph,
         )
+
+    def _latest_gate_status(self, task_id: str) -> str | None:
+        for row in reversed(self.repository.list_evidence(task_id)):
+            if row.action == "A08_GATE":
+                return str(row.status)
+        return None
+
+    def _snapshot_dir(self, snapshot_id: str) -> Path | None:
+        path = self.snapshot_root / snapshot_id
+        if (path / "streamflow.csv").is_file() or (path / "forcing.csv").is_file():
+            return path
+        matches = list(self.snapshot_root.rglob(f"{snapshot_id}/streamflow.csv"))
+        if matches:
+            return matches[0].parent
+        matches = list(self.snapshot_root.rglob(f"{snapshot_id}/forcing.csv"))
+        if matches:
+            return matches[0].parent
+        return None
+
+    def _try_test_hydrograph(
+        self,
+        observation_snapshot_id: str,
+        scheme,
+        *,
+        output_dir: Path | None,
+        gate_status: str | None,
+        frozen_is_candidate: bool,
+    ) -> dict | None:
+        snapshot_dir = self._snapshot_dir(observation_snapshot_id)
+        if snapshot_dir is None:
+            return None
+        forcing_path = snapshot_dir / "forcing.csv"
+        basin_path = snapshot_dir / "basin.json"
+        if not forcing_path.is_file() or not basin_path.is_file():
+            return None
+        cfg = dict(scheme.config_json or {})
+        try:
+            from datetime import date as date_cls
+
+            import numpy as np
+
+            from hydro_agent.models.xaj.contracts import XajBasin, XajScheme
+            from hydro_agent.models.xaj.upstream import simulate
+
+            xaj = XajScheme(
+                model_id="xaj",
+                warmup_days=int(cfg["warmup_days"]),
+                parameters=cfg["parameters"],
+                routing=cfg.get("routing") or {},
+            )
+            basin = XajBasin.model_validate_json(basin_path.read_text(encoding="utf-8"))
+            with forcing_path.open(encoding="utf-8", newline="") as handle:
+                rows = list(csv.DictReader(handle))
+            dates = [date_cls.fromisoformat(row["date"]) for row in rows]
+            array = np.asarray(
+                [[float(row["precipitation_mm_day"]), float(row["pet_mm_day"])] for row in rows]
+            )
+            if len(dates) < xaj.warmup_days + 2:
+                return None
+            values = simulate(xaj, basin, array[:, None, :], include_warmup=True)
+            observed = self.observation_loader(observation_snapshot_id)
+            if not isinstance(observed, dict):
+                return None
+            start = (
+                dates[xaj.warmup_days].isoformat()
+                if len(dates) > xaj.warmup_days
+                else dates[0].isoformat()
+            )
+            comparison = build_comparison(
+                kind="independent_test",
+                dates=dates,
+                observed=observed,
+                warmup_days=xaj.warmup_days,
+                evaluated_window="test",
+                frozen=[float(v) for v in values],
+                gate_status=gate_status,
+                frozen_is_candidate=frozen_is_candidate,
+                windows={
+                    "test": f"{start}..{dates[-1].isoformat()}",
+                    "warmup": f"{dates[0].isoformat()}..{dates[min(xaj.warmup_days, len(dates)) - 1].isoformat()}",
+                },
+            )
+            if output_dir is not None:
+                write_bundle(Path(output_dir), comparison, stem="test-hydrograph")
+            return comparison
+        except Exception:
+            return None
 
     def _load_streamflow(self, snapshot_id: str) -> dict:
         path = self.snapshot_root / snapshot_id / "streamflow.csv"

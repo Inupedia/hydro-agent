@@ -19,5 +19,7 @@ data/snapshots
 *.db
 docs
 tests
+!tests/fixtures
+!tests/fixtures/**
 agent-transcripts
 **/.DS_Store

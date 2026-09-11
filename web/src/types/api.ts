@@ -58,6 +58,33 @@ export type TimelineItem = {
   details: Record<string, unknown>
 }
 
+export type HydrographPoint = {
+  time: string
+  observed_m3s?: number | null
+  baseline_m3s?: number | null
+  candidate_m3s?: number | null
+  frozen_m3s?: number | null
+  change_m3s?: number | null
+  window: string
+  is_warmup: boolean
+}
+
+export type HydrographComparison = {
+  kind: 'calibration' | 'independent_test'
+  title: string
+  calibrated: boolean
+  gate_status?: string | null
+  warmup_days: number
+  evaluated_days: number
+  series: HydrographPoint[]
+  baseline_metrics?: Record<string, number | null> | null
+  candidate_metrics?: Record<string, number | null> | null
+  frozen_metrics?: Record<string, number | null> | null
+  change?: Record<string, number | null> | null
+  parameter_delta?: Record<string, number>
+  windows?: Record<string, string>
+}
+
 export type ResultSummary = {
   task_id: string
   phase: 'B' | 'F' | 'E'
@@ -82,6 +109,8 @@ export type ResultSummary = {
   gate: Record<string, unknown> | null
   diagnosis?: Record<string, unknown> | null
   optimize?: Record<string, unknown> | null
+  calibration_hydrograph?: HydrographComparison | null
+  test_hydrograph?: HydrographComparison | null
   report_artifacts: string[]
   costs: Record<string, number>
   story_zh?: string

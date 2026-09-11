@@ -59,6 +59,7 @@ class ReplayReportBuilder:
                 "## Gate / Freeze Provenance",
                 f"```json\n{json.dumps(evaluation.provenance, sort_keys=True, indent=2)}\n```",
                 "",
+                *self._hydrograph_section(evaluation),
                 "## Cost Summary",
                 "- cost ledger remains on ActionRun records; report does not invent costs",
                 "",
@@ -69,3 +70,35 @@ class ReplayReportBuilder:
             ]
         )
         return "\n".join(lines)
+
+    def _hydrograph_section(self, evaluation: ReplayEvaluation) -> list[str]:
+        hydro = evaluation.hydrograph
+        if not hydro:
+            return []
+        title = str(hydro.get("title") or "观测与冻结方案 · 独立检验")
+        calibrated = bool(hydro.get("calibrated"))
+        lines = [
+            "## 独立检验过程线",
+            f"- 标题: {title}",
+            f"- calibrated: `{str(calibrated).lower()}`",
+            f"- warmup_days: {hydro.get('warmup_days')}",
+            f"- evaluated_days: {hydro.get('evaluated_days')}",
+        ]
+        frozen = (
+            hydro.get("frozen_metrics") if isinstance(hydro.get("frozen_metrics"), dict) else {}
+        )
+        if frozen:
+            lines.append("- frozen scheme (after warmup):")
+            for key in ("nse", "kge", "pbias_percent", "rmse_m3s"):
+                value = frozen.get(key)
+                if value is None:
+                    continue
+                lines.append(f"  - {key}: {float(value):.4f}")
+        lines.extend(
+            [
+                "- Series files: `test-hydrograph.csv`, `test-metrics.json`.",
+                "- This is the independent test window, not the calibration window.",
+                "",
+            ]
+        )
+        return lines

@@ -14,6 +14,7 @@ from pathlib import Path
 
 import uvicorn
 
+import hydro_agent.silence_langgraph  # noqa: F401
 from hydro_agent.agent.contracts import (
     ActionCode,
     AgentDecision,

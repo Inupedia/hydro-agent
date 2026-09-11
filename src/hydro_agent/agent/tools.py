@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from pathlib import Path
 from typing import Protocol
 
 from hydro_agent.agent.contracts import ActionCode, AgentDecision, EvidencePacket
@@ -297,6 +298,16 @@ class OptimizeHandler:
             f"parameter_delta={json.dumps(delta, sort_keys=True)}",
         )
         metrics = {"objective_value": float(outcome.objective_value)}
+        payload = dict(outcome.result_payload or {})
+        for prefix, blob in (
+            ("baseline", payload.get("baseline_metrics")),
+            ("candidate", payload.get("candidate_metrics")),
+        ):
+            if isinstance(blob, dict):
+                for key in ("nse", "kge", "pbias_percent", "rmse_m3s"):
+                    raw = blob.get(key)
+                    if isinstance(raw, (int, float)):
+                        metrics[f"{prefix}_{key}"] = float(raw)
         gates = {
             "candidate_scheme_id": candidate_id,
             "base_scheme_id": outcome.base_scheme_id,
@@ -351,9 +362,7 @@ class GateHandler:
                 gbt_report = run_gbt_accuracy(hydro_series, self.gbt_config_provider(task_id))
         else:
             base, candidate = provided
-        result = self.gate_evaluator.evaluate(
-            base, candidate, self.policy, gbt_report=gbt_report
-        )
+        result = self.gate_evaluator.evaluate(base, candidate, self.policy, gbt_report=gbt_report)
         observations = (
             f"gate_status={result.status}",
             f"base_scheme_id={result.base_scheme_id}",
@@ -362,16 +371,8 @@ class GateHandler:
             f"candidate_primary={candidate.primary_score:.4f}",
             f"min_candidate_primary={self.policy.min_candidate_primary:.4f}",
             f"min_scheme_grade={self.policy.min_scheme_grade}",
-            *(
-                (f"scheme_grade={result.scheme_grade}",)
-                if result.scheme_grade
-                else ()
-            ),
-            *(
-                (f"gbt_summary={result.gbt_summary}",)
-                if result.gbt_summary
-                else ()
-            ),
+            *((f"scheme_grade={result.scheme_grade}",) if result.scheme_grade else ()),
+            *((f"gbt_summary={result.gbt_summary}",) if result.gbt_summary else ()),
             *result.reasons,
         )
         metrics = {
@@ -537,8 +538,19 @@ class EvaluateReportToolHandler:
         task = self.repository.get_task(task_id)
         if task.phase == "F":
             self.repository.set_task_phase(task_id, "E")
-        evaluation = self.evaluation_service.evaluate(task_id, self.observation_snapshot_id)
+        evaluation = self.evaluation_service.evaluate(
+            task_id, self.observation_snapshot_id, output_dir=self.output_dir
+        )
         json_path, md_path = self.report_builder.build(evaluation, self.output_dir)
+        artifacts = [json_path.name, md_path.name]
+        for name in (
+            "test-hydrograph.csv",
+            "test-hydrograph.json",
+            "test-hydrograph.png",
+            "test-metrics.json",
+        ):
+            if (Path(self.output_dir) / name).is_file():
+                artifacts.append(name)
         observations = (
             f"scheme_id={evaluation.scheme_id}",
             f"report_json={json_path.name}",
@@ -551,7 +563,7 @@ class EvaluateReportToolHandler:
             status="succeeded",
             observations=observations,
             metrics=dict(evaluation.metrics),
-            artifact_ids=(json_path.name, md_path.name),
+            artifact_ids=tuple(artifacts),
             new_information_hash=information_hash(
                 action=ActionCode.A12_EVALUATE_REPORT,
                 status="succeeded",

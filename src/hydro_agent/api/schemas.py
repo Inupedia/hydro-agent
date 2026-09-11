@@ -90,6 +90,33 @@ class ForecastResult(FrozenApiModel):
     unit: str
 
 
+class HydrographPoint(FrozenApiModel):
+    time: str
+    observed_m3s: float | None = None
+    baseline_m3s: float | None = None
+    candidate_m3s: float | None = None
+    frozen_m3s: float | None = None
+    change_m3s: float | None = None
+    window: str
+    is_warmup: bool = False
+
+
+class HydrographComparisonResult(FrozenApiModel):
+    kind: Literal["calibration", "independent_test"]
+    title: str
+    calibrated: bool = False
+    gate_status: str | None = None
+    warmup_days: int = 0
+    evaluated_days: int = 0
+    series: tuple[HydrographPoint, ...] = ()
+    baseline_metrics: dict[str, float | int | None] | None = None
+    candidate_metrics: dict[str, float | int | None] | None = None
+    frozen_metrics: dict[str, float | int | None] | None = None
+    change: dict[str, float | None] | None = None
+    parameter_delta: dict[str, float] = Field(default_factory=dict)
+    windows: dict[str, str] = Field(default_factory=dict)
+
+
 class ResultSummary(FrozenApiModel):
     task_id: str
     phase: Literal["B", "F", "E"]
@@ -99,6 +126,8 @@ class ResultSummary(FrozenApiModel):
     gate: dict[str, object] | None
     diagnosis: dict[str, object] | None = None
     optimize: dict[str, object] | None = None
+    calibration_hydrograph: HydrographComparisonResult | None = None
+    test_hydrograph: HydrographComparisonResult | None = None
     report_artifacts: tuple[str, ...]
     costs: dict[str, float]
     story_zh: str = ""

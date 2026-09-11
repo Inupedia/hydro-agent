@@ -3,8 +3,10 @@ import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DemoShell from '../layouts/DemoShell.vue'
 import ForecastChart from '../components/ForecastChart.vue'
+import HydrographComparisonChart from '../components/HydrographComparisonChart.vue'
 import { useDemoStore } from '../stores/demo'
 import { actionDoneTitle, basinLabel, gateDecisionZh } from '../demo/stages'
+import { hydrographTitleZh } from '../chartTheme'
 
 const route = useRoute()
 const router = useRouter()
@@ -84,11 +86,27 @@ onMounted(async () => {
         数据来源：<strong>{{ modeLabel }}</strong>。历史资料计算不等于当前业务预报。
       </p>
 
+      <div v-if="demo.results?.test_hydrograph?.series?.length" class="chart-card">
+        <div class="chart-head">
+          <h2>{{ hydrographTitleZh(demo.results.test_hydrograph) }}</h2>
+          <p>独立检验窗上的观测与最终冻结方案。维持原方案时不会把原方案称作已率定。</p>
+        </div>
+        <HydrographComparisonChart :comparison="demo.results.test_hydrograph" />
+      </div>
+
+      <div v-if="demo.results?.calibration_hydrograph?.series?.length" class="chart-card">
+        <div class="chart-head">
+          <h2>{{ hydrographTitleZh(demo.results.calibration_hydrograph) }}</h2>
+          <p>率定窗：观测、基线方案与候选方案。</p>
+        </div>
+        <HydrographComparisonChart :comparison="demo.results.calibration_hydrograph" />
+      </div>
+
       <div class="chart-card">
         <div class="chart-head">
-          <h2>流量曲线</h2>
+          <h2>预报记录</h2>
           <p>
-            横轴为日期，纵轴为流量（m³/s）。蓝色为主预测提前期；观测对照仅在结果中提供时绘制。无依据时不绘制置信区间。
+            横轴为起报日期，纵轴为流量（m³/s）。这是提前 1 / 2 / 3 天的滚动预报存档，不能替代上面的过程线。
           </p>
         </div>
         <ForecastChart :forecasts="demo.results?.forecasts || []" />

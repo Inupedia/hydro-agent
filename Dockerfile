@@ -1,40 +1,48 @@
 # Hydro-Agent workbench: Archify UI + FastAPI (real SiliconFlow + XAJ)
-FROM node:22-bookworm AS web
+# Base-image ARGs default to a Docker Hub mirror; override to docker.io if you prefer.
+ARG NODE_IMAGE=docker.m.daocloud.io/library/node:22-bookworm
+ARG PYTHON_IMAGE=docker.m.daocloud.io/library/python:3.12-slim-bookworm
+
+FROM ${NODE_IMAGE} AS web
 WORKDIR /web
 COPY web/package.json web/package-lock.json ./
-RUN npm ci
+RUN npm ci --registry=https://registry.npmmirror.com
 COPY web/ ./
 RUN npm run build
 
-FROM python:3.12-slim-bookworm AS runtime
+FROM ${PYTHON_IMAGE} AS runtime
 WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
+    UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+    PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
     HYDRO_AGENT_HOST=0.0.0.0 \
     HYDRO_AGENT_PORT=8000 \
     HYDRO_AGENT_DB=/data/hydro.db \
     HYDRO_AGENT_REPORTS=/data/reports \
     HYDRO_AGENT_STATIC=/app/web/dist \
-    HYDRO_AGENT_MODE=real
+    HYDRO_AGENT_MODE=real \
+    HYDRO_WORKFLOW_DIR=/app/workflow
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates build-essential git \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=ghcr.io/astral-sh/uv:0.8.4 /uv /usr/local/bin/uv
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir "uv==0.8.4"
 
 COPY pyproject.toml uv.lock README.md ./
+# Install third-party deps first so editing src/workflow does not re-download packages.
+RUN uv sync --frozen --no-install-project --extra api --extra data --extra xaj --extra xaj-dem --no-dev
+
 COPY src ./src
+COPY workflow ./workflow
 COPY scripts ./scripts
 COPY data/academy ./data/academy
 COPY tests/fixtures/lowman_reanalysis_source ./tests/fixtures/lowman_reanalysis_source
 COPY tests/fixtures/xaj/lowman_scheme.json ./tests/fixtures/xaj/lowman_scheme.json
-
-# Prefer a reachable index when building behind unstable PyPI routes.
-ENV UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
 RUN uv sync --frozen --extra api --extra data --extra xaj --extra xaj-dem --no-dev \
     && mkdir -p /data/reports /data/runtime

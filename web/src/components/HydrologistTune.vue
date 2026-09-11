@@ -154,18 +154,47 @@ function fmt(value: unknown) {
 </template>
 
 <style scoped>
-.hydrologist-tune{padding:20px;background:rgba(255,255,255,.78);border:1px solid #d5e1ea;border-radius:16px}
-.hydrologist-tune h2{font-size:22px;margin:8px 0}
-.hydrologist-tune p{color:#596f80;line-height:1.55;font-size:13px}
-.actions{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
-.actions button{padding:10px 12px;border:0;border-radius:8px;background:#1769ad;color:#fff;cursor:pointer;font-size:12px}
-.actions button:disabled{opacity:.45;cursor:default}
-.session-meta{display:flex;flex-wrap:wrap;gap:10px;font-size:12px}
-.param-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin:12px 0}
-.param-grid label{display:grid;gap:4px;font-size:12px}
-.param-grid input,.note-field input{padding:8px;border:1px solid #c6d6e5;border-radius:8px;width:100%}
-.note-field{display:grid;gap:6px;font-size:12px;margin-bottom:12px}
-.metric-table{width:100%;border-collapse:collapse;font-size:12px}
-.metric-table th,.metric-table td{border-bottom:1px solid #e1ebf2;padding:8px;text-align:left}
-.tune-error{color:#ac3b2c!important;white-space:pre-wrap}
+.hydrologist-tune {
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+}
+.hydrologist-tune h2 { font-size: 20px; font-weight: 600; margin: 8px 0; }
+.hydrologist-tune p { color: var(--text-secondary); line-height: 1.55; font-size: 13px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+.actions button {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+.actions button:disabled { opacity: 0.45; cursor: default; }
+.session-meta { display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; }
+.param-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; margin: 12px 0; }
+.param-grid label { display: grid; gap: 8px; font-size: 13px; }
+.note-field { display: grid; gap: 8px; font-size: 13px; margin-bottom: 12px; }
+.metric-table { width: 100%; border-collapse: collapse; }
+.metric-table th,
+.metric-table td {
+  border-bottom: 1px solid var(--separator);
+  padding: 14px 16px;
+  text-align: left;
+}
+.metric-table th {
+  background: var(--surface-secondary);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+.metric-table td:nth-child(n+2),
+.metric-table th:nth-child(n+2) { text-align: right; font-variant-numeric: tabular-nums; }
+.metric-table tbody tr:hover td { background: var(--table-hover); }
+.tune-error { color: var(--danger) !important; white-space: pre-wrap; }
 </style>

@@ -30,6 +30,13 @@ const completedResultFixture = {
   costs: {},
 }
 
+vi.mock('../components/HydrographComparisonChart.vue', () => ({
+  default: {
+    name: 'HydrographComparisonChart',
+    template: '<div data-test="hydrograph-chart" />',
+  },
+}))
+
 vi.mock('../components/ForecastChart.vue', () => ({
   default: {
     name: 'ForecastChart',

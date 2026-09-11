@@ -47,6 +47,15 @@ def high_flow_mae(obs, sim, quantile: float = 0.9) -> float:
     return mae(obs_a[mask], sim_a[mask])
 
 
+def rmse(obs, sim) -> float:
+    obs_a, sim_a = _as_1d(obs, sim)
+    return float(np.sqrt(np.mean((obs_a - sim_a) ** 2)))
+
+
+def pbias_percent(obs, sim) -> float:
+    return float(100.0 * bias(obs, sim))
+
+
 def kge(obs, sim) -> float:
     obs_a, sim_a = _as_1d(obs, sim)
     if obs_a.size < 2:

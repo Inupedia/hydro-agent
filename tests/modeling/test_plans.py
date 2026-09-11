@@ -59,6 +59,17 @@ def test_paths_cannot_escape_plan_store(plans):
         plans.directory('../../secrets')
 
 
+def test_delete_removes_plan_but_blocks_in_flight_builds(plans):
+    p = ready_plan(plans, {})
+    plans.delete(p['plan_id'])
+    with pytest.raises(KeyError):
+        plans.get(p['plan_id'])
+    running = ready_plan(plans, {})
+    plans._update(running['plan_id'], status='running')
+    with pytest.raises(ValueError, match='建模进行中'):
+        plans.delete(running['plan_id'])
+
+
 def test_create_rejects_other_basins(plans):
     from hydro_agent.modeling.plans import PlanRequest
 

@@ -8,6 +8,8 @@ function href(name: string) {
 function label(name: string) {
   if (name === 'report.md') return '阅读说明（Markdown）'
   if (name === 'report.json') return '下载指标数据（JSON）'
+  if (name === 'test-hydrograph.csv') return '独立检验过程线（CSV）'
+  if (name === 'calibration-comparison.csv') return '率定对比过程线（CSV）'
   return name
 }
 </script>

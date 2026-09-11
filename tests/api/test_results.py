@@ -1,4 +1,6 @@
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 from hydro_agent.agent.contracts import ActionCode, EvidencePacket
 
@@ -88,8 +90,43 @@ def test_results_are_read_from_persisted_scheme_forecast_gate_report(
         )
     )
     app_dependencies.report_artifacts[task_id] = ("report.json", "report.md")
+    hydro_dir = Path(app_dependencies.report_root) / task_id
+    hydro_dir.mkdir(parents=True, exist_ok=True)
+    (hydro_dir / "test-hydrograph.json").write_text(
+        json.dumps(
+            {
+                "kind": "independent_test",
+                "title": "placeholder",
+                "calibrated": False,
+                "warmup_days": 1,
+                "evaluated_days": 2,
+                "series": [
+                    {
+                        "time": "2020-05-01",
+                        "observed_m3s": 10.0,
+                        "frozen_m3s": 9.0,
+                        "window": "warmup",
+                        "is_warmup": True,
+                    },
+                    {
+                        "time": "2020-05-02",
+                        "observed_m3s": 11.0,
+                        "frozen_m3s": 10.5,
+                        "window": "test",
+                        "is_warmup": False,
+                    },
+                ],
+                "frozen_metrics": {"nse": 0.4, "count": 2},
+            }
+        ),
+        encoding="utf-8",
+    )
     payload = client.get(f"/api/tasks/{task_id}/results").json()
     assert payload["scheme"]["status"] == "frozen"
     assert payload["forecasts"]
     assert payload["metrics"]["NSE"] is not None
     assert payload["report_artifacts"]
+    assert payload["test_hydrograph"]["kind"] == "independent_test"
+    assert payload["test_hydrograph"]["calibrated"] is False
+    assert "独立检验" in payload["test_hydrograph"]["title"]
+    assert payload["test_hydrograph"]["gate_status"] == "KEEP"

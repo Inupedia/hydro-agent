@@ -1,5 +1,7 @@
 import pytest
 
+import hydro_agent.silence_langgraph  # noqa: F401
+
 
 @pytest.fixture
 def execution_request():

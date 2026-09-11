@@ -1,35 +1,70 @@
 :root {
-  --bg: #f5f5f7;
+  --background: #f5f5f7;
+  --background-secondary: #eceef2;
   --surface: #ffffff;
-  --label: #1d1d1f;
-  --secondary: #62626a;
-  --tertiary: #8e8e93;
-  --separator: #e5e5ea;
-  --blue: #007aff;
-  --blue-soft: #eaf3ff;
+  --surface-secondary: #f8f9fb;
+  --text-primary: #1d1d1f;
+  --text-secondary: #62626a;
+  --text-tertiary: #85858e;
+  --border: #dcdde3;
+  --separator: #e8e9ee;
+  --accent: #007aff;
+  --accent-hover: #006be0;
+  --accent-pressed: #005bc4;
+  --accent-soft: #eaf3ff;
+  --accent-text: #005fcc;
+  --focus-ring: rgba(0, 122, 255, 0.35);
   --success: #248a3d;
-  --success-soft: rgba(36, 138, 61, 0.12);
-  --caution: #b86e00;
-  --caution-soft: rgba(184, 110, 0, 0.12);
+  --success-soft: #eaf6ed;
+  --caution: #a66500;
+  --caution-soft: #fff4df;
   --danger: #d70015;
-  --danger-soft: rgba(215, 0, 21, 0.1);
-  --glass: rgba(255, 255, 255, 0.72);
-  --glass-strong: rgba(246, 246, 248, 0.94);
-  --shadow: 0 8px 28px rgba(0, 0, 0, 0.06);
-  --radius-lg: 18px;
-  --radius-md: 12px;
-  --radius-sm: 8px;
-  --control-h: 32px;
-  --control-h-lg: 34px;
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC",
+  --danger-soft: #fff0f1;
+  --info: #005fcc;
+  --info-soft: #eaf3ff;
+  --neutral: #62626a;
+  --neutral-soft: #eff0f3;
+  --glass-light: rgba(255, 255, 255, 0.62);
+  --glass: rgba(250, 251, 253, 0.78);
+  --glass-strong: rgba(250, 251, 253, 0.92);
+  --glass-fallback: #f8f9fb;
+  --glass-edge: rgba(255, 255, 255, 0.75);
+  --glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  --shadow: 0 1px 2px rgba(25, 40, 65, 0.03);
+  --shadow-panel: 0 1px 1px rgba(25, 40, 65, 0.03), 0 8px 24px rgba(25, 40, 65, 0.035);
+  --shadow-modal: 0 24px 64px rgba(25, 40, 65, 0.16);
+  --radius-xs: 8px;
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --radius-xl: 26px;
+  --control-h: 40px;
+  --control-h-lg: 48px;
+  --control-h-sm: 32px;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC",
     "Helvetica Neue", "Segoe UI", sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --space: 8px;
-  color: var(--label);
-  background: var(--bg);
+  --chart-1: #1889ee;
+  --chart-2: #47b8b0;
+  --chart-3: #8e8bd4;
+  --chart-4: #dca45a;
+  --chart-5: #d67c96;
+  --chart-grid: #e7eef5;
+  --chart-axis: #698197;
+  --table-hover: #f3f7fc;
+  --bg: var(--background);
+  --label: var(--text-primary);
+  --secondary: var(--text-secondary);
+  --tertiary: var(--text-tertiary);
+  --blue: var(--accent);
+  --blue-soft: var(--accent-soft);
+  color: var(--text-primary);
+  background: var(--background);
   font-family: var(--font);
   font-size: 14px;
-  line-height: 1.4;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -47,19 +82,140 @@ body,
 body {
   min-height: 100dvh;
   background:
-    radial-gradient(900px 420px at 12% -8%, rgba(90, 170, 255, 0.12), transparent 55%),
-    radial-gradient(700px 380px at 92% 8%, rgba(160, 140, 255, 0.08), transparent 50%),
-    var(--bg);
+    radial-gradient(900px 420px at 8% -10%, rgba(220, 238, 255, 0.14), transparent 58%),
+    radial-gradient(720px 380px at 92% 0%, rgba(233, 227, 250, 0.12), transparent 52%),
+    radial-gradient(640px 320px at 70% 100%, rgba(231, 235, 241, 0.16), transparent 50%),
+    var(--background);
 }
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
 a {
-  color: var(--blue);
+  color: var(--accent-text);
+}
+
+button {
+  transition:
+    background-color 140ms var(--ease),
+    color 140ms var(--ease),
+    box-shadow 140ms var(--ease),
+    transform 120ms var(--ease);
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+select,
+textarea {
+  width: 100%;
+  min-height: var(--control-h);
+  padding: 0 14px;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition:
+    border-color 140ms var(--ease),
+    box-shadow 140ms var(--ease);
+}
+
+textarea {
+  padding: 12px 14px;
+  min-height: 88px;
+  resize: vertical;
+}
+
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'><path d='M1.5 1.75L6 6.25L10.5 1.75' stroke='%2362626A' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 12px 8px;
+  padding-right: 36px;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+input.is-invalid,
+select.is-invalid {
+  border-color: var(--danger);
+}
+
+button:disabled,
+input:disabled,
+select:disabled {
+  opacity: 0.45;
+  cursor: default;
+  pointer-events: none;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  background: var(--surface);
+}
+
+th,
+td {
+  padding: 14px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--separator);
+  vertical-align: middle;
+}
+
+th {
+  background: var(--surface-secondary);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+td {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+tbody tr {
+  transition: background-color 140ms var(--ease);
+}
+
+tbody tr:hover {
+  background: var(--table-hover);
+}
+
+tbody tr.is-selected,
+tbody tr.changed {
+  background: var(--accent-soft);
+}
+
+td.numeric,
+th.numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -73,7 +229,8 @@ a {
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   :root {
-    --glass: #f6f6f8;
-    --glass-strong: #f2f2f7;
+    --glass-light: var(--glass-fallback);
+    --glass: var(--glass-fallback);
+    --glass-strong: #f8f9fb;
   }
 }

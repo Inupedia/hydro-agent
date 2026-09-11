@@ -91,6 +91,7 @@ export const useDemoStore = defineStore('demo', () => {
   const isFailed = computed(
     () => run.value?.status === 'failed' || run.value?.status === 'error',
   )
+  let completeSettleTicks = 0
 
   function persistSession() {
     if (!taskId.value) {
@@ -207,6 +208,7 @@ export const useDemoStore = defineStore('demo', () => {
     results.value = null
     startedAt.value = null
     followScreen.value = true
+    completeSettleTicks = 0
     startPolling()
     persistSession()
   }
@@ -220,6 +222,7 @@ export const useDemoStore = defineStore('demo', () => {
     }
     error.value = null
     startedAt.value = Date.now()
+    completeSettleTicks = 0
     run.value = await api.startRun(taskId.value)
     startPolling()
     persistSession()
@@ -234,13 +237,21 @@ export const useDemoStore = defineStore('demo', () => {
       ])
       run.value = nextRun
       timeline.value = nextTimeline
-      if (isCompleted.value || mode.value === 'replay') {
+      const settled =
+        isCompleted.value || isFailed.value || mode.value === 'replay'
+      if (settled) {
         try {
           results.value = await api.getResults(taskId.value)
         } catch {
           // Keep run/timeline if results are not ready yet.
         }
-        if (isCompleted.value || mode.value === 'replay') stopPolling()
+        const visuals =
+          Boolean(results.value?.forecasts?.length) ||
+          Boolean(results.value?.test_hydrograph?.series?.length) ||
+          Boolean(results.value?.calibration_hydrograph?.series?.length)
+        if (visuals || isFailed.value || ++completeSettleTicks >= 8) stopPolling()
+      } else {
+        completeSettleTicks = 0
       }
       error.value = null
     } catch (err) {
@@ -291,6 +302,7 @@ export const useDemoStore = defineStore('demo', () => {
     }).catch(() => {
       taskMeta.value = null
     })
+    completeSettleTicks = 0
     startPolling()
     persistSession()
   }
@@ -312,6 +324,7 @@ export const useDemoStore = defineStore('demo', () => {
     results.value = null
     error.value = null
     startedAt.value = null
+    completeSettleTicks = 0
     followScreen.value = true
     settingsOpen.value = false
     mode.value = 'live'

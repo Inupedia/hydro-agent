@@ -3,6 +3,11 @@ import { computed, ref, watch } from 'vue'
 import { actionTitle } from '../demo/stages'
 import { diagramHtmlFor, displayNodeFor } from '../generated/workflow'
 
+type ArchifyView = {
+  reveal?: (ids: string[], options?: Record<string, unknown>) => unknown
+}
+type ArchifyWindow = Window & { Archify?: { view?: ArchifyView } }
+
 const props = defineProps<{
   action?: string | null
   status?: string | null
@@ -14,6 +19,7 @@ const props = defineProps<{
 
 const frame = ref<HTMLIFrameElement | null>(null)
 const loaded = ref(false)
+let revealedNode: string | null = null
 
 const diagramSrc = computed(
   () => `/diagrams/${diagramHtmlFor(props.workflowVersion)}?theme=light&embed=1&motion=still`,
@@ -39,6 +45,32 @@ const doneNodes = computed(() => {
   return done
 })
 
+function reducedMotion() {
+  return Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
+}
+
+function archifyView(): ArchifyView | undefined {
+  const frameEl = frame.value
+  const win = (frameEl?.contentDocument?.defaultView || frameEl?.contentWindow) as ArchifyWindow | null
+  return win?.Archify?.view
+}
+
+function focusCamera(instant = false) {
+  const node = currentNode.value
+  if (!node || !loaded.value) return
+  const view = archifyView()
+  if (typeof view?.reveal !== 'function') return
+  view.reveal([node], {
+    includeNeighbors: false,
+    duration: 420,
+    instant: instant || reducedMotion(),
+    padding: 72,
+    maxScale: 2.45,
+    reason: 'live-step',
+  })
+  revealedNode = node
+}
+
 function sync() {
   const doc = frame.value?.contentDocument
   if (!doc || !loaded.value) return
@@ -54,12 +86,16 @@ function sync() {
     if (isCurrent) node.setAttribute('aria-current', 'step')
     else node.removeAttribute('aria-current')
   })
+  if (current && current !== revealedNode) {
+    requestAnimationFrame(() => focusCamera(!revealedNode))
+  }
 }
 
 function ready() {
   const doc = frame.value?.contentDocument
   if (!doc) return
   loaded.value = true
+  revealedNode = null
   doc.documentElement.setAttribute('data-motion', 'still')
   doc.documentElement.setAttribute('data-embed', 'true')
   if (!doc.getElementById('hydro-live-style')) {
@@ -67,8 +103,8 @@ function ready() {
     style.id = 'hydro-live-style'
     style.textContent = `
       html, body, .container { width:100%!important; height:100%!important; margin:0!important; padding:0!important; min-height:0!important; background:transparent!important; }
-      .diagram-container { width:100%!important; height:100%!important; padding:8px!important; margin:0!important; overflow:hidden!important; background:transparent!important; }
-      .diagram-container > svg { width:100%!important; height:100%!important; max-height:none!important; min-width:0!important; }
+      .diagram-container { width:100%!important; height:100%!important; padding:8px!important; margin:0!important; overflow:hidden!important; background:transparent!important; box-shadow:none!important; }
+      .diagram-container > svg { width:100%!important; height:auto!important; max-height:none!important; min-width:0!important; }
       .diagram-container::before,.diagram-container::after,.share-chapter-cue,.toolbar,.header,.cards,.diagram-nav,.guided-views { display:none!important; }
       [data-node-id] { transition: opacity .2s, filter .2s; }
       [data-node-id].live-pending { opacity: .42; }
@@ -82,13 +118,17 @@ function ready() {
     doc.head.appendChild(style)
   }
   sync()
+  requestAnimationFrame(() => {
+    revealedNode = null
+    focusCamera(true)
+  })
 }
 
 watch(() => [props.action, props.status, props.gateStatus, props.completedActions], sync, { deep: true })
 </script>
 
 <template>
-  <section class="live-workflow" :class="{ 'is-expanded': expanded }" data-test="live-workflow">
+  <section class="live-workflow" :class="{ 'is-expanded': expanded }" data-test="live-workflow" :data-camera-node="currentNode || undefined">
     <div class="workflow-caption">
       <span>执行地图</span>
       <strong aria-live="polite">{{ label }}</strong>
@@ -119,7 +159,7 @@ watch(() => [props.action, props.status, props.gateStatus, props.completedAction
   margin: 20px 0 10px;
   overflow: hidden;
   transform-origin: 50% 40%;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.05);
+  box-shadow: none;
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
 }

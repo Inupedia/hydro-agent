@@ -41,7 +41,9 @@ class GbtAccuracyConfig:
     area_km2: float | None = None
 
     @classmethod
-    def from_metadata(cls, meta: dict[str, str], *, area_km2: float | None = None) -> GbtAccuracyConfig:
+    def from_metadata(
+        cls, meta: dict[str, str], *, area_km2: float | None = None
+    ) -> GbtAccuracyConfig:
         def f(key: str, default: float) -> float:
             raw = meta.get(key)
             if raw is None or raw == "":
@@ -243,7 +245,9 @@ def timeliness_grade(cet: float, dh_hours: float) -> TimelinessGrade:
     return "不合格"
 
 
-def evaluate_peak_flow(series: HydroSeries, cfg: GbtAccuracyConfig, basin: BasinClass) -> GbtMetricResult:
+def evaluate_peak_flow(
+    series: HydroSeries, cfg: GbtAccuracyConfig, basin: BasinClass
+) -> GbtMetricResult:
     obs = np.asarray(series.obs, dtype=float)
     sim = np.asarray(series.sim, dtype=float)
     if obs.size == 0:
@@ -355,7 +359,9 @@ def evaluate_dc_nse(series: HydroSeries, cfg: GbtAccuracyConfig) -> GbtMetricRes
     )
 
 
-def evaluate_accuracy_rate(series: HydroSeries, cfg: GbtAccuracyConfig, basin: BasinClass) -> GbtMetricResult:
+def evaluate_accuracy_rate(
+    series: HydroSeries, cfg: GbtAccuracyConfig, basin: BasinClass
+) -> GbtMetricResult:
     """QR over forecast events: each local peak window counts as one forecast (V1)."""
     events = _extract_peak_events(series)
     if not events:
@@ -363,7 +369,9 @@ def evaluate_accuracy_rate(series: HydroSeries, cfg: GbtAccuracyConfig, basin: B
         peak = evaluate_peak_flow(series, cfg, basin)
         timing = evaluate_peak_timing(series, cfg)
         volume = evaluate_runoff_volume(series, cfg)
-        accurate = int(peak.status == "pass" and timing.status == "pass" and volume.status == "pass")
+        accurate = int(
+            peak.status == "pass" and timing.status == "pass" and volume.status == "pass"
+        )
         total = 1
     else:
         accurate = 0
@@ -471,7 +479,10 @@ def build_gbt_accuracy_report(series: HydroSeries, cfg: GbtAccuracyConfig) -> Gb
     scheme_grade = grade.grade if grade.grade in GRADE_RANK else "不合格"
     meets = grade_meets_min(scheme_grade, cfg.min_scheme_grade)  # type: ignore[arg-type]
     # Hard fails (excluding pending/N/A) also block "meets".
-    hard_fail = any(m.status == "fail" and m.metric_id in {"peak_flow", "peak_timing", "runoff_volume"} for m in metrics)
+    hard_fail = any(
+        m.status == "fail" and m.metric_id in {"peak_flow", "peak_timing", "runoff_volume"}
+        for m in metrics
+    )
     if hard_fail and scheme_grade != "不合格":
         # Keep scheme grade from table1 but mark meets only if grade ok AND no hard fails
         # for accept path — plan: ACCEPT only when scheme_grade >= min.
