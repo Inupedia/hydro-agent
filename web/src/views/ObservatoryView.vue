@@ -177,6 +177,20 @@ async function openCase(event: Event) {
   const task = demo.caseLibrary.find((t) => t.task_id === id)
   if (task) await demo.openCaseReplay(task)
 }
+async function deleteSelectedCase() {
+  const id = demo.mode === 'replay' ? demo.taskId : ''
+  const task = demo.caseLibrary.find((t) => t.task_id === id)
+  if (!task) return
+  if (!window.confirm('删除这份已完成记录？此操作不可恢复。')) return
+  busy.value = true
+  try {
+    await demo.deleteCase(task)
+  } catch (err) {
+    demo.error = String((err as Error).message || err)
+  } finally {
+    busy.value = false
+  }
+}
 function newTask() {
   demo.resetSession()
   history.replaceState(null, '', '/')
@@ -360,6 +374,13 @@ onUnmounted(() => {
               <option v-for="task in demo.caseLibrary" :key="task.task_id" :value="task.task_id">{{ task.start_date || task.task_id }} · {{ basinLabel(task.basin_id) }}</option>
             </select>
           </label>
+          <button
+            data-test="header-delete-case"
+            type="button"
+            class="case-delete"
+            :disabled="demo.isRunning || busy || demo.mode !== 'replay' || !demo.taskId"
+            @click="deleteSelectedCase"
+          >删除</button>
           <button data-test="header-new-task" type="button" class="header-new-task" @click="newTask">新建任务</button>
         </div>
         <div class="connection"><i :class="{ online: connected }" />{{ mode }}</div>
@@ -435,41 +456,58 @@ onUnmounted(() => {
       </section>
 
       <aside ref="taskPane" class="task-pane glass-pane">
-        <div class="section-heading"><span class="overline">02 / 流域与任务</span></div>
-        <h2>研究流域</h2>
-        <p class="muted">当前固定为内置腰古资料，不能改选其它流域。</p>
-        <form @submit.prevent="begin">
-          <fieldset :disabled="locked">
-            <label>研究流域
-              <span class="locked-basin">腰古<small>yaogu · 本地日资料</small></span>
-            </label>
-            <p v-if="demo.draft.model_plan_id" class="basin-caption">已绑定方案：{{ demo.draft.model_plan_id }}</p>
-            <p v-else-if="serviceMode === 'real'" class="basin-caption">请先在左侧完成数据准备</p>
-            <div class="section-heading subsection"><span class="overline">预报任务</span></div>
-            <div :class="{ 'is-locked': serviceMode === 'real' && !planReady }">
-              <fieldset :disabled="locked || (serviceMode === 'real' && !planReady)">
-              <div class="date-fields"><label>开始日期<input v-model="demo.draft.start_date" type="date" required /></label><label>结束日期<input v-model="demo.draft.end_date" type="date" :min="demo.draft.start_date" required /></label></div>
-              <label>计算模型<select v-model="demo.draft.model_id"><option value="xaj">新安江 · XAJ</option><option value="openhydronet" disabled>OpenHydroNet · 尚未启用</option></select></label>
-              <label>气象资料<select v-model="demo.draft.forcing_mode"><option value="R">实测日资料 · 历史率定</option><option value="F" disabled>预报资料 · 腰古暂不开放</option></select></label>
-              <label class="toggle-row"><span>允许尝试改进方案</span><input v-model="demo.draft.allow_optimization" type="checkbox" role="switch" /></label>
-              <button class="text-button" type="button" :aria-expanded="advanced" @click="advanced = !advanced">{{ advanced ? '收起运行设置 −' : '运行设置 +' }}</button>
-              <div v-if="advanced" class="advanced-fields"><label>基础方案<input v-model="demo.draft.base_scheme_id" required /></label><label>最多决策轮次<input v-model.number="demo.draft.max_agent_decision_rounds" type="number" min="1" max="100" required /></label><label>最多改进次数<input v-model.number="demo.draft.max_optimization_cycles" type="number" min="0" max="20" required /></label></div>
-              </fieldset>
+        <div class="pane-head">
+          <div class="section-heading"><span class="overline">02 / 流域与任务</span></div>
+          <h2>研究流域</h2>
+          <p class="muted">当前固定为内置腰古资料，不能改选其它流域。</p>
+        </div>
+        <form class="pane-form" @submit.prevent="begin">
+          <div class="pane-body">
+            <fieldset :disabled="locked">
+              <label>研究流域
+                <span class="locked-basin">腰古<small>yaogu · 本地日资料</small></span>
+              </label>
+              <p v-if="demo.draft.model_plan_id" class="basin-caption">已绑定方案：{{ demo.draft.model_plan_id }}</p>
+              <p v-else-if="serviceMode === 'real'" class="basin-caption">请先在左侧完成数据准备</p>
+              <div class="section-heading subsection"><span class="overline">预报任务</span></div>
+              <div :class="{ 'is-locked': serviceMode === 'real' && !planReady }">
+                <fieldset :disabled="locked || (serviceMode === 'real' && !planReady)">
+                <div class="date-fields"><label>开始日期<input v-model="demo.draft.start_date" type="date" required /></label><label>结束日期<input v-model="demo.draft.end_date" type="date" :min="demo.draft.start_date" required /></label></div>
+                <label>计算模型<select v-model="demo.draft.model_id"><option value="xaj">新安江 · XAJ</option><option value="openhydronet" disabled>OpenHydroNet · 尚未启用</option></select></label>
+                <label>气象资料<select v-model="demo.draft.forcing_mode"><option value="R">实测日资料 · 历史率定</option><option value="F" disabled>预报资料 · 腰古暂不开放</option></select></label>
+                <label class="toggle-row"><span>允许尝试改进方案</span><input v-model="demo.draft.allow_optimization" type="checkbox" role="switch" /></label>
+                <button class="text-button" type="button" :aria-expanded="advanced" @click="advanced = !advanced">{{ advanced ? '收起运行设置 −' : '运行设置 +' }}</button>
+                <div v-if="advanced" class="advanced-fields"><label>基础方案<input v-model="demo.draft.base_scheme_id" required /></label><label>最多决策轮次<input v-model.number="demo.draft.max_agent_decision_rounds" type="number" min="1" max="100" required /></label><label>最多改进次数<input v-model.number="demo.draft.max_optimization_cycles" type="number" min="0" max="20" required /></label></div>
+                </fieldset>
+              </div>
+            </fieldset>
+          </div>
+          <div class="pane-actions">
+            <button v-if="!demo.run || demo.run.status === 'created'" class="start-button" :disabled="busy || !connected || (serviceMode === 'real' && !demo.draft.model_plan_id)" type="submit">{{ busy ? '正在启动…' : planReady ? '开始运行' : '请先完成建模' }}</button>
+            <button v-else-if="demo.run.paused && demo.mode !== 'replay'" type="button" class="start-button" :disabled="busy" @click="resume">继续计算</button>
+            <button v-else-if="demo.isRunning" type="button" class="start-button" disabled>正在计算<span class="activity-dot" /></button>
+            <button v-else type="button" class="start-button" @click="newTask">新建任务</button>
+            <p class="source-note">{{ demo.draft.forcing_mode === 'R' ? '使用内置腰古日资料做历史率定与检验，不代表业务预报。' : '预报资料可用性将在运行时检查。' }}</p>
+            <div class="case-picker-row">
+              <label class="case-picker">已有案例<select aria-label="已有案例" :disabled="demo.isRunning || busy" :value="demo.mode === 'replay' ? demo.taskId : ''" @change="openCase"><option value="">{{ demo.caseLibrary.length ? '选择一份已完成记录' : '暂无已完成记录' }}</option><option v-for="task in demo.caseLibrary" :key="task.task_id" :value="task.task_id">{{ task.start_date || task.task_id }} · {{ basinLabel(task.basin_id) }}</option></select></label>
+              <button data-test="delete-case" type="button" class="case-delete" :disabled="demo.isRunning || busy || demo.mode !== 'replay' || !demo.taskId" @click="deleteSelectedCase">删除</button>
             </div>
-          </fieldset>
-          <button v-if="!demo.run || demo.run.status === 'created'" class="start-button" :disabled="busy || !connected || (serviceMode === 'real' && !demo.draft.model_plan_id)" type="submit">{{ busy ? '正在启动…' : planReady ? '开始运行' : '请先完成建模' }}</button>
-          <button v-else-if="demo.run.paused && demo.mode !== 'replay'" type="button" class="start-button" :disabled="busy" @click="resume">继续计算</button>
-          <button v-else-if="demo.isRunning" type="button" class="start-button" disabled>正在计算<span class="activity-dot" /></button>
-          <button v-else type="button" class="start-button" @click="newTask">新建任务</button>
+          </div>
         </form>
-        <p class="source-note">{{ demo.draft.forcing_mode === 'R' ? '使用内置腰古日资料做历史率定与检验，不代表业务预报。' : '预报资料可用性将在运行时检查。' }}</p>
-        <label class="case-picker">已有案例<select aria-label="已有案例" :disabled="demo.isRunning || busy" :value="demo.mode === 'replay' ? demo.taskId : ''" @change="openCase"><option value="">{{ demo.caseLibrary.length ? '选择一份已完成记录' : '暂无已完成记录' }}</option><option v-for="task in demo.caseLibrary" :key="task.task_id" :value="task.task_id">{{ task.start_date || task.task_id }} · {{ basinLabel(task.basin_id) }}</option></select></label>
       </aside>
 
-      <aside ref="journalPane" class="journal-pane glass-pane"><div class="section-heading"><span class="overline">执行记录</span></div><h2>执行记录</h2><div class="journal-status"><span :class="{ 'blue-dot': demo.isRunning }">{{ demo.isRunning ? '运行中' : demo.isCompleted ? '已完成' : demo.isFailed ? '已受阻' : '等待执行' }}</span><span>{{ elapsed }}</span></div>
-        <div v-if="error" class="inline-error" role="alert"><strong>暂时无法继续</strong><p>{{ error }}</p><button v-if="demo.taskId" class="text-button" @click="demo.refresh()">重新读取状态</button></div>
-        <div class="journal-list"><div v-if="!events.length" class="journal-empty"><span aria-hidden="true">⌁</span><h3>等待第一条记录</h3><p>开始后，这里会记录系统做了什么，以及得到了什么。</p></div><details v-for="event in events" :key="event.id" class="journal-event"><summary><span class="event-dot" :class="{ failed: ['failed', 'error'].includes(event.status) }" /><span><small>{{ eventStatus(event.status) }}</small><strong>{{ event.label || actionTitle(event.action) }}</strong></span><span class="expand-icon">＋</span></summary><pre>{{ JSON.stringify(event.details, null, 2) }}</pre></details></div>
-        <div class="report-area">
+      <aside ref="journalPane" class="journal-pane glass-pane">
+        <div class="pane-head">
+          <div class="section-heading"><span class="overline">执行记录</span></div>
+          <h2>执行记录</h2>
+          <div class="journal-status"><span :class="{ 'blue-dot': demo.isRunning }">{{ demo.isRunning ? '运行中' : demo.isCompleted ? '已完成' : demo.isFailed ? '已受阻' : '等待执行' }}</span><span>{{ elapsed }}</span></div>
+          <div v-if="error" class="inline-error" role="alert"><strong>暂时无法继续</strong><p>{{ error }}</p><button v-if="demo.taskId" class="text-button" @click="demo.refresh()">重新读取状态</button></div>
+        </div>
+        <div class="pane-body journal-list">
+          <div v-if="!events.length" class="journal-empty"><span aria-hidden="true">⌁</span><h3>等待第一条记录</h3><p>开始后，这里会记录系统做了什么，以及得到了什么。</p></div>
+          <details v-for="event in events" :key="event.id" class="journal-event"><summary><span class="event-dot" :class="{ failed: ['failed', 'error'].includes(event.status) }" /><span><small>{{ eventStatus(event.status) }}</small><strong>{{ event.label || actionTitle(event.action) }}</strong></span><span class="expand-icon">＋</span></summary><pre>{{ JSON.stringify(event.details, null, 2) }}</pre></details>
+        </div>
+        <div class="pane-actions report-area">
           <span class="overline">结果与报告</span>
           <div v-if="demo.results" class="gate-note">
             <strong>{{ gate.title }}</strong>

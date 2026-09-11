@@ -12,7 +12,10 @@ def _catalog(request: Request):
 
 @router.get("")
 def list_basins(request: Request):
-    return _catalog(request).list()
+    try:
+        return _catalog(request).list()
+    except OSError as exc:
+        raise HTTPException(503, "流域目录暂时无法写入，请稍后重试") from exc
 
 
 @router.get("/{basin_id}")
@@ -21,3 +24,5 @@ def get_basin(basin_id: str, request: Request):
         return _catalog(request)._refresh_catalog_status(basin_id)
     except (KeyError, ValueError) as exc:
         raise HTTPException(404, "流域不存在") from exc
+    except OSError as exc:
+        raise HTTPException(503, "流域目录暂时无法写入，请稍后重试") from exc

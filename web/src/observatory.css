@@ -103,14 +103,28 @@
   padding: 0 14px;
   border: 0;
   border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--primary-button);
+  color: var(--primary-button-text);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
 }
 .header-new-task:hover { background: var(--accent-hover); }
+.case-delete {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.case-delete:hover:not(:disabled) { background: #ffe3e5; }
+.case-delete:disabled { opacity: 0.45; cursor: default; }
 .connection {
   display: flex;
   align-items: center;
@@ -146,6 +160,63 @@
   backdrop-filter: blur(24px) saturate(140%);
   -webkit-backdrop-filter: blur(24px) saturate(140%);
   padding: clamp(20px, 1.8vw, 24px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.pane-head { flex: 0 0 auto; }
+.pane-form {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pane-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.pane-actions {
+  flex: 0 0 auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--separator);
+}
+.prep-body,
+.pane-body,
+.journal-list,
+.main-stage--results {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(90, 105, 125, 0.28) transparent;
+}
+.prep-body::-webkit-scrollbar,
+.pane-body::-webkit-scrollbar,
+.journal-list::-webkit-scrollbar,
+.main-stage--results::-webkit-scrollbar {
+  width: 9px;
+}
+.prep-body::-webkit-scrollbar-track,
+.pane-body::-webkit-scrollbar-track,
+.journal-list::-webkit-scrollbar-track,
+.main-stage--results::-webkit-scrollbar-track {
+  background: transparent;
+}
+.prep-body::-webkit-scrollbar-thumb,
+.pane-body::-webkit-scrollbar-thumb,
+.journal-list::-webkit-scrollbar-thumb,
+.main-stage--results::-webkit-scrollbar-thumb {
+  background: rgba(90, 105, 125, 0.3);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.prep-body::-webkit-scrollbar-thumb:hover,
+.pane-body::-webkit-scrollbar-thumb:hover,
+.journal-list::-webkit-scrollbar-thumb:hover,
+.main-stage--results::-webkit-scrollbar-thumb:hover {
+  background: rgba(70, 90, 115, 0.48);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 .section-heading {
@@ -267,14 +338,14 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  margin-top: 24px;
+  margin: 0;
   border: 0;
   border-radius: var(--radius-sm);
   min-height: 40px;
   padding: 0 20px;
-  background: var(--accent);
+  background: var(--primary-button);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
-  color: white;
+  color: var(--primary-button-text);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -287,21 +358,25 @@
   font-size: 12px;
   line-height: 1.6;
   color: var(--text-secondary);
-  margin: 14px 0 24px;
+  margin: 12px 0 0;
 }
 .case-picker {
-  border-top: 1px solid var(--separator);
-  padding-top: 20px;
+  padding-top: 12px;
+  flex: 1;
 }
+.case-picker-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.case-picker-row .case-delete { min-height: 40px; }
 
 .main-stage {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: auto;
-  scrollbar-width: none;
+  overflow: hidden;
 }
-.main-stage::-webkit-scrollbar { display: none; }
 
 .prep-placeholder {
   display: flex;
@@ -319,7 +394,7 @@
   line-height: 1.6;
 }
 
-.journal-pane { display: flex; flex-direction: column; }
+.journal-pane { display: flex; flex-direction: column; min-height: 0; }
 .journal-status {
   display: flex;
   justify-content: space-between;
@@ -331,14 +406,12 @@
   font-variant-numeric: tabular-nums;
 }
 .journal-list {
-  flex: 1;
-  min-height: 260px;
-  max-height: 54vh;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
-  scrollbar-width: none;
+  scrollbar-gutter: stable;
   padding: 12px 0;
 }
-.journal-list::-webkit-scrollbar { display: none; }
 .journal-empty { padding: 48px 4px; text-align: center; }
 .journal-empty > span { font-size: 40px; color: var(--text-tertiary); }
 .journal-empty h3 {
@@ -399,8 +472,7 @@
   overflow: auto;
 }
 .report-area {
-  border-top: 1px solid var(--separator);
-  padding-top: 20px;
+  padding-top: 4px;
 }
 .gate-note {
   margin: 8px 0 12px;
@@ -529,12 +601,22 @@
 
 .main-stage .live-workflow { min-height: 270px; flex: 1; }
 .main-stage--results {
-  overflow-y: auto;
   overflow-x: hidden;
+  overflow-y: auto;
   min-height: 0;
   padding-bottom: 8px;
+  overscroll-behavior: contain;
 }
-.main-stage--results .forecast-surface { margin: 0 0 12px; flex: 0 0 auto; overflow: visible; }
+.main-stage--results .forecast-surface,
+.main-stage--results .hydrologist-mount,
+.main-stage--results .tuning-mount {
+  flex: 0 0 auto;
+}
+.main-stage--results .forecast-surface { margin: 0 0 12px; overflow: visible; }
+.main-stage--results .hydrologist-mount {
+  max-height: none;
+  overflow: visible;
+}
 .results-pending {
   display: flex;
   flex-direction: column;
@@ -555,9 +637,8 @@
   margin: 0 0 10px;
   max-height: min(42vh, 420px);
   overflow: auto;
-  scrollbar-width: none;
+  scrollbar-gutter: stable;
 }
-.hydrologist-mount::-webkit-scrollbar { display: none; }
 
 .observatory.is-focus .observatory-grid,
 .observatory.is-results .observatory-grid {
@@ -598,7 +679,7 @@
     grid-template-columns: minmax(0, 1.5fr) minmax(230px, 0.7fr);
   }
   .journal-pane { grid-column: 1 / -1; }
-  .journal-list { max-height: 300px; min-height: 100px; }
+  .journal-list { min-height: 80px; max-height: 300px; }
   .journal-empty { padding: 20px; }
   .journal-empty > span { display: none; }
   .journal-empty p { max-width: none; }
@@ -669,12 +750,12 @@
   .task-pane,
   .journal-pane,
   .main-stage {
-    overflow: auto;
-    scrollbar-width: none;
+    overflow: hidden;
   }
-  .task-pane::-webkit-scrollbar,
-  .journal-pane::-webkit-scrollbar,
-  .main-stage::-webkit-scrollbar { display: none; }
+  .main-stage.main-stage--results {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
   .date-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .observatory fieldset { gap: 13px; }
   .section-heading { margin-bottom: 18px; }

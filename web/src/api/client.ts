@@ -111,6 +111,9 @@ export const api = {
   getTask(taskId: string) {
     return request<TaskSummary>(`/api/tasks/${taskId}`)
   },
+  deleteTask(taskId: string) {
+    return request<void>(`/api/tasks/${taskId}`, { method: 'DELETE' })
+  },
   startRun(taskId: string) {
     return request<RunSummary>(`/api/tasks/${taskId}/run`, { method: 'POST' })
   },

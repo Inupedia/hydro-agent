@@ -159,3 +159,22 @@ def test_normalize_writes_strict_xaj_basin(plans):
     assert meta['model_mode'] == 'lumped'
     plan = json.loads((root / 'plan.json').read_text(encoding='utf-8'))
     assert plan['suggested_end'] > plan['suggested_start']
+
+
+def test_write_json_survives_concurrent_replace(tmp_path):
+    import json
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    path = tmp_path / 'catalog.json'
+
+    def write_one(i: int) -> None:
+        write_json(path, {'i': i})
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        futs = [pool.submit(write_one, i) for i in range(40)]
+        for fut in as_completed(futs):
+            fut.result()
+    payload = json.loads(path.read_text(encoding='utf-8'))
+    assert 'i' in payload
+    leftovers = list(tmp_path.glob('.catalog.json.*.tmp'))
+    assert leftovers == []

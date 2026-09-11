@@ -7,7 +7,7 @@ import { useDemoStore } from '../stores/demo'
 import { api } from '../api/client'
 vi.mock('../components/ForecastChart.vue', () => ({ default: { template: '<div data-test="chart" />' } }))
 vi.mock('../components/HydrographComparisonChart.vue', () => ({ default: { template: '<div data-test="hydrograph" />' } }))
-vi.mock('../api/client', () => ({ api: { health: vi.fn(async () => ({ status: 'ok', mode: 'demo' })), listTasks: vi.fn(async () => []), createTask: vi.fn(async () => ({task_id:'test-task'})), startRun: vi.fn(async () => ({ status:'running',worker_active:true })), getRun: vi.fn(async () => ({ status:'running',worker_active:true })), getTimeline: vi.fn(async () => []), getTask: vi.fn(async () => ({ basin_id:'basin-restored',start_date:'2021-01-01',end_date:'2021-01-03',forcing_mode:'R' })) } }))
+vi.mock('../api/client', () => ({ api: { health: vi.fn(async () => ({ status: 'ok', mode: 'demo' })), listTasks: vi.fn(async () => []), createTask: vi.fn(async () => ({task_id:'test-task'})), deleteTask: vi.fn(async () => undefined), startRun: vi.fn(async () => ({ status:'running',worker_active:true })), getRun: vi.fn(async () => ({ status:'running',worker_active:true })), getTimeline: vi.fn(async () => []), getTask: vi.fn(async () => ({ basin_id:'basin-restored',start_date:'2021-01-01',end_date:'2021-01-03',forcing_mode:'R' })) } }))
 async function setup(path='/') {
   const router = createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:ObservatoryView}]})
   await router.push(path)
@@ -76,6 +76,7 @@ describe('single page observatory',()=>{
   expect(wrapper.find('.observatory').classes()).toContain('is-results')
   expect(wrapper.find('[data-test="header-new-task"]').text()).toBe('新建任务')
   expect(wrapper.find('[data-test="header-case-picker"]').exists()).toBe(true)
+  expect(wrapper.find('[data-test="header-delete-case"]').exists()).toBe(true)
   expect(wrapper.find('[data-test="param-tuning"]').exists()).toBe(true)
   expect(wrapper.text()).toContain('新安江参数如何被调整')
   expect(wrapper.text()).toContain('保留原方案')

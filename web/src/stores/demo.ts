@@ -213,6 +213,18 @@ export const useDemoStore = defineStore('demo', () => {
     persistSession()
   }
 
+  async function deleteCase(task: TaskSummary) {
+    error.value = null
+    if (isRunning.value && taskId.value === task.task_id) {
+      throw new Error('任务正在运行，无法删除')
+    }
+    await api.deleteTask(task.task_id)
+    if (taskId.value === task.task_id) {
+      resetSession()
+    }
+    await loadCaseLibrary()
+  }
+
   async function startRun() {
     if (!taskId.value) throw new Error('尚未创建任务')
     if (mode.value === 'replay') {
@@ -353,6 +365,7 @@ export const useDemoStore = defineStore('demo', () => {
     loadCaseLibrary,
     createTaskFromDraft,
     openCaseReplay,
+    deleteCase,
     startRun,
     refresh,
     startPolling,

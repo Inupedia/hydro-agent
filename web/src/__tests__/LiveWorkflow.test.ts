@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import LiveWorkflow from '../components/LiveWorkflow.vue'
 import { diagramHtmlFor, displayNodeFor } from '../generated/workflow'
@@ -56,8 +56,9 @@ describe('live Archify state', () => {
     expect(diagramHtmlFor('9.9.9')).toBe('hydro-agent.v1.workflow.html')
   })
 
-  it('reveals the current node through Archify without stretching the svg', async () => {
-    const reveal = vi.fn()
+  it('uses a Screen Studio camera: close-up, pull back to the edge, then close-up', async () => {
+    vi.useFakeTimers()
+    const reveal = vi.fn(() => ({ finished: Promise.resolve() }))
     const wrapper = mount(LiveWorkflow, {
       attachTo: document.body,
       props: { action: 'A05_FORECAST', status: 'running', completedActions: ['A01_CHECK_DATA'] },
@@ -68,18 +69,36 @@ describe('live Archify state', () => {
     doc.appendChild(doc.createElement('html'))
     doc.documentElement.appendChild(doc.createElement('head'))
     doc.documentElement.appendChild(doc.createElement('body'))
-    doc.body.innerHTML = '<svg><g data-node-id="forecast"><rect /></g><g data-node-id="diagnose"><rect /></g></svg>'
+    doc.body.innerHTML =
+      '<svg><g data-node-id="forecast"><rect /></g><g data-node-id="diagnose"><rect /></g><path data-edge-from="forecast" data-edge-to="diagnose" d="M 0 0 L 40 40" /></svg>'
     const win = (doc.defaultView || el.contentWindow) as Window & { Archify?: { view: { reveal: typeof reveal } } }
     if (win) win.Archify = { view: { reveal } }
     await iframe.trigger('load')
+    await vi.runOnlyPendingTimersAsync()
+    await flushPromises()
     expect(wrapper.attributes('data-camera-node')).toBe('forecast')
-    const injected = doc.getElementById('hydro-live-style')?.textContent || ''
-    expect(injected).toContain('.diagram-container > svg { width:100%!important; height:auto!important;')
-    if (reveal.mock.calls.length) {
-      expect(reveal.mock.calls[0][0]).toEqual(['forecast'])
-    }
+    expect(reveal.mock.calls[0][0]).toEqual(['forecast'])
+    expect(reveal.mock.calls[0][1]).toMatchObject({
+      includeNeighbors: false,
+      maxScale: 2.45,
+      reason: 'live-close',
+      instant: false,
+    })
     await wrapper.setProps({ action: 'A06_DIAGNOSE', status: 'running', completedActions: ['A05_FORECAST'] })
+    await vi.runOnlyPendingTimersAsync()
+    await flushPromises()
     expect(wrapper.attributes('data-camera-node')).toBe('diagnose')
+    const travel = reveal.mock.calls.find((call) => call[1]?.reason === 'live-travel')
+    expect(travel?.[0]).toEqual(['forecast', 'diagnose'])
+    expect(travel?.[1]).toMatchObject({ includeNeighbors: false, maxScale: 2.85 })
+    expect(wrapper.attributes('data-camera-phase')).toBe('travel')
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushPromises()
+    const land = [...reveal.mock.calls].reverse().find((call) => call[1]?.reason === 'live-close')
+    expect(land?.[0]).toEqual(['diagnose'])
+    expect(land?.[1]).toMatchObject({ maxScale: 2.45, reason: 'live-close' })
+    expect(wrapper.attributes('data-camera-phase')).toBe('close')
+    vi.useRealTimers()
     wrapper.unmount()
   })
 })

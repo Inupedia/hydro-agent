@@ -12,6 +12,7 @@ const emit = defineEmits<{ selected: [plan: ModelPlan | null] }>()
 const plans = ref<ModelPlan[]>([])
 const current = ref<ModelPlan | null>(null)
 const busy = ref(false)
+const loadingBasin = ref(true)
 const error = ref('')
 const reviewed = ref(false)
 const modelMode = ref<'lumped' | 'distributed'>('lumped')
@@ -35,6 +36,12 @@ const labels: Record<string, string> = {
 
 const canBuild = computed(() => !!basin.value?.ready_for_build)
 const materials = computed(() => basin.value?.materials || { hydro: false, dem: false, gis: false })
+const buildLabel = computed(() => {
+  if (loadingBasin.value) return '正在检查资料…'
+  if (!basin.value && error.value) return '无法读取流域资料'
+  if (canBuild.value) return busy.value ? '正在创建…' : '新建流域模型'
+  return '本地资料不完整'
+})
 const reusablePlans = computed(() => plans.value.filter((p) => p.basin_id === props.basinId))
 const canDelete = computed(
   () => !!current.value && !['queued', 'running'].includes(current.value.status) && !props.locked && !busy.value,
@@ -54,9 +61,20 @@ const mapSrc = computed(() =>
 async function refreshBasin() {
   if (!props.basinId) {
     basin.value = null
+    loadingBasin.value = false
     return
   }
-  basin.value = await api.getBasin(props.basinId)
+  loadingBasin.value = true
+  error.value = ''
+  try {
+    basin.value = await api.getBasin(props.basinId)
+    error.value = ''
+  } catch (e) {
+    basin.value = null
+    error.value = String((e as Error).message || e)
+  } finally {
+    loadingBasin.value = false
+  }
 }
 
 async function refreshPlans() {
@@ -182,7 +200,7 @@ onUnmounted(() => {
     </header>
 
     <p v-if="!basinId" class="basin-caption">请先确认流域为腰古。</p>
-    <template v-else>
+    <div v-else class="prep-body">
       <div class="materials">
         <strong>{{ basin?.label || basinId }}</strong>
         <ul>
@@ -190,7 +208,12 @@ onUnmounted(() => {
           <li :data-ok="materials.gis">GIS：站点与流域图层</li>
           <li :data-ok="materials.dem">DEM：已附带 Skadi 瓦片</li>
         </ul>
-        <p class="basin-caption">资料已内置，无需下载。请划分边界后做完整调参。</p>
+        <p v-if="loadingBasin" class="basin-caption">正在核对内置腰古资料。</p>
+        <p v-else-if="canBuild" class="basin-caption">资料已内置，无需下载。请划分边界后做完整调参。</p>
+        <p v-else class="basin-caption">
+          尚未确认内置资料齐全。
+          <button type="button" class="text-button" @click="refreshBasin">重新检查</button>
+        </p>
       </div>
 
       <div class="reuse-row">
@@ -213,7 +236,7 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <fieldset :disabled="locked || busy || !canBuild">
+      <fieldset :disabled="locked || busy || loadingBasin || !canBuild">
         <label>结构模式
           <select v-model="modelMode" aria-label="结构模式">
             <option value="lumped">集总式 · 先切割再合并为 1 套 XAJ</option>
@@ -236,41 +259,49 @@ onUnmounted(() => {
             <label>预热天数 WARMUP_DAYS<input v-model.number="warmup" type="number" min="1" max="1000" /></label>
           </div>
         </details>
-        <button type="button" class="primary-button" :disabled="!canBuild || busy || ['running','queued'].includes(current?.status || '')" @click="create">
-          {{ canBuild ? '新建流域模型' : '本地资料不完整' }}
-        </button>
       </fieldset>
-    </template>
 
-    <p v-if="error || current?.error" role="alert" class="model-error">{{ error || current?.error }}</p>
-    <template v-if="current">
-      <div class="plan-status"><strong>{{ labels[current.status] }}</strong><span>{{ current.plan_id }} · {{ current.model_mode }}</span></div>
-      <ol class="model-steps">
-        <li v-for="step in current.stages" :key="step.code" :data-status="step.status">
-          <span>{{ step.label }}</span><b>{{ labels[step.status] || step.status }}</b>
-          <small v-if="step.detail">{{ step.detail }}</small>
-        </li>
-      </ol>
+      <p v-if="error || current?.error" role="alert" class="model-error">{{ error || current?.error }}</p>
+      <template v-if="current">
+        <div class="plan-status"><strong>{{ labels[current.status] }}</strong><span>{{ current.plan_id }} · {{ current.model_mode }}</span></div>
+        <ol class="model-steps">
+          <li v-for="step in current.stages" :key="step.code" :data-status="step.status">
+            <span>{{ step.label }}</span><b>{{ labels[step.status] || step.status }}</b>
+            <small v-if="step.detail">{{ step.detail }}</small>
+          </li>
+        </ol>
 
-      <figure v-if="showMap && !mapBroken" class="gis-map" data-test="gis-map">
-        <img :src="mapSrc" alt="流域边界、计算单元与河网" @error="mapBroken = true" />
-        <figcaption>老师 DEM 划分结果：色块为 PyFlwDir 计算单元，红点为腰古出口。请核对面积与边界后再确认。</figcaption>
-      </figure>
-      <p v-else-if="showMap && mapBroken" class="basin-caption">边界图暂不可用，请重新新建方案后再复核。</p>
+        <figure v-if="showMap && !mapBroken" class="gis-map" data-test="gis-map">
+          <img :src="mapSrc" alt="流域边界、计算单元与河网" @error="mapBroken = true" />
+          <figcaption>老师 DEM 划分结果：色块为 PyFlwDir 计算单元，红点为腰古出口。请核对面积与边界后再确认。</figcaption>
+        </figure>
+        <p v-else-if="showMap && mapBroken" class="basin-caption">边界图暂不可用，请重新新建方案后再复核。</p>
 
-      <div v-if="current.boundary" class="boundary-review">
-        <p>
-          面积 {{ Number(current.boundary.dem_area_km2 || current.boundary.usgs_area_km2 || current.area_km2 || 0).toFixed(2) }} km² ·
-          {{ current.unit_count || 1 }} 套 XAJ · {{ current.model_mode }}
-        </p>
-        <p v-if="current.boundary.note" class="basin-caption">{{ current.boundary.note }}</p>
-        <template v-if="current.status === 'awaiting_review'">
-          <label class="review-check"><input v-model="reviewed" type="checkbox" />我已确认出口位置、面积与单元划分</label>
-          <button type="button" class="primary-button" :disabled="!reviewed || busy || locked" @click="confirm">确认边界，构建模型输入</button>
-        </template>
-      </div>
-      <p v-if="current.status === 'ready'" class="model-ready">方案已就绪，可在右侧设定时段并开始运行。</p>
-    </template>
+        <div v-if="current.boundary" class="boundary-review">
+          <p>
+            面积 {{ Number(current.boundary.dem_area_km2 || current.boundary.usgs_area_km2 || current.area_km2 || 0).toFixed(2) }} km² ·
+            {{ current.unit_count || 1 }} 套 XAJ · {{ current.model_mode }}
+          </p>
+          <p v-if="current.boundary.note" class="basin-caption">{{ current.boundary.note }}</p>
+          <template v-if="current.status === 'awaiting_review'">
+            <label class="review-check"><input v-model="reviewed" type="checkbox" />我已确认出口位置、面积与单元划分</label>
+            <button type="button" class="primary-button" :disabled="!reviewed || busy || locked" @click="confirm">确认边界，构建模型输入</button>
+          </template>
+        </div>
+        <p v-if="current.status === 'ready'" class="model-ready">方案已就绪，可在右侧设定时段并开始运行。</p>
+      </template>
+    </div>
+    <div v-if="basinId" class="prep-actions">
+      <button
+        type="button"
+        class="primary-button"
+        data-test="build-plan"
+        :disabled="loadingBasin || !canBuild || busy || ['running','queued'].includes(current?.status || '')"
+        @click="create"
+      >
+        {{ buildLabel }}
+      </button>
+    </div>
   </section>
 </template>
 
@@ -282,12 +313,42 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
   height: 100%;
-  overflow: auto;
+  overflow: hidden;
   background: transparent;
   border: 0;
   box-shadow: none;
   padding: 0;
 }
+.model-preparation header { flex: 0 0 auto; }
+.prep-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(90, 105, 125, 0.28) transparent;
+}
+.prep-body::-webkit-scrollbar { width: 9px; }
+.prep-body::-webkit-scrollbar-track { background: transparent; }
+.prep-body::-webkit-scrollbar-thumb {
+  background: rgba(90, 105, 125, 0.3);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.prep-actions {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 0 calc(8px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--separator);
+  background: transparent;
+}
+.prep-actions .primary-button { min-width: 168px; }
 .model-preparation h2 {
   font-size: 22px;
   font-weight: 600;
@@ -346,8 +407,8 @@ onUnmounted(() => {
   cursor: pointer;
 }
 .primary-button {
-  background: var(--accent);
-  color: #fff;
+  background: var(--primary-button);
+  color: var(--primary-button-text);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 .primary-button:hover:not(:disabled) { background: var(--accent-hover); }
@@ -358,6 +419,16 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .danger-button:hover:not(:disabled) { background: #ffe3e5; }
+.text-button {
+  display: inline;
+  border: 0;
+  background: none;
+  color: var(--accent-text);
+  padding: 0;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
 .materials {
   display: grid;
   gap: 10px;

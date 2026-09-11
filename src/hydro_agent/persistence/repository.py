@@ -2,7 +2,7 @@ from datetime import timezone
 from pathlib import PurePosixPath
 
 from pydantic import AwareDatetime, TypeAdapter
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, text, update
 
 from hydro_agent.execution.contracts import ExecutionPolicy, ExecutionRequest, ExecutionResult
 from hydro_agent.services.contracts import ForecastCreate, ForecastRecord
@@ -71,6 +71,38 @@ class HydroRepository:
     def list_tasks(self):
         with self.database.session() as session:
             return list(session.scalars(select(Task).order_by(Task.created_at, Task.task_id)))
+
+    def delete_task(self, task_id: str) -> None:
+        with self.database.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                raise KeyError(task_id)
+            for name in ("forecasts_no_DELETE", "schemes_no_DELETE", "data_snapshots_no_DELETE"):
+                session.execute(text(f"DROP TRIGGER IF EXISTS {name}"))
+            try:
+                action_ids = list(
+                    session.scalars(select(ActionRun.action_run_id).where(ActionRun.task_id == task_id))
+                )
+                if action_ids:
+                    session.execute(delete(Artifact).where(Artifact.action_run_id.in_(action_ids)))
+                    session.execute(delete(CostLedger).where(CostLedger.action_run_id.in_(action_ids)))
+                session.execute(delete(Forecast).where(Forecast.task_id == task_id))
+                session.execute(delete(Evidence).where(Evidence.task_id == task_id))
+                session.execute(delete(AgentDecisionRun).where(AgentDecisionRun.task_id == task_id))
+                session.execute(delete(ActionRun).where(ActionRun.task_id == task_id))
+                session.execute(delete(TaskState).where(TaskState.task_id == task_id))
+                session.execute(delete(DataSnapshot).where(DataSnapshot.task_id == task_id))
+                session.execute(delete(Scheme).where(Scheme.task_id == task_id))
+                session.delete(task)
+            finally:
+                for table in ("schemes", "data_snapshots", "forecasts"):
+                    session.execute(
+                        text(
+                            f"CREATE TRIGGER IF NOT EXISTS {table}_no_DELETE "
+                            f"BEFORE DELETE ON {table} BEGIN "
+                            "SELECT RAISE(ABORT, 'immutable record'); END"
+                        )
+                    )
 
     def list_snapshots(self, task_id):
         with self.database.session() as session:

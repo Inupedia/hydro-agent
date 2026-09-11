@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { actionTitle } from '../demo/stages'
 import { diagramHtmlFor, displayNodeFor } from '../generated/workflow'
 
@@ -7,6 +7,14 @@ type ArchifyView = {
   reveal?: (ids: string[], options?: Record<string, unknown>) => unknown
 }
 type ArchifyWindow = Window & { Archify?: { view?: ArchifyView } }
+type CameraReceipt = { finished?: Promise<unknown> }
+
+const CLOSE_SCALE = 2.45
+const PAIR_SCALE = 2.85
+const PULL_MS = 520
+const FLOW_LEAD_MS = 380
+const CLOSE_MS = 460
+const FLOW_MS = 820
 
 const props = defineProps<{
   action?: string | null
@@ -19,7 +27,10 @@ const props = defineProps<{
 
 const frame = ref<HTMLIFrameElement | null>(null)
 const loaded = ref(false)
-let revealedNode: string | null = null
+const cameraPhase = ref<'close' | 'travel' | ''>('')
+let settledNode: string | null = null
+let travelGen = 0
+const timers: number[] = []
 
 const diagramSrc = computed(
   () => `/diagrams/${diagramHtmlFor(props.workflowVersion)}?theme=light&embed=1&motion=still`,
@@ -55,23 +66,131 @@ function archifyView(): ArchifyView | undefined {
   return win?.Archify?.view
 }
 
-function focusCamera(instant = false) {
-  const node = currentNode.value
-  if (!node || !loaded.value) return
-  const view = archifyView()
-  if (typeof view?.reveal !== 'function') return
-  view.reveal([node], {
-    includeNeighbors: false,
-    duration: 420,
-    instant: instant || reducedMotion(),
-    padding: 72,
-    maxScale: 2.45,
-    reason: 'live-step',
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => {
+    timers.push(window.setTimeout(resolve, ms))
   })
-  revealedNode = node
 }
 
-function sync() {
+function clearTimers() {
+  while (timers.length) {
+    const id = timers.pop()
+    if (id !== undefined) window.clearTimeout(id)
+  }
+}
+
+function stillCurrent(gen: number) {
+  return gen === travelGen && loaded.value
+}
+
+async function waitCamera(result: unknown, ms: number, gen: number) {
+  const finished = (result as CameraReceipt | null)?.finished
+  if (finished && typeof finished.then === 'function') {
+    await Promise.race([finished.then(() => undefined).catch(() => undefined), sleep(ms + 80)])
+  } else {
+    await sleep(ms)
+  }
+  return stillCurrent(gen)
+}
+
+function closeUp(instant: boolean) {
+  return {
+    includeNeighbors: false,
+    duration: CLOSE_MS,
+    instant,
+    padding: 36,
+    maxScale: CLOSE_SCALE,
+    reason: 'live-close',
+  }
+}
+
+function pairShot() {
+  return {
+    includeNeighbors: false,
+    duration: PULL_MS,
+    instant: false,
+    padding: 96,
+    maxScale: PAIR_SCALE,
+    reason: 'live-travel',
+  }
+}
+
+function clearEdgeFlow() {
+  const doc = frame.value?.contentDocument
+  if (!doc) return
+  doc.querySelectorAll('.live-travel').forEach((el) => el.classList.remove('live-travel'))
+  doc.querySelectorAll('.live-from').forEach((el) => el.classList.remove('live-from'))
+  doc.querySelectorAll('.live-travel-dot').forEach((el) => el.remove())
+  doc.querySelector('svg')?.classList.remove('live-traveling')
+}
+
+function playEdgeFlow(from: string, to: string) {
+  const doc = frame.value?.contentDocument
+  if (!doc) return
+  clearEdgeFlow()
+  const svg = doc.querySelector('svg')
+  const path = doc.querySelector(`path[data-edge-from="${from}"][data-edge-to="${to}"]`) as SVGPathElement | null
+  if (!svg || !path) return
+  svg.classList.add('live-traveling')
+  doc.querySelector(`[data-node-id="${from}"]`)?.classList.add('live-from')
+  path.classList.add('live-travel')
+  let length = 120
+  try {
+    if (typeof path.getTotalLength === 'function') length = Math.max(80, path.getTotalLength())
+  } catch {
+    length = 120
+  }
+  path.style.setProperty('--live-len', String(length))
+  const dot = doc.createElementNS('http://www.w3.org/2000/svg', 'circle')
+  dot.setAttribute('r', '5.5')
+  dot.setAttribute('class', 'live-travel-dot')
+  const motion = doc.createElementNS('http://www.w3.org/2000/svg', 'animateMotion')
+  motion.setAttribute('dur', `${FLOW_MS}ms`)
+  motion.setAttribute('repeatCount', '1')
+  motion.setAttribute('fill', 'freeze')
+  motion.setAttribute('path', path.getAttribute('d') || '')
+  dot.appendChild(motion)
+  path.parentNode?.appendChild(dot)
+  try {
+    ;(motion as unknown as { beginElement: () => void }).beginElement()
+  } catch {
+    /* SMIL optional */
+  }
+}
+
+async function travelTo(node: string, instant: boolean) {
+  const gen = ++travelGen
+  clearTimers()
+  const from = settledNode
+  const view = archifyView()
+  if (typeof view?.reveal !== 'function') {
+    settledNode = node
+    cameraPhase.value = 'close'
+    return
+  }
+  const skipCinema = instant || reducedMotion() || from === node
+  if (skipCinema || !from) {
+    cameraPhase.value = 'close'
+    view.reveal([node], closeUp(instant || reducedMotion()))
+    settledNode = node
+    clearEdgeFlow()
+    return
+  }
+
+  cameraPhase.value = 'travel'
+  const pulled = view.reveal([from, node], pairShot())
+  if (!(await waitCamera(pulled, PULL_MS, gen))) return
+  playEdgeFlow(from, node)
+  if (!(await waitCamera(null, FLOW_LEAD_MS, gen))) return
+  cameraPhase.value = 'close'
+  const landed = view.reveal([node], closeUp(false))
+  await waitCamera(landed, CLOSE_MS, gen)
+  if (!stillCurrent(gen)) return
+  settledNode = node
+  clearEdgeFlow()
+}
+
+function paintNodes() {
   const doc = frame.value?.contentDocument
   if (!doc || !loaded.value) return
   const current = currentNode.value
@@ -86,8 +205,15 @@ function sync() {
     if (isCurrent) node.setAttribute('aria-current', 'step')
     else node.removeAttribute('aria-current')
   })
-  if (current && current !== revealedNode) {
-    requestAnimationFrame(() => focusCamera(!revealedNode))
+}
+
+function sync() {
+  paintNodes()
+  const current = currentNode.value
+  if (current && current !== settledNode) {
+    requestAnimationFrame(() => {
+      void travelTo(current, false)
+    })
   }
 }
 
@@ -95,7 +221,11 @@ function ready() {
   const doc = frame.value?.contentDocument
   if (!doc) return
   loaded.value = true
-  revealedNode = null
+  settledNode = null
+  cameraPhase.value = ''
+  travelGen += 1
+  clearTimers()
+  clearEdgeFlow()
   doc.documentElement.setAttribute('data-motion', 'still')
   doc.documentElement.setAttribute('data-embed', 'true')
   if (!doc.getElementById('hydro-live-style')) {
@@ -104,7 +234,7 @@ function ready() {
     style.textContent = `
       html, body, .container { width:100%!important; height:100%!important; margin:0!important; padding:0!important; min-height:0!important; background:transparent!important; }
       .diagram-container { width:100%!important; height:100%!important; padding:8px!important; margin:0!important; overflow:hidden!important; background:transparent!important; box-shadow:none!important; }
-      .diagram-container > svg { width:100%!important; height:auto!important; max-height:none!important; min-width:0!important; }
+      .diagram-container > svg { width:100%!important; height:100%!important; max-height:none!important; min-width:0!important; transform-origin:0 0!important; }
       .diagram-container::before,.diagram-container::after,.share-chapter-cue,.toolbar,.header,.cards,.diagram-nav,.guided-views { display:none!important; }
       [data-node-id] { transition: opacity .2s, filter .2s; }
       [data-node-id].live-pending { opacity: .42; }
@@ -112,23 +242,46 @@ function ready() {
       [data-node-id].live-done > rect { fill:#eaf7ee!important; stroke:#248a3d!important; }
       [data-node-id].live-current > rect { fill:#eaf3ff!important; stroke:#007aff!important; stroke-width:3px!important; filter:drop-shadow(0 0 5px #007aff33); }
       [data-node-id].live-blocked > rect { fill:#fff0f0!important; stroke:#d70015!important; }
+      [data-node-id].live-from > rect { fill:#eaf3ff!important; stroke:#64b5ff!important; }
+      svg.live-traveling [data-node-id].live-pending { opacity:.2; }
+      svg.live-traveling [data-edge-from]:not(.live-travel) { opacity:.16; }
+      path[data-edge-from].live-travel {
+        stroke:#007aff!important;
+        stroke-width:2.8px!important;
+        stroke-linecap:round!important;
+        stroke-dasharray: var(--live-len, 120);
+        stroke-dashoffset: var(--live-len, 120);
+        animation: live-edge-flow ${FLOW_MS}ms cubic-bezier(.22,1,.36,1) 1 both;
+        filter: drop-shadow(0 0 5px #007aff66);
+      }
+      .live-travel-dot { fill:#007aff; filter: drop-shadow(0 0 4px #007affaa); }
+      @keyframes live-edge-flow {
+        from { stroke-dashoffset: var(--live-len, 120); }
+        to { stroke-dashoffset: 0; }
+      }
       text { font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif!important; }
       @media(prefers-reduced-motion:reduce) { * { transition:none!important; animation:none!important; } }
     `
     doc.head.appendChild(style)
   }
-  sync()
+  paintNodes()
   requestAnimationFrame(() => {
-    revealedNode = null
-    focusCamera(true)
+    const node = currentNode.value
+    if (node) void travelTo(node, reducedMotion())
   })
 }
 
 watch(() => [props.action, props.status, props.gateStatus, props.completedActions], sync, { deep: true })
+
+onUnmounted(() => {
+  travelGen += 1
+  loaded.value = false
+  clearTimers()
+})
 </script>
 
 <template>
-  <section class="live-workflow" :class="{ 'is-expanded': expanded }" data-test="live-workflow" :data-camera-node="currentNode || undefined">
+  <section class="live-workflow" :class="{ 'is-expanded': expanded }" data-test="live-workflow" :data-camera-node="currentNode || undefined" :data-camera-phase="cameraPhase || undefined">
     <div class="workflow-caption">
       <span>执行地图</span>
       <strong aria-live="polite">{{ label }}</strong>
