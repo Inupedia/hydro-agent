@@ -3,49 +3,68 @@
  * Click「用户/任务」to input; live progress panel shows the current step.
  */
 (function () {
-  const ACTION_NODE = {
-    M01_CHECK_MATERIALS: 'materials',
-  M02_DELINEATE: 'delineate',
-  M03_REVIEW_BOUNDARY: 'boundary',
-  M04_BUILD_INPUTS: 'inputs',
-  M05_VALIDATE_PLAN: 'plan',
-  A01_CHECK_DATA: "task",
-    A03_VALIDATE_SCHEME: "task",
-    A05_FORECAST: "forecast",
-    A06_DIAGNOSE: "task",
-    A07_OPTIMIZE: "optimize",
-    A08_GATE: "gate",
-    A09_RESOLVE: "keep",
-    A10_FREEZE: "freeze",
-    A11_REPLAY: "replay",
-    A12_EVALUATE_REPORT: "results",
-  };
+  const META = window.HYDRO_WORKFLOW_META || null;
+  const ACTION_NODE = META
+    ? Object.fromEntries(
+        Object.entries(META.actions).map(([id, item]) => [id, item.display_node]),
+      )
+    : {
+        M01_CHECK_MATERIALS: "materials",
+        M02_DELINEATE: "delineate",
+        M03_REVIEW_BOUNDARY: "boundary",
+        M04_BUILD_INPUTS: "inputs",
+        M05_VALIDATE_PLAN: "plan",
+        A01_CHECK_DATA: "check_data",
+        A03_VALIDATE_SCHEME: "validate_scheme",
+        A05_FORECAST: "forecast",
+        A06_DIAGNOSE: "diagnose",
+        A07_OPTIMIZE: "optimize",
+        A08_GATE: "gate",
+        A09_RESOLVE: "keep",
+        A10_FREEZE: "freeze",
+        A11_REPLAY: "replay",
+        A12_EVALUATE_REPORT: "report",
+      };
 
-  const ACTION_TITLE = {
-    A01_CHECK_DATA: "资料检查",
-    A03_VALIDATE_SCHEME: "校验方案",
-    A05_FORECAST: "基础预报（XAJ）",
-    A06_DIAGNOSE: "预报诊断",
-    A07_OPTIMIZE: "有限参数优化（XAJ）",
-    A08_GATE: "Gate 把关",
-    A09_RESOLVE: "落实 Gate 结论",
-    A10_FREEZE: "冻结方案",
-    A11_REPLAY: "历史回放（XAJ）",
-    A12_EVALUATE_REPORT: "评估与报告",
-  };
+  const ACTION_TITLE = META
+    ? Object.fromEntries(
+        Object.entries(META.actions).map(([id, item]) => [id, item.label_zh || item.title_running_zh]),
+      )
+    : {
+        A01_CHECK_DATA: "资料检查",
+        A03_VALIDATE_SCHEME: "校验方案",
+        A05_FORECAST: "基础预报（XAJ）",
+        A06_DIAGNOSE: "预报诊断",
+        A07_OPTIMIZE: "有限参数优化（XAJ）",
+        A08_GATE: "Gate 把关",
+        A09_RESOLVE: "落实 Gate 结论",
+        A10_FREEZE: "冻结方案",
+        A11_REPLAY: "历史回放（XAJ）",
+        A12_EVALUATE_REPORT: "评估与报告",
+      };
 
-  const STEP_ORDER = [
-    "A01_CHECK_DATA",
-    "A03_VALIDATE_SCHEME",
-    "A05_FORECAST",
-    "A06_DIAGNOSE",
-    "A07_OPTIMIZE",
-    "A08_GATE",
-    "A09_RESOLVE",
-    "A10_FREEZE",
-    "A11_REPLAY",
-    "A12_EVALUATE_REPORT",
-  ];
+  const STEP_ORDER =
+    (META && META.step_order) || [
+      "A01_CHECK_DATA",
+      "A03_VALIDATE_SCHEME",
+      "A05_FORECAST",
+      "A06_DIAGNOSE",
+      "A07_OPTIMIZE",
+      "A08_GATE",
+      "A09_RESOLVE",
+      "A10_FREEZE",
+      "A11_REPLAY",
+      "A12_EVALUATE_REPORT",
+    ];
+
+  function displayNode(action, status) {
+    if (!action) return null;
+    const item = META && META.actions[action];
+    if (item && status && item.display_node_by_status && item.display_node_by_status[status]) {
+      return item.display_node_by_status[status];
+    }
+    return ACTION_NODE[action] || null;
+  }
 
   const GATE_ZH = {
     KEEP: "维持原方案",
@@ -363,7 +382,7 @@
       seenActions.push(lastAction);
     }
 
-    const node = ACTION_NODE[lastAction] || (busy ? "task" : null);
+    const node = displayNode(lastAction, last?.status) || (busy ? "task" : null);
     if (node) {
       highlight(node);
       if (!busy || (last && last.action === lastAction)) markDone(node);

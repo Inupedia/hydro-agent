@@ -6,6 +6,12 @@ from hydro_agent.agent.contracts import (
     AgentDecision,
     WorldStateView,
 )
+from hydro_agent.workflow.catalog import (
+    closeout_action_ids,
+    exploratory_action_ids,
+    implemented_action_ids,
+    phase_action_ids,
+)
 
 
 class PermissionDenied(PermissionError):
@@ -15,59 +21,36 @@ class PermissionDenied(PermissionError):
 # Reserve rounds for freeze → replay → evaluate so calibration KEEP loops cannot starve closeout.
 CLOSEOUT_RESERVE_ROUNDS = 3
 
-CLOSEOUT_ACTIONS = frozenset(
-    {
-        ActionCode.A08_GATE,
-        ActionCode.A09_RESOLVE,
-        ActionCode.A10_FREEZE,
-        ActionCode.A11_REPLAY,
-        ActionCode.A12_EVALUATE_REPORT,
-    }
-)
 
-EXPLORATORY_ACTIONS = frozenset(
-    {
-        ActionCode.A01_CHECK_DATA,
-        ActionCode.A03_VALIDATE_SCHEME,
-        ActionCode.A05_FORECAST,
-        ActionCode.A06_DIAGNOSE,
-        ActionCode.A07_OPTIMIZE,
-    }
-)
+def _codes(ids: frozenset[str]) -> frozenset[ActionCode]:
+    return frozenset(ActionCode(item) for item in ids)
 
+
+def _closeout_actions() -> frozenset[ActionCode]:
+    return _codes(closeout_action_ids())
+
+
+def _exploratory_actions() -> frozenset[ActionCode]:
+    return _codes(exploratory_action_ids())
+
+
+def _phase_actions(phase: str) -> frozenset[ActionCode]:
+    return _codes(phase_action_ids(phase))
+
+
+def _implemented() -> frozenset[ActionCode]:
+    return _codes(implemented_action_ids())
+
+
+# Compatibility aliases for tests and closeout helpers.
+CLOSEOUT_ACTIONS = _closeout_actions()
+EXPLORATORY_ACTIONS = _exploratory_actions()
 PHASE_ACTIONS = {
-    "B": {
-        ActionCode.A01_CHECK_DATA,
-        ActionCode.A03_VALIDATE_SCHEME,
-        ActionCode.A05_FORECAST,
-        ActionCode.A06_DIAGNOSE,
-        ActionCode.A07_OPTIMIZE,
-        ActionCode.A08_GATE,
-        ActionCode.A09_RESOLVE,
-        ActionCode.A10_FREEZE,
-    },
-    "F": {
-        ActionCode.A01_CHECK_DATA,
-        ActionCode.A03_VALIDATE_SCHEME,
-        ActionCode.A05_FORECAST,
-        ActionCode.A09_RESOLVE,
-        ActionCode.A11_REPLAY,
-    },
-    "E": {ActionCode.A12_EVALUATE_REPORT, ActionCode.A01_CHECK_DATA},
+    "B": set(_phase_actions("B")),
+    "F": set(_phase_actions("F")),
+    "E": set(_phase_actions("E")),
 }
-
-IMPLEMENTED = {
-    ActionCode.A01_CHECK_DATA,
-    ActionCode.A03_VALIDATE_SCHEME,
-    ActionCode.A05_FORECAST,
-    ActionCode.A06_DIAGNOSE,
-    ActionCode.A07_OPTIMIZE,
-    ActionCode.A08_GATE,
-    ActionCode.A09_RESOLVE,
-    ActionCode.A10_FREEZE,
-    ActionCode.A11_REPLAY,
-    ActionCode.A12_EVALUATE_REPORT,
-}
+IMPLEMENTED = set(_implemented())
 
 
 def decision_fingerprint(
@@ -111,7 +94,10 @@ def closeout_pending(view: WorldStateView) -> bool:
             return True
         # Opt budget gone or rounds reserved → must still be able to freeze.
         if ActionCode.A10_FREEZE.value not in actions:
-            if view.budget.optimization_cycles_remaining <= 0 and ActionCode.A07_OPTIMIZE.value in actions:
+            if (
+                view.budget.optimization_cycles_remaining <= 0
+                and ActionCode.A07_OPTIMIZE.value in actions
+            ):
                 return True
             if view.budget.agent_rounds_remaining <= CLOSEOUT_RESERVE_ROUNDS:
                 return True
@@ -123,8 +109,8 @@ class PermissionGate:
     def safe_actions(self, view: WorldStateView) -> tuple[ActionCode, ...]:
         if view.permissions.paused or view.task.terminal_status:
             return ()
-        phase_set = set(PHASE_ACTIONS.get(view.task.phase, ()))
-        allowed = phase_set & IMPLEMENTED
+        phase_set = set(_phase_actions(view.task.phase))
+        allowed = set(phase_set & _implemented())
         remaining = int(view.budget.agent_rounds_remaining)
 
         if view.budget.optimization_cycles_remaining <= 0:
@@ -136,16 +122,16 @@ class PermissionGate:
 
         # Reserve last rounds for closeout; at zero rounds still allow closeout.
         if remaining <= CLOSEOUT_RESERVE_ROUNDS:
-            allowed -= EXPLORATORY_ACTIONS
+            allowed -= set(_exploratory_actions())
         if remaining <= 0:
-            allowed = (CLOSEOUT_ACTIONS & phase_set & IMPLEMENTED)
+            allowed = set(_closeout_actions() & phase_set & _implemented())
             # Mid-cycle gate/resolve still needed in B.
             if view.task.phase == "B":
                 allowed |= {
                     ActionCode.A08_GATE,
                     ActionCode.A09_RESOLVE,
                     ActionCode.A10_FREEZE,
-                } & IMPLEMENTED
+                } & _implemented()
 
         return tuple(sorted(allowed, key=lambda item: item.value))
 

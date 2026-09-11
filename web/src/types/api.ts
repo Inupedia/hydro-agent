@@ -12,6 +12,9 @@ export type TaskSummary = {
   end_date?: string | null
   forcing_mode?: 'R' | 'F' | null
   created_at?: string | null
+  workflow_id?: string | null
+  workflow_version?: string | null
+  workflow_hash?: string | null
 }
 
 export type TaskCreateRequest = {

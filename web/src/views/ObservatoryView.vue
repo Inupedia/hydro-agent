@@ -411,6 +411,7 @@ onUnmounted(() => {
           :completed-actions="completedActions"
           :gate-status="gateStatus"
           :expanded="focusStage"
+          :workflow-version="demo.taskMeta?.workflow_version"
         />
         <ModelPreparation
           v-else-if="modelingAvailable && !demo.taskId"

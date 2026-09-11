@@ -37,6 +37,9 @@ class Task(Created, Base):
     phase: Mapped[str]
     forcing_mode: Mapped[str]
     terminal_status: Mapped[str | None]
+    workflow_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    workflow_version: Mapped[str | None] = mapped_column(String, nullable=True)
+    workflow_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     __table_args__ = (
         CheckConstraint("phase IN ('B','F','E')"),
         CheckConstraint("forcing_mode IN ('R','F')"),

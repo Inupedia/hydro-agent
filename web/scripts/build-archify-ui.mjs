@@ -12,7 +12,8 @@ const repoRoot = join(webRoot, "..");
 const dist = join(webRoot, "dist");
 const diagramSrc = join(webRoot, "public", "diagrams", "hydro-agent-xaj.workflow.html");
 const driverSrc = join(webRoot, "public", "workbench-driver.js");
-const jsonSrc = join(repoRoot, "docs", "diagrams", "hydro-agent-xaj.workflow.json");
+const metaSrc = join(webRoot, "public", "workflow-meta.js");
+const jsonSrc = join(repoRoot, "docs", "diagrams", "hydro-agent.v1.workflow.json");
 
 if (!existsSync(diagramSrc)) {
   console.error("Missing Archify diagram:", diagramSrc);
@@ -28,6 +29,7 @@ mkdirSync(join(dist, "diagrams"), { recursive: true });
 
 const diagramHtml = readFileSync(diagramSrc, "utf8");
 const injection = `
+<script src="/workflow-meta.js"></script>
 <script src="/workbench-driver.js" defer></script>
 <!-- Hydro-Agent: Archify is the entire frontend; driver syncs live agent focus. -->
 `;
@@ -43,6 +45,9 @@ indexHtml = indexHtml.replace(
 
 writeFileSync(join(dist, "index.html"), indexHtml);
 copyFileSync(driverSrc, join(dist, "workbench-driver.js"));
+if (existsSync(metaSrc)) {
+  copyFileSync(metaSrc, join(dist, "workflow-meta.js"));
+}
 copyFileSync(diagramSrc, join(dist, "diagrams", "hydro-agent-xaj.workflow.html"));
 if (existsSync(jsonSrc)) {
   copyFileSync(jsonSrc, join(dist, "diagrams", "hydro-agent-xaj.workflow.json"));

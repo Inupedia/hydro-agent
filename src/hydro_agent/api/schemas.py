@@ -38,6 +38,9 @@ class TaskSummary(FrozenApiModel):
     end_date: str | None = None
     forcing_mode: Literal["R", "F"] | None = None
     created_at: str | None = None
+    workflow_id: str | None = None
+    workflow_version: str | None = None
+    workflow_hash: str | None = None
 
 
 class RunSummary(FrozenApiModel):

@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from hydro_agent.api.deps import AppDependencies
 from hydro_agent.api.executor import TaskExecutor
-from hydro_agent.api.routes import basins, hydrologist, model_plans, results, runs, tasks
+from hydro_agent.api.routes import basins, hydrologist, model_plans, results, runs, tasks, workflow
 
 
 def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> FastAPI:
@@ -27,6 +27,9 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
 
     @app.get("/api/health")
     def health():
+        from hydro_agent.workflow.definition import current_binding
+
+        binding = current_binding()
         return {
             "status": "ok",
             "model_preparation": deps.model_plans is not None,
@@ -35,6 +38,9 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
             "orchestrator": "langgraph",
             "mode": getattr(deps, "mode", "demo"),
             "provider_model": getattr(deps, "provider_model", None),
+            "workflow_id": binding["workflow_id"],
+            "workflow_version": binding["workflow_version"],
+            "workflow_hash": binding["workflow_hash"],
         }
 
     app.include_router(basins.router)
@@ -43,6 +49,7 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
     app.include_router(tasks.router)
     app.include_router(runs.router)
     app.include_router(results.router)
+    app.include_router(workflow.router)
 
     if static_dir is not None:
         root = Path(static_dir).resolve()

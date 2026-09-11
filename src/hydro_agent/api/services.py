@@ -173,6 +173,9 @@ def build_task_summary(deps: AppDependencies, task_id: str) -> TaskSummary:
         end_date=str(end_date) if end_date else None,
         forcing_mode=forcing if forcing in ("R", "F") else None,
         created_at=created_at,
+        workflow_id=getattr(task, "workflow_id", None),
+        workflow_version=getattr(task, "workflow_version", None),
+        workflow_hash=getattr(task, "workflow_hash", None),
     )
 
 

@@ -4,13 +4,14 @@ import { useRoute, useRouter } from 'vue-router'
 import DemoShell from '../layouts/DemoShell.vue'
 import { useDemoStore } from '../stores/demo'
 import { actionTitle, basinLabel } from '../demo/stages'
+import { diagramHtmlFor } from '../generated/workflow'
 
 const route = useRoute()
 const router = useRouter()
 const demo = useDemoStore()
 const taskId = computed(() => String(route.params.taskId))
 const diagramSrc = computed(
-  () => `/diagrams/hydro-agent-xaj.workflow.html?theme=light&embed=true&motion=still`,
+  () => `/diagrams/${diagramHtmlFor(demo.taskMeta?.workflow_version)}?theme=light&embed=true&motion=still`,
 )
 
 onMounted(() => {

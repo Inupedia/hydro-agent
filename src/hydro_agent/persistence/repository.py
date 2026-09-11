@@ -48,6 +48,10 @@ class HydroRepository:
             return row
 
     def create_task(self, **kwargs):
+        if kwargs.get("workflow_id") is None:
+            from hydro_agent.workflow.definition import current_binding
+
+            kwargs = {**current_binding(), **kwargs}
         data = TaskCreate(**kwargs)
         return self._create(Task(**data.model_dump()))
 

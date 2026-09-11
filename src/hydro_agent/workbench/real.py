@@ -197,6 +197,9 @@ class RealWorkbenchKernel:
             ActionCode.A12_EVALUATE_REPORT,
             _TaskAwareEvaluateHandler(self, task_configs),
         )
+        from hydro_agent.workflow.handlers import assert_tool_router
+
+        assert_tool_router(tools)
         return tools
 
     def _diagnose(self, task_id: str) -> dict:

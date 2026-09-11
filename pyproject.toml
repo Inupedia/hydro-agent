@@ -25,6 +25,7 @@ packages = ["src/hydro_agent"]
 "src/hydro_agent/skills/forecast-diagnose" = "hydro_agent/skills/forecast-diagnose"
 "src/hydro_agent/skills/xaj-calibration" = "hydro_agent/skills/xaj-calibration"
 "src/hydro_agent/skills/gbt-22482-accuracy" = "hydro_agent/skills/gbt-22482-accuracy"
+"workflow/hydro-agent.v1.json" = "hydro_agent/workflow/data/hydro-agent.v1.json"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

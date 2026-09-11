@@ -69,6 +69,7 @@ export const useDemoStore = defineStore('demo', () => {
   const polling = ref<number | null>(null)
   const caseLibrary = ref<TaskSummary[]>([])
   const settingsOpen = ref(false)
+  const taskMeta = ref<TaskSummary | null>(null)
 
   const conditions = ref({
     service: 'unchecked' as ConditionState,
@@ -184,6 +185,7 @@ export const useDemoStore = defineStore('demo', () => {
     }
     const task = await api.createTask(body)
     taskId.value = task.task_id
+    taskMeta.value = task
     mode.value = 'live'
     run.value = null
     timeline.value = []
@@ -198,6 +200,7 @@ export const useDemoStore = defineStore('demo', () => {
     stopPolling()
     applyTaskMeta(task)
     taskId.value = task.task_id
+    taskMeta.value = task
     mode.value = 'replay'
     run.value = null
     timeline.value = []
@@ -282,6 +285,12 @@ export const useDemoStore = defineStore('demo', () => {
   function restoreTask(id: string, nextMode?: RunMode) {
     taskId.value = id
     if (nextMode) mode.value = nextMode
+    void api.getTask(id).then((task) => {
+      taskMeta.value = task
+      applyTaskMeta(task)
+    }).catch(() => {
+      taskMeta.value = null
+    })
     startPolling()
     persistSession()
   }
@@ -297,6 +306,7 @@ export const useDemoStore = defineStore('demo', () => {
   function resetSession() {
     stopPolling()
     taskId.value = null
+    taskMeta.value = null
     run.value = null
     timeline.value = []
     results.value = null
@@ -312,6 +322,7 @@ export const useDemoStore = defineStore('demo', () => {
   return {
     draft,
     taskId,
+    taskMeta,
     mode,
     followScreen,
     run,

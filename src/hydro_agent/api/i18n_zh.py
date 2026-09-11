@@ -1,19 +1,6 @@
 from __future__ import annotations
 
-from hydro_agent.agent.contracts import ActionCode
-
-ACTION_ZH = {
-    ActionCode.A01_CHECK_DATA.value: "资料检查",
-    ActionCode.A03_VALIDATE_SCHEME.value: "方案校验",
-    ActionCode.A05_FORECAST.value: "基础预报",
-    ActionCode.A06_DIAGNOSE.value: "预报诊断",
-    ActionCode.A07_OPTIMIZE.value: "参数优化（含水文员手工对比）",
-    ActionCode.A08_GATE.value: "Gate 把关",
-    ActionCode.A09_RESOLVE.value: "落实 Gate 结论",
-    ActionCode.A10_FREEZE.value: "冻结方案",
-    ActionCode.A11_REPLAY.value: "历史起报回放",
-    ActionCode.A12_EVALUATE_REPORT.value: "评估与报告",
-}
+from hydro_agent.workflow.definition import load_definition
 
 STATUS_ZH = {
     "succeeded": "成功",
@@ -52,7 +39,10 @@ HYPOTHESIS_ZH = {
 def action_zh(code: str | None) -> str:
     if not code:
         return "未知动作"
-    return ACTION_ZH.get(code, code)
+    action = load_definition().action(code)
+    if action is not None:
+        return action.label_zh
+    return code
 
 
 def status_zh(value: str | None) -> str:

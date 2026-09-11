@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { actionTitle } from '../demo/stages'
+import { diagramHtmlFor, displayNodeFor } from '../generated/workflow'
 
 const props = defineProps<{
   action?: string | null
@@ -8,29 +9,15 @@ const props = defineProps<{
   completedActions: string[]
   gateStatus?: string | null
   expanded?: boolean
+  workflowVersion?: string | null
 }>()
 
 const frame = ref<HTMLIFrameElement | null>(null)
 const loaded = ref(false)
 
-/** Align with Archify node ids in hydro-agent-xaj.workflow.html */
-const ACTION_NODE: Record<string, string> = {
-  M01_CHECK_MATERIALS: 'materials',
-  M02_DELINEATE: 'delineate',
-  M03_REVIEW_BOUNDARY: 'boundary',
-  M04_BUILD_INPUTS: 'inputs',
-  M05_VALIDATE_PLAN: 'plan',
-  A01_CHECK_DATA: 'task',
-  A03_VALIDATE_SCHEME: 'task',
-  A05_FORECAST: 'forecast',
-  A06_DIAGNOSE: 'task',
-  A07_OPTIMIZE: 'optimize',
-  A08_GATE: 'gate',
-  A09_RESOLVE: 'keep',
-  A10_FREEZE: 'freeze',
-  A11_REPLAY: 'replay',
-  A12_EVALUATE_REPORT: 'results',
-}
+const diagramSrc = computed(
+  () => `/diagrams/${diagramHtmlFor(props.workflowVersion)}?theme=light&embed=1&motion=still`,
+)
 
 const label = computed(() => {
   if (props.status === 'failed' || props.status === 'error') return '执行受阻'
@@ -38,21 +25,17 @@ const label = computed(() => {
   return actionTitle(props.action)
 })
 
-const currentNode = computed(() => {
-  const action = props.action || ''
-  if (action === 'A09_RESOLVE' && props.gateStatus === 'ACCEPT') return 'freeze'
-  return ACTION_NODE[action] || null
-})
+const currentNode = computed(() => displayNodeFor(props.action, props.gateStatus || props.status))
 
 const doneNodes = computed(() => {
   const done = new Set<string>()
   for (const action of props.completedActions) {
-    const node = ACTION_NODE[action]
+    const node = displayNodeFor(action)
     if (node) done.add(node)
   }
-  // Gate KEEP/ROLLBACK lands on the keep branch in the diagram.
-  if (props.gateStatus === 'KEEP' || props.gateStatus === 'ROLLBACK') done.add('keep')
-  if (props.gateStatus === 'ACCEPT') done.add('freeze')
+  if (props.gateStatus === 'KEEP') done.add('keep')
+  if (props.gateStatus === 'ROLLBACK') done.add('rollback')
+  if (props.gateStatus === 'ACCEPT') done.add('accept')
   return done
 })
 
@@ -112,7 +95,7 @@ watch(() => [props.action, props.status, props.gateStatus, props.completedAction
     </div>
     <iframe
       ref="frame"
-      src="/diagrams/hydro-agent-xaj.workflow.html?theme=light&embed=1&motion=still"
+      :src="diagramSrc"
       title="实时执行流程图"
       @load="ready"
     />

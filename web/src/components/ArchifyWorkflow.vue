@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { diagramHtmlFor } from '../generated/workflow'
 
 const props = withDefaults(
   defineProps<{
@@ -14,7 +15,7 @@ const props = withDefaults(
 
 const src = computed(
   () =>
-    `/diagrams/hydro-agent-xaj.workflow.html?theme=light&present=1&play=1#view=${props.view}`,
+    `/diagrams/${diagramHtmlFor()}?theme=light&present=1&play=1#view=${props.view}`,
 )
 </script>
 

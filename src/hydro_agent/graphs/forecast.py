@@ -28,6 +28,9 @@ def build_forecast_graph(
     provider_model: str | None = None,
 ):
     """Compile a single-round LangGraph: observe → (act | end)."""
+    from hydro_agent.workflow.handlers import assert_handlers_declared
+
+    assert_handlers_declared()
     gate = permissions or PermissionGate()
 
     def observe(state: ForecastGraphState) -> dict[str, Any]:
@@ -47,7 +50,10 @@ def build_forecast_graph(
 
     def act(state: ForecastGraphState) -> dict[str, Any]:
         from hydro_agent.agent.permissions import PermissionDenied
-        from hydro_agent.agent.providers.siliconflow import _fallback_payload, normalize_decision_payload
+        from hydro_agent.agent.providers.siliconflow import (
+            _fallback_payload,
+            normalize_decision_payload,
+        )
 
         task_id = state["task_id"]
         view = world_state.build(task_id)
