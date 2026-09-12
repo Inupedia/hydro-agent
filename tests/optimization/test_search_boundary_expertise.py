@@ -68,6 +68,25 @@ def test_repeated_local_boundary_can_progress_to_global_absolute_window():
     assert plan.parameter_groups == ("runoff",)
 
 
+def test_fresh_diagnosis_strategy_is_not_overwritten_by_previous_experiment():
+    plan = plan_from_diagnosis(
+        {
+            "hypothesis": "TIMING",
+            "phenomenon": "新证据转向汇流时序问题",
+            "recommended_strategy_id": "xaj-routing-refine-v1",
+            "previous_strategy_id": "xaj-water-balance-v1",
+            "recommended_param_groups": ["routing"],
+            "recommended_objective": "composite",
+            "metrics": {"nse": 0.3, "pbias_percent": 2.0},
+        }
+    )
+
+    assert plan.strategy_id == "xaj-routing-refine-v1"
+    assert plan.parameter_groups == ("routing",)
+    assert plan.local_scale == 0.35
+    assert plan.search_adjustment == "keep"
+
+
 def test_absolute_boundary_never_expands_beyond_teacher_kernel_bounds():
     plan = plan_from_diagnosis(
         {
