@@ -100,3 +100,24 @@ def test_derived_basin_profile_does_not_use_validation_future():
     assert profile.aridity == 0.5
     # Two days * 1 m3/s => 1.728 mm runoff over 100 km2; P=20 mm.
     assert profile.runoff_ratio == 0.0864
+
+
+def test_measured_evaporation_is_not_mislabeled_as_aridity():
+    forcing = (
+        _Forcing(date(2000, 1, 1), 10.0, 9.0),
+        _Forcing(date(2000, 1, 2), 10.0, 9.0),
+    )
+    flow = (
+        _Flow(date(2000, 1, 1), 1.0),
+        _Flow(date(2000, 1, 2), 1.0),
+    )
+
+    profile = derive_basin_hydro_profile(
+        forcing_rows=forcing,
+        flow_rows=flow,
+        area_km2=100.0,
+        evaporation_is_potential=False,
+    )
+
+    assert profile.aridity is None
+    assert profile.runoff_ratio == 0.0864
