@@ -1,5 +1,22 @@
+from dataclasses import dataclass
+from datetime import date
+
+from hydro_agent.knowledge.basin_priors import derive_basin_hydro_profile
 from hydro_agent.knowledge.expert import ExpertKnowledgeRepository
 from hydro_agent.optimization.calibration_scientist import plan_from_diagnosis
+
+
+@dataclass(frozen=True)
+class _Forcing:
+    valid_date: date
+    precipitation_mm_day: float
+    pet_mm_day: float
+
+
+@dataclass(frozen=True)
+class _Flow:
+    valid_date: date
+    discharge_m3s: float
 
 
 def test_external_expert_skill_is_seed_prior_not_normative():
@@ -59,3 +76,27 @@ def test_basin_attributes_are_profiled_as_advisory_context():
 
     assert "expert.basin_attributes_are_priors" in advice.matched_rule_ids
     assert any("aridity=0.62" in note for note in advice.notes)
+
+
+def test_derived_basin_profile_does_not_use_validation_future():
+    forcing = (
+        _Forcing(date(2000, 1, 1), 10.0, 5.0),
+        _Forcing(date(2000, 1, 2), 10.0, 5.0),
+        _Forcing(date(2000, 1, 3), 1000.0, 1000.0),
+    )
+    flow = (
+        _Flow(date(2000, 1, 1), 1.0),
+        _Flow(date(2000, 1, 2), 1.0),
+        _Flow(date(2000, 1, 3), 1000.0),
+    )
+
+    profile = derive_basin_hydro_profile(
+        forcing_rows=forcing,
+        flow_rows=flow,
+        area_km2=100.0,
+        before_date=date(2000, 1, 3),
+    )
+
+    assert profile.aridity == 0.5
+    # Two days * 1 m3/s => 1.728 mm runoff over 100 km2; P=20 mm.
+    assert profile.runoff_ratio == 0.0864
