@@ -1,0 +1,45 @@
+# Public workbench behind the host Traefik gateway.
+# DNS: hhu.ai.swhisxy.cn → this host. Bind the app to loopback; Traefik terminates TLS.
+name: hydro-agent
+
+services:
+  workbench:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: hydro-agent-workbench:prod
+    container_name: hydro-agent
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.hhu.rule: "Host(`hhu.ai.swhisxy.cn`)"
+      traefik.http.routers.hhu.service: hhu
+      traefik.http.services.hhu.loadbalancer.server.port: "8000"
+    ports:
+      - "127.0.0.1:8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - hydro-agent-data:/data
+      - ./data:/app/data
+    environment:
+      HYDRO_AGENT_HOST: "0.0.0.0"
+      HYDRO_AGENT_PORT: "8000"
+      HYDRO_AGENT_DB: "/data/hydro.db"
+      HYDRO_AGENT_REPORTS: "/data/reports"
+      HYDRO_AGENT_STATIC: "/app/web/dist"
+      HYDRO_AGENT_WORK_ROOT: "/data/runtime"
+      HYDRO_AGENT_DATA_ROOT: "/app/data"
+      HYDRO_AGENT_BASINS: "/app/data/basins"
+      HYDRO_AGENT_ACADEMY: "/app/data/academy"
+      HYDRO_AGENT_SOURCE: "/app/tests/fixtures/lowman_reanalysis_source"
+      HYDRO_AGENT_SCHEME: "/app/tests/fixtures/xaj/lowman_scheme.json"
+      HYDRO_AGENT_MODE: "real"
+      HYDRO_WORKFLOW_DIR: "/app/workflow"
+      HYDRO_LLM_TIMEOUT_SECONDS: "180"
+      HYDRO_LLM_MAX_RETRIES: "5"
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  hydro-agent-data:

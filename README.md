@@ -19,18 +19,17 @@
 
 ## Docker 一键启动（工作台）
 
-本地浏览器直接使用打包后的 Vue + FastAPI demo：
+同一脚本覆盖本机和 `tencent_gpu`（Traefik 域名 `https://hhu.ai.swhisxy.cn`）。先复制 `.env.example` 为 `.env` 并填写 `SILICONFLOW_API_KEY`。
 
 ```sh
-docker compose up --build -d
+./scripts/deploy.sh local     # 本机 http://127.0.0.1:8000 ，源码 bind-mount
+./scripts/deploy.sh server    # rsync 到 GPU 机并发布公网 HTTPS
+./scripts/deploy.sh logs      # 跟随当前环境的 workbench 日志
+./scripts/deploy.sh status
+./scripts/deploy.sh down
 ```
 
-打开 http://127.0.0.1:8000 ，创建任务后点「创建并运行」。数据持久化在 Docker volume `hydro-agent-data`。
-
-```sh
-docker compose logs -f workbench
-docker compose down
-```
+在 GPU 机仓库目录里直接 `./scripts/deploy.sh up` 会走 `docker-compose.prod.yml`（镜像内前端、loopback:8000、Traefik 出网）。本机 `docker compose up --build -d` 仍然可用。数据持久化在 Docker volume `hydro-agent-data`。
 
 当前镜像内置脚本化 demo Agent（不跑真实 XAJ 数值引擎），用于完整体验任务 / 时间线 / 结果页。
 

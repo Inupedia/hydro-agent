@@ -28,10 +28,18 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     HYDRO_AGENT_MODE=real \
     HYDRO_WORKFLOW_DIR=/app/workflow
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates build-essential git \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir "uv==0.8.4"
+RUN set -eux; \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+      sed -i 's|https\?://deb.debian.org|http://mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources; \
+    fi; \
+    if [ -f /etc/apt/sources.list ]; then \
+      sed -i 's|https\?://deb.debian.org|http://mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list; \
+    fi; \
+    apt-get update; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      curl ca-certificates build-essential git; \
+    rm -rf /var/lib/apt/lists/*; \
+    pip install --no-cache-dir "uv==0.8.4"
 
 COPY pyproject.toml uv.lock README.md ./
 # Install third-party deps first so editing src/workflow does not re-download packages.
