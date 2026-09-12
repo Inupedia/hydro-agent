@@ -1,0 +1,88 @@
+{
+  "knowledge_id": "standard:gbt-22482-2026",
+  "type": "technical_standard",
+  "standard_id": "GB/T 22482-2026",
+  "title": "水文情报预报规范",
+  "published_on": "2026-07-30",
+  "effective_from": "2027-02-01",
+  "replaces": "GB/T 22482-2008",
+  "status": "published_not_effective",
+  "scope_note": "Hydro-Agent V1 仅结构化保存当前课题所需的洪水预报、参数率定和流量精度评定规则，不替代标准原文。",
+  "rules": [
+    {
+      "rule_id": "gbt22482-4.3-forecast-scheme",
+      "clause": "4.3",
+      "kind": "scheme_governance",
+      "summary": "应编制水文预报方案，并以此作为作业预报的基本依据。"
+    },
+    {
+      "rule_id": "gbt22482-6.2.3-calibration-quality",
+      "clause": "6.2.3",
+      "kind": "calibration_governance",
+      "summary": "参数率定及检验应将优化计算与合理性分析相结合，并分析参数灵敏度、合理性、可靠性和稳定性，防止虚假拟合。"
+    },
+    {
+      "rule_id": "gbt22482-6.3.1-scheme-data",
+      "clause": "6.3.1",
+      "kind": "scheme_data",
+      "summary": "预报方案编制需覆盖流域查勘、资料收集、方案构建、精度评定和检验，并关注资料可靠性、一致性和代表性。"
+    },
+    {
+      "rule_id": "gbt22482-6.5.4-permitted-error",
+      "clause": "6.5.4",
+      "kind": "permitted_error",
+      "summary": "洪峰、峰现时间、径流深和过程预报按断面类型及集水面积采用相应许可误差。"
+    },
+    {
+      "rule_id": "gbt22482-6.5.5-accuracy-grade",
+      "clause": "6.5.5",
+      "kind": "accuracy_grade",
+      "summary": "预报项目按准确率 QR 或确定性系数 DC 划分甲、乙、丙三级。"
+    },
+    {
+      "rule_id": "gbt22482-6.5.6-scheme-use",
+      "clause": "6.5.6",
+      "kind": "scheme_grade",
+      "summary": "预报方案按精度等级确定适用范围；正式发布、参考性预报与参考性估报的要求不同。"
+    },
+    {
+      "rule_id": "gbt22482-6.5.7-operation-grade",
+      "clause": "6.5.7",
+      "kind": "operation_grade",
+      "summary": "作业预报可按误差与许可误差之比 GRD，以及时效性系数 CET 和作业耗时进行等级评定。"
+    }
+  ],
+  "profiles": {
+    "flood_forecast_discharge": {
+      "description": "当前 Hydro-Agent 日尺度流量课题使用的 GB/T 22482—2026 洪水预报流量评定配置。",
+      "clause_refs": ["6.5.4", "6.5.5", "6.5.6", "6.5.7"],
+      "config": {
+        "basin_class": "auto",
+        "peak_rel_error_large": 0.20,
+        "peak_rel_error_mid": 0.30,
+        "peak_timing_frac": 0.30,
+        "peak_timing_min_hours": 3.0,
+        "runoff_rel_error": 0.20,
+        "runoff_max_mm": 20.0,
+        "runoff_min_mm": 3.0,
+        "process_amp_frac": 0.20,
+        "process_min_rel": 0.05,
+        "grade_dc_jia": 0.90,
+        "grade_dc_yi": 0.70,
+        "grade_dc_bing": 0.50,
+        "grade_qr_jia": 85.0,
+        "grade_qr_yi": 70.0,
+        "grade_qr_bing": 60.0,
+        "grd_excellent_max": 25.0,
+        "grd_good_max": 50.0,
+        "grd_pass_max": 100.0,
+        "timeliness_jia_cet_min": 0.95,
+        "timeliness_jia_dh_max": 0.6,
+        "timeliness_yi_cet_min": 0.85,
+        "timeliness_yi_dh_max": 0.8,
+        "timeliness_bing_cet_min": 0.70,
+        "timeliness_bing_dh_max": 1.0
+      }
+    }
+  }
+}
