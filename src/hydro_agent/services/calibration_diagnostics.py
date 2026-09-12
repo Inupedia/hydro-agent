@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -14,6 +15,7 @@ from hydro_agent.evaluation.metrics import (
     pbias_percent,
     rmse,
 )
+from hydro_agent.knowledge.basin_priors import derive_basin_hydro_profile
 from hydro_agent.knowledge.expert import ExpertKnowledgeRepository
 
 
@@ -160,6 +162,18 @@ def diagnose_prevalidation_window(
         metrics["peak_ratio"] = peak_ratio
         metrics["peak_timing_lag_days"] = float(peak_lag)
 
+    basin_raw = dict(getattr(source, "basin", {}) or {})
+    area_raw = basin_raw.get("area_km2")
+    basin_attributes: dict[str, Any] = {}
+    if isinstance(area_raw, (int, float)) and float(area_raw) > 0:
+        profile = derive_basin_hydro_profile(
+            forcing_rows=source.forcing_rows,
+            flow_rows=source.flow_rows,
+            area_km2=float(area_raw),
+            before_date=validation_start,
+        )
+        basin_attributes = profile.model_dump(exclude_none=True)
+
     expert = expert_knowledge or ExpertKnowledgeRepository()
     water_balance_rule = expert.rule("expert.water_balance_first")
     if water_balance_rule.threshold is None:
@@ -244,6 +258,13 @@ def diagnose_prevalidation_window(
         "hydrologist_order=water_balance->peak_timing->peak_magnitude->overall_skill",
         f"expert_prior={water_balance_rule.rule_id}",
     ]
+    if basin_attributes:
+        notes.append(
+            "basin_attributes_json="
+            + json.dumps(basin_attributes, ensure_ascii=False, sort_keys=True)
+        )
+        notes.append("basin_profile_strictly_precedes_validation=true")
+
     return {
         "hypothesis": primary["id"],
         "phenomenon": primary["phenomenon"],
@@ -253,5 +274,6 @@ def diagnose_prevalidation_window(
         "recommended_objective": primary.get("suggested_objective"),
         "hypotheses": hypotheses,
         "metrics": metrics,
+        "basin_attributes": basin_attributes,
         "notes": notes,
     }
