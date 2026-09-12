@@ -1,4 +1,4 @@
-from hydro_agent.evaluation.gbt22482 import GbtAccuracyReport, grade_meets_min
+from hydro_agent.evaluation.gbt22482 import GbtAccuracyReport
 from hydro_agent.optimization.contracts import GateDecision, GatePolicy
 
 
@@ -31,39 +31,31 @@ class GateEvaluator:
             status = "KEEP"
             reasons.append("insufficient_absolute_skill")
         elif policy.require_gbt_grade:
-            if gbt_report is not None and gbt_report.meets_min_grade:
+            # The standard is a knowledge dependency, not a numeric fallback in
+            # Gate code. If the deterministic GB/T report is missing, the safe
+            # outcome is KEEP until the knowledge-backed evaluation is available.
+            if gbt_report is None:
+                status = "KEEP"
+                reasons.append("missing_standard_evaluation")
+            elif gbt_report.meets_min_grade:
                 status = "ACCEPT"
                 reasons.append("gbt_scheme_grade_ok")
                 reasons.append(f"scheme_grade={gbt_report.scheme_grade}")
-            elif gbt_report is not None:
+            else:
                 status = "KEEP"
                 reasons.append("insufficient_gbt_scheme_grade")
                 reasons.append(f"scheme_grade={gbt_report.scheme_grade}")
                 reasons.append(f"min_scheme_grade={policy.min_scheme_grade}")
-            elif candidate.primary_score >= policy.accept_primary_floor:
-                # No GBT report available — fall back to DC/NSE 丙 floor only.
-                status = "ACCEPT"
-                reasons.append("nse_good_enough_fallback")
-            else:
-                status = "KEEP"
-                reasons.append("insufficient_gbt_or_nse")
         elif candidate.primary_score >= policy.accept_primary_floor:
+            # Non-standard research policies may still use a numeric floor. This
+            # branch is intentionally unreachable for require_gbt_grade=True.
             status = "ACCEPT"
-            reasons.append("nse_good_enough")
+            reasons.append("primary_floor_ok")
         else:
-            # ΔNSE-only ACCEPT removed (does not meet GB/T).
             status = "KEEP"
-            reasons.append("insufficient_gbt_scheme_grade")
+            reasons.append("insufficient_primary_skill")
             if primary_delta >= policy.min_primary_delta:
-                reasons.append("nse_improved_but_below_gbt_grade")
-
-        if scheme_grade is None and gbt_report is None:
-            # Annotate whether legacy floor would have passed.
-            if grade_meets_min(
-                "丙" if candidate.primary_score >= 0.5 else "不合格",
-                policy.min_scheme_grade,
-            ):
-                pass
+                reasons.append("primary_improved_but_below_policy_floor")
 
         return GateDecision(
             status=status,  # type: ignore[arg-type]

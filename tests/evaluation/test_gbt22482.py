@@ -11,9 +11,15 @@ from hydro_agent.evaluation.gbt22482 import (
     resolve_basin_class,
 )
 from hydro_agent.graphs.gbt_accuracy import build_gbt_accuracy_graph, run_gbt_accuracy
-from hydro_agent.optimization.contracts import GatePolicy
+from hydro_agent.optimization.contracts import EvaluationBundle, GatePolicy, LeadMetrics
 from hydro_agent.optimization.gate import GateEvaluator
-from hydro_agent.optimization.contracts import EvaluationBundle, LeadMetrics
+from hydro_agent.skills import SkillRegistry
+
+
+def _cfg() -> GbtAccuracyConfig:
+    # Production-style tests consume the versioned knowledge profile instead of
+    # treating dataclass defaults as the source of the technical standard.
+    return SkillRegistry().gbt_accuracy_config()
 
 
 def _good_series() -> HydroSeries:
@@ -39,16 +45,17 @@ def _poor_series() -> HydroSeries:
 
 
 def test_basin_class_and_peak_permitted():
+    cfg = _cfg()
     assert resolve_basin_class(5000, "auto") == "gt3000"
     assert resolve_basin_class(1500, "auto") == "mid"
-    p_large = peak_flow_permitted(100.0, "gt3000", GbtAccuracyConfig())
-    p_mid = peak_flow_permitted(100.0, "mid", GbtAccuracyConfig())
+    p_large = peak_flow_permitted(100.0, "gt3000", cfg)
+    p_mid = peak_flow_permitted(100.0, "mid", cfg)
     assert abs(p_large - 20.0) < 1e-9
     assert abs(p_mid - 30.0) < 1e-9
 
 
 def test_table1_grades():
-    cfg = GbtAccuracyConfig()
+    cfg = _cfg()
     assert grade_from_dc(0.91, cfg) == "甲"
     assert grade_from_dc(0.75, cfg) == "乙"
     assert grade_from_dc(0.55, cfg) == "丙"
@@ -59,7 +66,7 @@ def test_table1_grades():
 
 
 def test_build_report_good_series_meets_bing():
-    report = build_gbt_accuracy_report(_good_series(), GbtAccuracyConfig(min_scheme_grade="丙"))
+    report = build_gbt_accuracy_report(_good_series(), _cfg())
     ids = {m.metric_id for m in report.metrics}
     assert ids >= {
         "peak_flow",
@@ -77,20 +84,20 @@ def test_build_report_good_series_meets_bing():
 
 
 def test_build_report_poor_series_fails():
-    report = build_gbt_accuracy_report(_poor_series(), GbtAccuracyConfig(min_scheme_grade="丙"))
+    report = build_gbt_accuracy_report(_poor_series(), _cfg())
     assert not report.meets_min_grade
 
 
 def test_gbt_subgraph_runs_all_nodes():
     graph = build_gbt_accuracy_graph()
-    out = graph.invoke({"series": _good_series(), "config": GbtAccuracyConfig()})
+    out = graph.invoke({"series": _good_series(), "config": _cfg()})
     assert out["report"].meets_min_grade
     assert out["peak_flow"].metric_id == "peak_flow"
     assert out["scheme_grade"].grade in {"甲", "乙", "丙"}
 
 
 def test_run_gbt_accuracy_helper():
-    report = run_gbt_accuracy(_good_series(), GbtAccuracyConfig())
+    report = run_gbt_accuracy(_good_series(), _cfg())
     assert report.dc is not None
 
 
@@ -106,22 +113,28 @@ def _bundle(scheme_id, nses):
     )
 
 
-def test_gate_accepts_only_with_gbt_grade():
-    base = _bundle("base", [0.2, 0.2, 0.2])
-    cand = _bundle("cand", [0.35, 0.35, 0.35])  # improved but below 丙 DC
-    policy = GatePolicy(
+def _gbt_policy() -> GatePolicy:
+    knowledge = SkillRegistry()
+    return GatePolicy(
         min_primary_delta=0.01,
         max_single_lead_drop=0.02,
         max_high_flow_mae_relative_increase=0.05,
-        accept_primary_floor=0.5,
-        min_scheme_grade="丙",
+        accept_primary_floor=0.5,  # legacy field; ignored for require_gbt_grade=True
+        min_scheme_grade=knowledge.min_scheme_grade(),
         require_gbt_grade=True,
     )
-    # Large relative gain alone must KEEP
+
+
+def test_gate_accepts_only_with_gbt_grade():
+    base = _bundle("base", [0.2, 0.2, 0.2])
+    cand = _bundle("cand", [0.35, 0.35, 0.35])
+    policy = _gbt_policy()
+
     decision = GateEvaluator().evaluate(base, cand, policy, gbt_report=None)
     assert decision.status == "KEEP"
+    assert "missing_standard_evaluation" in decision.reasons
 
-    good = build_gbt_accuracy_report(_good_series(), GbtAccuracyConfig(min_scheme_grade="丙"))
+    good = build_gbt_accuracy_report(_good_series(), _cfg())
     decision_ok = GateEvaluator().evaluate(
         base,
         _bundle("cand2", [0.7, 0.7, 0.7]),
@@ -130,3 +143,12 @@ def test_gate_accepts_only_with_gbt_grade():
     )
     assert decision_ok.status == "ACCEPT"
     assert "gbt_scheme_grade_ok" in decision_ok.reasons
+
+
+def test_high_nse_cannot_bypass_missing_standard_report():
+    base = _bundle("base", [0.6, 0.6, 0.6])
+    candidate = _bundle("cand", [0.95, 0.95, 0.95])
+    decision = GateEvaluator().evaluate(base, candidate, _gbt_policy(), gbt_report=None)
+    assert decision.status == "KEEP"
+    assert decision.scheme_grade is None
+    assert "missing_standard_evaluation" in decision.reasons
