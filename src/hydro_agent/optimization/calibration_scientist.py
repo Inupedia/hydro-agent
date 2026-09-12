@@ -12,6 +12,7 @@ from typing import Any, Literal
 from pydantic import Field
 
 from hydro_agent.execution.contracts import FrozenModel
+from hydro_agent.knowledge.expert import ExpertKnowledgeRepository
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 
 ParameterGroup = Literal["evap", "runoff", "routing"]
@@ -36,6 +37,8 @@ class CalibrationPlan(FrozenModel):
     search_scope: SearchScope
     local_scale: float | None = Field(default=None, ge=0.0, le=1.0)
     evaluation_budget: int = Field(ge=2, le=500)
+    knowledge_refs: tuple[str, ...] = ()
+    expert_notes: tuple[str, ...] = ()
     rationale: str = Field(min_length=1)
 
     @property
@@ -68,8 +71,13 @@ def plan_from_diagnosis(
     diagnosis: dict[str, Any],
     *,
     strategies: CalibrationStrategyRegistry | None = None,
+    expert_knowledge: ExpertKnowledgeRepository | None = None,
 ) -> CalibrationPlan:
-    """Translate a diagnosis into an auditable optimization experiment."""
+    """Translate a diagnosis into an auditable optimization experiment.
+
+    Evidence is primary. Expert priors may refine the parameter group/objective
+    choice, but remain advisory metadata and never alter validation Gate rules.
+    """
 
     registry = strategies or CalibrationStrategyRegistry()
     strategy_id = str(diagnosis.get("recommended_strategy_id") or "xaj-bounded-v1")
@@ -86,6 +94,17 @@ def plan_from_diagnosis(
     objective = str(diagnosis.get("recommended_objective") or strategy.objective)
     if objective not in {"nse", "peak", "composite"}:
         objective = strategy.objective
+
+    basin_attributes = diagnosis.get("basin_attributes")
+    expert = expert_knowledge or ExpertKnowledgeRepository()
+    advice = expert.advise(
+        diagnosis,
+        basin_attributes=basin_attributes if isinstance(basin_attributes, dict) else None,
+    )
+    if advice.recommended_param_groups:
+        groups = _normalize_groups(advice.recommended_param_groups, groups)
+    if advice.recommended_objective in {"nse", "peak", "composite"}:
+        objective = advice.recommended_objective
 
     hypotheses = list(diagnosis.get("hypotheses") or [])
     primary_id = str(diagnosis.get("hypothesis") or "UNKNOWN")
@@ -107,6 +126,12 @@ def plan_from_diagnosis(
     evidence.extend(str(note) for note in (diagnosis.get("notes") or ())[:4])
 
     scope: SearchScope = "local" if strategy.local_scale is not None else "global"
+    prior_text = ""
+    if advice.matched_rule_ids:
+        prior_text = (
+            f" 专家先验[{advice.status}/{advice.authority}]="
+            f"{','.join(advice.matched_rule_ids)}；"
+        )
     return CalibrationPlan(
         hypothesis=CalibrationHypothesis(
             hypothesis=primary_id,
@@ -121,9 +146,12 @@ def plan_from_diagnosis(
         search_scope=scope,
         local_scale=strategy.local_scale,
         evaluation_budget=strategy.evaluation_budget,
+        knowledge_refs=advice.matched_rule_ids,
+        expert_notes=advice.notes,
         rationale=(
             f"基于 {primary_id} 假设，仅开放 {','.join(groups)} 参数组；"
             f"由 {strategy.optimizer} 在确定性边界内完成数值搜索，Agent 不直接给参数值。"
+            f"{prior_text}"
         ),
     )
 
@@ -141,6 +169,7 @@ def reflect_on_gate(
         f"strategy={plan.strategy_id}",
         f"optimizer={plan.optimizer}",
         f"hypothesis={plan.hypothesis.hypothesis}",
+        *tuple(f"knowledge={item}" for item in plan.knowledge_refs),
         *tuple(reasons),
     )
     if status == "ACCEPT":
