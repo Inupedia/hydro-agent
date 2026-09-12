@@ -28,6 +28,8 @@ jobs:
       - name: Calibration scientist, knowledge and teacher-kernel tests
         run: >-
           uv run --frozen pytest -q
+          tests/agent/test_calibration_scientist_provider.py
+          tests/services/test_calibration_diagnostics.py
           tests/optimization/test_sceua.py
           tests/optimization/test_calibration_scientist.py
           tests/knowledge/test_cases.py
@@ -35,7 +37,7 @@ jobs:
           tests/evaluation/test_gbt22482.py
           tests/models/xaj/test_teacher_kernel.py
           tests/models/xaj/test_calibrate_runtime.py
-      - name: Run real Yaogu end-to-end smoke with SCE-UA
+      - name: Run real Yaogu end-to-end calibration-scientist smoke
         run: uv run --frozen python scripts/smoke_yaogu_full_flow.py
       - name: Print smoke summary
         if: always()
