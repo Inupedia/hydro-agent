@@ -42,6 +42,7 @@ jobs:
           tests/services/test_calibration_diagnostics.py
           tests/optimization/test_sceua.py
           tests/optimization/test_calibration_scientist.py
+          tests/optimization/test_search_boundary_expertise.py
           tests/knowledge/test_cases.py
           tests/knowledge/test_expert.py
           tests/knowledge/test_repository.py
