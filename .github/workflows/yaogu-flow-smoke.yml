@@ -1,0 +1,49 @@
+name: Yaogu Full Flow Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/knowledge-platform-architecture
+    paths:
+      - "scripts/smoke_yaogu_full_flow.py"
+      - "src/hydro_agent/**"
+      - "data/academy/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/yaogu-flow-smoke.yml"
+
+jobs:
+  yaogu-full-flow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Install real XAJ, GIS and LangGraph runtime
+        run: uv sync --frozen --extra dev --extra xaj-dem --extra api
+      - name: Knowledge and teacher-kernel component tests
+        run: >-
+          uv run --frozen pytest -q
+          tests/knowledge/test_repository.py
+          tests/evaluation/test_gbt22482.py
+          tests/models/xaj/test_teacher_kernel.py
+      - name: Run real Yaogu end-to-end smoke
+        run: uv run --frozen python scripts/smoke_yaogu_full_flow.py
+      - name: Print smoke summary
+        if: always()
+        run: |
+          if [ -f artifacts/yaogu-flow-smoke/summary.json ]; then
+            cat artifacts/yaogu-flow-smoke/summary.json
+          else
+            echo "summary.json was not produced"
+          fi
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yaogu-flow-smoke
+          path: artifacts/yaogu-flow-smoke
+          if-no-files-found: warn
