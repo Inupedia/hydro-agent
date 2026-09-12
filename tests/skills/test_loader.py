@@ -26,7 +26,7 @@ def test_load_default_skills_from_disk():
     assert cal.nse_good_enough == 0.5
 
 
-def test_nse_good_enough_follows_skill_metadata(tmp_path: Path):
+def test_skill_metadata_cannot_override_standard_threshold(tmp_path: Path):
     skill_dir = tmp_path / "xaj-calibration"
     skill_dir.mkdir()
     (skill_dir / "SKILL.md").write_text(
@@ -43,7 +43,7 @@ metadata:
 """,
         encoding="utf-8",
     )
-    # Minimal companions so registry is usable
+    # Minimal companions so registry is usable.
     for name, title in (("data-check", "资料"), ("forecast-diagnose", "诊断")):
         d = tmp_path / name
         d.mkdir()
@@ -60,7 +60,10 @@ metadata:
             encoding="utf-8",
         )
     registry = SkillRegistry(root=tmp_path)
-    assert registry.nse_good_enough() == 0.75
+    # Skill hints may differ, but the GB/T DC threshold is owned by the
+    # versioned knowledge repository and therefore remains 0.50.
+    assert registry.get("xaj-calibration").nse_good_enough == 0.75
+    assert registry.nse_good_enough() == 0.5
 
 
 def test_activate_for_view_selects_calibration_when_nse_poor():
@@ -110,6 +113,7 @@ def test_activate_for_view_selects_calibration_when_nse_poor():
     rendered = registry.render_activated(view)
     assert "nse_good_enough/DC_bing=0.500" in rendered
     assert "min_scheme_grade=丙" in rendered
+    assert "knowledge=GB/T 22482-2026" in rendered
 
 
 def test_parse_skill_rejects_name_mismatch(tmp_path: Path):
