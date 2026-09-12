@@ -6,6 +6,7 @@ silently promoted into Gate rules while still allowing the Agent to learn from
 external expertise and local evidence.
 """
 
+from hydro_agent.knowledge.basin_priors import derive_basin_hydro_profile
 from hydro_agent.knowledge.cases import (
     CalibrationCase,
     CalibrationCaseMemory,
@@ -27,5 +28,6 @@ __all__ = [
     "ExpertKnowledgeRepository",
     "ExpertRule",
     "KnowledgeRepository",
+    "derive_basin_hydro_profile",
     "lesson_from_gate",
 ]
