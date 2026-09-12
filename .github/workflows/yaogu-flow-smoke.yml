@@ -4,10 +4,11 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - feat/knowledge-platform-architecture
+      - feat/calibration-scientist-loop
     paths:
       - "scripts/smoke_yaogu_full_flow.py"
       - "src/hydro_agent/**"
+      - "tests/**"
       - "data/academy/**"
       - "pyproject.toml"
       - "uv.lock"
@@ -24,13 +25,19 @@ jobs:
           python-version: "3.12"
       - name: Install real XAJ, GIS and LangGraph runtime
         run: uv sync --frozen --extra dev --extra xaj-dem --extra api
-      - name: Knowledge and teacher-kernel component tests
+      - name: Calibration scientist, knowledge and teacher-kernel tests
         run: >-
           uv run --frozen pytest -q
+          tests/agent/test_calibration_scientist_provider.py
+          tests/services/test_calibration_diagnostics.py
+          tests/optimization/test_sceua.py
+          tests/optimization/test_calibration_scientist.py
+          tests/knowledge/test_cases.py
           tests/knowledge/test_repository.py
           tests/evaluation/test_gbt22482.py
           tests/models/xaj/test_teacher_kernel.py
-      - name: Run real Yaogu end-to-end smoke
+          tests/models/xaj/test_calibrate_runtime.py
+      - name: Run real Yaogu end-to-end calibration-scientist smoke
         run: uv run --frozen python scripts/smoke_yaogu_full_flow.py
       - name: Print smoke summary
         if: always()
