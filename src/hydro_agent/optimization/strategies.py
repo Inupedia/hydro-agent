@@ -1,33 +1,49 @@
 from hydro_agent.optimization.contracts import CalibrationStrategy
 
+# Production/research strategies: the Agent selects WHAT/WHY; SCE-UA searches
+# concrete parameter values under teacher-kernel bounds.
 XAJ_BOUNDED_V1 = CalibrationStrategy(
     strategy_id="xaj-bounded-v1",
+    max_candidates=96,
+    random_seed=20260908,
+    objective="nse",
+    local_scale=None,
+    param_groups=("evap", "runoff", "routing"),
+    optimizer="sce-ua",
+)
+
+XAJ_PEAK_BIAS_V1 = CalibrationStrategy(
+    strategy_id="xaj-peak-bias-v1",
+    max_candidates=96,
+    random_seed=20260911,
+    objective="composite",
+    local_scale=None,
+    param_groups=("runoff", "routing"),
+    optimizer="sce-ua",
+)
+
+XAJ_LOCAL_REFINE_V1 = CalibrationStrategy(
+    strategy_id="xaj-local-refine-v1",
+    max_candidates=64,
+    random_seed=20260912,
+    objective="nse",
+    local_scale=0.25,
+    param_groups=("evap", "runoff", "routing"),
+    optimizer="sce-ua",
+)
+
+# Explicit baseline retained for ablation and fair O/P/A experiments.
+XAJ_RANDOM_SEARCH_V1 = CalibrationStrategy(
+    strategy_id="xaj-random-search-v1",
     max_candidates=32,
     random_seed=20260908,
     objective="nse",
     local_scale=None,
     param_groups=("evap", "runoff", "routing"),
+    optimizer="random-search",
 )
 
-XAJ_PEAK_BIAS_V1 = CalibrationStrategy(
-    strategy_id="xaj-peak-bias-v1",
-    max_candidates=40,
-    random_seed=20260911,
-    objective="composite",
-    local_scale=None,
-    param_groups=("runoff", "routing"),
-)
-
-XAJ_LOCAL_REFINE_V1 = CalibrationStrategy(
-    strategy_id="xaj-local-refine-v1",
-    max_candidates=24,
-    random_seed=20260912,
-    objective="nse",
-    local_scale=0.25,
-    param_groups=("evap", "runoff", "routing"),
-)
-
-# Hydrologist notebook §6: parameters come from manual compare, not random search.
+# Hydrologist notebook §6: parameters come from manual compare, not numerical search.
 XAJ_HYDROLOGIST_MANUAL_V1 = CalibrationStrategy(
     strategy_id="xaj-hydrologist-manual-v1",
     max_candidates=1,
@@ -35,6 +51,7 @@ XAJ_HYDROLOGIST_MANUAL_V1 = CalibrationStrategy(
     objective="nse",
     local_scale=None,
     param_groups=("evap", "runoff", "routing"),
+    optimizer="manual",
 )
 
 
@@ -46,6 +63,7 @@ class CalibrationStrategyRegistry:
                 XAJ_BOUNDED_V1,
                 XAJ_PEAK_BIAS_V1,
                 XAJ_LOCAL_REFINE_V1,
+                XAJ_RANDOM_SEARCH_V1,
                 XAJ_HYDROLOGIST_MANUAL_V1,
             )
         }
