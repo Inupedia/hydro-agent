@@ -14,6 +14,7 @@ from hydro_agent.evaluation.metrics import (
     pbias_percent,
     rmse,
 )
+from hydro_agent.knowledge.expert import ExpertKnowledgeRepository
 
 
 def _safe(metric, obs: list[float], sim: list[float]) -> float | None:
@@ -50,6 +51,7 @@ def diagnose_prevalidation_window(
     validation_start: date,
     nse_good_enough: float,
     lookback_issue_days: int = 10,
+    expert_knowledge: ExpertKnowledgeRepository | None = None,
 ) -> dict[str, Any]:
     """Diagnose with issue/target dates strictly before the validation window.
 
@@ -158,23 +160,30 @@ def diagnose_prevalidation_window(
         metrics["peak_ratio"] = peak_ratio
         metrics["peak_timing_lag_days"] = float(peak_lag)
 
+    expert = expert_knowledge or ExpertKnowledgeRepository()
+    water_balance_rule = expert.rule("expert.water_balance_first")
+    if water_balance_rule.threshold is None:
+        raise ValueError("expert.water_balance_first requires a threshold")
+    water_balance_threshold = float(water_balance_rule.threshold)
+
     pbias = metrics["pbias_percent"]
     hypotheses: list[dict[str, Any]] = []
 
-    # Hydrologist ordering: fix water balance before fine-tuning hydrograph shape.
-    if abs(pbias) > 10.0:
+    # Expert-prior ordering: fix water balance before fine-tuning hydrograph shape.
+    if abs(pbias) >= water_balance_threshold:
         hypotheses.append(
             {
                 "id": "MODEL",
                 "strength": 0.9,
                 "phenomenon": (
-                    f"率定期水量偏差 PBIAS={pbias:.1f}% 超过 ±10%，"
-                    "优先处理蒸散发/产流，不先精调汇流"
+                    f"率定期水量偏差 PBIAS={pbias:.1f}% 达到专家先验阈值 "
+                    f"±{water_balance_threshold:g}%，优先处理蒸散发/产流，不先精调汇流"
                 ),
                 "suggested_action": "A07_OPTIMIZE",
                 "suggested_strategy_id": "xaj-water-balance-v1",
                 "suggested_param_groups": ["evap", "runoff"],
                 "suggested_objective": "composite",
+                "knowledge_refs": [water_balance_rule.rule_id],
             }
         )
     elif abs(peak_lag) >= 1:
@@ -233,6 +242,7 @@ def diagnose_prevalidation_window(
         f"validation_starts={validation_start.isoformat()}",
         "diagnostic_truth_strictly_precedes_validation=true",
         "hydrologist_order=water_balance->peak_timing->peak_magnitude->overall_skill",
+        f"expert_prior={water_balance_rule.rule_id}",
     ]
     return {
         "hypothesis": primary["id"],
