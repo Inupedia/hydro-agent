@@ -1,8 +1,5 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 from datetime import date, timedelta
-
 
 DEFAULT_VALIDATION_DAYS = 30
 MAX_VALIDATION_DAYS = 90
@@ -71,9 +68,7 @@ def build_experiment_timeline(
     if warmup_days < 1:
         raise ValueError("warmup_days must be positive")
     if validation_days < 3 or validation_days > MAX_VALIDATION_DAYS:
-        raise ValueError(
-            f"validation_days must be between 3 and {MAX_VALIDATION_DAYS}"
-        )
+        raise ValueError(f"validation_days must be between 3 and {MAX_VALIDATION_DAYS}")
 
     research_days = (end_date - start_date).days + 1
     effective_validation_days = min(validation_days, research_days)
