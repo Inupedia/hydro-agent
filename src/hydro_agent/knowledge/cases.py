@@ -7,7 +7,6 @@ Agent/optimizer boundary.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from pydantic import Field
