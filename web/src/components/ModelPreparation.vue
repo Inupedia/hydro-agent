@@ -193,25 +193,25 @@ onUnmounted(() => {
   <section class="model-preparation" data-test="model-preparation">
     <header>
       <span class="overline">01 / 数据准备</span>
-      <h2>用本地腰古资料建立计算单元</h2>
+      <h2>用本地流域资料建立计算单元</h2>
       <p>
-        当前只使用内置腰古日资料与 DEM。划分方式与老师 notebook 第 2 节相同：先用河网阈值与单元面积阈值做子流域切割；集总式会把切出的子流域再合并成 1 个单元。单元数由阈值决定，不能指定 N。
+        系统使用所选流域的日水文、GIS 与 DEM 资料建立模型方案。集总式使用全流域 1 套 XAJ；分布式方案会保留多个计算单元，具体划分说明以边界复核结果为准。
       </p>
     </header>
 
-    <p v-if="!basinId" class="basin-caption">请先确认流域为腰古。</p>
+    <p v-if="!basinId" class="basin-caption">请先选择研究流域。</p>
     <div v-else class="prep-body">
       <div class="materials">
         <strong>{{ basin?.label || basinId }}</strong>
         <ul>
-          <li :data-ok="materials.hydro">水文：腰古日降水 / 蒸发 / 流量</li>
+          <li :data-ok="materials.hydro">水文：日降水 / 蒸散发 / 流量</li>
           <li :data-ok="materials.gis">GIS：站点与流域图层</li>
-          <li :data-ok="materials.dem">DEM：已附带 Skadi 瓦片</li>
+          <li :data-ok="materials.dem">DEM：本地高程栅格与来源记录</li>
         </ul>
-        <p v-if="loadingBasin" class="basin-caption">正在核对内置腰古资料。</p>
-        <p v-else-if="canBuild" class="basin-caption">资料已内置，无需下载。请划分边界后做完整调参。</p>
+        <p v-if="loadingBasin" class="basin-caption">正在核对本地流域资料。</p>
+        <p v-else-if="canBuild" class="basin-caption">本地资料可用于建模。请建立方案并复核边界。</p>
         <p v-else class="basin-caption">
-          尚未确认内置资料齐全。
+          尚未确认本地资料齐全。
           <button type="button" class="text-button" @click="refreshBasin">重新检查</button>
         </p>
       </div>
@@ -273,7 +273,7 @@ onUnmounted(() => {
 
         <figure v-if="showMap && !mapBroken" class="gis-map" data-test="gis-map">
           <img :src="mapSrc" alt="流域边界、计算单元与河网" @error="mapBroken = true" />
-          <figcaption>老师 DEM 划分结果：色块为 PyFlwDir 计算单元，红点为腰古出口。请核对面积与边界后再确认。</figcaption>
+          <figcaption>流域划分结果：色块为计算单元，红点为流域出口。请核对面积与边界后再确认。</figcaption>
         </figure>
         <p v-else-if="showMap && mapBroken" class="basin-caption">边界图暂不可用，请重新新建方案后再复核。</p>
 

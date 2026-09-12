@@ -7,7 +7,7 @@ import { useDemoStore } from '../stores/demo'
 import { api } from '../api/client'
 vi.mock('../components/ForecastChart.vue', () => ({ default: { template: '<div data-test="chart" />' } }))
 vi.mock('../components/HydrographComparisonChart.vue', () => ({ default: { template: '<div data-test="hydrograph" />' } }))
-vi.mock('../api/client', () => ({ api: { health: vi.fn(async () => ({ status: 'ok', mode: 'demo' })), listTasks: vi.fn(async () => []), createTask: vi.fn(async () => ({task_id:'test-task'})), deleteTask: vi.fn(async () => undefined), startRun: vi.fn(async () => ({ status:'running',worker_active:true })), getRun: vi.fn(async () => ({ status:'running',worker_active:true })), getTimeline: vi.fn(async () => []), getTask: vi.fn(async () => ({ basin_id:'basin-restored',start_date:'2021-01-01',end_date:'2021-01-03',forcing_mode:'R' })) } }))
+vi.mock('../api/client', () => ({ api: { health: vi.fn(async () => ({ status: 'ok', mode: 'demo', basin_catalog: true })), listBasins: vi.fn(async () => [{basin_id:'yaogu',label:'腰古',ready_for_build:true},{basin_id:'usgs_02472000',label:'Leaf River near Collins (MS)',ready_for_build:true}]), listTasks: vi.fn(async () => []), createTask: vi.fn(async () => ({task_id:'test-task'})), deleteTask: vi.fn(async () => undefined), startRun: vi.fn(async () => ({ status:'running',worker_active:true })), getRun: vi.fn(async () => ({ status:'running',worker_active:true })), getTimeline: vi.fn(async () => []), getTask: vi.fn(async () => ({ basin_id:'basin-restored',start_date:'2021-01-01',end_date:'2021-01-03',forcing_mode:'R' })) } }))
 async function setup(path='/') {
   const router = createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:ObservatoryView}]})
   await router.push(path)
@@ -41,7 +41,16 @@ describe('single page observatory',()=>{
   expect(wrapper.find('.record-count').exists()).toBe(false)
   expect(wrapper.find('.water-scene').exists()).toBe(false)
   expect(wrapper.find('.stage-track').exists()).toBe(false)
-  expect(wrapper.find('.hero-copy').exists()).toBe(false)
+ expect(wrapper.find('.hero-copy').exists()).toBe(false)
+  wrapper.unmount()
+ })
+ it('lists Leaf River and keeps the selected basin',async()=>{
+  const {wrapper,store}=await setup()
+  const selector=wrapper.find('[data-test="basin-selector"]')
+  expect(selector.text()).toContain('Leaf River near Collins')
+  await selector.setValue('usgs_02472000')
+  expect(store.draft.basin_id).toBe('usgs_02472000')
+  expect(wrapper.text()).toContain('使用 Leaf River near Collins (MS) 本地日资料')
   wrapper.unmount()
  })
  it('renders arriving results in place and exposes report links',async()=>{

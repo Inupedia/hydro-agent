@@ -1,4 +1,4 @@
-"""Bundled basin catalog. Workbench currently ships only Yaogu academy data."""
+"""Catalog for bundled Yaogu and versioned public basin packages."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from hydro_agent.modeling.plans import (
     write_json,
 )
 
-# Product catalog. Other public US basins are out of scope until Yaogu calibration is complete.
+# Product catalog. Leaf River is the rainfall-dominated public XAJ comparison basin.
 BUILTIN_BASINS: tuple[dict[str, Any], ...] = (
     {
         "basin_id": BUNDLED_BASIN_ID,
@@ -27,6 +27,17 @@ BUILTIN_BASINS: tuple[dict[str, Any], ...] = (
         "default_end": "1991-03-31",
         "primary": True,
         "outlet_station": "腰古",
+    },
+    {
+        "basin_id": "usgs_02472000",
+        "usgs_site": "02472000",
+        "label": "Leaf River near Collins (MS)",
+        "region": "Mississippi, USA",
+        "kind": "downloaded",
+        "adapter": "open-v2-spatial",
+        "default_start": "1979-01-01",
+        "default_end": "2025-12-31",
+        "primary": False,
     },
 )
 

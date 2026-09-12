@@ -386,13 +386,16 @@ def build_app(
     from hydro_agent.graphs.hydrologist import build_hydrologist_tune_graph
     from hydro_agent.modeling.basins import BasinCatalog
     from hydro_agent.modeling.hydrologist import HydrologistTuneService
-    from hydro_agent.modeling.plans import ModelPlanService, bundled_academy_root
+    from hydro_agent.modeling.plan_catalog import BasinModelPlanService
+    from hydro_agent.modeling.plans import bundled_academy_root
 
     data_root = Path(os.getenv("HYDRO_AGENT_DATA_ROOT", "data"))
     basins_root = Path(os.getenv("HYDRO_AGENT_BASINS", str(data_root / "basins")))
     academy = Path(os.getenv("HYDRO_AGENT_ACADEMY", str(bundled_academy_root())))
     deps.basins = BasinCatalog(basins_root, academy=academy)
-    deps.model_plans = ModelPlanService(report_root.parent / "model-plans", academy)
+    deps.model_plans = BasinModelPlanService(
+        report_root.parent / "model-plans", academy, deps.basins
+    )
     deps.hydrologist = HydrologistTuneService(
         report_root.parent / "hydrologist-sessions",
         deps.model_plans,

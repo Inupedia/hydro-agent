@@ -1,0 +1,28 @@
+{
+  "provider": "USGS 3D Elevation Program seamless elevation service",
+  "product": "3DEP approximately 30 m export",
+  "downloaded": {
+    "url": "https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage?bbox=-89.747799643%2C31.637286038%2C-89.154938421%2C32.409883379&bboxSR=4326&size=1866%2C2867&imageSR=4326&format=tiff&pixelType=F32&interpolation=RSP_BilinearInterpolation&f=image",
+    "file": "dem/leaf_river_3dep_30m.tif",
+    "bytes": 22613486,
+    "sha256": "5defdbe0c8d470e7a38746d49ae79fadd014273d788fc508c26be8dd88a87ee8",
+    "reused": true
+  },
+  "width": 1866,
+  "height": 2867,
+  "crs": "EPSG:4326",
+  "bounds": [
+    -89.74779964300001,
+    31.568136390312972,
+    -89.15493842100001,
+    32.47903302668703
+  ],
+  "resolution_degrees": [
+    0.00031771769667738274,
+    0.00031771769667738225
+  ],
+  "basin_valid_fraction": 1.0,
+  "basin_elevation_min_m": 61.384071350097656,
+  "basin_elevation_max_m": 193.6781005859375,
+  "basin_elevation_mean_m": 118.43521881103516
+}

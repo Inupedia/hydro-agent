@@ -13,6 +13,10 @@ __pycache__/
 data/source/
 data/snapshots/
 data/hydro-agent.db*
-# Local basin downloads (DEM tiles, hydro series) and smoke/e2e artifacts.
-data/basins/
+# Keep only the two supported basin packages in Git; ignore ad-hoc downloads.
+data/basins/*
+!data/basins/yaogu/
+!data/basins/yaogu/**
+!data/basins/usgs_02472000/
+!data/basins/usgs_02472000/**
 artifacts/

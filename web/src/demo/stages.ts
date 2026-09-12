@@ -143,6 +143,7 @@ export function gateDecisionZh(
 
 export const BASIN_LABELS: Record<string, string> = {
   yaogu: '腰古',
+  usgs_02472000: 'Leaf River near Collins',
 }
 
 export function basinLabel(basinId: string): string {

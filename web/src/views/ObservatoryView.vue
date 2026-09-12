@@ -22,6 +22,14 @@ const connected = ref(false)
 const modelingAvailable = ref(false)
 const hydrologistAvailable = ref(false)
 const basins = ref<import('../types/api').BasinInfo[]>([])
+const basinOptions = computed(() =>
+  basins.value.length
+    ? basins.value
+    : [{ basin_id: demo.draft.basin_id, label: basinLabel(demo.draft.basin_id), ready_for_build: true }],
+)
+const selectedBasin = computed(() =>
+  basinOptions.value.find((basin) => basin.basin_id === demo.draft.basin_id),
+)
 const planReady = computed(() => !!demo.draft.model_plan_id)
 /** When true, basin changes come from plan binding — do not clear model_plan_id. */
 let syncingPlanBasin = false
@@ -323,8 +331,8 @@ onMounted(async () => {
         basins.value = []
       }
     }
-    if (!demo.taskId) {
-      demo.draft.basin_id = 'yaogu'
+    if (!demo.taskId && !basins.value.some((basin) => basin.basin_id === demo.draft.basin_id && basin.ready_for_build)) {
+      demo.draft.basin_id = basins.value.find((basin) => basin.ready_for_build)?.basin_id || 'yaogu'
     }
   } catch {
     connected.value = false
@@ -459,13 +467,22 @@ onUnmounted(() => {
         <div class="pane-head">
           <div class="section-heading"><span class="overline">02 / 流域与任务</span></div>
           <h2>研究流域</h2>
-          <p class="muted">当前固定为内置腰古资料，不能改选其它流域。</p>
+          <p class="muted">选择本地资料完整的流域，再建立并复核计算方案。</p>
         </div>
         <form class="pane-form" @submit.prevent="begin">
           <div class="pane-body">
             <fieldset :disabled="locked">
               <label>研究流域
-                <span class="locked-basin">腰古<small>yaogu · 本地日资料</small></span>
+                <select v-model="demo.draft.basin_id" data-test="basin-selector" aria-label="研究流域">
+                  <option
+                    v-for="basin in basinOptions"
+                    :key="basin.basin_id"
+                    :value="basin.basin_id"
+                    :disabled="basin.ready_for_build === false"
+                  >
+                    {{ basin.label }} · {{ basin.basin_id }}{{ basin.ready_for_build === false ? '（资料不完整）' : '' }}
+                  </option>
+                </select>
               </label>
               <p v-if="demo.draft.model_plan_id" class="basin-caption">已绑定方案：{{ demo.draft.model_plan_id }}</p>
               <p v-else-if="serviceMode === 'real'" class="basin-caption">请先在左侧完成数据准备</p>
@@ -474,7 +491,7 @@ onUnmounted(() => {
                 <fieldset :disabled="locked || (serviceMode === 'real' && !planReady)">
                 <div class="date-fields"><label>开始日期<input v-model="demo.draft.start_date" type="date" required /></label><label>结束日期<input v-model="demo.draft.end_date" type="date" :min="demo.draft.start_date" required /></label></div>
                 <label>计算模型<select v-model="demo.draft.model_id"><option value="xaj">新安江 · XAJ</option><option value="openhydronet" disabled>OpenHydroNet · 尚未启用</option></select></label>
-                <label>气象资料<select v-model="demo.draft.forcing_mode"><option value="R">实测日资料 · 历史率定</option><option value="F" disabled>预报资料 · 腰古暂不开放</option></select></label>
+                <label>气象资料<select v-model="demo.draft.forcing_mode"><option value="R">实测日资料 · 历史率定</option><option value="F" disabled>预报资料 · 当前未开放</option></select></label>
                 <label class="toggle-row"><span>允许尝试改进方案</span><input v-model="demo.draft.allow_optimization" type="checkbox" role="switch" /></label>
                 <button class="text-button" type="button" :aria-expanded="advanced" @click="advanced = !advanced">{{ advanced ? '收起运行设置 −' : '运行设置 +' }}</button>
                 <div v-if="advanced" class="advanced-fields"><label>基础方案<input v-model="demo.draft.base_scheme_id" required /></label><label>最多决策轮次<input v-model.number="demo.draft.max_agent_decision_rounds" type="number" min="1" max="100" required /></label><label>最多改进次数<input v-model.number="demo.draft.max_optimization_cycles" type="number" min="0" max="20" required /></label></div>
@@ -487,7 +504,7 @@ onUnmounted(() => {
             <button v-else-if="demo.run.paused && demo.mode !== 'replay'" type="button" class="start-button" :disabled="busy" @click="resume">继续计算</button>
             <button v-else-if="demo.isRunning" type="button" class="start-button" disabled>正在计算<span class="activity-dot" /></button>
             <button v-else type="button" class="start-button" @click="newTask">新建任务</button>
-            <p class="source-note">{{ demo.draft.forcing_mode === 'R' ? '使用内置腰古日资料做历史率定与检验，不代表业务预报。' : '预报资料可用性将在运行时检查。' }}</p>
+            <p class="source-note">{{ demo.draft.forcing_mode === 'R' ? `使用 ${selectedBasin?.label || demo.draft.basin_id} 本地日资料做历史率定与检验，不代表业务预报。` : '预报资料可用性将在运行时检查。' }}</p>
             <div class="case-picker-row">
               <label class="case-picker">已有案例<select aria-label="已有案例" :disabled="demo.isRunning || busy" :value="demo.mode === 'replay' ? demo.taskId : ''" @change="openCase"><option value="">{{ demo.caseLibrary.length ? '选择一份已完成记录' : '暂无已完成记录' }}</option><option v-for="task in demo.caseLibrary" :key="task.task_id" :value="task.task_id">{{ task.start_date || task.task_id }} · {{ basinLabel(task.basin_id) }}</option></select></label>
               <button data-test="delete-case" type="button" class="case-delete" :disabled="demo.isRunning || busy || demo.mode !== 'replay' || !demo.taskId" @click="deleteSelectedCase">删除</button>

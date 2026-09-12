@@ -1,0 +1,20 @@
+{
+  "basin_id": "yaogu",
+  "label": "腰古",
+  "region": "广东",
+  "kind": "bundled",
+  "adapter": "teacher-academy",
+  "default_start": "1991-01-01",
+  "default_end": "1991-03-31",
+  "primary": true,
+  "outlet_station": "腰古",
+  "status": "complete",
+  "missing": [],
+  "materials": {
+    "hydro": true,
+    "dem": true,
+    "gis": true
+  },
+  "ready_for_build": true,
+  "complete": true
+}

@@ -5,7 +5,6 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
-import math
 import shutil
 import threading
 import uuid
@@ -72,6 +71,8 @@ class UsModelPlanService:
         self.lock = threading.RLock()
         for path in self.root.glob("plan-*/plan.json"):
             p = json.loads(path.read_text(encoding="utf-8"))
+            if p.get("basin_id") == "yaogu":
+                continue
             if p["status"] in ("running", "queued"):
                 p.update(status="failed", error="服务重启中断了建模，请新建方案。")
                 write_json(path, p)
@@ -88,7 +89,15 @@ class UsModelPlanService:
         return json.loads(path.read_text(encoding="utf-8"))
 
     def list(self) -> list[dict]:
-        return [self.get(p.parent.name) for p in sorted(self.root.glob("plan-*/plan.json"), reverse=True)]
+        plans = [self.get(p.parent.name) for p in sorted(self.root.glob("plan-*/plan.json"), reverse=True)]
+        return [plan for plan in plans if plan.get("basin_id") != "yaogu"]
+
+    def delete(self, plan_id: str) -> None:
+        with self.lock:
+            plan = self.get(plan_id)
+            if plan.get("status") in ("queued", "running"):
+                raise ValueError("建模进行中，无法删除")
+            shutil.rmtree(self.directory(plan_id))
 
     def _update(self, plan_id: str, **fields):
         with self.lock:
@@ -122,7 +131,10 @@ class UsModelPlanService:
                 config=request.model_dump(),
                 model_version=MODEL_VERSION,
                 model_source_sha256=MODEL_SHA256,
-                stages=[dict(code=c, label=l, status="pending", detail="") for c, l in STAGES],
+                stages=[
+                    dict(code=code, label=label, status="pending", detail="")
+                    for code, label in STAGES
+                ],
                 boundary_reviewed=False,
             )
             write_json(self.directory(plan_id) / "plan.json", payload)
@@ -164,7 +176,7 @@ class UsModelPlanService:
             hydro = self.catalog.hydro_dir(basin_id)
             if not reviewed:
                 self._stage(plan_id, "M00_ENSURE_MATERIALS", "running")
-                meta = self.catalog.require_buildable(basin_id)
+                self.catalog.require_buildable(basin_id)
                 self._stage(plan_id, "M00_ENSURE_MATERIALS", "completed", "水文资料齐备")
                 self._stage(plan_id, "M02_DELINEATE", "running")
                 case = root / "case"
@@ -235,7 +247,10 @@ class UsModelPlanService:
                             outlet_xy = (float(geom["coordinates"][0]), float(geom["coordinates"][1]))
                             break
                 try:
-                    from hydro_agent.modeling.review_map import render_basin_review_map, write_units_geojson
+                    from hydro_agent.modeling.review_map import (
+                        render_basin_review_map,
+                        write_units_geojson,
+                    )
 
                     write_units_geojson(gis, unit_count=len(units), outlet_xy=outlet_xy)
                     render_basin_review_map(

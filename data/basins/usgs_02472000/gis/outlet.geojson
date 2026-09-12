@@ -1,0 +1,19 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "usgs_site": "02472000",
+        "name": "LEAF RIVER NR COLLINS, MS"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -89.4069444,
+          31.70694444
+        ]
+      }
+    }
+  ]
+}

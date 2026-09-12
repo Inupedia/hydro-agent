@@ -1,7 +1,8 @@
 from datetime import date, timedelta
 
 from hydro_agent.modeling.basins import BUILTIN_BASINS, BasinCatalog
-from hydro_agent.modeling.plans import academy_materials_ready, bundled_academy_root
+from hydro_agent.modeling.plan_catalog import BasinModelPlanService
+from hydro_agent.modeling.plans import PlanRequest, academy_materials_ready, bundled_academy_root
 from hydro_agent.modeling.us_plans import UsModelPlanService, UsPlanRequest
 
 
@@ -34,13 +35,15 @@ def _seed_hydro(catalog: BasinCatalog, basin_id: str = "camels_13235000", days: 
 def test_catalog_lists_bundled_yaogu_ready(tmp_path):
     catalog = BasinCatalog(tmp_path / "basins", academy=bundled_academy_root())
     rows = catalog.list()
-    assert [r["basin_id"] for r in rows] == ["yaogu"]
-    assert {b["basin_id"] for b in BUILTIN_BASINS} == {"yaogu"}
-    yaogu = rows[0]
+    assert [r["basin_id"] for r in rows] == ["yaogu", "usgs_02472000"]
+    assert {b["basin_id"] for b in BUILTIN_BASINS} == {"yaogu", "usgs_02472000"}
+    yaogu = next(row for row in rows if row["basin_id"] == "yaogu")
     assert academy_materials_ready()
     assert yaogu["ready_for_build"] is True
     assert yaogu["materials"]["hydro"] is True
     assert yaogu["materials"]["dem"] is True
+    leaf = next(row for row in rows if row["basin_id"] == "usgs_02472000")
+    assert leaf["ready_for_build"] is False
 
 
 def test_catalog_missing_academy_not_ready(tmp_path):
@@ -76,3 +79,24 @@ def test_us_plan_lumped_build_to_ready(tmp_path):
     assert plan["basin_id"] == "camels_13235000"
     service.pool.shutdown(wait=False)
 
+
+def test_combined_plan_service_dispatches_us_basin(tmp_path):
+    catalog = BasinCatalog(tmp_path / "basins", academy=bundled_academy_root())
+    _seed_hydro(catalog)
+    service = BasinModelPlanService(tmp_path / "plans", bundled_academy_root(), catalog)
+    plan = service.create(
+        PlanRequest(basin_id="camels_13235000", model_mode="lumped", warmup_days=5)
+    )
+
+    import time
+
+    for _ in range(50):
+        plan = service.get(plan["plan_id"])
+        if plan["status"] in ("awaiting_review", "failed"):
+            break
+        time.sleep(0.05)
+    assert plan["status"] == "awaiting_review", plan.get("error")
+    assert service.list()[0]["basin_id"] == "camels_13235000"
+    service.delete(plan["plan_id"])
+    service.yaogu.pool.shutdown(wait=False)
+    service.usgs.pool.shutdown(wait=False)

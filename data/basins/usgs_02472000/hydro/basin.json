@@ -1,0 +1,15 @@
+{
+  "basin_id": "usgs_02472000",
+  "station_id": "USGS-02472000",
+  "usgs_site": "02472000",
+  "name": "LEAF RIVER NR COLLINS, MS",
+  "latitude": 31.70694444,
+  "longitude": -89.4069444,
+  "area_km2": 1924.361165979648,
+  "day_timezone": "UTC",
+  "source_timezone": "CST",
+  "adapter": "open-v2-spatial",
+  "forcing": "gridmet-basin-grid",
+  "terrain": "usgs-3dep-30m",
+  "boundary": "usgs-nldi-unsimplified"
+}

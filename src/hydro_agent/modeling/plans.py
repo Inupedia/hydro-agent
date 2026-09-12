@@ -120,6 +120,8 @@ class ModelPlanService:
         self.lock = threading.RLock()
         for path in self.root.glob('plan-*/plan.json'):
             p = json.loads(path.read_text(encoding='utf-8'))
+            if p.get('basin_id') != BUNDLED_BASIN_ID:
+                continue
             if p['status'] in ('running', 'queued'):
                 p.update(status='failed', error='服务重启中断了建模，请新建方案；未复用不完整成果。')
                 write_json(path, p)

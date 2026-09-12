@@ -1,0 +1,1 @@
+{"valid_date": "2016-11-27", "method": "linear interpolation between adjacent approved USGS daily values", "previous_date": "2016-11-26", "previous_cfs": 90.1, "next_date": "2016-11-28", "next_cfs": 90.5, "imputed_cfs": 90.3, "risk": "exclude or mask this date in formal scoring sensitivity checks"}

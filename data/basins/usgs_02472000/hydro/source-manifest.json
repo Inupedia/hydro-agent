@@ -1,0 +1,384 @@
+{
+  "dataset": "USGS 02472000 Leaf River near Collins complete XAJ package",
+  "adapter": "open-v2-spatial",
+  "retrieved_at": "2026-09-12T06:40:57.643853+00:00",
+  "time_semantics": {
+    "normalized_day_timezone": "UTC",
+    "usgs_source_timezone": "CST",
+    "forcing_mode": "R",
+    "note": "GridMET is retrospective; historical operational availability is not asserted."
+  },
+  "profile": {
+    "model_start": "1979-01-01",
+    "model_end": "2025-12-31",
+    "model_days": 17167,
+    "forcing_days": 17167,
+    "flow_days": 17167,
+    "observed_model_flow_days": 17166,
+    "imputed_model_flow_days": 1,
+    "imputed_model_flow_dates": [
+      "2016-11-27"
+    ],
+    "full_flow_start": "1938-09-12",
+    "full_flow_end": "2026-09-10",
+    "full_flow_days": 32140,
+    "selected_grid_cells": 107,
+    "approval_status_counts": {
+      "Approved": 32052,
+      "Provisional": 88
+    },
+    "qualifier_counts": {
+      "NONE": 31944,
+      "ESTIMATED": 188,
+      "EQUIP": 1,
+      "EQUIP,ESTIMATED": 7
+    },
+    "precipitation_min_mm_day": 0.0,
+    "precipitation_max_mm_day": 135.39345794392526,
+    "pet_min_mm_day": 0.12523364485981311,
+    "pet_max_mm_day": 10.570093457943925,
+    "discharge_min_m3s": 1.104357017088,
+    "discharge_max_m3s": 1200.6342955008001
+  },
+  "dem": {
+    "provider": "USGS 3D Elevation Program seamless elevation service",
+    "product": "3DEP approximately 30 m export",
+    "downloaded": {
+      "url": "https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage?bbox=-89.747799643%2C31.637286038%2C-89.154938421%2C32.409883379&bboxSR=4326&size=1866%2C2867&imageSR=4326&format=tiff&pixelType=F32&interpolation=RSP_BilinearInterpolation&f=image",
+      "file": "dem/leaf_river_3dep_30m.tif",
+      "bytes": 22613486,
+      "sha256": "5defdbe0c8d470e7a38746d49ae79fadd014273d788fc508c26be8dd88a87ee8",
+      "reused": true
+    },
+    "width": 1866,
+    "height": 2867,
+    "crs": "EPSG:4326",
+    "bounds": [
+      -89.74779964300001,
+      31.568136390312972,
+      -89.15493842100001,
+      32.47903302668703
+    ],
+    "resolution_degrees": [
+      0.00031771769667738274,
+      0.00031771769667738225
+    ],
+    "basin_valid_fraction": 1.0,
+    "basin_elevation_min_m": 61.384071350097656,
+    "basin_elevation_max_m": 193.6781005859375,
+    "basin_elevation_mean_m": 118.43521881103516
+  },
+  "raw_receipts": [
+    {
+      "url": "https://waterservices.usgs.gov/nwis/site/?format=rdb&sites=02472000&siteOutput=expanded",
+      "file": "hydro/raw/usgs_site.rdb",
+      "bytes": 3202,
+      "sha256": "8af7b762836d1a56e151cf3efb2877e4c75da83b85258a9223b48cf5cc49d7be"
+    },
+    {
+      "url": "https://api.water.usgs.gov/nldi/linked-data/nwissite/USGS-02472000?f=json",
+      "file": "gis/raw/nldi_feature.json",
+      "bytes": 592,
+      "sha256": "30295bd4d82fb070d79faf99d4baeb8820234f67575dc4e471fbc49a9f389cfd"
+    },
+    {
+      "url": "https://api.water.usgs.gov/nldi/linked-data/nwissite/USGS-02472000/basin?f=json&simplified=false",
+      "file": "gis/boundary.geojson",
+      "bytes": 49360,
+      "sha256": "0eccbbf4538c5bbb2fa100d1753ba0ef25560593f1736d40ca30e210c5e346d0"
+    },
+    {
+      "url": "https://api.water.usgs.gov/nldi/linked-data/nwissite/USGS-02472000/basin?f=json&simplified=true",
+      "file": "gis/boundary_simplified.geojson",
+      "bytes": 13325,
+      "sha256": "885a7e5a7cc0233cb65e39774ab9626b5295ef5fc5b0ee1d1ad0e7dd1be378f5"
+    },
+    {
+      "url": "https://api.water.usgs.gov/nldi/linked-data/nwissite/USGS-02472000/navigation/UT/flowlines?f=json&distance=160",
+      "file": "gis/flowlines.geojson",
+      "bytes": 1176248,
+      "sha256": "a945f4757944546632ab702c8ed03870ae82f91cd0ca31360c74f6efdf8bc64e"
+    },
+    {
+      "url": "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid/agg_met_pr_1979_CurrentYear_CONUS.nc?var=precipitation_amount&north=32.439883&west=-89.777800&east=-89.124938&south=31.607286&horizStride=1&time_start=1979-01-01T00%3A00%3A00Z&time_end=1988-12-31T00%3A00%3A00Z&timeStride=1&accept=netcdf",
+      "file": "hydro/gridded/gridmet_precipitation_1979_1988.nc",
+      "bytes": 2487532,
+      "sha256": "3d93e8ba6a1a49f7aa13130f50b706b17ad8dd6230c844370af8c60a6f299a75",
+      "reused": true,
+      "variable": "precipitation_amount",
+      "start": "1979-01-01",
+      "end": "1988-12-31"
+    },
+    {
+      "url": "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid/agg_met_pr_1979_CurrentYear_CONUS.nc?var=precipitation_amount&north=32.439883&west=-89.777800&east=-89.124938&south=31.607286&horizStride=1&time_start=1989-01-01T00%3A00%3A00Z&time_end=1998-12-31T00%3A00%3A00Z&timeStride=1&accept=netcdf",
+      "file": "hydro/gridded/gridmet_precipitation_1989_1998.nc",
+      "bytes": 2486852,
+      "sha256": "f419bdd47aba830051716952880f48a23e9d6912a51ed5e195358bd307aad7bc",
+      "reused": true,
+      "variable": "precipitation_amount",
+      "start": "1989-01-01",
+      "end": "1998-12-31"
+    },
+    {
+      "url": "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid/agg_met_pr_1979_CurrentYear_CONUS.nc?var=precipitation_amount&north=32.439883&west=-89.777800&east=-89.124938&south=31.607286&horizStride=1&time_start=1999-01-01T00%3A00%3A00Z&time_end=2008-12-31T00%3A00%3A00Z&timeStride=1&accept=netcdf",
+      "file": "hydro/gridded/gridmet_precipitation_1999_2008.nc",
+      "bytes": 2487532,
+      "sha256": "b86ce419dfc7140f244befe7ce5639233e48e1e8a581d5899356cb27b333cf10",
+      "reused": true,
+      "variable": "precipitation_amount",
+      "start": "1999-01-01",
+      "end": "2008-12-31"
+    },
+    {
+      "url": "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid/agg_met_pr_1979_CurrentYear_CONUS.nc?var=precipitation_amount&north=32.439883&west=-89.777800&east=-89.124938&south=31.607286&horizStride=1&time_start=2009-01-01T00%3A00%3A00Z&time_end=2018-12-31T00%3A00%3A00Z&timeStride=1&accept=netcdf",
+      "file": "hydro/gridded/gridmet_precipitation_2009_2018.nc",
+      "bytes": 2486852,
+      "sha256": "dc8cc3be76a404311641310fcf69a5cdce63435c807a212b9d931fc44f2c8a85",
+      "reused": true,
+      "variable": "precipitation_amount",
+      "start": "2009-01-01",
+      "end": "2018-12-31"
+    },
+    {
+      "url": "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid/agg_met_pr_1979_CurrentYear_CONUS.nc?var=precipitation_amount&north=32.439883&west=-89.777800&east=-89.124938&south=31.607286&horizStride=1&time_start=2019-01-01T00%3A00%3A00Z&time_end=2025-12-31T00%3A00%3A00Z&timeStride=1&accept=netcdf",
+      "file": "hydro/gridded/gridmet_precipitation_2019_2025.nc",
+      "bytes": 1742252,
+      "sha256": "7757b5af5417e8280be27b3b15aa9c24c45b4d1fd60680c15db01d8482a6efbb",
+      "reused": true,
+      "variable": "precipitation_amount",
+      "start": "2019-01-01",
+      "end": "2025-12-31"
+    },
+    {
+      "url": "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid/agg_met_pet_1979_CurrentYear_CONUS.nc?var=daily_mean_reference_evapotranspiration_grass&north=32.439883&west=-89.777800&east=-89.124938&south=31.607286&horizStride=1&time_start=1979-01-01T00%3A00%3A00Z&time_end=1988-12-31T00%3A00%3A00Z&timeStride=1&accept=netcdf",
+      "file": "hydro/gridded/gridmet_pet_1979_1988.nc",
+      "bytes": 2487580,
+      "sha256": "6dad0e3a714f238e80b1b78b1fc64a6f46ee298cfd0b4103165a4e4fa6d832ce",
+      "reused": true,
+      "variable": "daily_mean_reference_evapotranspiration_grass",
+      "start": "1979-01-01",
+      "end": "1988-12-31"
+    },
+    {
+      "url": "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid/agg_met_pet_1979_CurrentYear_CONUS.nc?var=daily_mean_reference_evapotranspiration_grass&north=32.439883&west=-89.777800&east=-89.124938&south=31.607286&horizStride=1&time_start=1989-01-01T00%3A00%3A00Z&time_end=1998-12-31T00%3A00%3A00Z&timeStride=1&accept=netcdf",
+      "file": "hydro/gridded/gridmet_pet_1989_1998.nc",
+      "bytes": 2486900,
+      "sha256": "facd2c94f5051ef0bd8c5f27590a542d9334b212207ca4907e04f6d7d9776a57",
+      "reused": true,
+      "variable": "daily_mean_reference_evapotranspiration_grass",
+      "start": "1989-01-01",
+      "end": "1998-12-31"
+    },
+    {
+      "url": "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid/agg_met_pet_1979_CurrentYear_CONUS.nc?var=daily_mean_reference_evapotranspiration_grass&north=32.439883&west=-89.777800&east=-89.124938&south=31.607286&horizStride=1&time_start=1999-01-01T00%3A00%3A00Z&time_end=2008-12-31T00%3A00%3A00Z&timeStride=1&accept=netcdf",
+      "file": "hydro/gridded/gridmet_pet_1999_2008.nc",
+      "bytes": 2487580,
+      "sha256": "4df484d7dbc82c2996f98cd077c6b56ca71be800825276f2413f2f513fea7566",
+      "reused": true,
+      "variable": "daily_mean_reference_evapotranspiration_grass",
+      "start": "1999-01-01",
+      "end": "2008-12-31"
+    },
+    {
+      "url": "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid/agg_met_pet_1979_CurrentYear_CONUS.nc?var=daily_mean_reference_evapotranspiration_grass&north=32.439883&west=-89.777800&east=-89.124938&south=31.607286&horizStride=1&time_start=2009-01-01T00%3A00%3A00Z&time_end=2018-12-31T00%3A00%3A00Z&timeStride=1&accept=netcdf",
+      "file": "hydro/gridded/gridmet_pet_2009_2018.nc",
+      "bytes": 2486900,
+      "sha256": "ebfc36eff45dad3c2289fcf0422109eb4a4d354e79831409763e9180da7070c8",
+      "reused": true,
+      "variable": "daily_mean_reference_evapotranspiration_grass",
+      "start": "2009-01-01",
+      "end": "2018-12-31"
+    },
+    {
+      "url": "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid/agg_met_pet_1979_CurrentYear_CONUS.nc?var=daily_mean_reference_evapotranspiration_grass&north=32.439883&west=-89.777800&east=-89.124938&south=31.607286&horizStride=1&time_start=2019-01-01T00%3A00%3A00Z&time_end=2025-12-31T00%3A00%3A00Z&timeStride=1&accept=netcdf",
+      "file": "hydro/gridded/gridmet_pet_2019_2025.nc",
+      "bytes": 1742300,
+      "sha256": "af932050f7eb980bffd97ac8711f0e3a88ab26715ee7c8cfb8d29d1e3df86881",
+      "reused": true,
+      "variable": "daily_mean_reference_evapotranspiration_grass",
+      "start": "2019-01-01",
+      "end": "2025-12-31"
+    },
+    {
+      "url": "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid/agg_met_tmmx_1979_CurrentYear_CONUS.nc?var=daily_maximum_temperature&north=32.439883&west=-89.777800&east=-89.124938&south=31.607286&horizStride=1&time_start=1979-01-01T00%3A00%3A00Z&time_end=1988-12-31T00%3A00%3A00Z&timeStride=1&accept=netcdf",
+      "file": "hydro/gridded/gridmet_temperature_max_1979_1988.nc",
+      "bytes": 2487544,
+      "sha256": "cff1ecfa66b56bad3b75991851176aad7ed9e05e31bdc5ef655b8406c0d22f26",
+      "reused": true,
+      "variable": "daily_maximum_temperature",
+      "start": "1979-01-01",
+      "end": "1988-12-31"
+    },
+    {
+      "url": "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid/agg_met_tmmx_1979_CurrentYear_CONUS.nc?var=daily_maximum_temperature&north=32.439883&west=-89.777800&east=-89.124938&south=31.607286&horizStride=1&time_start=1989-01-01T00%3A00%3A00Z&time_end=1998-12-31T00%3A00%3A00Z&timeStride=1&accept=netcdf",
+      "file": "hydro/gridded/gridmet_temperature_max_1989_1998.nc",
+      "bytes": 2486864,
+      "sha256": "8b82f603bb247e59f33bdb4c1fbf91f383fb63204857aea3230763909ec3d9a3",
+      "reused": true,
+      "variable": "daily_maximum_temperature",
+      "start": "1989-01-01",
+      "end": "1998-12-31"
+    },
+    {
+      "url": "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid/agg_met_tmmx_1979_CurrentYear_CONUS.nc?var=daily_maximum_temperature&north=32.439883&west=-89.777800&east=-89.124938&south=31.607286&horizStride=1&time_start=1999-01-01T00%3A00%3A00Z&time_end=2008-12-31T00%3A00%3A00Z&timeStride=1&accept=netcdf",
+      "file": "hydro/gridded/gridmet_temperature_max_1999_2008.nc",
+      "bytes": 2487544,
+      "sha256": "dead0b79bd25a96692401f7f23b8d6fdf9e636ba5adb986b9e27fb0d3150100a",
+      "reused": true,
+      "variable": "daily_maximum_temperature",
+      "start": "1999-01-01",
+      "end": "2008-12-31"
+    },
+    {
+      "url": "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid/agg_met_tmmx_1979_CurrentYear_CONUS.nc?var=daily_maximum_temperature&north=32.439883&west=-89.777800&east=-89.124938&south=31.607286&horizStride=1&time_start=2009-01-01T00%3A00%3A00Z&time_end=2018-12-31T00%3A00%3A00Z&timeStride=1&accept=netcdf",
+      "file": "hydro/gridded/gridmet_temperature_max_2009_2018.nc",
+      "bytes": 2486864,
+      "sha256": "2ce3ad294da644ef0f875dd2c41b6074848ea5534f525e88f87303c3a0481e20",
+      "reused": true,
+      "variable": "daily_maximum_temperature",
+      "start": "2009-01-01",
+      "end": "2018-12-31"
+    },
+    {
+      "url": "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid/agg_met_tmmx_1979_CurrentYear_CONUS.nc?var=daily_maximum_temperature&north=32.439883&west=-89.777800&east=-89.124938&south=31.607286&horizStride=1&time_start=2019-01-01T00%3A00%3A00Z&time_end=2025-12-31T00%3A00%3A00Z&timeStride=1&accept=netcdf",
+      "file": "hydro/gridded/gridmet_temperature_max_2019_2025.nc",
+      "bytes": 1742264,
+      "sha256": "66ac573670351f372b210e678ef1bf28af75a81b6118e653b659003ceec49444",
+      "reused": true,
+      "variable": "daily_maximum_temperature",
+      "start": "2019-01-01",
+      "end": "2025-12-31"
+    },
+    {
+      "url": "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid/agg_met_tmmn_1979_CurrentYear_CONUS.nc?var=daily_minimum_temperature&north=32.439883&west=-89.777800&east=-89.124938&south=31.607286&horizStride=1&time_start=1979-01-01T00%3A00%3A00Z&time_end=1988-12-31T00%3A00%3A00Z&timeStride=1&accept=netcdf",
+      "file": "hydro/gridded/gridmet_temperature_min_1979_1988.nc",
+      "bytes": 2487544,
+      "sha256": "780683c2ec9d191c4d92927631e38605a8eb5c35a44ef29a70f4b50581f35829",
+      "reused": true,
+      "variable": "daily_minimum_temperature",
+      "start": "1979-01-01",
+      "end": "1988-12-31"
+    },
+    {
+      "url": "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid/agg_met_tmmn_1979_CurrentYear_CONUS.nc?var=daily_minimum_temperature&north=32.439883&west=-89.777800&east=-89.124938&south=31.607286&horizStride=1&time_start=1989-01-01T00%3A00%3A00Z&time_end=1998-12-31T00%3A00%3A00Z&timeStride=1&accept=netcdf",
+      "file": "hydro/gridded/gridmet_temperature_min_1989_1998.nc",
+      "bytes": 2486864,
+      "sha256": "a067cad3e54f2da247f98ced26ee93dc39628783e16f7fea431126f56cfacb06",
+      "reused": true,
+      "variable": "daily_minimum_temperature",
+      "start": "1989-01-01",
+      "end": "1998-12-31"
+    },
+    {
+      "url": "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid/agg_met_tmmn_1979_CurrentYear_CONUS.nc?var=daily_minimum_temperature&north=32.439883&west=-89.777800&east=-89.124938&south=31.607286&horizStride=1&time_start=1999-01-01T00%3A00%3A00Z&time_end=2008-12-31T00%3A00%3A00Z&timeStride=1&accept=netcdf",
+      "file": "hydro/gridded/gridmet_temperature_min_1999_2008.nc",
+      "bytes": 2487544,
+      "sha256": "063a5cce28d32133344b9a25c7dee8d940d6965ef3aa4dbe77628ed9c3bbc5d0",
+      "reused": true,
+      "variable": "daily_minimum_temperature",
+      "start": "1999-01-01",
+      "end": "2008-12-31"
+    },
+    {
+      "url": "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid/agg_met_tmmn_1979_CurrentYear_CONUS.nc?var=daily_minimum_temperature&north=32.439883&west=-89.777800&east=-89.124938&south=31.607286&horizStride=1&time_start=2009-01-01T00%3A00%3A00Z&time_end=2018-12-31T00%3A00%3A00Z&timeStride=1&accept=netcdf",
+      "file": "hydro/gridded/gridmet_temperature_min_2009_2018.nc",
+      "bytes": 2486864,
+      "sha256": "dbf1a4aecebcd2410a28a3707e4d0da8f57dca6d51b9c95b7b1ab542d5069229",
+      "reused": true,
+      "variable": "daily_minimum_temperature",
+      "start": "2009-01-01",
+      "end": "2018-12-31"
+    },
+    {
+      "url": "http://thredds.northwestknowledge.net:8080/thredds/ncss/grid/agg_met_tmmn_1979_CurrentYear_CONUS.nc?var=daily_minimum_temperature&north=32.439883&west=-89.777800&east=-89.124938&south=31.607286&horizStride=1&time_start=2019-01-01T00%3A00%3A00Z&time_end=2025-12-31T00%3A00%3A00Z&timeStride=1&accept=netcdf",
+      "file": "hydro/gridded/gridmet_temperature_min_2019_2025.nc",
+      "bytes": 1742264,
+      "sha256": "40f9b2b78e5bad5af08e64ef90a0ae7fb8dcaa81f62bf72e419723232eb3595d",
+      "reused": true,
+      "variable": "daily_minimum_temperature",
+      "start": "2019-01-01",
+      "end": "2025-12-31"
+    },
+    {
+      "url": "https://api.waterdata.usgs.gov/ogcapi/v0/collections/daily/items?f=json&limit=10000&datetime=1938-09-12%2F1947-12-31&monitoring_location_id=USGS-02472000&parameter_code=00060&statistic_id=00003",
+      "file": "hydro/raw/usgs_daily_1938_1947.json",
+      "bytes": 2255649,
+      "sha256": "630cf72f92d8608ed1807e6e5a4ceabaf61878910685df42574f5b5d245a326b",
+      "reused": true,
+      "start": "1938-09-12",
+      "end": "1947-12-31"
+    },
+    {
+      "url": "https://api.waterdata.usgs.gov/ogcapi/v0/collections/daily/items?f=json&limit=10000&datetime=1948-01-01%2F1957-12-31&monitoring_location_id=USGS-02472000&parameter_code=00060&statistic_id=00003",
+      "file": "hydro/raw/usgs_daily_1948_1957.json",
+      "bytes": 2424918,
+      "sha256": "18b11130afe40917edd8e924b6bde0623450e25e90a063bb08cd3db80dff9dce",
+      "reused": true,
+      "start": "1948-01-01",
+      "end": "1957-12-31"
+    },
+    {
+      "url": "https://api.waterdata.usgs.gov/ogcapi/v0/collections/daily/items?f=json&limit=10000&datetime=1958-01-01%2F1967-12-31&monitoring_location_id=USGS-02472000&parameter_code=00060&statistic_id=00003",
+      "file": "hydro/raw/usgs_daily_1958_1967.json",
+      "bytes": 2423938,
+      "sha256": "a1ce6009f2106b0804e83ff93f8b758a9695f55dd4a32bc75c54ebb71106ef97",
+      "reused": true,
+      "start": "1958-01-01",
+      "end": "1967-12-31"
+    },
+    {
+      "url": "https://api.waterdata.usgs.gov/ogcapi/v0/collections/daily/items?f=json&limit=10000&datetime=1968-01-01%2F1977-12-31&monitoring_location_id=USGS-02472000&parameter_code=00060&statistic_id=00003",
+      "file": "hydro/raw/usgs_daily_1968_1977.json",
+      "bytes": 2424814,
+      "sha256": "90bbbf8e7065f61560a477392a97fcb16325dea18ddeb7762d939dffcd1d46df",
+      "reused": true,
+      "start": "1968-01-01",
+      "end": "1977-12-31"
+    },
+    {
+      "url": "https://api.waterdata.usgs.gov/ogcapi/v0/collections/daily/items?f=json&limit=10000&datetime=1978-01-01%2F1987-12-31&monitoring_location_id=USGS-02472000&parameter_code=00060&statistic_id=00003",
+      "file": "hydro/raw/usgs_daily_1978_1987.json",
+      "bytes": 2423985,
+      "sha256": "f41be944110d35a465582e1d3707c5bf9ae8a34b4158fe7ad9b40890362d8bef",
+      "reused": true,
+      "start": "1978-01-01",
+      "end": "1987-12-31"
+    },
+    {
+      "url": "https://api.waterdata.usgs.gov/ogcapi/v0/collections/daily/items?f=json&limit=10000&datetime=1988-01-01%2F1997-12-31&monitoring_location_id=USGS-02472000&parameter_code=00060&statistic_id=00003",
+      "file": "hydro/raw/usgs_daily_1988_1997.json",
+      "bytes": 2427583,
+      "sha256": "c34f70afaba2c6e197ae6e2c2998366fd9aa445bd51de232855b91b11a1e30a5",
+      "reused": true,
+      "start": "1988-01-01",
+      "end": "1997-12-31"
+    },
+    {
+      "url": "https://api.waterdata.usgs.gov/ogcapi/v0/collections/daily/items?f=json&limit=10000&datetime=1998-01-01%2F2007-12-31&monitoring_location_id=USGS-02472000&parameter_code=00060&statistic_id=00003",
+      "file": "hydro/raw/usgs_daily_1998_2007.json",
+      "bytes": 2425677,
+      "sha256": "45bfc98335024cf5e2cc531e693f55fe3b732292b717b512f9e664efd4f06a2c",
+      "reused": true,
+      "start": "1998-01-01",
+      "end": "2007-12-31"
+    },
+    {
+      "url": "https://api.waterdata.usgs.gov/ogcapi/v0/collections/daily/items?f=json&limit=10000&datetime=2008-01-01%2F2017-12-31&monitoring_location_id=USGS-02472000&parameter_code=00060&statistic_id=00003",
+      "file": "hydro/raw/usgs_daily_2008_2017.json",
+      "bytes": 2424831,
+      "sha256": "0ae4b6740c1ce2f7c1ec269bc150baec11aec855d3212c68b12b453adf8ae58b",
+      "reused": true,
+      "start": "2008-01-01",
+      "end": "2017-12-31"
+    },
+    {
+      "url": "https://api.waterdata.usgs.gov/ogcapi/v0/collections/daily/items?f=json&limit=10000&datetime=2018-01-01%2F2026-09-12&monitoring_location_id=USGS-02472000&parameter_code=00060&statistic_id=00003",
+      "file": "hydro/raw/usgs_daily_2018_2026.json",
+      "bytes": 2108437,
+      "sha256": "85ca1dc67d751a215d0ffdd0d18231d4467997f319166e498ad24b6e57ce0c9b",
+      "reused": true,
+      "start": "2018-01-01",
+      "end": "2026-09-12"
+    }
+  ]
+}

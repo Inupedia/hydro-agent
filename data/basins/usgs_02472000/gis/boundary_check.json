@@ -1,0 +1,11 @@
+{
+  "accepted": true,
+  "usgs_area_km2": 1924.361165979648,
+  "nldi_area_km2_geodesic": 1926.8295130642146,
+  "area_ratio": 0.9987189592707446,
+  "outlet": [
+    -89.4069444,
+    31.70694444
+  ],
+  "boundary_source": "USGS NLDI unsimplified basin"
+}

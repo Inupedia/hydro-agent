@@ -1,0 +1,13 @@
+{
+  "purpose": "Source-proven Leaf River data for XAJ basin/unit preparation",
+  "model_ready_common_period": [
+    "1979-01-01",
+    "2025-12-31"
+  ],
+  "directories": {
+    "hydro": "Normalized P/PET/Q, supplemental temperature, raw GridMET and USGS receipts",
+    "gis": "NLDI full/simplified boundary, outlet and upstream flowlines",
+    "dem": "USGS 3DEP GeoTIFF and source/coverage manifest"
+  },
+  "distributed_forcing_note": "Aggregate hydro/gridded NetCDF P/PET by DEM-derived unit; do not duplicate the basin mean across units."
+}

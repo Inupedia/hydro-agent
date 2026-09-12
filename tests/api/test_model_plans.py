@@ -85,4 +85,4 @@ def test_list_basins_endpoint(client, app_dependencies, tmp_path):
     assert response.status_code == 200
     body = response.json()
     assert any(row['basin_id'] == 'yaogu' and row['ready_for_build'] for row in body)
-    assert not any(row['basin_id'].startswith('camels_') or row['basin_id'].startswith('usgs_') for row in body)
+    assert any(row['basin_id'] == 'usgs_02472000' and not row['ready_for_build'] for row in body)

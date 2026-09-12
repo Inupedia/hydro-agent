@@ -1,0 +1,20 @@
+{
+  "basin_id": "usgs_02472000",
+  "usgs_site": "02472000",
+  "label": "Leaf River near Collins (MS)",
+  "region": "Mississippi, USA",
+  "kind": "downloaded",
+  "adapter": "open-v2-spatial",
+  "default_start": "1979-01-01",
+  "default_end": "2025-12-31",
+  "primary": false,
+  "status": "complete",
+  "missing": [],
+  "materials": {
+    "hydro": true,
+    "dem": true,
+    "gis": true
+  },
+  "ready_for_build": true,
+  "complete": true
+}
