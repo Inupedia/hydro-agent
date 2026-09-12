@@ -70,7 +70,23 @@ def _objective_score(obs: list[float], sim: list[float], objective: str) -> floa
     peak_value = _peak_score(obs, sim)
     if objective == "peak":
         return float(peak_value)
-    return float(0.5 * nse_value + 0.5 * peak_value)
+
+    # Hydrologic composite: preserve overall shape while discouraging a high-NSE
+    # solution that damages water balance, peak magnitude or peak timing.
+    obs_total = sum(obs)
+    sim_total = sum(sim)
+    volume_rel_error = abs(sim_total - obs_total) / max(abs(obs_total), 1e-9)
+    volume_score = 1.0 - min(1.0, volume_rel_error)
+    obs_peak_i = max(range(len(obs)), key=lambda i: obs[i])
+    sim_peak_i = max(range(len(sim)), key=lambda i: sim[i])
+    timing_rel_error = abs(sim_peak_i - obs_peak_i) / max(1, len(obs) - 1)
+    timing_score = 1.0 - min(1.0, timing_rel_error)
+    return float(
+        0.55 * nse_value
+        + 0.15 * peak_value
+        + 0.20 * volume_score
+        + 0.10 * timing_score
+    )
 
 
 def _search_bounds(
