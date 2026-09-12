@@ -29,9 +29,29 @@ class SnapshotResolver:
         self.source = source
         self.history_days = history_days
 
+    def _history_days_for(self, task_id: str, capability: str) -> int:
+        if capability != "calibrate":
+            return self.history_days
+        try:
+            state = self.repository.ensure_task_state(task_id)
+            if not state.current_scheme_id:
+                return self.history_days
+            scheme = self.repository.get_scheme(state.current_scheme_id)
+            workbench = dict((scheme.config_json or {}).get("workbench") or {})
+            raw = workbench.get("calibration_history_days")
+            if raw is None:
+                return self.history_days
+            value = int(raw)
+            if value < 1 or value > 36500:
+                raise DataAccessViolation("invalid calibration_history_days")
+            return value
+        except KeyError:
+            return self.history_days
+
     def resolve(self, task_id: str, capability: str, issue_time: str) -> str:
         task = self.repository.get_task(task_id)
         issue = _parse_issue(issue_time)
+        history_days = self._history_days_for(task_id, capability)
         matches = []
         for snapshot in self.repository.list_snapshots(task_id):
             context = (snapshot.manifest_json or {}).get("context") or {}
@@ -44,6 +64,7 @@ class SnapshotResolver:
                 and context.get("phase") == task.phase
                 and context.get("forcing_mode") == task.forcing_mode
                 and context.get("capability") == capability
+                and int(context.get("history_days") or self.history_days) == history_days
                 and _parse_issue(str(ctx_issue)) == issue
             ):
                 matches.append(snapshot)
@@ -58,7 +79,11 @@ class SnapshotResolver:
             if isinstance(self.source, NormalizedSource)
             else load_normalized_source(Path(self.source))
         )
-        snapshot_id = f"{task_id}--{task.phase}--{capability}--{issue.strftime('%Y%m%dT%H%M%SZ')}"
+        history_suffix = "" if history_days == self.history_days else f"--h{history_days}"
+        snapshot_id = (
+            f"{task_id}--{task.phase}--{capability}{history_suffix}--"
+            f"{issue.strftime('%Y%m%dT%H%M%SZ')}"
+        )
         context = SnapshotContext(
             task_id=task_id,
             snapshot_id=snapshot_id,
@@ -67,7 +92,7 @@ class SnapshotResolver:
             forcing_mode=task.forcing_mode,
             capability=capability,  # type: ignore[arg-type]
             issue_time=issue,
-            history_days=self.history_days,
+            history_days=history_days,
             day_timezone=str(loaded.basin.get("day_timezone", "UTC")),
         )
         path = self.builder.build(
