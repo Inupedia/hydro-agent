@@ -4,6 +4,9 @@ Progressive disclosure:
 1. Metadata (name/description + machine fields) always available on WorldStateView
 2. Full SKILL.md body activated in the LangGraph decide node when relevant
 3. references/ loaded only when calibration needs parameter detail
+
+Standards are *not* stored in Skill metadata. Skills describe when/how to use
+knowledge; executable standard thresholds come from ``KnowledgeRepository``.
 """
 
 from __future__ import annotations
@@ -12,18 +15,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from hydro_agent.execution.contracts import FrozenModel
-from hydro_agent.skills.loader import (
-    LoadedSkill,
-    default_skills_root,
-    load_skills,
-    parse_nse_good_enough,
-    read_reference,
-)
+from hydro_agent.knowledge import KnowledgeRepository
+from hydro_agent.skills.loader import LoadedSkill, default_skills_root, load_skills, read_reference
 
 if TYPE_CHECKING:
     from hydro_agent.agent.contracts import WorldStateView
 
-DEFAULT_NSE_GOOD_ENOUGH = 0.5
 CALIBRATION_SKILL_ID = "xaj-calibration"
 GBT_SKILL_ID = "gbt-22482-accuracy"
 
@@ -43,9 +40,15 @@ class SkillCard(FrozenModel):
 
 
 def _card_from_loaded(skill: LoadedSkill) -> SkillCard:
+    # nse_good_enough remains a generic calibration hint for backward-compatible
+    # cards. It must never override a versioned technical-standard threshold.
     nse = None
-    if "nse_good_enough" in skill.metadata:
-        nse = parse_nse_good_enough(skill.metadata)
+    raw_nse = skill.metadata.get("nse_good_enough")
+    if raw_nse is not None:
+        try:
+            nse = float(raw_nse)
+        except (TypeError, ValueError):
+            nse = None
     return SkillCard(
         skill_id=skill.skill_id,
         title_zh=skill.meta("title_zh", skill.name),
@@ -68,7 +71,9 @@ class SkillRegistry:
         *,
         root: Path | None = None,
         loaded: dict[str, LoadedSkill] | None = None,
+        knowledge: KnowledgeRepository | None = None,
     ):
+        self._knowledge = knowledge or KnowledgeRepository()
         if loaded is not None:
             self._loaded = dict(loaded)
         elif skills is not None:
@@ -96,41 +101,24 @@ class SkillRegistry:
         return [s.model_dump(mode="json") for s in self.list()]
 
     def nse_good_enough(self) -> float:
-        """Alias for GB/T DC 丙 threshold (grade_dc_bing), with xaj-calibration fallback."""
-        gbt = self._loaded.get(GBT_SKILL_ID)
-        if gbt is not None:
-            raw = gbt.metadata.get("grade_dc_bing") or gbt.metadata.get("nse_good_enough")
-            if raw:
-                try:
-                    return float(raw)
-                except ValueError:
-                    pass
-        skill = self._loaded.get(CALIBRATION_SKILL_ID)
-        if skill is not None:
-            return parse_nse_good_enough(skill.metadata, default=DEFAULT_NSE_GOOD_ENOUGH)
-        card = self._cards.get(CALIBRATION_SKILL_ID)
-        if card is not None and card.nse_good_enough is not None:
-            return float(card.nse_good_enough)
-        return DEFAULT_NSE_GOOD_ENOUGH
+        """Compatibility alias for the GB/T DC 丙 threshold from knowledge."""
+        meta = self._knowledge.gbt_accuracy_metadata()
+        return float(meta["grade_dc_bing"])
 
     def min_scheme_grade(self) -> str:
-        gbt = self._loaded.get(GBT_SKILL_ID)
-        if gbt is not None:
-            grade = str(gbt.metadata.get("min_scheme_grade") or "丙").strip()
-            if grade in {"甲", "乙", "丙"}:
-                return grade
-        return "丙"
+        grade = str(self._knowledge.gate_defaults().get("min_scheme_grade") or "丙").strip()
+        if grade not in {"甲", "乙", "丙"}:
+            raise ValueError(f"invalid knowledge min_scheme_grade: {grade}")
+        return grade
 
     def gbt_accuracy_config(self, *, area_km2: float | None = None):
         from hydro_agent.evaluation.gbt22482 import GbtAccuracyConfig
 
-        gbt = self._loaded.get(GBT_SKILL_ID)
-        meta = dict(gbt.metadata) if gbt is not None else {}
-        if "min_scheme_grade" not in meta:
-            meta["min_scheme_grade"] = self.min_scheme_grade()
-        if "grade_dc_bing" not in meta:
-            meta["grade_dc_bing"] = str(self.nse_good_enough())
+        meta = self._knowledge.gbt_accuracy_metadata(area_km2=area_km2)
         return GbtAccuracyConfig.from_metadata(meta, area_km2=area_km2)
+
+    def knowledge_provenance(self) -> dict:
+        return self._knowledge.provenance()
 
     def activate(self, skill_id: str, *, include_param_reference: bool = False) -> str:
         skill = self._loaded.get(skill_id)
@@ -198,11 +186,12 @@ class SkillRegistry:
             self.activate(sid, include_param_reference=(include_params and sid == "xaj-calibration"))
             for sid in ids
         ]
+        provenance = self.knowledge_provenance()
         header = (
             f"Activated skills: {', '.join(ids)}. "
             f"nse_good_enough/DC_bing={self.nse_good_enough():.3f}; "
             f"min_scheme_grade={self.min_scheme_grade()} "
-            f"(from {GBT_SKILL_ID} / {CALIBRATION_SKILL_ID}).\n\n"
+            f"(knowledge={provenance['standard_id']}; policy={provenance['policy_id']}).\n\n"
         )
         return header + "\n\n====\n\n".join(chunks)
 
