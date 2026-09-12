@@ -9,7 +9,11 @@ SchemeGrade = Literal["甲", "乙", "丙", "不合格"]
 
 
 class CalibrationStrategy(FrozenModel):
+    """Scientific search strategy; it does not contain raw parameter values."""
+
     strategy_id: str = Field(min_length=1)
+    # Legacy field name retained for API compatibility. Semantically this is a
+    # hard model-evaluation budget for the selected numerical optimizer.
     max_candidates: int = Field(ge=1, le=500)
     random_seed: int
     objective: Literal["nse", "peak", "composite"] = "nse"
@@ -19,6 +23,11 @@ class CalibrationStrategy(FrozenModel):
         "runoff",
         "routing",
     )
+    optimizer: Literal["sce-ua", "random-search", "manual"] = "sce-ua"
+
+    @property
+    def evaluation_budget(self) -> int:
+        return int(self.max_candidates)
 
 
 class LeadMetrics(FrozenModel):
@@ -41,7 +50,7 @@ class GatePolicy(FrozenModel):
     max_high_flow_mae_relative_increase: float = Field(ge=0)
     # Absolute skill floor: even a large relative gain cannot ACCEPT below this.
     min_candidate_primary: float = 0.0
-    # Legacy NSE/DC floor (GB/T 表1 丙级 DC≥0.50). Prefer min_scheme_grade + GBT report.
+    # Legacy NSE/DC floor. Runtime standard thresholds come from KnowledgeRepository.
     accept_primary_floor: float = 0.5
     # GB/T 22482 §6.5.6 minimum scheme grade for ACCEPT.
     min_scheme_grade: SchemeGrade = "丙"
