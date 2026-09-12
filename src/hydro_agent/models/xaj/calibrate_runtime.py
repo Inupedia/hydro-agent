@@ -13,6 +13,7 @@ from hydro_agent.evaluation.metrics import nse
 from hydro_agent.execution.contracts import ExecutionRequest
 from hydro_agent.optimization.param_groups import normalize_param_groups, resolve_param_names
 from hydro_agent.optimization.sceua import optimize_sceua
+from hydro_agent.optimization.search_evidence import analyze_search_boundaries
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 
 from .contracts import XajScheme
@@ -286,6 +287,13 @@ def run(workspace: Path) -> dict:
         baseline_cached = cache[baseline_key]
     _, baseline_full, _ = baseline_cached
 
+    absolute_bounds = {name: tuple(float(v) for v in ranges[name]) for name in tunable_names}
+    boundary_evidence = analyze_search_boundaries(
+        values=best_tunable,
+        search_bounds=bounds,
+        absolute_bounds=absolute_bounds,
+    )
+
     delta = {
         key: float(best_parameters[key]) - float(base_parameters[key])
         for key in best_parameters
@@ -306,6 +314,7 @@ def run(workspace: Path) -> dict:
         "objective": objective,
         "param_groups": list(groups),
         "evaluation_budget": strategy.evaluation_budget,
+        "search_boundary_evidence": boundary_evidence.as_dict(),
     }
     result = {
         "model_id": "xaj",
@@ -328,6 +337,9 @@ def run(workspace: Path) -> dict:
         "objective_value": float(best_score),
         "candidate_parameters": best_parameters,
         "optimization_trace": trace,
+        "search_bounds": {name: list(bound) for name, bound in bounds.items()},
+        "absolute_bounds": {name: list(bound) for name, bound in absolute_bounds.items()},
+        "search_boundary_evidence": boundary_evidence.as_dict(),
         "calibrated": calibrated,
     }
 

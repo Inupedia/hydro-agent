@@ -12,12 +12,14 @@ from typing import Any, Literal
 from pydantic import Field
 
 from hydro_agent.execution.contracts import FrozenModel
+from hydro_agent.knowledge.expert import ExpertKnowledgeRepository
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 
 ParameterGroup = Literal["evap", "runoff", "routing"]
 ObjectiveName = Literal["nse", "peak", "composite"]
 OptimizerName = Literal["sce-ua", "random-search", "manual"]
 SearchScope = Literal["global", "local"]
+SearchAdjustment = Literal["keep", "broaden_within_absolute_bounds", "hold_absolute_bounds"]
 
 
 class CalibrationHypothesis(FrozenModel):
@@ -36,6 +38,9 @@ class CalibrationPlan(FrozenModel):
     search_scope: SearchScope
     local_scale: float | None = Field(default=None, ge=0.0, le=1.0)
     evaluation_budget: int = Field(ge=2, le=500)
+    search_adjustment: SearchAdjustment = "keep"
+    knowledge_refs: tuple[str, ...] = ()
+    expert_notes: tuple[str, ...] = ()
     rationale: str = Field(min_length=1)
 
     @property
@@ -64,20 +69,55 @@ def _normalize_groups(raw_groups: object, fallback: tuple[str, ...]) -> tuple[st
     return groups
 
 
+def _progressive_strategy(
+    *,
+    recommended_strategy_id: str,
+    previous_strategy_id: str | None,
+    adjustment: str | None,
+    registry: CalibrationStrategyRegistry,
+) -> str:
+    """Translate expert search advice into bounded strategy progression.
+
+    A fresh diagnosis owns the scientific strategy unless the latest search
+    evidence explicitly asks for progressive broadening. Only then do we inspect
+    the previous strategy to widen its numerical window toward the existing
+    teacher/kernel absolute bounds.
+    """
+
+    if adjustment != "broaden_within_absolute_bounds":
+        return recommended_strategy_id
+
+    source_strategy_id = previous_strategy_id or recommended_strategy_id
+    if source_strategy_id == "xaj-broadened-refine-v1":
+        return "xaj-bounded-v1"
+    current = registry.get(source_strategy_id)
+    if current.local_scale is None:
+        return recommended_strategy_id
+    return "xaj-broadened-refine-v1"
+
+
 def plan_from_diagnosis(
     diagnosis: dict[str, Any],
     *,
     strategies: CalibrationStrategyRegistry | None = None,
+    expert_knowledge: ExpertKnowledgeRepository | None = None,
 ) -> CalibrationPlan:
-    """Translate a diagnosis into an auditable optimization experiment."""
+    """Translate a diagnosis into an auditable optimization experiment.
+
+    Evidence is primary. Expert priors may refine the parameter group/objective
+    choice and bounded search scope, but remain advisory metadata and never alter
+    validation Gate rules or the teacher/kernel absolute parameter limits.
+    """
 
     registry = strategies or CalibrationStrategyRegistry()
-    strategy_id = str(diagnosis.get("recommended_strategy_id") or "xaj-bounded-v1")
+    recommended_strategy_id = str(
+        diagnosis.get("recommended_strategy_id") or "xaj-bounded-v1"
+    )
     try:
-        strategy = registry.get(strategy_id)
+        strategy = registry.get(recommended_strategy_id)
     except KeyError:
-        strategy_id = "xaj-bounded-v1"
-        strategy = registry.get(strategy_id)
+        recommended_strategy_id = "xaj-bounded-v1"
+        strategy = registry.get(recommended_strategy_id)
 
     groups = _normalize_groups(
         diagnosis.get("recommended_param_groups"), tuple(strategy.param_groups)
@@ -86,6 +126,38 @@ def plan_from_diagnosis(
     objective = str(diagnosis.get("recommended_objective") or strategy.objective)
     if objective not in {"nse", "peak", "composite"}:
         objective = strategy.objective
+
+    basin_attributes = diagnosis.get("basin_attributes")
+    expert = expert_knowledge or ExpertKnowledgeRepository()
+    advice = expert.advise(
+        diagnosis,
+        basin_attributes=basin_attributes if isinstance(basin_attributes, dict) else None,
+    )
+    if advice.recommended_param_groups:
+        groups = _normalize_groups(advice.recommended_param_groups, groups)
+    if advice.recommended_objective in {"nse", "peak", "composite"}:
+        objective = advice.recommended_objective
+
+    adjustment = str(advice.search_adjustment or "keep")
+    if adjustment not in {
+        "keep",
+        "broaden_within_absolute_bounds",
+        "hold_absolute_bounds",
+    }:
+        adjustment = "keep"
+    previous_raw = diagnosis.get("previous_strategy_id")
+    previous_strategy_id = str(previous_raw) if previous_raw else None
+    try:
+        strategy_id = _progressive_strategy(
+            recommended_strategy_id=recommended_strategy_id,
+            previous_strategy_id=previous_strategy_id,
+            adjustment=adjustment,
+            registry=registry,
+        )
+        strategy = registry.get(strategy_id)
+    except KeyError:
+        strategy_id = recommended_strategy_id
+        strategy = registry.get(strategy_id)
 
     hypotheses = list(diagnosis.get("hypotheses") or [])
     primary_id = str(diagnosis.get("hypothesis") or "UNKNOWN")
@@ -107,6 +179,18 @@ def plan_from_diagnosis(
     evidence.extend(str(note) for note in (diagnosis.get("notes") or ())[:4])
 
     scope: SearchScope = "local" if strategy.local_scale is not None else "global"
+    prior_text = ""
+    if advice.matched_rule_ids:
+        prior_text = (
+            f" 专家先验[{advice.status}/{advice.authority}]="
+            f"{','.join(advice.matched_rule_ids)}；"
+        )
+    search_text = ""
+    if adjustment == "broaden_within_absolute_bounds":
+        search_text = " 搜索窗口按专家先验逐级放宽，但不越过老师/内核绝对边界；"
+    elif adjustment == "hold_absolute_bounds":
+        search_text = " 已触及绝对参数边界，本轮禁止继续外扩并保留为诊断证据；"
+
     return CalibrationPlan(
         hypothesis=CalibrationHypothesis(
             hypothesis=primary_id,
@@ -121,9 +205,13 @@ def plan_from_diagnosis(
         search_scope=scope,
         local_scale=strategy.local_scale,
         evaluation_budget=strategy.evaluation_budget,
+        search_adjustment=adjustment,  # type: ignore[arg-type]
+        knowledge_refs=advice.matched_rule_ids,
+        expert_notes=advice.notes,
         rationale=(
             f"基于 {primary_id} 假设，仅开放 {','.join(groups)} 参数组；"
             f"由 {strategy.optimizer} 在确定性边界内完成数值搜索，Agent 不直接给参数值。"
+            f"{prior_text}{search_text}"
         ),
     )
 
@@ -141,6 +229,8 @@ def reflect_on_gate(
         f"strategy={plan.strategy_id}",
         f"optimizer={plan.optimizer}",
         f"hypothesis={plan.hypothesis.hypothesis}",
+        f"search_adjustment={plan.search_adjustment}",
+        *tuple(f"knowledge={item}" for item in plan.knowledge_refs),
         *tuple(reasons),
     )
     if status == "ACCEPT":

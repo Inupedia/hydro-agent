@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from hydro_agent.agent.contracts import (
     MAX_AGENT_ROUNDS,
     MAX_OPTIMIZATION_CYCLES,
@@ -82,6 +84,19 @@ class WorldStateBuilder:
                 diagnosis["metrics"] = {
                     str(k): float(v) for k, v in dict(row.metrics_json or {}).items()
                 }
+                # Basin priors are emitted by the leakage-safe diagnosis as an
+                # audited observation rather than hidden provider state.
+                for observation in row.observations_json or ():
+                    prefix = "basin_attributes_json="
+                    if not str(observation).startswith(prefix):
+                        continue
+                    try:
+                        parsed = json.loads(str(observation)[len(prefix) :])
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(parsed, dict):
+                        diagnosis["basin_attributes"] = parsed
+                    break
                 break
         history = tuple(
             f"{row.action}:{row.status}:{';'.join((row.observations_json or [])[:2])}"

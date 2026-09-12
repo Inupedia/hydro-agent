@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from hydro_agent.agent.contracts import ActionCode, EvidencePacket
 from hydro_agent.agent.world_state import WorldStateBuilder
 from hydro_agent.persistence.database import Database
 from hydro_agent.persistence.repository import HydroRepository
@@ -47,6 +48,33 @@ def test_world_state_contains_only_decision_relevant_projection(seeded_repositor
     assert view.permissions.safe_actions
     assert not hasattr(view, "database_url")
     assert not hasattr(view, "filesystem_root")
+
+
+def test_world_state_surfaces_audited_basin_prior_from_diagnosis(seeded_repository):
+    seeded_repository.ensure_task_state("task-1", current_scheme_id="scheme-base")
+    seeded_repository.add_evidence(
+        EvidencePacket(
+            evidence_id="ev-diagnosis-1",
+            task_id="task-1",
+            action=ActionCode.A06_DIAGNOSE,
+            status="succeeded",
+            observations=(
+                'basin_attributes_json={"aridity": 0.62, "runoff_ratio": 0.41}',
+            ),
+            metrics={"nse": 0.2},
+            gates={
+                "hypothesis": "MODEL",
+                "recommended_action": "A07_OPTIMIZE",
+                "recommended_strategy_id": "xaj-bounded-v1",
+            },
+            new_information_hash="hash-diagnosis-1",
+        )
+    )
+
+    view = WorldStateBuilder(seeded_repository).build("task-1")
+    attrs = view.hydro.diagnosis["basin_attributes"]
+    assert attrs == {"aridity": 0.62, "runoff_ratio": 0.41}
+    assert view.hydro.diagnosis["metrics"]["nse"] == 0.2
 
 
 def test_agent_budget_survives_repository_reopen(database, seeded_repository):

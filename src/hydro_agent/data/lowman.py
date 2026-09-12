@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
@@ -21,6 +21,7 @@ class NormalizedSource:
     forcing_rows: tuple[ForcingRow, ...]
     flow_rows: tuple[FlowObservation, ...]
     basin: dict[str, object]
+    metadata: dict[str, object] = field(default_factory=dict)
 
 
 def normalize_caravan_row(row, *, area_km2, available_at, streamflow_unit):
@@ -62,6 +63,8 @@ def load_normalized_source(path: Path) -> NormalizedSource:
         if line.strip()
     )
     basin = json.loads((root / "basin.json").read_text(encoding="utf-8"))
+    meta_path = root / "basin_meta.json"
+    metadata = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
     if not forcing:
         raise ValueError("forcing.jsonl is empty")
-    return NormalizedSource(forcing, flow, basin)
+    return NormalizedSource(forcing, flow, basin, metadata)

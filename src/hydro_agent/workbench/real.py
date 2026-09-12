@@ -37,15 +37,12 @@ from hydro_agent.replay.planner import ReplayPlanner
 from hydro_agent.replay.service import ReplayService
 from hydro_agent.reporting.report import ReplayReportBuilder
 from hydro_agent.services.calibration import CalibrationService
+from hydro_agent.services.calibration_diagnostics import diagnose_prevalidation_window
 from hydro_agent.services.forecast import ForecastService
 from hydro_agent.services.snapshots import SnapshotResolver
 from hydro_agent.services.workspace import MaterializingWorkspaceManager
 from hydro_agent.skills import SkillRegistry
-from hydro_agent.workbench.validation_gate import (
-    RealValidationGate,
-    diagnose_forecast_errors,
-    truth_from_source,
-)
+from hydro_agent.workbench.validation_gate import RealValidationGate
 
 POLICY = ExecutionPolicy(
     timeout_seconds=600, network_access=False, max_output_bytes=20_000_000, device="cpu"
@@ -219,52 +216,21 @@ class RealWorkbenchKernel:
                 "notes": ["no current scheme"],
             }
         window = self.validation_gate.window_for(task_id)
-        forecasts = [
-            row
-            for row in self.repository.list_forecasts(task_id)
-            if row.scheme_id == scheme_id and window.start <= row.issue_time.date() <= window.end
-        ]
-        forecasts.sort(key=lambda row: (row.issue_time, row.forecast_id))
-        if not forecasts:
-            # Ensure at least the validation-end issue for the *current* scheme.
-            issue = datetime(window.end.year, window.end.month, window.end.day, tzinfo=timezone.utc)
-            issue_iso = issue.isoformat().replace("+00:00", "Z")
-            self.forecast.forecast(
-                task_id=task_id,
-                scheme_id=scheme_id,
-                issue_time=issue_iso,
-                policy=POLICY,
-            )
-            forecasts = [
-                row
-                for row in self.repository.list_forecasts(task_id)
-                if row.scheme_id == scheme_id
-                and window.start <= row.issue_time.date() <= window.end
-            ]
-            forecasts.sort(key=lambda row: (row.issue_time, row.forecast_id))
-        if not forecasts:
-            return {
-                "hypothesis": "DATA",
-                "phenomenon": "尚无当前方案预报，无法诊断",
-                "recommended_action": "A05_FORECAST",
-                "recommended_strategy_id": None,
-                "metrics": {},
-                "notes": [f"scheme_id={scheme_id}", "no forecast"],
-            }
-        latest = forecasts[-1]
-        leads = {int(k): float(v) for k, v in latest.lead_values_json.items()}
-        result = diagnose_forecast_errors(
-            truth=truth_from_source(self.source.flow_rows),
-            lead_values=leads,
-            issue_day=latest.issue_time.date(),
+        result = diagnose_prevalidation_window(
+            repository=self.repository,
+            forecast_service=self.forecast,
+            source=self.source,
+            policy=POLICY,
+            task_id=task_id,
+            scheme_id=scheme_id,
+            validation_start=window.start,
             nse_good_enough=self.skills.nse_good_enough(),
         )
         notes = list(result.get("notes") or [])
         notes.insert(0, f"scheme_id={scheme_id}")
-        notes.insert(1, f"issue={latest.issue_time.date().isoformat()}")
         notes.insert(
-            2,
-            f"validation_window={window.start.isoformat()}..{window.end.isoformat()}",
+            1,
+            f"held_out_validation_window={window.start.isoformat()}..{window.end.isoformat()}",
         )
         result["notes"] = notes
         return result

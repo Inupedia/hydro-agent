@@ -1,0 +1,99 @@
+{
+  "knowledge_id": "hydrologist-calibration-priors-v1",
+  "knowledge_type": "expert_prior",
+  "status": "seed_prior",
+  "authority": "advisory_only",
+  "description": "面向 XAJ 率定智能体的专家先验种子。用于约束诊断和实验设计，不是规范条文，也不能绕过独立验证 Gate。",
+  "provenance": {
+    "inspiration": "zhuanglaihong/HydroAgent Expert Hydrologist skill and LLM calibration workflow",
+    "source_url": "https://github.com/zhuanglaihong/HydroAgent",
+    "source_license": "PolyForm Noncommercial License 1.0.0",
+    "reuse_policy": "conceptual_reimplementation_no_source_copy",
+    "notes": "本文件采用独立表述和本项目自己的可执行结构，只借鉴公开方法思想；外部启发式在本项目验证前均保持 seed_prior 状态。"
+  },
+  "rules": [
+    {
+      "rule_id": "expert.water_balance_first",
+      "category": "diagnosis",
+      "signal": "abs_pbias_percent_gte",
+      "threshold": 10.0,
+      "priority": 100,
+      "recommendation": {
+        "parameter_groups": ["evap", "runoff"],
+        "objective": "composite",
+        "message": "水量平衡偏差显著时，先处理蒸散发/产流过程，不优先精调汇流。"
+      }
+    },
+    {
+      "rule_id": "expert.negative_skill_check_data_first",
+      "category": "diagnosis",
+      "signal": "nse_lt",
+      "threshold": 0.0,
+      "priority": 120,
+      "recommendation": {
+        "prefer_recheck": true,
+        "message": "整体技能为负时，参数率定前应优先复核时间对齐、单位、状态与 forcing；该规则只提供诊断提醒。"
+      }
+    },
+    {
+      "rule_id": "expert.boundary_hit_is_evidence",
+      "category": "search",
+      "signal": "boundary_hit",
+      "priority": 90,
+      "recommendation": {
+        "expand_bounds_automatically": false,
+        "message": "参数触边界首先是诊断证据，不自动解释为扩大范围；应检查先验、数据、过程假设和模型结构。"
+      }
+    },
+    {
+      "rule_id": "expert.local_boundary_can_broaden_within_bounds",
+      "category": "search",
+      "signal": "local_boundary_hit",
+      "priority": 110,
+      "recommendation": {
+        "search_adjustment": "broaden_within_absolute_bounds",
+        "message": "若候选只触及局部搜索窗口而未触及老师/内核绝对边界，可在绝对边界内逐级放宽下一轮搜索；不得越过绝对边界。"
+      }
+    },
+    {
+      "rule_id": "expert.absolute_boundary_requires_diagnosis",
+      "category": "search",
+      "signal": "absolute_boundary_hit",
+      "priority": 125,
+      "recommendation": {
+        "search_adjustment": "hold_absolute_bounds",
+        "prefer_recheck": true,
+        "message": "若候选已触及老师/内核绝对参数边界，不自动外扩；优先把它视为数据、状态、过程假设或模型结构的诊断信号。"
+      }
+    },
+    {
+      "rule_id": "expert.validation_degradation_is_failure",
+      "category": "validation",
+      "signal": "validation_degraded",
+      "priority": 130,
+      "recommendation": {
+        "accept": false,
+        "message": "率定期改善而独立验证退化时，不应宣布成功，应保留或回滚并重新诊断。"
+      }
+    },
+    {
+      "rule_id": "expert.stagnation_questions_structure",
+      "category": "reflection",
+      "signal": "no_improvement_rounds_gte",
+      "threshold": 3,
+      "priority": 80,
+      "recommendation": {
+        "message": "连续受控实验无改善时，应降低继续扩大搜索的优先级，并考虑 forcing、状态或模型结构假设。"
+      }
+    },
+    {
+      "rule_id": "expert.basin_attributes_are_priors",
+      "category": "basin_prior",
+      "signal": "basin_attributes_available",
+      "priority": 60,
+      "recommendation": {
+        "message": "干旱度、径流系数、基流指数、降雪比例等流域属性可作为搜索空间先验，但不能替代观测证据和独立验证。"
+      }
+    }
+  ]
+}

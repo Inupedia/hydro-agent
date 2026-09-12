@@ -123,6 +123,34 @@ class DiagnoseHandler:
 
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
         result = self.diagnose_fn(task_id)
+
+        # Search-boundary evidence belongs to the previous calibration experiment,
+        # not to the forecast residual calculation itself. Carry it into the next
+        # diagnosis so expert priors can decide whether a local window may widen.
+        for row in reversed(self.repository.list_evidence(task_id)):
+            if row.action != ActionCode.A07_OPTIMIZE.value:
+                continue
+            previous = dict(row.gates_json or {})
+            local_hits = str(previous.get("local_boundary_hits") or "").strip()
+            absolute_hits = str(previous.get("absolute_boundary_hits") or "").strip()
+            if local_hits:
+                result["local_boundary_hits"] = tuple(
+                    item.strip() for item in local_hits.split(",") if item.strip()
+                )
+            if absolute_hits:
+                result["absolute_boundary_hits"] = tuple(
+                    item.strip() for item in absolute_hits.split(",") if item.strip()
+                )
+            if previous.get("strategy_id"):
+                result["previous_strategy_id"] = str(previous["strategy_id"])
+            notes = list(result.get("notes") or [])
+            if local_hits:
+                notes.append(f"previous_local_boundary_hits={local_hits}")
+            if absolute_hits:
+                notes.append(f"previous_absolute_boundary_hits={absolute_hits}")
+            result["notes"] = notes
+            break
+
         hypotheses = list(result.get("hypotheses") or [])
         hypothesis_lines = tuple(
             f"hypothesis[{index}]={item.get('id')}:{float(item.get('strength') or 0):.2f}:"
@@ -131,6 +159,8 @@ class DiagnoseHandler:
         )
         groups = result.get("recommended_param_groups")
         groups_text = ",".join(groups) if isinstance(groups, (list, tuple)) else ""
+        local_boundary_text = ",".join(result.get("local_boundary_hits") or ())
+        absolute_boundary_text = ",".join(result.get("absolute_boundary_hits") or ())
         observations = (
             f"phenomenon={result.get('phenomenon')}",
             f"hypothesis={result.get('hypothesis')}",
@@ -138,6 +168,8 @@ class DiagnoseHandler:
             f"recommended_strategy_id={result.get('recommended_strategy_id')}",
             f"recommended_param_groups={groups_text or '-'}",
             f"recommended_objective={result.get('recommended_objective') or '-'}",
+            f"local_boundary_hits={local_boundary_text or '-'}",
+            f"absolute_boundary_hits={absolute_boundary_text or '-'}",
             *hypothesis_lines,
             *(result.get("notes") or ()),
         )
@@ -155,6 +187,9 @@ class DiagnoseHandler:
             "phenomenon": str(result.get("phenomenon") or ""),
             "skill_id": "forecast-diagnose",
             "hypotheses_json": json.dumps(hypotheses, ensure_ascii=False, sort_keys=True),
+            "local_boundary_hits": local_boundary_text,
+            "absolute_boundary_hits": absolute_boundary_text,
+            "previous_strategy_id": str(result.get("previous_strategy_id") or ""),
         }
         return EvidencePacket(
             evidence_id=_evidence_id(),
@@ -278,6 +313,15 @@ class OptimizeHandler:
             and abs(float(outcome.candidate_parameters[key]) - float(base_params[key])) > 1e-12
         }
         groups_text = ",".join(outcome.param_groups)
+        payload = dict(outcome.result_payload or {})
+        boundary = payload.get("search_boundary_evidence")
+        boundary = boundary if isinstance(boundary, dict) else {}
+        local_hits = tuple(str(item) for item in boundary.get("local_hits") or ())
+        absolute_hits = tuple(str(item) for item in boundary.get("absolute_hits") or ())
+        local_hits_text = ",".join(local_hits)
+        absolute_hits_text = ",".join(absolute_hits)
+        boundary_json = json.dumps(boundary, ensure_ascii=False, sort_keys=True)
+
         candidate_id = self.candidate_service.register_candidate(
             base_scheme_id=outcome.base_scheme_id,
             action_run_id=outcome.action_run_id,
@@ -286,6 +330,7 @@ class OptimizeHandler:
                 "strategy_id": outcome.strategy_id,
                 "objective": outcome.objective,
                 "param_groups": list(outcome.param_groups),
+                "search_boundary_evidence": boundary,
             },
         )
         observations = (
@@ -296,9 +341,10 @@ class OptimizeHandler:
             f"param_groups={groups_text}",
             f"objective_value={outcome.objective_value}",
             f"parameter_delta={json.dumps(delta, sort_keys=True)}",
+            f"local_boundary_hits={local_hits_text or '-'}",
+            f"absolute_boundary_hits={absolute_hits_text or '-'}",
         )
         metrics = {"objective_value": float(outcome.objective_value)}
-        payload = dict(outcome.result_payload or {})
         for prefix, blob in (
             ("baseline", payload.get("baseline_metrics")),
             ("candidate", payload.get("candidate_metrics")),
@@ -315,6 +361,9 @@ class OptimizeHandler:
             "objective": outcome.objective,
             "param_groups": groups_text,
             "parameter_delta_json": json.dumps(delta, sort_keys=True),
+            "local_boundary_hits": local_hits_text,
+            "absolute_boundary_hits": absolute_hits_text,
+            "search_boundary_evidence_json": boundary_json,
         }
         return EvidencePacket(
             evidence_id=_evidence_id(),
