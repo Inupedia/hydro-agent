@@ -51,6 +51,19 @@ class CalibrationReflection(FrozenModel):
     evidence: tuple[str, ...] = ()
 
 
+def _normalize_groups(raw_groups: object, fallback: tuple[str, ...]) -> tuple[str, ...]:
+    if isinstance(raw_groups, str):
+        groups = tuple(item.strip() for item in raw_groups.split(",") if item.strip())
+    elif isinstance(raw_groups, (list, tuple)):
+        groups = tuple(str(item).strip() for item in raw_groups if str(item).strip())
+    else:
+        groups = ()
+    allowed = {"evap", "runoff", "routing"}
+    if not groups or any(item not in allowed for item in groups):
+        return tuple(fallback)
+    return groups
+
+
 def plan_from_diagnosis(
     diagnosis: dict[str, Any],
     *,
@@ -66,14 +79,9 @@ def plan_from_diagnosis(
         strategy_id = "xaj-bounded-v1"
         strategy = registry.get(strategy_id)
 
-    raw_groups = diagnosis.get("recommended_param_groups")
-    if raw_groups:
-        groups = tuple(str(item) for item in raw_groups)
-    else:
-        groups = tuple(strategy.param_groups)
-    allowed = {"evap", "runoff", "routing"}
-    if not groups or any(item not in allowed for item in groups):
-        groups = tuple(strategy.param_groups)
+    groups = _normalize_groups(
+        diagnosis.get("recommended_param_groups"), tuple(strategy.param_groups)
+    )
 
     objective = str(diagnosis.get("recommended_objective") or strategy.objective)
     if objective not in {"nse", "peak", "composite"}:
