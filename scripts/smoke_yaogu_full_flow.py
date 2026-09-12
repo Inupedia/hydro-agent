@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Run the real bundled Yaogu XAJ path through model-plan, Agent actions and knowledge Gate.
+"""Real Yaogu calibration-scientist E2E smoke.
 
-This smoke intentionally uses the user-supplied Yaogu academy materials and the vendored
-teacher XAJ kernel. It does not call an LLM: a scripted provider is used so the test isolates
-whether the deterministic hydrology/data/knowledge execution path itself is runnable.
+The smoke uses the user-supplied Yaogu academy materials, the vendored teacher
+XAJ kernel, leakage-safe diagnostics, structured calibration plans, SCE-UA,
+independent GB/T Gate, reflection/rollback, case memory, replay and evaluation.
+
+For reproducibility this CI smoke uses the deterministic CalibrationScientist
+policy provider rather than an external LLM. The provider obeys the same
+WorldStateView -> AgentDecision contract as LLM providers.
 """
 
 from __future__ import annotations
@@ -14,18 +18,23 @@ import time
 from datetime import date
 from pathlib import Path
 
-from hydro_agent.agent.contracts import ActionCode, AgentDecision, ProblemHypothesis
-from hydro_agent.agent.providers.scripted import ScriptedDecisionProvider
+from hydro_agent.agent.contracts import ActionCode
+from hydro_agent.agent.providers.calibration_scientist import CalibrationScientistDecisionProvider
 from hydro_agent.agent.runtime import AgentRuntime
 from hydro_agent.agent.world_state import WorldStateBuilder
 from hydro_agent.api.deps import AppDependencies
 from hydro_agent.api.schemas import TaskCreateRequest
 from hydro_agent.api.services import create_workbench_task
-from hydro_agent.knowledge import KnowledgeRepository
+from hydro_agent.knowledge import (
+    CalibrationCase,
+    CalibrationCaseMemory,
+    KnowledgeRepository,
+    lesson_from_gate,
+)
 from hydro_agent.modeling.plans import ModelPlanService, PlanRequest, bundled_academy_root
 from hydro_agent.persistence.database import Database
 from hydro_agent.persistence.repository import HydroRepository
-from hydro_agent.workbench.real import RealWorkbenchKernel
+from hydro_agent.workbench.calibration_scientist import CalibrationScientistWorkbenchKernel
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "artifacts" / "yaogu-flow-smoke"
@@ -33,6 +42,7 @@ PLAN_ROOT = OUT / "model-plans"
 DB_PATH = OUT / "hydro.db"
 REPORT_ROOT = OUT / "reports"
 WORK_ROOT = OUT / "runtime"
+CASE_PATH = OUT / "knowledge" / "calibration-cases.jsonl"
 
 
 def wait_plan(service: ModelPlanService, plan_id: str, *, timeout: float = 900.0) -> dict:
@@ -60,57 +70,75 @@ def wait_plan(service: ModelPlanService, plan_id: str, *, timeout: float = 900.0
     raise TimeoutError(f"model plan {plan_id} did not finish within {timeout}s")
 
 
-def decisions() -> list[AgentDecision]:
-    return [
-        AgentDecision(
-            action=ActionCode.A03_VALIDATE_SCHEME,
-            hypothesis=ProblemHypothesis.MODEL,
-            rationale_summary="Validate the generated Yaogu XAJ scheme.",
-        ),
-        AgentDecision(
-            action=ActionCode.A05_FORECAST,
-            hypothesis=ProblemHypothesis.MODEL,
-            rationale_summary="Run a real Yaogu forecast from the teacher XAJ kernel.",
-        ),
-        AgentDecision(
-            action=ActionCode.A06_DIAGNOSE,
-            hypothesis=ProblemHypothesis.MODEL,
-            rationale_summary="Diagnose the real forecast before calibration.",
-        ),
-        AgentDecision(
-            action=ActionCode.A07_OPTIMIZE,
-            hypothesis=ProblemHypothesis.MODEL,
-            strategy_id="xaj-bounded-v1",
-            param_groups=("evap", "runoff", "routing"),
-            objective="nse",
-            rationale_summary="Run bounded XAJ calibration on the legal pre-validation window.",
-        ),
-        AgentDecision(
-            action=ActionCode.A08_GATE,
-            hypothesis=ProblemHypothesis.MODEL,
-            rationale_summary="Evaluate the Yaogu candidate with aligned validation forecasts and GB/T knowledge.",
-        ),
-        AgentDecision(
-            action=ActionCode.A09_RESOLVE,
-            hypothesis=ProblemHypothesis.MODEL,
-            rationale_summary="Apply ACCEPT/KEEP/ROLLBACK without bypassing the standard report.",
-        ),
-        AgentDecision(
-            action=ActionCode.A10_FREEZE,
-            hypothesis=ProblemHypothesis.MODEL,
-            rationale_summary="Freeze the resolved scheme for replay.",
-        ),
-        AgentDecision(
-            action=ActionCode.A11_REPLAY,
-            hypothesis=ProblemHypothesis.MODEL,
-            rationale_summary="Replay the frozen Yaogu scheme across the validation issue dates.",
-        ),
-        AgentDecision(
-            action=ActionCode.A12_EVALUATE_REPORT,
-            hypothesis=ProblemHypothesis.MODEL,
-            rationale_summary="Run read-only final evaluation and report generation.",
-        ),
-    ]
+def _parse_delta(gates: dict) -> dict[str, float]:
+    raw = gates.get("parameter_delta_json")
+    if not raw:
+        return {}
+    try:
+        payload = json.loads(str(raw))
+    except json.JSONDecodeError:
+        return {}
+    return {str(k): float(v) for k, v in payload.items() if isinstance(v, (int, float))}
+
+
+def write_case_memory(repository, task_id: str) -> list[CalibrationCase]:
+    """Convert A06→A07→A08 evidence triples into persistent calibration cases."""
+
+    rows = repository.list_evidence(task_id)
+    memory = CalibrationCaseMemory(CASE_PATH)
+    cases: list[CalibrationCase] = []
+    last_diagnosis = None
+    pending_opt = None
+    case_index = 0
+    for row in rows:
+        if row.action == ActionCode.A06_DIAGNOSE.value:
+            last_diagnosis = row
+            continue
+        if row.action == ActionCode.A07_OPTIMIZE.value:
+            pending_opt = (row, last_diagnosis)
+            continue
+        if row.action != ActionCode.A08_GATE.value or pending_opt is None:
+            continue
+        opt, diagnosis = pending_opt
+        case_index += 1
+        dgates = dict(diagnosis.gates_json or {}) if diagnosis is not None else {}
+        ogates = dict(opt.gates_json or {})
+        gate_gates = dict(row.gates_json or {})
+        cal_metrics = {
+            str(k): float(v)
+            for k, v in dict(opt.metrics_json or {}).items()
+            if isinstance(v, (int, float))
+        }
+        val_metrics = {
+            str(k): float(v)
+            for k, v in dict(row.metrics_json or {}).items()
+            if isinstance(v, (int, float))
+        }
+        groups = tuple(
+            item.strip()
+            for item in str(ogates.get("param_groups") or "").split(",")
+            if item.strip()
+        )
+        gate_status = str(gate_gates.get("status") or row.status)
+        case = CalibrationCase(
+            case_id=f"{task_id}-case-{case_index:02d}",
+            basin_id="yaogu",
+            hypothesis=str(dgates.get("hypothesis") or "UNKNOWN"),
+            phenomenon=str(dgates.get("phenomenon") or ""),
+            strategy_id=str(ogates.get("strategy_id") or "unknown"),
+            optimizer="sce-ua",
+            param_groups=groups,
+            objective=str(ogates.get("objective") or "nse"),
+            calibration_metrics=cal_metrics,
+            validation_metrics=val_metrics,
+            gate_status=gate_status,
+            parameter_delta=_parse_delta(ogates),
+            lesson=lesson_from_gate(gate_status),
+        )
+        memory.append(case)
+        cases.append(case)
+        pending_opt = None
+    return cases
 
 
 def main() -> int:
@@ -174,8 +202,6 @@ def main() -> int:
         )
         deps.model_plans = plans
 
-        # Ten issued days are enough to exercise aligned lead-1/2/3 Gate statistics,
-        # while remaining comfortably inside the bundled 1989-2003 daily record.
         request = TaskCreateRequest(
             basin_id="yaogu",
             model_id="xaj",
@@ -189,7 +215,7 @@ def main() -> int:
             max_optimization_cycles=4,
         )
         task_id = create_workbench_task(deps, request)
-        kernel = RealWorkbenchKernel(
+        kernel = CalibrationScientistWorkbenchKernel(
             repository=repository,
             work_root=WORK_ROOT,
             source_dir=plan_dir / "normalized",
@@ -198,7 +224,7 @@ def main() -> int:
             warmup_days=warmup_days,
         )
         tools = kernel.build_tools(task_configs=deps.task_configs)
-        provider = ScriptedDecisionProvider(decisions())
+        provider = CalibrationScientistDecisionProvider(max_experiments=2)
         runtime = AgentRuntime(
             repository,
             provider=provider,
@@ -208,41 +234,64 @@ def main() -> int:
                 skills=kernel.skills,
                 strategies=kernel.strategies,
             ),
-            provider_name="scripted-yaogu-smoke",
+            provider_name="calibration-scientist-deterministic",
         )
 
         packets = []
-        for expected in [item.action for item in decisions()]:
+        for _ in range(20):
             packet = runtime.run_round(task_id)
             packets.append(packet)
             print(
                 "ACTION",
-                expected.value,
-                "=>",
                 packet.action.value,
                 packet.status,
-                json.dumps(dict(packet.metrics), ensure_ascii=False, allow_nan=False),
+                json.dumps(
+                    {
+                        "metrics": dict(packet.metrics),
+                        "gates": dict(packet.gates),
+                        "observations": list(packet.observations),
+                    },
+                    ensure_ascii=False,
+                    allow_nan=False,
+                ),
                 flush=True,
             )
-            if packet.action != expected:
-                raise RuntimeError(f"expected {expected.value}, got {packet.action.value}")
+            if packet.action == ActionCode.A12_EVALUATE_REPORT and packet.status == "succeeded":
+                break
+        else:
+            raise RuntimeError("calibration scientist did not close out within 20 rounds")
 
         task = repository.get_task(task_id)
         state = repository.ensure_task_state(task_id)
         evidence = repository.list_evidence(task_id)
-        gate_packet = next(packet for packet in packets if packet.action == ActionCode.A08_GATE)
+        gate_packets = [packet for packet in packets if packet.action == ActionCode.A08_GATE]
         eval_packet = next(
             packet for packet in packets if packet.action == ActionCode.A12_EVALUATE_REPORT
         )
+        cases = write_case_memory(repository, task_id)
         knowledge = KnowledgeRepository()
         standard = knowledge.standard()
         policy = knowledge.policy()
         area_km2 = float(plan["area_km2"]) if plan.get("area_km2") is not None else None
+        diagnoses = [packet for packet in packets if packet.action == ActionCode.A06_DIAGNOSE]
+        optimizations = [packet for packet in packets if packet.action == ActionCode.A07_OPTIMIZE]
+        strict_prevalidation = all(
+            any("diagnostic_truth_strictly_precedes_validation=true" in obs for obs in packet.observations)
+            for packet in diagnoses
+        )
         summary = {
-            "ok": task.phase == "E" and eval_packet.status == "succeeded",
+            "ok": (
+                task.phase == "E"
+                and eval_packet.status == "succeeded"
+                and strict_prevalidation
+                and bool(optimizations)
+                and bool(cases)
+            ),
             "task_id": task_id,
             "phase": task.phase,
             "current_scheme_id": state.current_scheme_id,
+            "provider": "calibration-scientist-deterministic",
+            "diagnostic_truth_strictly_precedes_validation": strict_prevalidation,
             "model_plan": {
                 "plan_id": plan_id,
                 "area_km2": plan.get("area_km2"),
@@ -255,15 +304,21 @@ def main() -> int:
                     "status": packet.status,
                     "metrics": dict(packet.metrics),
                     "gates": dict(packet.gates),
+                    "observations": list(packet.observations),
                 }
                 for packet in packets
             ],
             "evidence_actions": [row.action for row in evidence],
-            "gate": {
-                "status": gate_packet.status,
-                "metrics": dict(gate_packet.metrics),
-                "gates": dict(gate_packet.gates),
-            },
+            "optimization_count": len(optimizations),
+            "gate_history": [
+                {
+                    "status": packet.status,
+                    "metrics": dict(packet.metrics),
+                    "gates": dict(packet.gates),
+                }
+                for packet in gate_packets
+            ],
+            "calibration_cases": [case.model_dump(mode="json") for case in cases],
             "evaluation": {
                 "status": eval_packet.status,
                 "metrics": dict(eval_packet.metrics),
@@ -287,7 +342,7 @@ def main() -> int:
         print("SUMMARY_PATH", summary_path, flush=True)
         print("SUMMARY", json.dumps(summary, ensure_ascii=False, allow_nan=False), flush=True)
         if not summary["ok"]:
-            raise RuntimeError("Yaogu full-flow smoke did not finish in E phase")
+            raise RuntimeError("Yaogu calibration-scientist smoke did not satisfy all assertions")
         return 0
     finally:
         plans.pool.shutdown(wait=True)
