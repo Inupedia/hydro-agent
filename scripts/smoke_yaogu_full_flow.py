@@ -237,6 +237,7 @@ def main() -> int:
         knowledge = KnowledgeRepository()
         standard = knowledge.standard()
         policy = knowledge.policy()
+        area_km2 = float(plan["area_km2"]) if plan.get("area_km2") is not None else None
         summary = {
             "ok": task.phase == "E" and eval_packet.status == "succeeded",
             "task_id": task_id,
@@ -274,7 +275,8 @@ def main() -> int:
                 "standard_effective_from": standard["effective_from"],
                 "policy_id": policy["policy_id"],
                 "policy_gate": policy["gate"],
-                "profile": knowledge.standard_profile(),
+                "profile": knowledge.gbt_accuracy_metadata(area_km2=area_km2),
+                "provenance": knowledge.provenance(),
             },
         }
         summary_path = OUT / "summary.json"
