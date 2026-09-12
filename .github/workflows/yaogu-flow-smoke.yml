@@ -2,9 +2,18 @@ name: Yaogu Full Flow Smoke
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/smoke_yaogu_full_flow.py"
+      - "src/hydro_agent/**"
+      - "tests/**"
+      - "data/academy/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/yaogu-flow-smoke.yml"
   push:
     branches:
-      - feat/calibration-scientist-loop
+      - main
     paths:
       - "scripts/smoke_yaogu_full_flow.py"
       - "src/hydro_agent/**"
@@ -23,9 +32,9 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
-      - name: Install real XAJ, GIS and LangGraph runtime
+      - name: Calibration scientist, knowledge and teacher-XAJ runtime
         run: uv sync --frozen --extra dev --extra xaj-dem --extra api
-      - name: Calibration scientist, knowledge and teacher-kernel tests
+      - name: Calibration scientist, expert knowledge and teacher-kernel tests
         run: >-
           uv run --frozen pytest -q
           tests/agent/test_calibration_scientist_provider.py
@@ -33,6 +42,7 @@ jobs:
           tests/optimization/test_sceua.py
           tests/optimization/test_calibration_scientist.py
           tests/knowledge/test_cases.py
+          tests/knowledge/test_expert.py
           tests/knowledge/test_repository.py
           tests/evaluation/test_gbt22482.py
           tests/models/xaj/test_teacher_kernel.py
