@@ -40,6 +40,7 @@ jobs:
           tests/agent/test_calibration_scientist_provider.py
           tests/agent/test_world_state.py
           tests/services/test_calibration_diagnostics.py
+          tests/workbench/test_prevalidation_diagnosis_binding.py
           tests/optimization/test_sceua.py
           tests/optimization/test_calibration_scientist.py
           tests/optimization/test_search_boundary_expertise.py
