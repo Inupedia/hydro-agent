@@ -163,6 +163,9 @@ def diagnose_prevalidation_window(
         metrics["peak_timing_lag_days"] = float(peak_lag)
 
     basin_raw = dict(getattr(source, "basin", {}) or {})
+    source_metadata = dict(getattr(source, "metadata", {}) or {})
+    evaporation_kind = str(source_metadata.get("evaporation_kind") or "").lower()
+    evaporation_is_potential = "measured evaporation" not in evaporation_kind
     area_raw = basin_raw.get("area_km2")
     basin_attributes: dict[str, Any] = {}
     if isinstance(area_raw, (int, float)) and float(area_raw) > 0:
@@ -171,6 +174,7 @@ def diagnose_prevalidation_window(
             flow_rows=source.flow_rows,
             area_km2=float(area_raw),
             before_date=validation_start,
+            evaporation_is_potential=evaporation_is_potential,
         )
         basin_attributes = profile.model_dump(exclude_none=True)
 
@@ -264,6 +268,8 @@ def diagnose_prevalidation_window(
             + json.dumps(basin_attributes, ensure_ascii=False, sort_keys=True)
         )
         notes.append("basin_profile_strictly_precedes_validation=true")
+    if not evaporation_is_potential:
+        notes.append("aridity_not_derived=evaporation_input_is_not_potential_evapotranspiration")
 
     return {
         "hypothesis": primary["id"],
