@@ -52,7 +52,14 @@ class SnapshotContext(FrozenModel):
     @property
     def dates(self):
         first = self.issue_date - timedelta(days=self.history_days - 1)
-        return tuple(first + timedelta(days=i) for i in range(self.history_days + 3))
+        # Only a forecast snapshot is allowed to carry the +1/+2/+3 forcing
+        # horizon. Calibration/evaluation snapshots stop exactly at issue_date;
+        # otherwise the first held-out validation days leak into optimization.
+        forecast_horizon_days = 3 if self.capability == "forecast" else 0
+        return tuple(
+            first + timedelta(days=i)
+            for i in range(self.history_days + forecast_horizon_days)
+        )
 
 
 class SnapshotFile(FrozenModel):
