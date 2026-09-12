@@ -33,6 +33,7 @@ class ExpertAdvice(FrozenModel):
     matched_rule_ids: tuple[str, ...] = ()
     recommended_param_groups: tuple[str, ...] | None = None
     recommended_objective: str | None = None
+    search_adjustment: str | None = None
     prefer_recheck: bool = False
     notes: tuple[str, ...] = ()
 
@@ -139,12 +140,12 @@ class ExpertKnowledgeRepository:
         return None
 
     @staticmethod
-    def _boundary_hits(diagnosis: dict[str, Any]) -> tuple[str, ...]:
-        raw = diagnosis.get("boundary_hits")
+    def _name_list(diagnosis: dict[str, Any], key: str) -> tuple[str, ...]:
+        raw = diagnosis.get(key)
         if isinstance(raw, str):
             return tuple(item.strip() for item in raw.split(",") if item.strip())
         if isinstance(raw, (list, tuple)):
-            return tuple(str(item) for item in raw if str(item).strip())
+            return tuple(str(item).strip() for item in raw if str(item).strip())
         return ()
 
     def advise(
@@ -161,7 +162,9 @@ class ExpertKnowledgeRepository:
         pbias = self._metric(diagnosis, "pbias_percent", "pbias")
         nse = self._metric(diagnosis, "nse")
         profile = self.basin_profile(basin_attributes)
-        boundary_hits = self._boundary_hits(diagnosis)
+        local_boundary_hits = self._name_list(diagnosis, "local_boundary_hits")
+        absolute_boundary_hits = self._name_list(diagnosis, "absolute_boundary_hits")
+        any_boundary_hits = bool(local_boundary_hits or absolute_boundary_hits)
 
         for candidate_id, rule in self._rules.values():
             if candidate_id != knowledge_id:
@@ -173,7 +176,11 @@ class ExpertKnowledgeRepository:
             elif rule.signal == "nse_lt" and nse is not None and threshold is not None:
                 matched = nse < threshold
             elif rule.signal == "boundary_hit":
-                matched = bool(boundary_hits)
+                matched = any_boundary_hits
+            elif rule.signal == "local_boundary_hit":
+                matched = bool(local_boundary_hits) and not absolute_boundary_hits
+            elif rule.signal == "absolute_boundary_hit":
+                matched = bool(absolute_boundary_hits)
             elif rule.signal == "validation_degraded":
                 matched = validation_degraded
             elif rule.signal == "no_improvement_rounds_gte" and threshold is not None:
@@ -186,6 +193,7 @@ class ExpertKnowledgeRepository:
         matches.sort(key=lambda item: item.priority, reverse=True)
         groups: tuple[str, ...] | None = None
         objective: str | None = None
+        search_adjustment: str | None = None
         prefer_recheck = False
         notes: list[str] = []
         for rule in matches:
@@ -195,6 +203,8 @@ class ExpertKnowledgeRepository:
                 groups = tuple(str(item) for item in raw_groups)
             if objective is None and recommendation.get("objective"):
                 objective = str(recommendation["objective"])
+            if search_adjustment is None and recommendation.get("search_adjustment"):
+                search_adjustment = str(recommendation["search_adjustment"])
             prefer_recheck = prefer_recheck or bool(recommendation.get("prefer_recheck"))
             message = recommendation.get("message")
             if message:
@@ -207,6 +217,10 @@ class ExpertKnowledgeRepository:
                     summary.append(f"{key}={value}")
             if summary:
                 notes.append("流域画像先验: " + ", ".join(summary))
+        if local_boundary_hits:
+            notes.append("局部搜索边界触碰: " + ", ".join(local_boundary_hits))
+        if absolute_boundary_hits:
+            notes.append("绝对参数边界触碰: " + ", ".join(absolute_boundary_hits))
 
         return ExpertAdvice(
             knowledge_id=knowledge_id,
@@ -215,6 +229,7 @@ class ExpertKnowledgeRepository:
             matched_rule_ids=tuple(rule.rule_id for rule in matches),
             recommended_param_groups=groups,
             recommended_objective=objective,
+            search_adjustment=search_adjustment,
             prefer_recheck=prefer_recheck,
             notes=tuple(notes),
         )
