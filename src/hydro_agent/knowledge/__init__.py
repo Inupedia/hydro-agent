@@ -1,8 +1,9 @@
 """Lightweight knowledge platform for Hydro-Agent.
 
-Standards/project policies remain versioned structured knowledge, while
-calibration cases preserve experience as auditable evidence rather than model
-weights. This keeps V1 retrieval-friendly without requiring fine-tuning/RL.
+Normative standards, advisory expert priors and audited calibration cases are
+kept as different knowledge classes. This prevents heuristics from being
+silently promoted into Gate rules while still allowing the Agent to learn from
+external expertise and local evidence.
 """
 
 from hydro_agent.knowledge.cases import (
@@ -10,11 +11,21 @@ from hydro_agent.knowledge.cases import (
     CalibrationCaseMemory,
     lesson_from_gate,
 )
+from hydro_agent.knowledge.expert import (
+    BasinHydroProfile,
+    ExpertAdvice,
+    ExpertKnowledgeRepository,
+    ExpertRule,
+)
 from hydro_agent.knowledge.repository import KnowledgeRepository
 
 __all__ = [
+    "BasinHydroProfile",
     "CalibrationCase",
     "CalibrationCaseMemory",
+    "ExpertAdvice",
+    "ExpertKnowledgeRepository",
+    "ExpertRule",
     "KnowledgeRepository",
     "lesson_from_gate",
 ]
