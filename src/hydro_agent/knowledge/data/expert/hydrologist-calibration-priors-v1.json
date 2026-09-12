@@ -46,6 +46,27 @@
       }
     },
     {
+      "rule_id": "expert.local_boundary_can_broaden_within_bounds",
+      "category": "search",
+      "signal": "local_boundary_hit",
+      "priority": 110,
+      "recommendation": {
+        "search_adjustment": "broaden_within_absolute_bounds",
+        "message": "若候选只触及局部搜索窗口而未触及老师/内核绝对边界，可在绝对边界内逐级放宽下一轮搜索；不得越过绝对边界。"
+      }
+    },
+    {
+      "rule_id": "expert.absolute_boundary_requires_diagnosis",
+      "category": "search",
+      "signal": "absolute_boundary_hit",
+      "priority": 125,
+      "recommendation": {
+        "search_adjustment": "hold_absolute_bounds",
+        "prefer_recheck": true,
+        "message": "若候选已触及老师/内核绝对参数边界，不自动外扩；优先把它视为数据、状态、过程假设或模型结构的诊断信号。"
+      }
+    },
+    {
       "rule_id": "expert.validation_degradation_is_failure",
       "category": "validation",
       "signal": "validation_degraded",
