@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from hydro_agent.data.windows import recommended_task_window
 from hydro_agent.models.xaj.contracts import XajBasin, XajScheme
 from hydro_agent.models.xaj.upstream import MODEL_SHA256, MODEL_VERSION
 
@@ -120,11 +121,23 @@ class ModelPlanService:
         self.lock = threading.RLock()
         for path in self.root.glob('plan-*/plan.json'):
             p = json.loads(path.read_text(encoding='utf-8'))
-            if p.get('basin_id') != BUNDLED_BASIN_ID:
+            # Legacy Yaogu plans predate the basin_id field.
+            if p.get('basin_id', BUNDLED_BASIN_ID) != BUNDLED_BASIN_ID:
                 continue
             if p['status'] in ('running', 'queued'):
                 p.update(status='failed', error='服务重启中断了建模，请新建方案；未复用不完整成果。')
                 write_json(path, p)
+            elif p.get('status') == 'ready' and all(
+                p.get(key) is not None for key in ('data_start', 'data_end', 'history_days')
+            ):
+                start, end = recommended_task_window(
+                    date.fromisoformat(p['data_start']),
+                    date.fromisoformat(p['data_end']),
+                    int(p['history_days']),
+                )
+                if date.fromisoformat(p.get('suggested_start') or p['data_start']) < start:
+                    p.update(suggested_start=str(start), suggested_end=str(end))
+                    write_json(path, p)
 
     def directory(self, plan_id: str) -> Path:
         if not re.fullmatch(r'plan-[a-f0-9]{12}', plan_id):
@@ -343,12 +356,7 @@ class ModelPlanService:
                                        'unit_count': len(units)})
         warmup = scheme.warmup_days
         history_days = max(60, warmup + 60)
-        first_issue = dates[0] + timedelta(days=history_days - 1)
-        last_issue = dates[-1] - timedelta(days=3)
-        sug_start = first_issue + timedelta(days=1)
-        if sug_start > last_issue:
-            raise ValueError('资料长度不足以支撑校准窗口')
-        sug_end = min(sug_start + timedelta(days=14), last_issue)
+        sug_start, sug_end = recommended_task_window(dates[0], dates[-1], history_days)
         self._update(plan_id, area_km2=total_area, unit_count=len(units),
                      data_start=str(dates[0]), data_end=str(dates[-1]),
                      suggested_start=str(sug_start), suggested_end=str(sug_end),

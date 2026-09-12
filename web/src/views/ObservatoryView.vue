@@ -45,7 +45,8 @@ function selectPlan(plan: ModelPlan | null) {
     demo.draft.basin_id = plan.basin_id
   }
   demo.draft.model_plan_id = plan.plan_id
-  if (previous !== plan.plan_id) {
+  const datesNeedRepair = !!plan.suggested_start && demo.draft.start_date < plan.suggested_start
+  if (previous !== plan.plan_id || datesNeedRepair) {
     demo.draft.forcing_mode = 'R'
     if (plan.suggested_start) demo.draft.start_date = plan.suggested_start
     if (plan.suggested_end) demo.draft.end_date = plan.suggested_end

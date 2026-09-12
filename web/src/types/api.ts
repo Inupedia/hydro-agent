@@ -131,6 +131,9 @@ export type ModelPlan = {
   area_km2?: number
   suggested_start?: string
   suggested_end?: string
+  data_start?: string
+  data_end?: string
+  history_days?: number
   error?: string | null
 }
 
@@ -148,4 +151,3 @@ export type BasinInfo = {
   default_start?: string
   default_end?: string
 }
-

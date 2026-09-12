@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from hydro_agent.data.windows import recommended_task_window
 from hydro_agent.modeling.basins import BasinCatalog
 from hydro_agent.modeling.plans import digest, write_json
 from hydro_agent.models.xaj.contracts import XajScheme
@@ -76,6 +77,17 @@ class UsModelPlanService:
             if p["status"] in ("running", "queued"):
                 p.update(status="failed", error="服务重启中断了建模，请新建方案。")
                 write_json(path, p)
+            elif p.get("status") == "ready" and all(
+                p.get(key) is not None for key in ("data_start", "data_end", "history_days")
+            ):
+                start, end = recommended_task_window(
+                    date.fromisoformat(p["data_start"]),
+                    date.fromisoformat(p["data_end"]),
+                    int(p["history_days"]),
+                )
+                if date.fromisoformat(p.get("suggested_start") or p["data_start"]) < start:
+                    p.update(suggested_start=str(start), suggested_end=str(end))
+                    write_json(path, p)
 
     def directory(self, plan_id: str) -> Path:
         if not plan_id.startswith("plan-"):
@@ -482,20 +494,7 @@ class UsModelPlanService:
         # RealWorkbenchKernel uses history_days = max(60, warmup + 60); snapshots need
         # that many forcing days before each issue plus three lead days after.
         history_days = max(60, warmup + 60)
-        first_issue = dates[0] + timedelta(days=history_days - 1)
-        last_issue = dates[-1] - timedelta(days=3)
-        if last_issue < first_issue:
-            raise ValueError(
-                f"资料长度不足以支撑 warmup/history：需要至少 {history_days + 3} 天，当前 {len(dates)} 天"
-            )
-        # Calibration (A07) issues at start_date - 1 day, so reserve one extra day
-        # before the suggested task window.
-        sug_start = first_issue + timedelta(days=1)
-        if sug_start > last_issue:
-            raise ValueError(
-                "资料长度不足以支撑校准窗口（需要 suggested_start 之前仍有完整 history）"
-            )
-        sug_end = min(sug_start + timedelta(days=14), last_issue)
+        sug_start, sug_end = recommended_task_window(dates[0], dates[-1], history_days)
         self._update(
             plan_id,
             area_km2=area,

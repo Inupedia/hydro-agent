@@ -6,6 +6,10 @@ import json
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from hydro_agent.data.windows import (
+    DIAGNOSTIC_LOOKBACK_ISSUE_DAYS,
+    DIAGNOSTIC_VALIDATION_GAP_DAYS,
+)
 from hydro_agent.evaluation.metrics import (
     bias,
     high_flow_mae,
@@ -52,7 +56,7 @@ def diagnose_prevalidation_window(
     scheme_id: str,
     validation_start: date,
     nse_good_enough: float,
-    lookback_issue_days: int = 10,
+    lookback_issue_days: int = DIAGNOSTIC_LOOKBACK_ISSUE_DAYS,
     expert_knowledge: ExpertKnowledgeRepository | None = None,
 ) -> dict[str, Any]:
     """Diagnose with issue/target dates strictly before the validation window.
@@ -65,7 +69,7 @@ def diagnose_prevalidation_window(
     if lookback_issue_days < 4:
         raise ValueError("lookback_issue_days must be >= 4")
 
-    latest_issue = validation_start - timedelta(days=4)
+    latest_issue = validation_start - timedelta(days=DIAGNOSTIC_VALIDATION_GAP_DAYS)
     first_issue = latest_issue - timedelta(days=lookback_issue_days - 1)
     issue_days = tuple(first_issue + timedelta(days=i) for i in range(lookback_issue_days))
 

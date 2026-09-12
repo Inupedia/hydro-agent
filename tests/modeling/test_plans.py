@@ -148,7 +148,8 @@ def test_normalize_writes_strict_xaj_basin(plans):
         with (case / 'model_inputs' / f'{name}.csv').open('w', encoding='utf-8', newline='') as fh:
             writer = csv.DictWriter(fh, fieldnames=['time', *extra])
             writer.writeheader()
-            for i in range(80):
+            # 65 history days + 13 pre-validation diagnostic days + 3 leads.
+            for i in range(100):
                 writer.writerow({'time': str(start + timedelta(days=i)), **extra})
     plans._normalize(plan_id)
     basin = json.loads((root / 'normalized' / 'basin.json').read_text(encoding='utf-8'))

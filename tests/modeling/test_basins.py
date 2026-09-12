@@ -1,8 +1,14 @@
 from datetime import date, timedelta
 
+from hydro_agent.data.windows import PREVALIDATION_ISSUE_RESERVE_DAYS
 from hydro_agent.modeling.basins import BUILTIN_BASINS, BasinCatalog
 from hydro_agent.modeling.plan_catalog import BasinModelPlanService
-from hydro_agent.modeling.plans import PlanRequest, academy_materials_ready, bundled_academy_root
+from hydro_agent.modeling.plans import (
+    PlanRequest,
+    academy_materials_ready,
+    bundled_academy_root,
+    write_json,
+)
 from hydro_agent.modeling.us_plans import UsModelPlanService, UsPlanRequest
 
 
@@ -77,6 +83,13 @@ def test_us_plan_lumped_build_to_ready(tmp_path):
     assert plan["status"] == "ready", plan.get("error")
     assert (service.directory(plan["plan_id"]) / "normalized" / "forcing.jsonl").is_file()
     assert plan["basin_id"] == "camels_13235000"
+    first_legal_issue = date.fromisoformat(plan["data_start"]) + timedelta(
+        days=plan["history_days"] - 1
+    )
+    diagnostic_first_issue = date.fromisoformat(plan["suggested_start"]) - timedelta(
+        days=PREVALIDATION_ISSUE_RESERVE_DAYS
+    )
+    assert diagnostic_first_issue == first_legal_issue
     service.pool.shutdown(wait=False)
 
 
@@ -100,3 +113,25 @@ def test_combined_plan_service_dispatches_us_basin(tmp_path):
     service.delete(plan["plan_id"])
     service.yaogu.pool.shutdown(wait=False)
     service.usgs.pool.shutdown(wait=False)
+
+
+def test_us_service_upgrades_legacy_suggested_window(tmp_path):
+    root = tmp_path / "plans"
+    write_json(
+        root / "plan-123456abcdef" / "plan.json",
+        {
+            "plan_id": "plan-123456abcdef",
+            "basin_id": "usgs_02472000",
+            "status": "ready",
+            "data_start": "1979-01-01",
+            "data_end": "2025-12-31",
+            "history_days": 425,
+            "suggested_start": "1980-03-01",
+            "suggested_end": "1980-03-15",
+        },
+    )
+    service = UsModelPlanService(root, BasinCatalog(tmp_path / "basins"))
+    upgraded = service.get("plan-123456abcdef")
+    assert upgraded["suggested_start"] == "1980-03-13"
+    assert upgraded["suggested_end"] == "1980-03-27"
+    service.pool.shutdown(wait=False)

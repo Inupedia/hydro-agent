@@ -37,7 +37,15 @@ class SnapshotBuilder:
             raise DataAccessViolation("basin or daily timezone mismatch")
         forcing = self.policy.select_forcing(context, forcing_rows)
         if tuple(r.valid_date for r in forcing) != context.dates:
-            raise DataAccessViolation("no legal forcing for complete warmup and three leads")
+            selected_dates = {row.valid_date for row in forcing}
+            missing = [day for day in context.dates if day not in selected_dates]
+            preview = ",".join(day.isoformat() for day in missing[:3])
+            raise DataAccessViolation(
+                "no legal forcing for complete warmup and three leads: "
+                f"issue_date={context.issue_date}, history_days={context.history_days}, "
+                f"required={context.dates[0]}..{context.dates[-1]}, "
+                f"missing_count={len(missing)}, missing_first={preview or '-'}"
+            )
         flows = self.policy.select_flow(context, flow_rows)
         parent = self.root / context.basin_id
         parent.mkdir(parents=True, exist_ok=True)
