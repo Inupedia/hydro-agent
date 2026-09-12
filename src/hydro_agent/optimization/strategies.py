@@ -63,6 +63,19 @@ XAJ_HYDRO_COMPOSITE_V1 = CalibrationStrategy(
     optimizer="sce-ua",
 )
 
+# Second-stage search used only when the selected candidate presses against a
+# local search window while the teacher/kernel absolute range still has room.
+# It never expands beyond the absolute parameter bounds.
+XAJ_BROADENED_REFINE_V1 = CalibrationStrategy(
+    strategy_id="xaj-broadened-refine-v1",
+    max_candidates=96,
+    random_seed=20260917,
+    objective="composite",
+    local_scale=0.65,
+    param_groups=("evap", "runoff", "routing"),
+    optimizer="sce-ua",
+)
+
 # Explicit baseline retained for ablation and fair O/P/A experiments.
 XAJ_RANDOM_SEARCH_V1 = CalibrationStrategy(
     strategy_id="xaj-random-search-v1",
@@ -97,6 +110,7 @@ class CalibrationStrategyRegistry:
                 XAJ_WATER_BALANCE_V1,
                 XAJ_ROUTING_REFINE_V1,
                 XAJ_HYDRO_COMPOSITE_V1,
+                XAJ_BROADENED_REFINE_V1,
                 XAJ_RANDOM_SEARCH_V1,
                 XAJ_HYDROLOGIST_MANUAL_V1,
             )
