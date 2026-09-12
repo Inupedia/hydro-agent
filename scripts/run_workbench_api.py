@@ -27,6 +27,7 @@ from hydro_agent.agent.tools import ToolRouter
 from hydro_agent.agent.world_state import WorldStateBuilder
 from hydro_agent.api.app import create_app
 from hydro_agent.api.deps import AppDependencies
+from hydro_agent.api.services import build_runtime_task_config
 from hydro_agent.persistence.database import Database
 from hydro_agent.persistence.repository import HydroRepository
 from hydro_agent.replay.freeze import FreezeService
@@ -349,7 +350,9 @@ def _build_real(
             raise ValueError("当前任务缺少已验证模型方案")
         deps.model_plans.require_ready(plan_id)
         directory = deps.model_plans.directory(plan_id)
-        deps.task_configs[task_id] = {**config.get("workbench", {}), "model_plan_id":plan_id}
+        deps.task_configs[task_id] = build_runtime_task_config(
+            config.get("workbench", {}), model_plan_id=plan_id
+        )
         task_kernel = RealWorkbenchKernel(
             repository=repository, work_root=work_root/task_id,
             source_dir=directory/"normalized", scheme_path=directory/"scheme.json",

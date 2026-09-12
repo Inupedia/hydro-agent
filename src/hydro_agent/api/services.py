@@ -3,6 +3,8 @@ from __future__ import annotations
 import copy
 import json
 import uuid
+from collections.abc import Mapping
+from typing import Any
 
 from hydro_agent.api.deps import AppDependencies
 from hydro_agent.api.schemas import TaskCreateRequest, TaskSummary
@@ -26,6 +28,26 @@ DEFAULT_XAJ_PARAMS = {
     "CI": 0.8,
     "CG": 0.98,
 }
+
+
+def build_runtime_task_config(
+    workbench: Mapping[str, Any],
+    *,
+    base: Mapping[str, Any] | None = None,
+    model_plan_id: str | None = None,
+) -> dict[str, Any]:
+    """Restore the bounded runtime window from persisted task provenance."""
+    runtime = copy.deepcopy(dict(base or {}))
+    runtime.update(copy.deepcopy(dict(workbench)))
+    validation_start = runtime.get("validation_start_date")
+    validation_end = runtime.get("validation_end_date")
+    if validation_start:
+        runtime["start_date"] = validation_start
+    if validation_end:
+        runtime["end_date"] = validation_end
+    if model_plan_id:
+        runtime["model_plan_id"] = model_plan_id
+    return runtime
 
 
 def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> str:
@@ -130,10 +152,11 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
     # Feed them the bounded holdout, while preserving the complete research
     # period under explicit names. This immediately prevents a 10-year study
     # from becoming a 10-year daily Gate and A11 replay.
-    runtime_config = payload.model_dump(mode="json")
-    runtime_config.update(timeline.as_dict())
-    runtime_config["start_date"] = timeline.validation_start.isoformat()
-    runtime_config["end_date"] = timeline.validation_end.isoformat()
+    runtime_config = build_runtime_task_config(
+        config["workbench"],
+        base=payload.model_dump(mode="json"),
+        model_plan_id=plan["plan_id"] if plan else None,
+    )
     deps.task_configs[task_id] = runtime_config
     return task_id
 
