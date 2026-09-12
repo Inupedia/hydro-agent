@@ -32,6 +32,37 @@ XAJ_LOCAL_REFINE_V1 = CalibrationStrategy(
     optimizer="sce-ua",
 )
 
+# Process-oriented strategies used by the calibration-scientist loop.
+XAJ_WATER_BALANCE_V1 = CalibrationStrategy(
+    strategy_id="xaj-water-balance-v1",
+    max_candidates=72,
+    random_seed=20260914,
+    objective="composite",
+    local_scale=0.35,
+    param_groups=("evap", "runoff"),
+    optimizer="sce-ua",
+)
+
+XAJ_ROUTING_REFINE_V1 = CalibrationStrategy(
+    strategy_id="xaj-routing-refine-v1",
+    max_candidates=56,
+    random_seed=20260915,
+    objective="composite",
+    local_scale=0.35,
+    param_groups=("routing",),
+    optimizer="sce-ua",
+)
+
+XAJ_HYDRO_COMPOSITE_V1 = CalibrationStrategy(
+    strategy_id="xaj-hydro-composite-v1",
+    max_candidates=96,
+    random_seed=20260916,
+    objective="composite",
+    local_scale=0.35,
+    param_groups=("evap", "runoff", "routing"),
+    optimizer="sce-ua",
+)
+
 # Explicit baseline retained for ablation and fair O/P/A experiments.
 XAJ_RANDOM_SEARCH_V1 = CalibrationStrategy(
     strategy_id="xaj-random-search-v1",
@@ -63,6 +94,9 @@ class CalibrationStrategyRegistry:
                 XAJ_BOUNDED_V1,
                 XAJ_PEAK_BIAS_V1,
                 XAJ_LOCAL_REFINE_V1,
+                XAJ_WATER_BALANCE_V1,
+                XAJ_ROUTING_REFINE_V1,
+                XAJ_HYDRO_COMPOSITE_V1,
                 XAJ_RANDOM_SEARCH_V1,
                 XAJ_HYDROLOGIST_MANUAL_V1,
             )
