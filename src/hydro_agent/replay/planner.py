@@ -5,6 +5,8 @@ from datetime import date, datetime, timedelta, timezone
 from hydro_agent.data.policy import DataAccessViolation
 from hydro_agent.replay.contracts import ReplayCase, ReplayPlan
 
+MAX_REPLAY_ISSUES = 90
+
 
 class ReplayPlanner:
     def __init__(self, repository, *, resolver, issue_hour: int = 0):
@@ -17,6 +19,12 @@ class ReplayPlanner:
     def plan(self, task_id: str, start_date: date, end_date: date) -> ReplayPlan:
         if end_date < start_date:
             raise ValueError("end_date before start_date")
+        issue_count = (end_date - start_date).days + 1
+        if issue_count > MAX_REPLAY_ISSUES:
+            raise ValueError(
+                f"rolling replay limited to {MAX_REPLAY_ISSUES} issue days; "
+                "use the bounded validation window instead of the full research period"
+            )
         task = self.repository.get_task(task_id)
         state = self.repository.ensure_task_state(task_id)
         scheme = self.repository.get_scheme(state.current_scheme_id)

@@ -41,6 +41,8 @@ jobs:
           tests/agent/test_world_state.py
           tests/services/test_calibration_diagnostics.py
           tests/workbench/test_prevalidation_diagnosis_binding.py
+          tests/workbench/test_experiment_timeline.py
+          tests/data/test_snapshot_context_horizon.py
           tests/optimization/test_sceua.py
           tests/optimization/test_calibration_scientist.py
           tests/optimization/test_search_boundary_expertise.py
