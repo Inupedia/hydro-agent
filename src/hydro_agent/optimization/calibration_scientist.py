@@ -71,23 +71,28 @@ def _normalize_groups(raw_groups: object, fallback: tuple[str, ...]) -> tuple[st
 
 def _progressive_strategy(
     *,
-    current_strategy_id: str,
+    recommended_strategy_id: str,
+    previous_strategy_id: str | None,
     adjustment: str | None,
     registry: CalibrationStrategyRegistry,
 ) -> str:
     """Translate expert search advice into bounded strategy progression.
 
-    The progression can only widen a local window toward the existing absolute
-    teacher/kernel bounds. It never creates a strategy beyond those bounds.
+    A fresh diagnosis owns the scientific strategy unless the latest search
+    evidence explicitly asks for progressive broadening. Only then do we inspect
+    the previous strategy to widen its numerical window toward the existing
+    teacher/kernel absolute bounds.
     """
 
     if adjustment != "broaden_within_absolute_bounds":
-        return current_strategy_id
-    if current_strategy_id == "xaj-broadened-refine-v1":
+        return recommended_strategy_id
+
+    source_strategy_id = previous_strategy_id or recommended_strategy_id
+    if source_strategy_id == "xaj-broadened-refine-v1":
         return "xaj-bounded-v1"
-    current = registry.get(current_strategy_id)
+    current = registry.get(source_strategy_id)
     if current.local_scale is None:
-        return current_strategy_id
+        return recommended_strategy_id
     return "xaj-broadened-refine-v1"
 
 
@@ -105,12 +110,14 @@ def plan_from_diagnosis(
     """
 
     registry = strategies or CalibrationStrategyRegistry()
-    strategy_id = str(diagnosis.get("recommended_strategy_id") or "xaj-bounded-v1")
+    recommended_strategy_id = str(
+        diagnosis.get("recommended_strategy_id") or "xaj-bounded-v1"
+    )
     try:
-        strategy = registry.get(strategy_id)
+        strategy = registry.get(recommended_strategy_id)
     except KeyError:
-        strategy_id = "xaj-bounded-v1"
-        strategy = registry.get(strategy_id)
+        recommended_strategy_id = "xaj-bounded-v1"
+        strategy = registry.get(recommended_strategy_id)
 
     groups = _normalize_groups(
         diagnosis.get("recommended_param_groups"), tuple(strategy.param_groups)
@@ -138,16 +145,18 @@ def plan_from_diagnosis(
         "hold_absolute_bounds",
     }:
         adjustment = "keep"
-    previous_strategy_id = str(diagnosis.get("previous_strategy_id") or strategy_id)
+    previous_raw = diagnosis.get("previous_strategy_id")
+    previous_strategy_id = str(previous_raw) if previous_raw else None
     try:
         strategy_id = _progressive_strategy(
-            current_strategy_id=previous_strategy_id,
+            recommended_strategy_id=recommended_strategy_id,
+            previous_strategy_id=previous_strategy_id,
             adjustment=adjustment,
             registry=registry,
         )
         strategy = registry.get(strategy_id)
     except KeyError:
-        strategy_id = "xaj-bounded-v1"
+        strategy_id = recommended_strategy_id
         strategy = registry.get(strategy_id)
 
     hypotheses = list(diagnosis.get("hypotheses") or [])
