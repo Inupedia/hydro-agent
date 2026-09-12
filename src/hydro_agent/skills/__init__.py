@@ -23,6 +23,11 @@ if TYPE_CHECKING:
 
 CALIBRATION_SKILL_ID = "xaj-calibration"
 GBT_SKILL_ID = "gbt-22482-accuracy"
+# Backward-compatible import for older providers/diagnostics. The value is no
+# longer a code constant: it is resolved from the versioned standard profile.
+DEFAULT_NSE_GOOD_ENOUGH = float(
+    KnowledgeRepository().gbt_accuracy_metadata()["grade_dc_bing"]
+)
 
 
 class SkillCard(FrozenModel):
