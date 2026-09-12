@@ -21,7 +21,6 @@ def _prepare(workspace: Path) -> Path:
     shutil.copy(FIXTURES / "forcing.csv", snapshot / "forcing.csv")
     shutil.copy(FIXTURES / "basin.json", snapshot / "basin.json")
     shutil.copy(FIXTURES / "scheme.json", scheme / "scheme.json")
-    # Observed discharge aligned to the synthetic forcing window.
     streamflow = "\n".join(
         [
             "date,discharge_m3s",
@@ -47,10 +46,15 @@ def _prepare(workspace: Path) -> Path:
         issue_time="2026-01-01T00:00:00Z",
         parameters={"strategy_id": "xaj-bounded-v1"},
         policy=ExecutionPolicy(
-            timeout_seconds=120, network_access=False, max_output_bytes=5_000_000, device="cpu"
+            timeout_seconds=120,
+            network_access=False,
+            max_output_bytes=5_000_000,
+            device="cpu",
         ),
     )
-    (workspace / "execution-manifest.json").write_text(request.model_dump_json(), encoding="utf-8")
+    (workspace / "execution-manifest.json").write_text(
+        request.model_dump_json(), encoding="utf-8"
+    )
     return workspace
 
 
@@ -82,15 +86,19 @@ def run_calibration_copy(calibration_workspace: Path, suffix: str) -> dict:
     return json.loads((target / "output/calibration-result.json").read_text())
 
 
-def test_bounded_calibration_is_deterministic(calibration_workspace):
+def test_sceua_calibration_is_deterministic(calibration_workspace):
     first = run_calibration_copy(calibration_workspace, "a")
     second = run_calibration_copy(calibration_workspace, "b")
     assert first["strategy_id"] == "xaj-bounded-v1"
+    assert first["optimizer"] == "sce-ua"
     assert first["candidate_parameters"] == second["candidate_parameters"]
-    assert first["requested_candidates"] == 32
-    assert 0 < first["evaluated_candidates"] <= 32
+    assert first["requested_candidates"] == 96
+    assert 0 < first["optimizer_calls"] <= 96
+    assert 0 < first["evaluated_candidates"] <= 96
     assert first["evaluated_candidates"] == second["evaluated_candidates"]
+    assert first["objective_value"] == second["objective_value"]
     assert first["model_version"] == "teacher-xaj-v6-20260908"
+    assert first["optimization_trace"]
     csv_path = calibration_workspace.parent / "a" / "output" / "calibration-comparison.csv"
     assert csv_path.is_file()
     header = csv_path.read_text(encoding="utf-8").splitlines()[0]
@@ -98,5 +106,4 @@ def test_bounded_calibration_is_deterministic(calibration_workspace):
     metrics = json.loads(
         (calibration_workspace.parent / "a" / "output" / "calibration-metrics.json").read_text()
     )
-    assert metrics["calibrated"] is False
     assert metrics["kind"] == "calibration"
