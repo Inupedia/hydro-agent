@@ -51,6 +51,39 @@ def test_water_balance_prior_refines_broad_plan_before_dds():
     assert plan.tunes_raw_parameter_vector is False
 
 
+def test_campaign_objective_lock_wins_over_expert_objective_advice():
+    plan = plan_from_diagnosis(
+        {
+            "hypothesis": "MODEL",
+            "phenomenon": "水量偏差较大",
+            "recommended_strategy_id": "xaj-bounded-v1",
+            "recommended_param_groups": ["evap", "runoff", "routing"],
+            "recommended_objective": "peak",
+            "metrics": {"nse": 0.42, "pbias_percent": 18.0},
+        },
+        campaign_objective="nse",
+    )
+
+    assert plan.parameter_groups == ("evap", "runoff")
+    assert plan.objective == "nse"
+    assert "campaign 主目标锁定为 nse" in plan.rationale
+    assert any("专家目标建议 composite 未采用" in note for note in plan.expert_notes)
+
+
+def test_campaign_objective_can_be_carried_in_diagnosis_contract():
+    plan = plan_from_diagnosis(
+        {
+            "hypothesis": "MODEL",
+            "phenomenon": "洪峰偏差",
+            "recommended_objective": "peak",
+            "campaign_objective": "composite",
+            "metrics": {"nse": 0.6},
+        }
+    )
+
+    assert plan.objective == "composite"
+
+
 def test_negative_nse_is_warning_not_gate_override():
     repo = ExpertKnowledgeRepository()
     advice = repo.advise({"metrics": {"nse": -0.2, "pbias_percent": 2.0}})
