@@ -19,7 +19,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: '3.12'
-      - run: uv sync --frozen --extra dev
+      - run: uv sync --frozen --extra dev --extra xaj-dem --extra api
       - run: uv run --frozen ruff check src tests
       - name: Ruff format gate
         shell: bash
