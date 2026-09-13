@@ -115,7 +115,7 @@ def write_case_memory(repository, task_id: str) -> list[CalibrationCase]:
             for k, v in dict(opt.metrics_json or {}).items()
             if isinstance(v, (int, float))
         }
-        val_metrics = {
+        development_metrics = {
             str(k): float(v)
             for k, v in dict(row.metrics_json or {}).items()
             if isinstance(v, (int, float))
@@ -138,9 +138,9 @@ def write_case_memory(repository, task_id: str) -> list[CalibrationCase]:
             strategy_id=str(ogates.get("strategy_id") or "unknown"),
             optimizer=str(ogates.get("optimizer") or "unknown"),
             param_groups=groups,
-            objective=str(ogates.get("objective") or "nse"),
+            objective=str(ogates.get("objective_metric") or ogates.get("objective") or "nse"),
             calibration_metrics=cal_metrics,
-            validation_metrics=val_metrics,
+            development_metrics=development_metrics,
             gate_status=gate_status,
             adoption_status=adoption_status,
             qualification_status=qualification_status,
@@ -346,6 +346,27 @@ def main() -> int:
             and _has_observation(eval_packet, "final_test_read_only=true")
             and _has_observation(eval_packet, "final_test_consumption=1/1")
         )
+
+        research_evidence_path = REPORT_ROOT / task_id / "research-evidence.json"
+        if not research_evidence_path.is_file():
+            raise RuntimeError("A12 did not persist research-evidence.json")
+        research_evidence = json.loads(research_evidence_path.read_text(encoding="utf-8"))
+        overall = research_evidence.get("overall") or {}
+        fdc = research_evidence.get("fdc") or {}
+        annual_stability = research_evidence.get("annual_stability") or {}
+        research_evidence_ok = (
+            research_evidence.get("window") == "final_test"
+            and int(overall.get("sample_count") or 0) == 3
+            and overall.get("status") == "available"
+            and fdc.get("status") == "insufficient_data"
+            and annual_stability.get("status") == "insufficient_data"
+        )
+        if not research_evidence_ok:
+            raise RuntimeError(
+                "unexpected final-test research evidence: "
+                + json.dumps(research_evidence, ensure_ascii=False, allow_nan=False)
+            )
+
         summary = {
             "ok": (
                 task.phase == "E"
@@ -354,6 +375,7 @@ def main() -> int:
                 and protocol_ok
                 and optimization_protocol_safe
                 and final_test_protocol_safe
+                and research_evidence_ok
                 and bool(optimizations)
                 and bool(cases)
             ),
@@ -366,6 +388,15 @@ def main() -> int:
             "diagnostic_truth_strictly_precedes_development": strict_predevelopment,
             "optimization_protocol_safe": optimization_protocol_safe,
             "final_test_protocol_safe": final_test_protocol_safe,
+            "research_evidence_ok": research_evidence_ok,
+            "research_evidence": {
+                "path": str(research_evidence_path.relative_to(OUT)),
+                "window": research_evidence.get("window"),
+                "overall_status": overall.get("status"),
+                "sample_count": overall.get("sample_count"),
+                "fdc_status": fdc.get("status"),
+                "annual_stability_status": annual_stability.get("status"),
+            },
             "model_plan": {
                 "plan_id": plan_id,
                 "area_km2": plan.get("area_km2"),
