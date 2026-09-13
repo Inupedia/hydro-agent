@@ -254,14 +254,16 @@ class OptimizeHandler:
         calibration_service,
         candidate_service,
         calibration_snapshot_id: str,
-        validation_snapshot_id: str,
+        validation_snapshot_id: str | None,
         policy,
     ):
         self.repository = repository
         self.calibration_service = calibration_service
         self.candidate_service = candidate_service
         self.calibration_snapshot_id = calibration_snapshot_id
-        self.validation_snapshot_id = validation_snapshot_id
+        # Source-compatibility edge only. A07 never stores, resolves or forwards
+        # a development/validation snapshot into CalibrationService.
+        _ = validation_snapshot_id
         self.policy = policy
 
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
@@ -296,7 +298,6 @@ class OptimizeHandler:
             task_id=task_id,
             base_scheme_id=state.current_scheme_id,
             calibration_snapshot_id=self.calibration_snapshot_id,
-            validation_snapshot_id=self.validation_snapshot_id,
             strategy_id=decision.strategy_id,
             policy=self.policy,
             param_groups=decision.param_groups,
@@ -659,6 +660,7 @@ class EvaluateReportToolHandler:
             "test-hydrograph.json",
             "test-hydrograph.png",
             "test-metrics.json",
+            "research-evidence.json",
         ):
             if (Path(self.output_dir) / name).is_file():
                 artifacts.append(name)
@@ -666,6 +668,9 @@ class EvaluateReportToolHandler:
             f"scheme_id={evaluation.scheme_id}",
             f"report_json={json_path.name}",
             f"report_md={md_path.name}",
+            *("research_evidence=research-evidence.json",)
+            if "research-evidence.json" in artifacts
+            else (),
         )
         return EvidencePacket(
             evidence_id=_evidence_id(),
