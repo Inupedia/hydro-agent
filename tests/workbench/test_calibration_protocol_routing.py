@@ -5,9 +5,9 @@ import pytest
 
 from hydro_agent.agent.contracts import ActionCode, AgentDecision, ProblemHypothesis
 from hydro_agent.workbench.real import (
-    _TaskAwareEvaluateHandler,
     _final_test_dates_from_config,
     _issue_from_config,
+    _TaskAwareEvaluateHandler,
 )
 from hydro_agent.workbench.validation_gate import RealValidationGate
 
