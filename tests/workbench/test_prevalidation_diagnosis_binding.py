@@ -12,7 +12,7 @@ class _Repo:
         return SimpleNamespace(current_scheme_id="scheme-base")
 
 
-def test_real_workbench_binds_a06_to_prevalidation_diagnosis():
+def test_real_workbench_binds_a06_to_predevelopment_diagnosis():
     kernel = RealWorkbenchKernel.__new__(RealWorkbenchKernel)
     kernel.repository = _Repo()
     kernel.forecast = object()
@@ -44,7 +44,7 @@ def test_real_workbench_binds_a06_to_prevalidation_diagnosis():
     assert kwargs["validation_start"] == date(2000, 5, 1)
     assert kwargs["nse_good_enough"] == 0.5
     assert "diagnostic_truth_strictly_precedes_validation=true" in result["notes"]
-    assert "held_out_validation_window=2000-05-01..2000-05-10" in result["notes"]
+    assert "held_out_development_window=2000-05-01..2000-05-10" in result["notes"]
 
 
 def test_gate_failure_changes_the_next_diagnostic_experiment():
