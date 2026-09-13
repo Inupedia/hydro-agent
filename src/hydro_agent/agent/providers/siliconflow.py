@@ -40,10 +40,18 @@ Return ONLY one JSON object with keys:
 - strategy_id: null, unless action is A07_OPTIMIZE then one of hydro.available_strategies
 - param_groups: null, unless A07_OPTIMIZE then a JSON array subset of hydro.available_param_groups (e.g. ["runoff","routing"])
 - objective: null, unless A07_OPTIMIZE then one of hydro.available_objectives ("nse"|"peak"|"composite")
-- rationale_summary: short Chinese or English reason (<= 600 chars)
+- rationale_summary: compact technical reason for audit (<= 120 Chinese chars)
+- observation_zh: user-facing Chinese summary of the important evidence you noticed (1 sentence, <= 120 chars)
+- analysis_zh: user-facing hydrologist-style analysis summary explaining what the evidence means and why it matters (1-3 sentences, <= 260 chars)
+- decision_zh: user-facing Chinese explanation of what you decided to do next and why (1 sentence, <= 120 chars)
+
+The three *_zh fields are deliberate, concise audit summaries for people reading the execution journal.
+They are NOT hidden chain-of-thought. Do not expose private scratch work, step-by-step internal reasoning,
+JSON field names, ActionCode values, raw arrays, or internal strategy IDs in these user-facing fields.
+Write them as normal Chinese a hydrologist or project leader can understand.
 
 Example:
-{{"action":"A07_OPTIMIZE","hypothesis":"MODEL","strategy_id":"xaj-peak-bias-v1","param_groups":["runoff","routing"],"objective":"composite","rationale_summary":"洪峰低估，先动产汇流参数并用综合目标验证。"}}
+{{"action":"A07_OPTIMIZE","hypothesis":"MODEL","strategy_id":"xaj-peak-bias-v1","param_groups":["runoff","routing"],"objective":"composite","rationale_summary":"洪峰低估，优先调整产汇流参数并用综合目标验证。","observation_zh":"当前洪峰持续偏低，整体过程线也与观测存在明显偏差。","analysis_zh":"误差更像来自模型参数，而不是资料缺失。应先针对产流和汇流做有限调整，避免无方向地搜索全部参数。","decision_zh":"生成一组有边界的候选参数，再交给独立质量检查判断是否采用。"}}
 
 No markdown fences. No extra keys. No prose outside JSON.
 """
@@ -93,7 +101,7 @@ class SiliconFlowDecisionProvider:
                         "WorldStateView JSON follows. Pick exactly one legal next action.\n"
                         "Remember: hypothesis must be one enum token like MODEL, never a sentence.\n"
                         "action MUST be one of permissions.safe_actions.\n"
-                        "Keep rationale_summary under 120 Chinese characters so JSON stays complete.\n"
+                        "Keep all user-facing *_zh fields concise and readable; do not dump internal JSON or codes into them.\n"
                         + view.model_dump_json()
                     ),
                 },
@@ -112,16 +120,22 @@ class SiliconFlowDecisionProvider:
             safe_actions=safe,
             evidence_actions=evidence_actions,
         )
+        original_action = str(payload.get("action") or "")
         payload = _nse_calibration_progress(
             view,
             payload,
             safe_actions=safe,
             nse_good_enough=self.skills.nse_good_enough(),
         )
+        if str(payload.get("action") or "") != original_action:
+            # The deterministic scientific guardrail may override the model's proposed next action.
+            # Keep the model's observation/analysis, but make the visible decision match what runs.
+            payload["decision_zh"] = str(payload.get("rationale_summary") or "")[:240]
         return AgentDecision.model_validate(payload)
 
 
 _BOUNDED_STRATEGIES = ("xaj-bounded-v1", "xaj-peak-bias-v1", "xaj-local-refine-v1")
+
 
 def _diagnosis_nse(view: WorldStateView) -> float | None:
     diagnosis = dict(view.hydro.diagnosis or {})

@@ -1,38 +1,49 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ExecutionJournal from '../components/ExecutionJournal.vue'
 
-const mocks = vi.hoisted(() => ({
-  getAgentLog: vi.fn(async () => ({
-    task_id: 'task-1',
-    rounds: [
-      {
-        round_number: 3,
-        occurred_at: '2026-09-13T06:00:02Z',
+const defaultAgentLog = () => ({
+  task_id: 'task-1',
+  rounds: [
+    {
+      round_number: 3,
+      occurred_at: '2026-09-13T06:00:02Z',
+      action: 'A06_DIAGNOSE',
+      action_zh: '结果诊断',
+      hypothesis: 'MODEL',
+      hypothesis_zh: '模型参数问题',
+      strategy_id: null,
+      rationale_summary: '根据当前误差决定继续诊断。',
+      llm_output: JSON.stringify({
         action: 'A06_DIAGNOSE',
-        action_zh: '预报诊断',
         hypothesis: 'MODEL',
-        hypothesis_zh: '更像是模型参数导致洪峰低估',
-        strategy_id: null,
-        rationale_summary: '当前 NSE 仍低于门槛，因此需要判断是否进入有限调参。',
-        llm_output: 'internal text should not be rendered',
-        input_summary_zh: '比较观测与预报',
-        judgment_zh: '洪峰持续偏低，优先检查模型参数而不是直接接受当前方案。',
-        input_world_state: {},
-        tool_status: 'succeeded',
-        tool_status_zh: '已完成',
-        tool_observations: ['洪峰低估', '退水段偏慢'],
-        tool_metrics: { NSE: 0.42 },
-        error: null,
-      },
-    ],
-  })),
-}))
+        observation_zh: '当前洪峰持续偏低，过程线与观测仍有明显差距。',
+        analysis_zh: '误差更像来自模型参数，而不是资料缺失。应先确认产流和汇流参数是否需要调整。',
+        decision_zh: '继续做结果诊断，明确下一轮需要调整的参数范围。',
+        rationale_summary: '洪峰低估，需继续诊断。',
+      }),
+      input_summary_zh: "第 3 轮 · 阶段 B · 证据 ['A05_FORECAST']",
+      judgment_zh: "发现：阶段B，证据['A05_FORECAST']；依据：{'metrics': {'nse': 0.42}}；决策：A06_DIAGNOSE/MODEL",
+      input_world_state: {},
+      tool_status: 'succeeded',
+      tool_status_zh: '已完成',
+      tool_observations: ['洪峰低估', '退水段偏慢'],
+      tool_metrics: { NSE: 0.42 },
+      error: null,
+    },
+  ],
+})
 
+const mocks = vi.hoisted(() => ({ getAgentLog: vi.fn() }))
 vi.mock('../api/client', () => ({ api: { getAgentLog: mocks.getAgentLog } }))
 
 describe('ExecutionJournal', () => {
-  it('shows the complete record chronologically with explainable agent summaries', async () => {
+  beforeEach(() => {
+    mocks.getAgentLog.mockReset()
+    mocks.getAgentLog.mockResolvedValue(defaultAgentLog())
+  })
+
+  it('renders the LLM audit summary directly without exposing machine-style trace text', async () => {
     const wrapper = mount(ExecutionJournal, {
       props: {
         taskId: 'task-1',
@@ -68,16 +79,65 @@ describe('ExecutionJournal', () => {
     const cards = wrapper.findAll('.journal-event-card')
     expect(cards).toHaveLength(2)
     expect(cards[0].text()).toContain('完成基础预报')
-    expect(cards[1].text()).toContain('洪峰持续偏低')
-    expect(cards[1].text()).toContain('预报诊断')
-    expect(cards[1].text()).toContain('当前 NSE 仍低于门槛')
+    expect(cards[1].find('.event-subtitle').text()).toBe('误差更像来自模型参数，而不是资料缺失。应先确认产流和汇流参数是否需要调整。')
+    expect(cards[1].text()).toContain('当前洪峰持续偏低')
+    expect(cards[1].text()).toContain('继续做结果诊断')
     expect(cards[1].text()).toContain('洪峰低估；退水段偏慢')
-    expect(cards[1].text()).not.toContain('internal text should not be rendered')
+    expect(cards[1].text()).not.toContain('阶段B')
+    expect(cards[1].text()).not.toContain('A06_DIAGNOSE')
+    expect(cards[1].text()).not.toContain("{'metrics'")
     expect(cards[1].find('.technical-details pre').text()).toContain('raw_metric')
+    expect(wrapper.find('.event-index').exists()).toBe(false)
     expect(mocks.getAgentLog).toHaveBeenCalledWith('task-1')
   })
 
-  it('falls back to workflow descriptions when no agent decision exists', async () => {
+  it('uses the actual executed action when a deterministic guardrail overrides the raw LLM proposal', async () => {
+    mocks.getAgentLog.mockResolvedValueOnce({
+      task_id: 'task-guardrail',
+      rounds: [
+        {
+          ...defaultAgentLog().rounds[0],
+          action: 'A08_GATE',
+          action_zh: '质量把关',
+          rationale_summary: '最新候选需要先完成独立质量检查。',
+          llm_output: JSON.stringify({
+            action: 'A07_OPTIMIZE',
+            observation_zh: '候选方案已经生成。',
+            analysis_zh: '当前最重要的是确认这次调整是否真的改善了结果。',
+            decision_zh: '继续调整参数。',
+          }),
+        },
+      ],
+    })
+
+    const wrapper = mount(ExecutionJournal, {
+      props: {
+        taskId: 'task-guardrail',
+        running: false,
+        completed: false,
+        failed: false,
+        elapsed: '0:12',
+        events: [
+          {
+            id: 'gate',
+            occurred_at: '2026-09-13T06:00:02Z',
+            label: '质量把关',
+            status: 'succeeded',
+            action: 'A08_GATE',
+            evidence_id: 'ev-gate',
+            details: {},
+          },
+        ],
+      },
+    })
+
+    await flushPromises()
+    expect(wrapper.text()).toContain('当前最重要的是确认这次调整是否真的改善了结果')
+    expect(wrapper.text()).toContain('质量把关：最新候选需要先完成独立质量检查')
+    expect(wrapper.text()).not.toContain('继续调整参数')
+  })
+
+  it('falls back to workflow wording when an old record has no structured LLM audit fields', async () => {
     mocks.getAgentLog.mockResolvedValueOnce({ task_id: 'task-2', rounds: [] })
     const wrapper = mount(ExecutionJournal, {
       props: {
@@ -101,7 +161,55 @@ describe('ExecutionJournal', () => {
     })
 
     await flushPromises()
-    expect(wrapper.text()).toContain('用当前方案计算未来几天的流量')
-    expect(wrapper.text()).toContain('当前步骤仍在执行')
+    expect(wrapper.find('.event-subtitle').text()).toContain('用当前方案计算未来几天的流量')
+    expect(wrapper.text()).toContain('工具正在执行')
+  })
+
+  it('automatically keeps the newest record in view', async () => {
+    mocks.getAgentLog.mockResolvedValue({ task_id: 'task-scroll', rounds: [] })
+    const wrapper = mount(ExecutionJournal, {
+      props: {
+        taskId: 'task-scroll',
+        running: true,
+        completed: false,
+        failed: false,
+        elapsed: '0:02',
+        events: [
+          {
+            id: 'one',
+            occurred_at: '2026-09-13T06:00:01Z',
+            label: '第一步',
+            status: 'succeeded',
+            action: 'A01_CHECK_DATA',
+            evidence_id: null,
+            details: {},
+          },
+        ],
+      },
+    })
+    await flushPromises()
+
+    const list = wrapper.find('[data-test="journal-list"]').element as HTMLElement
+    Object.defineProperty(list, 'scrollHeight', { configurable: true, value: 900 })
+    list.scrollTop = 0
+
+    await wrapper.setProps({
+      events: [
+        ...wrapper.props('events'),
+        {
+          id: 'two',
+          occurred_at: '2026-09-13T06:00:02Z',
+          label: '第二步',
+          status: 'running',
+          action: 'A03_VALIDATE_SCHEME',
+          evidence_id: null,
+          details: {},
+        },
+      ],
+    })
+    await flushPromises()
+
+    expect(list.scrollTop).toBe(900)
+    expect(wrapper.findAll('.journal-event-card').at(-1)?.classes()).toContain('is-latest')
   })
 })

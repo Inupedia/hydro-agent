@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { api } from '../api/client'
 import { actionTitle } from '../demo/stages'
 import { WORKFLOW } from '../generated/workflow'
@@ -17,15 +17,22 @@ const props = defineProps<{
 
 const emit = defineEmits<{ refresh: [] }>()
 const agentRounds = ref<AgentRoundLogItem[]>([])
+const journalList = ref<HTMLElement | null>(null)
 let requestSerial = 0
 
 const orderedEvents = computed(() =>
   [...props.events].sort((a, b) => Date.parse(a.occurred_at) - Date.parse(b.occurred_at)),
 )
-
+const latestEventId = computed(() => orderedEvents.value.at(-1)?.id || '')
 const statusLabel = computed(() =>
   props.running ? '运行中' : props.completed ? '已完成' : props.failed ? '已受阻' : '等待执行',
 )
+
+function scrollToLatest() {
+  const container = journalList.value
+  if (!container) return
+  container.scrollTop = container.scrollHeight
+}
 
 watch(
   [() => props.taskId, () => props.events.length],
@@ -41,6 +48,17 @@ watch(
     } catch {
       if (serial === requestSerial) agentRounds.value = []
     }
+    await nextTick()
+    scrollToLatest()
+  },
+  { immediate: true },
+)
+
+watch(
+  latestEventId,
+  async () => {
+    await nextTick()
+    scrollToLatest()
   },
   { immediate: true },
 )
@@ -96,52 +114,99 @@ function workflowExplain(action: string | null) {
   return item?.explain_zh || ''
 }
 
-function detailText(details: Record<string, unknown>, keys: string[]) {
-  for (const key of keys) {
-    const value = details[key]
-    if (typeof value === 'string' && value.trim()) return value.trim()
+function readable(value: unknown, maxLength = 320) {
+  if (typeof value !== 'string') return ''
+  const text = value.replace(/\\_/g, '_').replace(/\s+/g, ' ').trim()
+  if (!text || text.length > maxLength) return ''
+  if (/[{}\[\]]/.test(text)) return ''
+  if (/A\d{2}_[A-Z_]+|recommended_|hypotheses_json|input_world_state|strategy_id|skill_id|evidence_id|Gate\s*=/i.test(text)) return ''
+  return text
+}
+
+type AuditPayload = {
+  action?: string
+  observation_zh?: string
+  analysis_zh?: string
+  decision_zh?: string
+}
+
+function llmAudit(round: AgentRoundLogItem | null): AuditPayload {
+  const raw = round?.llm_output?.trim()
+  if (!raw) return {}
+  const start = raw.indexOf('{')
+  const end = raw.lastIndexOf('}')
+  if (start < 0 || end <= start) return {}
+  try {
+    const payload = JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>
+    return {
+      action: typeof payload.action === 'string' ? payload.action : undefined,
+      observation_zh: readable(payload.observation_zh, 180) || undefined,
+      analysis_zh: readable(payload.analysis_zh, 420) || undefined,
+      decision_zh: readable(payload.decision_zh, 180) || undefined,
+    }
+  } catch {
+    return {}
   }
-  return ''
 }
 
-function compactMetrics(round: AgentRoundLogItem | null) {
-  if (!round?.tool_metrics) return ''
-  const entries = Object.entries(round.tool_metrics)
-    .filter(([, value]) => Number.isFinite(value))
-    .slice(0, 4)
-  if (!entries.length) return ''
-  return entries.map(([key, value]) => `${key}=${Number(value).toFixed(3)}`).join('，')
+function toolResult(event: TimelineItem, round: AgentRoundLogItem | null) {
+  const status = String(event.status || '').toUpperCase()
+  if (status === 'RUNNING') return '工具正在执行，完成后会自动更新结果。'
+  if (status === 'ROLLBACK') return '本次候选已撤销，当前方案恢复到回退前状态。'
+  if (status === 'KEEP') return '当前方案保持不变。'
+  if (status === 'ACCEPT') return '候选方案已被采用。'
+  const observations = (round?.tool_observations || [])
+    .map((item) => readable(item, 100))
+    .filter(Boolean)
+    .slice(0, 2)
+  if (observations.length) return observations.join('；')
+  if (['FAILED', 'ERROR', 'BLOCKED'].includes(status)) return '本步未正常完成，需要检查技术详情。'
+  return event.label ? `${event.label}。` : '本步已执行完成。'
 }
 
-function narrative(event: TimelineItem) {
+type JournalCopy = {
+  observation?: string
+  analysis: string
+  decision?: string
+  result?: string
+}
+
+function journalCopy(event: TimelineItem): JournalCopy {
   const round = matchingRound(event)
-  const explain = workflowExplain(event.action)
-  const judgment =
-    round?.judgment_zh ||
-    round?.hypothesis_zh ||
-    detailText(event.details, ['judgment_zh', 'hypothesis_zh', 'judgment', 'hypothesis'])
-  const rationale =
-    round?.rationale_summary ||
-    detailText(event.details, ['rationale_summary', 'reason_zh', 'reason', 'rationale']) ||
-    explain
-  const action = round?.action_zh || (event.action ? actionTitle(event.action) : event.label) || '系统执行'
-  const observations = round?.tool_observations?.filter(Boolean).slice(0, 2) || []
-  const metrics = compactMetrics(round)
-  const result = observations.length
-    ? observations.join('；')
-    : metrics
-      ? `关键指标：${metrics}`
-      : event.status === 'running'
-        ? '当前步骤仍在执行，结果尚未形成。'
-        : event.label || '已记录本步执行结果。'
-  const subtitle = judgment || rationale || explain || `${action}，并记录本步执行证据。`
+  const audit = llmAudit(round)
+  const legacyObservation = readable(round?.input_summary_zh, 180)
+  const legacyAnalysis = readable(round?.judgment_zh, 420)
+  const rationale = readable(round?.rationale_summary, 220)
+  const analysis =
+    audit.analysis_zh ||
+    legacyAnalysis ||
+    rationale ||
+    workflowExplain(event.action) ||
+    `${event.label || actionTitle(event.action)}正在按既定流程执行。`
+
+  const actionMatches = !audit.action || !round?.action || audit.action === round.action
+  const decision = actionMatches
+    ? audit.decision_zh || (round?.action_zh ? `${round.action_zh}${rationale ? `：${rationale}` : ''}` : rationale)
+    : round?.action_zh
+      ? `${round.action_zh}${rationale ? `：${rationale}` : ''}`
+      : rationale
+
   return {
-    judgment: judgment || '按当前任务状态进入这一步。',
-    action,
-    rationale: rationale || explain || '由既定工作流和当前证据触发。',
-    result,
-    subtitle,
+    observation: audit.observation_zh || (legacyObservation && !/^第\s*\d+\s*轮/.test(legacyObservation) ? legacyObservation : undefined),
+    analysis,
+    decision: readable(decision, 260) || undefined,
+    result: toolResult(event, round),
   }
+}
+
+function displayTitle(event: TimelineItem) {
+  const status = String(event.status || '').toUpperCase()
+  if (event.action === 'A09_RESOLVE') {
+    if (status === 'ROLLBACK') return '回退原方案'
+    if (status === 'KEEP') return '保留原方案'
+    if (status === 'ACCEPT') return '采用候选方案'
+  }
+  return event.label || actionTitle(event.action)
 }
 </script>
 
@@ -150,7 +215,7 @@ function narrative(event: TimelineItem) {
     <div class="pane-head journal-head">
       <div class="section-heading"><span class="overline">执行记录</span></div>
       <h2>完整执行记录</h2>
-      <p class="journal-intro">每一步先说明智能体如何判断、做了什么以及依据是什么；原始数据保留在“技术详情”中。</p>
+      <p class="journal-intro">直接展示智能体每轮给出的观察、分析与决定；工具结果来自真实执行证据，程序数据统一收在“技术详情”里。</p>
       <div class="journal-status">
         <span :class="{ 'blue-dot': running }">{{ statusLabel }}</span>
         <span>{{ elapsed }}</span>
@@ -162,38 +227,34 @@ function narrative(event: TimelineItem) {
       </div>
     </div>
 
-    <div class="journal-list">
+    <div ref="journalList" class="journal-list" data-test="journal-list">
       <div v-if="!orderedEvents.length" class="journal-empty">
         <span aria-hidden="true">⌁</span>
         <h3>等待第一条记录</h3>
-        <p>开始后，这里会按实际执行顺序记录系统判断、动作、依据与结果。</p>
+        <p>开始后，这里会记录智能体看到了什么、如何判断、决定做什么，以及工具实际返回了什么。</p>
       </div>
 
       <article
         v-for="(event, index) in orderedEvents"
         :key="event.id"
         class="journal-event-card"
-        :class="{ 'is-failed': ['failed', 'error', 'blocked'].includes(event.status) }"
+        :class="{
+          'is-failed': ['failed', 'error', 'blocked'].includes(event.status),
+          'is-latest': index === orderedEvents.length - 1,
+        }"
         :data-action="event.action || undefined"
       >
-        <div class="event-rail" aria-hidden="true">
-          <span class="event-index">{{ String(index + 1).padStart(2, '0') }}</span>
-          <i />
-        </div>
+        <div class="event-rail" aria-hidden="true"><span class="event-dot" /><i /></div>
         <div class="event-content">
-          <div class="event-meta">
-            <span>{{ eventStatus(event.status) }}</span>
+          <div class="event-meta"><span>{{ eventStatus(event.status) }}</span></div>
+          <div class="event-title-row">
+            <h3>{{ displayTitle(event) }}</h3>
             <time v-if="formatTime(event.occurred_at)">{{ formatTime(event.occurred_at) }}</time>
           </div>
-          <h3>{{ event.label || actionTitle(event.action) }}</h3>
-          <p class="event-subtitle">{{ narrative(event).subtitle }}</p>
-
-          <dl class="event-explanation">
-            <div><dt>判断</dt><dd>{{ narrative(event).judgment }}</dd></div>
-            <div><dt>动作</dt><dd>{{ narrative(event).action }}</dd></div>
-            <div><dt>依据</dt><dd>{{ narrative(event).rationale }}</dd></div>
-            <div><dt>结果</dt><dd>{{ narrative(event).result }}</dd></div>
-          </dl>
+          <p class="event-subtitle">{{ journalCopy(event).analysis }}</p>
+          <p v-if="journalCopy(event).observation" class="event-support"><span>观察</span>{{ journalCopy(event).observation }}</p>
+          <p v-if="journalCopy(event).decision" class="event-support"><span>决定</span>{{ journalCopy(event).decision }}</p>
+          <p v-if="journalCopy(event).result" class="event-support is-result"><span>结果</span>{{ journalCopy(event).result }}</p>
 
           <details class="technical-details">
             <summary><span>技术详情</span><span>JSON</span></summary>
@@ -206,35 +267,36 @@ function narrative(event: TimelineItem) {
 </template>
 
 <style scoped>
-.execution-journal { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+.execution-journal { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
 .journal-head { flex: 0 0 auto; }
 .section-heading { margin-bottom: 18px; }
 .journal-intro { margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
 .journal-status { display: flex; justify-content: space-between; gap: 8px; padding: 12px 0 16px; border-bottom: 1px solid var(--separator); color: var(--text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
-.journal-list { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 8px 2px 18px 0; scrollbar-gutter: stable; }
+.journal-list { flex: 1 1 auto; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 8px 2px 18px 0; scrollbar-gutter: stable; }
 .journal-empty { padding: 48px 4px; text-align: center; }
 .journal-empty > span { color: var(--text-tertiary); font-size: 40px; }
 .journal-empty h3 { margin: 14px 0 10px; font-size: 16px; font-weight: 600; }
-.journal-empty p { max-width: 220px; margin: auto; color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
-.journal-event-card { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; padding: 14px 0 16px; border-bottom: 1px solid var(--separator); }
-.event-rail { display: flex; align-items: center; flex-direction: column; }
-.event-index { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid rgba(0, 122, 255, 0.14); border-radius: 9px; background: rgba(255, 255, 255, 0.88); color: var(--accent-text); font-size: 10px; font-weight: 700; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.96); }
+.journal-empty p { max-width: 230px; margin: auto; color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
+.journal-event-card { display: grid; min-width: 0; grid-template-columns: 18px minmax(0, 1fr); gap: 10px; padding: 14px 0 16px; border-bottom: 1px solid var(--separator); }
+.event-rail { display: flex; align-items: center; flex-direction: column; padding-top: 7px; }
+.event-dot { width: 8px; height: 8px; flex: 0 0 auto; border: 2px solid #aeb1b8; border-radius: 50%; background: #fff; }
 .event-rail i { width: 1px; flex: 1; min-height: 18px; margin-top: 7px; background: var(--separator); }
 .journal-event-card:last-child .event-rail i { display: none; }
-.is-failed .event-index { border-color: rgba(215, 0, 21, 0.18); color: var(--danger); }
-.event-content { min-width: 0; }
-.event-meta { display: flex; justify-content: space-between; gap: 8px; color: var(--text-tertiary); font-size: 10px; font-weight: 650; letter-spacing: 0.03em; }
-.event-meta time { font-variant-numeric: tabular-nums; }
-.event-content h3 { margin: 4px 0 0; color: var(--text-primary); font-size: 14px; font-weight: 650; line-height: 1.4; }
-.event-subtitle { margin: 6px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
-.event-explanation { display: grid; gap: 7px; margin: 11px 0 0; }
-.event-explanation > div { display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 7px; }
-.event-explanation dt { color: var(--text-tertiary); font-size: 10px; font-weight: 700; }
-.event-explanation dd { margin: 0; color: var(--text-primary); font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
-.technical-details { margin-top: 11px; border-top: 1px solid rgba(220, 221, 227, 0.62); padding-top: 8px; }
+.is-latest .event-dot { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.08); }
+.is-failed .event-dot { border-color: var(--danger); }
+.event-content { min-width: 0; max-width: 100%; overflow: hidden; }
+.event-meta { color: var(--text-tertiary); font-size: 10px; font-weight: 650; letter-spacing: 0.03em; }
+.event-title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
+.event-title-row h3 { min-width: 0; margin: 4px 0 0; color: var(--text-primary); font-size: 14px; font-weight: 650; line-height: 1.4; overflow-wrap: anywhere; }
+.event-title-row time { flex: 0 0 auto; color: var(--text-tertiary); font-size: 10px; font-variant-numeric: tabular-nums; }
+.event-subtitle { margin: 7px 0 0; color: var(--text-primary); font-size: 12px; font-weight: 560; line-height: 1.65; overflow-wrap: anywhere; }
+.event-support { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 6px; margin: 7px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
+.event-support span { color: var(--text-tertiary); font-size: 10px; font-weight: 700; }
+.event-support.is-result { color: var(--text-primary); }
+.technical-details { max-width: 100%; margin-top: 10px; overflow: hidden; border-top: 1px solid rgba(220, 221, 227, 0.62); padding-top: 8px; }
 .technical-details summary { display: flex; justify-content: space-between; cursor: pointer; list-style: none; color: var(--text-tertiary); font-size: 10px; font-weight: 650; }
 .technical-details summary::-webkit-details-marker { display: none; }
-.technical-details pre { max-height: 220px; margin: 9px 0 0; overflow: auto; border-radius: var(--radius-md); background: var(--surface-secondary); padding: 10px; color: var(--text-secondary); font-family: var(--mono); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.technical-details pre { max-width: 100%; max-height: 220px; margin: 9px 0 0; overflow-x: hidden; overflow-y: auto; border-radius: var(--radius-md); background: var(--surface-secondary); padding: 10px; color: var(--text-secondary); font-family: var(--mono); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; word-break: break-word; white-space: pre-wrap; }
 .inline-error { margin-top: 12px; border: 1px solid #f0c8c3; border-radius: var(--radius-md); background: var(--danger-soft); padding: 11px; color: var(--danger); font-size: 12px; }
 .inline-error p { margin: 5px 0; line-height: 1.5; }
 .text-button { border: 0; background: none; color: var(--accent-text); padding: 0; font: inherit; cursor: pointer; }

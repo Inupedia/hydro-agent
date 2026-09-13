@@ -41,6 +41,10 @@ class AgentDecision(FrozenModel):
     param_groups: tuple[Literal["evap", "runoff", "routing"], ...] | None = None
     objective: Literal["nse", "peak", "composite"] | None = None
     rationale_summary: str = Field(min_length=1, max_length=600)
+    # User-facing audit trace. These are concise decision summaries, not hidden chain-of-thought.
+    observation_zh: str = Field(default="", max_length=240)
+    analysis_zh: str = Field(default="", max_length=600)
+    decision_zh: str = Field(default="", max_length=240)
 
 
 class EvidencePacket(FrozenModel):
