@@ -1,20 +1,6 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
-import { actionTitle } from '../demo/stages'
-import { diagramHtmlFor, displayNodeFor } from '../generated/workflow'
-
-type ArchifyView = {
-  reveal?: (ids: string[], options?: Record<string, unknown>) => unknown
-}
-type ArchifyWindow = Window & { Archify?: { view?: ArchifyView } }
-type CameraReceipt = { finished?: Promise<unknown> }
-
-const CLOSE_SCALE = 2.45
-const PAIR_SCALE = 2.85
-const PULL_MS = 520
-const FLOW_LEAD_MS = 380
-const CLOSE_MS = 460
-const FLOW_MS = 820
+import { computed } from 'vue'
+import { WORKFLOW, displayNodeFor } from '../generated/workflow'
 
 const props = defineProps<{
   action?: string | null
@@ -25,381 +11,349 @@ const props = defineProps<{
   workflowVersion?: string | null
 }>()
 
-const frame = ref<HTMLIFrameElement | null>(null)
-const loaded = ref(false)
-const cameraPhase = ref<'close' | 'travel' | ''>('')
-let settledNode: string | null = null
-let travelGen = 0
-const timers: number[] = []
+type NodeState = 'current' | 'done' | 'paused' | 'blocked' | 'pending'
+type RuntimeNode = {
+  id: string
+  action?: string
+  label: string
+  detail: string
+  stage: string
+  branch?: boolean
+}
 
-const diagramSrc = computed(
-  () => `/diagrams/${diagramHtmlFor(props.workflowVersion)}?theme=light&embed=1&motion=still`,
-)
+const STAGE_ORDER = ['data', 'forecast', 'gate', 'report'] as const
+const BRANCH_NODES: RuntimeNode[] = [
+  { id: 'accept', label: 'ACCEPT 采用', detail: '候选方案达到门槛', stage: 'gate', branch: true },
+  { id: 'keep', label: 'KEEP 原方案', detail: '提升不足，保留当前方案', stage: 'gate', branch: true },
+  { id: 'rollback', label: 'ROLLBACK 回退', detail: '触发约束，回到安全方案', stage: 'gate', branch: true },
+  { id: 'blocked', label: '暂停 / 终止', detail: '需要人工处理后继续', stage: 'gate', branch: true },
+]
 
-const label = computed(() => {
-  if (props.status === 'failed' || props.status === 'error') return '执行受阻'
-  if (props.status === 'paused') return '计算已暂停'
-  return actionTitle(props.action)
+const runtimeNodes = computed<RuntimeNode[]>(() => {
+  const nodes: RuntimeNode[] = []
+  for (const actionId of WORKFLOW.step_order) {
+    if (actionId === 'A09_RESOLVE') continue
+    const item = WORKFLOW.actions[actionId]
+    const id = displayNodeFor(actionId)
+    if (!item || !id) continue
+    nodes.push({
+      id,
+      action: actionId,
+      label: item.label_zh,
+      detail: item.explain_zh,
+      stage: item.display_stage,
+    })
+    if (actionId === 'A08_GATE') nodes.push(...BRANCH_NODES)
+  }
+  return nodes
 })
 
-const currentNode = computed(() => displayNodeFor(props.action, props.gateStatus || props.status))
+const stages = computed(() =>
+  STAGE_ORDER.map((id, index) => ({
+    id,
+    index: index + 1,
+    label: WORKFLOW.display_stages.find((stage) => stage.id === id)?.label || id,
+    nodes: runtimeNodes.value.filter((node) => node.stage === id),
+  })),
+)
 
+const currentNode = computed(() => displayNodeFor(props.action, props.gateStatus || props.status))
 const doneNodes = computed(() => {
   const done = new Set<string>()
   for (const action of props.completedActions) {
     const node = displayNodeFor(action)
     if (node) done.add(node)
   }
+  if (props.gateStatus === 'ACCEPT') done.add('accept')
   if (props.gateStatus === 'KEEP') done.add('keep')
   if (props.gateStatus === 'ROLLBACK') done.add('rollback')
-  if (props.gateStatus === 'ACCEPT') done.add('accept')
+  if (props.gateStatus === 'blocked' || props.gateStatus === 'failed') done.add('blocked')
   return done
 })
 
-function reducedMotion() {
-  return Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
-}
-
-function archifyView(): ArchifyView | undefined {
-  const frameEl = frame.value
-  const win = (frameEl?.contentDocument?.defaultView || frameEl?.contentWindow) as ArchifyWindow | null
-  return win?.Archify?.view
-}
-
-function sleep(ms: number) {
-  return new Promise<void>((resolve) => {
-    timers.push(window.setTimeout(resolve, ms))
-  })
-}
-
-function clearTimers() {
-  while (timers.length) {
-    const id = timers.pop()
-    if (id !== undefined) window.clearTimeout(id)
-  }
-}
-
-function stillCurrent(gen: number) {
-  return gen === travelGen && loaded.value
-}
-
-async function waitCamera(result: unknown, ms: number, gen: number) {
-  const finished = (result as CameraReceipt | null)?.finished
-  if (finished && typeof finished.then === 'function') {
-    await Promise.race([finished.then(() => undefined).catch(() => undefined), sleep(ms + 80)])
-  } else {
-    await sleep(ms)
-  }
-  return stillCurrent(gen)
-}
-
-function closeUp(instant: boolean) {
-  return {
-    includeNeighbors: false,
-    duration: CLOSE_MS,
-    instant,
-    padding: 36,
-    maxScale: CLOSE_SCALE,
-    reason: 'live-close',
-  }
-}
-
-function pairShot() {
-  return {
-    includeNeighbors: false,
-    duration: PULL_MS,
-    instant: false,
-    padding: 96,
-    maxScale: PAIR_SCALE,
-    reason: 'live-travel',
-  }
-}
-
-function clearEdgeFlow() {
-  const doc = frame.value?.contentDocument
-  if (!doc) return
-  doc.querySelectorAll('.live-travel').forEach((el) => el.classList.remove('live-travel'))
-  doc.querySelectorAll('.live-from').forEach((el) => el.classList.remove('live-from'))
-  doc.querySelectorAll('.live-travel-dot').forEach((el) => el.remove())
-  doc.querySelector('svg')?.classList.remove('live-traveling')
-}
-
-function playEdgeFlow(from: string, to: string) {
-  const doc = frame.value?.contentDocument
-  if (!doc) return
-  clearEdgeFlow()
-  const svg = doc.querySelector('svg')
-  const path = doc.querySelector(`path[data-edge-from="${from}"][data-edge-to="${to}"]`) as SVGPathElement | null
-  if (!svg || !path) return
-  svg.classList.add('live-traveling')
-  doc.querySelector(`[data-node-id="${from}"]`)?.classList.add('live-from')
-  path.classList.add('live-travel')
-  let length = 120
-  try {
-    if (typeof path.getTotalLength === 'function') length = Math.max(80, path.getTotalLength())
-  } catch {
-    length = 120
-  }
-  path.style.setProperty('--live-len', String(length))
-  const dot = doc.createElementNS('http://www.w3.org/2000/svg', 'circle')
-  dot.setAttribute('r', '5.5')
-  dot.setAttribute('class', 'live-travel-dot')
-  const motion = doc.createElementNS('http://www.w3.org/2000/svg', 'animateMotion')
-  motion.setAttribute('dur', `${FLOW_MS}ms`)
-  motion.setAttribute('repeatCount', '1')
-  motion.setAttribute('fill', 'freeze')
-  motion.setAttribute('path', path.getAttribute('d') || '')
-  dot.appendChild(motion)
-  path.parentNode?.appendChild(dot)
-  try {
-    ;(motion as unknown as { beginElement: () => void }).beginElement()
-  } catch {
-    /* SMIL optional */
-  }
-}
-
-async function travelTo(node: string, instant: boolean) {
-  const gen = ++travelGen
-  clearTimers()
-  const from = settledNode
-  const view = archifyView()
-  if (typeof view?.reveal !== 'function') {
-    settledNode = node
-    cameraPhase.value = 'close'
-    return
-  }
-  const skipCinema = instant || reducedMotion() || from === node
-  if (skipCinema || !from) {
-    cameraPhase.value = 'close'
-    view.reveal([node], closeUp(instant || reducedMotion()))
-    settledNode = node
-    clearEdgeFlow()
-    return
-  }
-
-  cameraPhase.value = 'travel'
-  const pulled = view.reveal([from, node], pairShot())
-  if (!(await waitCamera(pulled, PULL_MS, gen))) return
-  playEdgeFlow(from, node)
-  if (!(await waitCamera(null, FLOW_LEAD_MS, gen))) return
-  cameraPhase.value = 'close'
-  const landed = view.reveal([node], closeUp(false))
-  await waitCamera(landed, CLOSE_MS, gen)
-  if (!stillCurrent(gen)) return
-  settledNode = node
-  clearEdgeFlow()
-}
-
-function paintNodes() {
-  const doc = frame.value?.contentDocument
-  if (!doc || !loaded.value) return
-  const current = currentNode.value
-  doc.querySelectorAll('[data-node-id]').forEach((node) => {
-    const id = node.getAttribute('data-node-id') || ''
-    const isCurrent = Boolean(current && id === current)
-    const isDone = doneNodes.value.has(id) && !isCurrent
-    node.classList.toggle('live-current', isCurrent)
-    node.classList.toggle('live-done', isDone)
-    node.classList.toggle('live-blocked', isCurrent && ['failed', 'error'].includes(props.status || ''))
-    node.classList.toggle('live-pending', !isCurrent && !isDone)
-    if (isCurrent) node.setAttribute('aria-current', 'step')
-    else node.removeAttribute('aria-current')
-  })
-}
-
-function sync() {
-  paintNodes()
-  const current = currentNode.value
-  if (current && current !== settledNode) {
-    requestAnimationFrame(() => {
-      void travelTo(current, false)
-    })
-  }
-}
-
-function ready() {
-  const doc = frame.value?.contentDocument
-  if (!doc) return
-  loaded.value = true
-  settledNode = null
-  cameraPhase.value = ''
-  travelGen += 1
-  clearTimers()
-  clearEdgeFlow()
-  doc.documentElement.setAttribute('data-motion', 'still')
-  doc.documentElement.setAttribute('data-embed', 'true')
-  if (!doc.getElementById('hydro-live-style')) {
-    const style = doc.createElement('style')
-    style.id = 'hydro-live-style'
-    style.textContent = `
-      html, body, .container { width:100%!important; height:100%!important; margin:0!important; padding:0!important; min-height:0!important; background:transparent!important; }
-      .diagram-container { width:100%!important; height:100%!important; padding:8px!important; margin:0!important; overflow:hidden!important; background:transparent!important; box-shadow:none!important; }
-      .diagram-container > svg { width:100%!important; height:100%!important; max-height:none!important; min-width:0!important; transform-origin:0 0!important; }
-      .diagram-container::before,.diagram-container::after,.share-chapter-cue,.toolbar,.header,.cards,.diagram-nav,.guided-views { display:none!important; }
-      [data-node-id] { transition: opacity .2s, filter .2s; }
-      [data-node-id].live-pending { opacity: .42; }
-      [data-node-id] > rect { fill:#ffffff!important; stroke:#e5e5ea!important; }
-      [data-node-id].live-done > rect { fill:#eaf7ee!important; stroke:#248a3d!important; }
-      [data-node-id].live-current > rect { fill:#eaf3ff!important; stroke:#007aff!important; stroke-width:3px!important; filter:drop-shadow(0 0 5px #007aff33); }
-      [data-node-id].live-blocked > rect { fill:#fff0f0!important; stroke:#d70015!important; }
-      [data-node-id].live-from > rect { fill:#eaf3ff!important; stroke:#64b5ff!important; }
-      svg.live-traveling [data-node-id].live-pending { opacity:.2; }
-      svg.live-traveling [data-edge-from]:not(.live-travel) { opacity:.16; }
-      path[data-edge-from].live-travel {
-        stroke:#007aff!important;
-        stroke-width:2.8px!important;
-        stroke-linecap:round!important;
-        stroke-dasharray: var(--live-len, 120);
-        stroke-dashoffset: var(--live-len, 120);
-        animation: live-edge-flow ${FLOW_MS}ms cubic-bezier(.22,1,.36,1) 1 both;
-        filter: drop-shadow(0 0 5px #007aff66);
-      }
-      .live-travel-dot { fill:#007aff; filter: drop-shadow(0 0 4px #007affaa); }
-      @keyframes live-edge-flow {
-        from { stroke-dashoffset: var(--live-len, 120); }
-        to { stroke-dashoffset: 0; }
-      }
-      text { font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif!important; }
-      @media(prefers-reduced-motion:reduce) { * { transition:none!important; animation:none!important; } }
-    `
-    doc.head.appendChild(style)
-  }
-  paintNodes()
-  requestAnimationFrame(() => {
-    const node = currentNode.value
-    if (node) void travelTo(node, reducedMotion())
-  })
-}
-
-watch(() => [props.action, props.status, props.gateStatus, props.completedActions], sync, { deep: true })
-
-onUnmounted(() => {
-  travelGen += 1
-  loaded.value = false
-  clearTimers()
+const currentLabel = computed(() => {
+  if (props.status === 'failed' || props.status === 'error') return '执行受阻'
+  if (props.status === 'paused') return '计算已暂停'
+  const item = props.action ? WORKFLOW.actions[props.action as keyof typeof WORKFLOW.actions] : undefined
+  return item?.title_running_zh || '等待执行'
 })
+
+const workflowVersionLabel = computed(() => props.workflowVersion || WORKFLOW.version)
+
+function nodeState(node: RuntimeNode): NodeState {
+  if (node.id === currentNode.value) {
+    if (props.status === 'failed' || props.status === 'error') return 'blocked'
+    if (props.status === 'paused') return 'paused'
+    return 'current'
+  }
+  if (doneNodes.value.has(node.id)) return 'done'
+  return 'pending'
+}
+
+function stageProgress(nodes: RuntimeNode[]) {
+  const done = nodes.filter((node) => ['done', 'current', 'paused', 'blocked'].includes(nodeState(node))).length
+  return `${done}/${nodes.length}`
+}
 </script>
 
 <template>
-  <section class="live-workflow" :class="{ 'is-expanded': expanded }" data-test="live-workflow" :data-camera-node="currentNode || undefined" :data-camera-phase="cameraPhase || undefined">
-    <div class="workflow-caption">
-      <span>执行地图</span>
-      <strong aria-live="polite">{{ label }}</strong>
+  <section
+    class="live-workflow workflow-canvas"
+    :class="{ 'is-expanded': expanded }"
+    data-test="live-workflow"
+    :data-current-node="currentNode || undefined"
+  >
+    <header class="workflow-head">
+      <div class="workflow-title-group">
+        <div class="eyebrow">HYDRO AGENT · WORKFLOW</div>
+        <div class="title-row">
+          <h3>实时执行地图</h3>
+          <span class="version-pill">v{{ workflowVersionLabel }}</span>
+        </div>
+        <p>按业务阶段展示当前动作、已完成步骤与 Gate 分支，不再切换 iframe 或追踪相机。</p>
+      </div>
+      <div class="current-chip" :class="`is-${status || 'idle'}`" aria-live="polite">
+        <i aria-hidden="true" />
+        <span>{{ currentLabel }}</span>
+      </div>
+    </header>
+
+    <div class="workflow-scroll">
+      <div class="workflow-track">
+        <template v-for="(stage, stageIndex) in stages" :key="stage.id">
+          <section class="stage-panel" :data-stage="stage.id">
+            <header class="stage-head">
+              <span class="stage-index">{{ String(stage.index).padStart(2, '0') }}</span>
+              <div>
+                <strong>{{ stage.label }}</strong>
+                <small>{{ stageProgress(stage.nodes) }} 节点有进展</small>
+              </div>
+            </header>
+
+            <div class="node-stack">
+              <template v-for="(node, nodeIndex) in stage.nodes" :key="node.id">
+                <article
+                  class="workflow-node"
+                  :class="[`is-${nodeState(node)}`, { 'is-branch': node.branch }]"
+                  :data-node-id="node.id"
+                  :data-state="nodeState(node)"
+                  data-test="workflow-node"
+                  :aria-current="nodeState(node) === 'current' || nodeState(node) === 'paused' || nodeState(node) === 'blocked' ? 'step' : undefined"
+                >
+                  <div class="node-status" aria-hidden="true"><span /></div>
+                  <div class="node-copy">
+                    <strong>{{ node.label }}</strong>
+                    <span>{{ node.detail }}</span>
+                  </div>
+                  <span v-if="node.action" class="action-code">{{ node.action.replace('_', '·') }}</span>
+                </article>
+                <div
+                  v-if="nodeIndex < stage.nodes.length - 1"
+                  class="node-connector"
+                  :class="{ 'is-active': doneNodes.has(node.id) || node.id === currentNode }"
+                  aria-hidden="true"
+                />
+              </template>
+            </div>
+
+            <div v-if="stage.id === 'gate'" class="gate-note">
+              <strong>Gate 路由</strong>
+              <span>达到要求可直接锁定；KEEP / ROLLBACK 且预算允许时返回“有限调参”继续下一轮。</span>
+            </div>
+          </section>
+
+          <div v-if="stageIndex < stages.length - 1" class="stage-bridge" aria-hidden="true">
+            <span />
+            <i>›</i>
+          </div>
+        </template>
+      </div>
     </div>
-    <iframe
-      ref="frame"
-      :src="diagramSrc"
-      title="实时执行流程图"
-      @load="ready"
-    />
-    <div class="workflow-key">
-      <span><i class="current" />当前动作</span>
-      <span><i class="done" />已有完成记录</span>
-      <span><i />待执行</span>
-    </div>
+
+    <footer class="workflow-legend">
+      <span><i class="legend-dot current" />当前动作</span>
+      <span><i class="legend-dot done" />已完成</span>
+      <span><i class="legend-dot paused" />暂停</span>
+      <span><i class="legend-dot blocked" />受阻</span>
+      <span><i class="legend-dot" />待执行</span>
+    </footer>
   </section>
 </template>
 
 <style scoped>
-.live-workflow {
-  flex: 1;
-  min-height: 250px;
+.workflow-canvas {
+  --wf-bg: rgba(250, 251, 253, 0.78);
+  --wf-surface: rgba(255, 255, 255, 0.68);
+  --wf-surface-strong: rgba(255, 255, 255, 0.9);
+  --wf-text: #1d1d1f;
+  --wf-secondary: #62626a;
+  --wf-tertiary: #85858e;
+  --wf-border: rgba(255, 255, 255, 0.92);
+  --wf-separator: rgba(220, 221, 227, 0.72);
+  --wf-blue: #007aff;
+  --wf-blue-soft: #eaf3ff;
+  --wf-green: #248a3d;
+  --wf-green-soft: #eaf6ed;
+  --wf-amber: #a66500;
+  --wf-amber-soft: #fff4df;
+  --wf-red: #d70015;
+  --wf-red-soft: #fff0f1;
+  position: relative;
+  min-height: 300px;
   display: flex;
   flex-direction: column;
-  background: rgba(255, 255, 255, 0.86);
-  border: 1px solid rgba(255, 255, 255, 0.95);
-  border-radius: 22px;
   margin: 20px 0 10px;
   overflow: hidden;
-  transform-origin: 50% 40%;
-  box-shadow: none;
+  border: 1px solid var(--wf-border);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(120, 190, 255, 0.18), transparent 30%),
+    radial-gradient(circle at 92% 100%, rgba(111, 214, 166, 0.12), transparent 32%),
+    var(--wf-bg);
+  box-shadow: 0 8px 28px rgba(16, 24, 40, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(24px) saturate(1.18);
+  -webkit-backdrop-filter: blur(24px) saturate(1.18);
+  color: var(--wf-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', 'Segoe UI', sans-serif;
+}
+.workflow-canvas.is-expanded { min-height: min(64vh, 680px); margin-top: 8px; }
+.workflow-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 22px 14px;
+  border-bottom: 1px solid rgba(232, 233, 238, 0.82);
+  background: rgba(255, 255, 255, 0.24);
+}
+.workflow-title-group { min-width: 0; }
+.eyebrow { margin-bottom: 5px; color: var(--wf-tertiary); font-size: 9px; font-weight: 700; letter-spacing: 0.14em; }
+.title-row { display: flex; align-items: center; gap: 8px; }
+.title-row h3 { margin: 0; font-size: 18px; line-height: 1.2; letter-spacing: -0.02em; }
+.version-pill {
+  padding: 3px 7px;
+  border: 1px solid rgba(0, 122, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(234, 243, 255, 0.76);
+  color: #005fcc;
+  font-size: 9px;
+  font-weight: 700;
+}
+.workflow-title-group p { margin: 6px 0 0; max-width: 620px; color: var(--wf-secondary); font-size: 11px; line-height: 1.55; }
+.current-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 260px;
+  padding: 8px 11px;
+  border: 1px solid rgba(0, 122, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(234, 243, 255, 0.72);
+  color: #005fcc;
+  font-size: 10px;
+  font-weight: 650;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+.current-chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--wf-blue); box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.1); }
+.current-chip.is-paused { border-color: rgba(166, 101, 0, 0.16); background: rgba(255, 244, 223, 0.82); color: var(--wf-amber); }
+.current-chip.is-paused i { background: var(--wf-amber); box-shadow: 0 0 0 4px rgba(166, 101, 0, 0.1); }
+.current-chip.is-failed, .current-chip.is-error { border-color: rgba(215, 0, 21, 0.14); background: rgba(255, 240, 241, 0.82); color: var(--wf-red); }
+.current-chip.is-failed i, .current-chip.is-error i { background: var(--wf-red); box-shadow: 0 0 0 4px rgba(215, 0, 21, 0.1); }
+.workflow-scroll { flex: 1; overflow: auto; padding: 18px 18px 12px; scrollbar-width: thin; scrollbar-color: rgba(98, 98, 106, 0.2) transparent; }
+.workflow-track {
+  min-width: 980px;
+  display: grid;
+  grid-template-columns: minmax(190px, 0.95fr) 34px minmax(180px, 0.8fr) 34px minmax(250px, 1.2fr) 34px minmax(210px, 0.95fr);
+  align-items: stretch;
+  gap: 0;
+}
+.stage-panel {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  border-radius: 20px;
+  background: rgba(248, 249, 251, 0.62);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 2px 8px rgba(16, 24, 40, 0.045);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
 }
-.live-workflow.is-expanded {
-  min-height: min(62vh, 640px);
-  margin: 8px 0 0;
-}
-.live-workflow.is-expanded iframe {
-  min-height: min(52vh, 560px);
-}
-.workflow-caption {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 16px 18px 6px;
-  color: #456783;
-  font-size: 12px;
-  flex-wrap: wrap;
-}
-.workflow-caption small {
-  font-size: 9px;
-  letter-spacing: 1.5px;
-  margin-left: 8px;
-  color: #8198ae;
-}
-.workflow-caption strong {
-  color: #167ccc;
-  font-size: 11px;
-  font-weight: 500;
-}
-iframe {
-  border: 0;
-  width: 100%;
-  flex: 1;
-  min-height: 220px;
-  background: transparent;
-}
-.workflow-key {
-  display: flex;
-  justify-content: center;
-  gap: 18px;
-  padding: 8px 12px 15px;
-  color: #70869b;
+.stage-head { display: flex; align-items: center; gap: 9px; margin-bottom: 13px; }
+.stage-index {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: rgba(29, 29, 31, 0.055);
+  color: var(--wf-secondary);
   font-size: 10px;
+  font-weight: 750;
 }
-.workflow-key span {
-  display: flex;
+.stage-head div { min-width: 0; }
+.stage-head strong { display: block; font-size: 12px; }
+.stage-head small { display: block; margin-top: 2px; color: var(--wf-tertiary); font-size: 9px; }
+.node-stack { display: flex; flex-direction: column; align-items: stretch; }
+.workflow-node {
+  position: relative;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 5px;
+  gap: 9px;
+  min-height: 56px;
+  padding: 10px 10px;
+  border: 1px solid var(--wf-separator);
+  border-radius: 14px;
+  background: var(--wf-surface-strong);
+  box-shadow: 0 2px 8px rgba(16, 24, 40, 0.045), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease, transform 180ms ease, opacity 180ms ease;
 }
-.workflow-key i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #c6d6e5;
+.workflow-node.is-pending { opacity: 0.58; background: rgba(255, 255, 255, 0.52); }
+.workflow-node.is-current {
+  border-color: rgba(0, 122, 255, 0.48);
+  background: rgba(234, 243, 255, 0.88);
+  box-shadow: 0 8px 24px rgba(0, 122, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  transform: translateY(-1px);
 }
-.workflow-key .current {
-  background: #007aff;
-}
-.workflow-key .done {
-  background: #7cbaaa;
-}
-@media (min-width: 1101px) and (min-height: 700px) {
-  .live-workflow {
-    min-height: 0;
-  }
-  .live-workflow.is-expanded {
-    min-height: 0;
-    flex: 1 1 auto;
-  }
-  iframe {
-    min-height: 120px;
-  }
-  .live-workflow.is-expanded iframe {
-    min-height: 0;
-  }
-}
-@media (max-width: 680px) {
-  iframe {
-    min-height: 240px;
-  }
-  .live-workflow.is-expanded {
-    min-height: 280px;
-  }
-  .workflow-caption {
-    padding: 14px 12px 4px;
-  }
+.workflow-node.is-done { border-color: rgba(36, 138, 61, 0.28); background: rgba(234, 246, 237, 0.78); }
+.workflow-node.is-paused { border-color: rgba(166, 101, 0, 0.34); background: rgba(255, 244, 223, 0.84); box-shadow: 0 7px 22px rgba(166, 101, 0, 0.09); }
+.workflow-node.is-blocked { border-color: rgba(215, 0, 21, 0.32); background: rgba(255, 240, 241, 0.86); box-shadow: 0 7px 22px rgba(215, 0, 21, 0.09); }
+.workflow-node.is-branch { min-height: 50px; }
+.node-status { display: grid; place-items: center; }
+.node-status span { width: 8px; height: 8px; border-radius: 50%; background: #c9cbd2; box-shadow: 0 0 0 4px rgba(133, 133, 142, 0.08); }
+.is-current .node-status span { background: var(--wf-blue); box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.12); animation: node-pulse 1.8s ease-in-out infinite; }
+.is-done .node-status span { background: var(--wf-green); box-shadow: 0 0 0 4px rgba(36, 138, 61, 0.1); }
+.is-paused .node-status span { background: var(--wf-amber); box-shadow: 0 0 0 4px rgba(166, 101, 0, 0.1); }
+.is-blocked .node-status span { background: var(--wf-red); box-shadow: 0 0 0 4px rgba(215, 0, 21, 0.1); }
+.node-copy { min-width: 0; }
+.node-copy strong { display: block; color: var(--wf-text); font-size: 11px; font-weight: 680; line-height: 1.25; }
+.node-copy span { display: -webkit-box; margin-top: 3px; overflow: hidden; color: var(--wf-secondary); font-size: 9px; line-height: 1.35; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.action-code { align-self: start; color: var(--wf-tertiary); font-size: 8px; font-weight: 650; letter-spacing: 0.02em; }
+.node-connector { width: 1px; height: 11px; margin: 0 auto; background: rgba(197, 199, 207, 0.72); transition: background 180ms ease, box-shadow 180ms ease; }
+.node-connector.is-active { background: rgba(0, 122, 255, 0.48); box-shadow: 0 0 8px rgba(0, 122, 255, 0.18); }
+.stage-bridge { display: flex; align-items: center; padding: 0 5px; }
+.stage-bridge span { flex: 1; height: 1px; background: linear-gradient(90deg, rgba(197, 199, 207, 0.45), rgba(0, 122, 255, 0.38)); }
+.stage-bridge i { margin-left: -1px; color: rgba(0, 122, 255, 0.58); font-size: 22px; font-style: normal; font-weight: 300; line-height: 1; }
+.gate-note { margin-top: 12px; padding: 10px 11px; border: 1px solid rgba(0, 122, 255, 0.12); border-radius: 12px; background: rgba(234, 243, 255, 0.52); }
+.gate-note strong { display: block; color: #005fcc; font-size: 9px; }
+.gate-note span { display: block; margin-top: 3px; color: var(--wf-secondary); font-size: 8px; line-height: 1.45; }
+.workflow-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; padding: 9px 14px 14px; color: var(--wf-secondary); font-size: 9px; }
+.workflow-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend-dot { width: 6px; height: 6px; border-radius: 50%; background: #c9cbd2; }
+.legend-dot.current { background: var(--wf-blue); }
+.legend-dot.done { background: var(--wf-green); }
+.legend-dot.paused { background: var(--wf-amber); }
+.legend-dot.blocked { background: var(--wf-red); }
+@keyframes node-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+@media (prefers-reduced-motion: reduce) { .workflow-node, .node-connector, .node-status span { transition: none !important; animation: none !important; } }
+@media (max-width: 760px) {
+  .workflow-head { flex-direction: column; padding: 16px; }
+  .current-chip { max-width: 100%; }
+  .workflow-scroll { padding: 12px; overflow: visible; }
+  .workflow-track { min-width: 0; grid-template-columns: 1fr; gap: 0; }
+  .stage-bridge { height: 28px; justify-content: center; padding: 0; }
+  .stage-bridge span { flex: 0 0 1px; width: 1px; height: 22px; background: linear-gradient(180deg, rgba(197, 199, 207, 0.45), rgba(0, 122, 255, 0.38)); }
+  .stage-bridge i { margin: 13px 0 0 -6px; transform: rotate(90deg); }
+  .workflow-canvas.is-expanded { min-height: 0; }
 }
 </style>

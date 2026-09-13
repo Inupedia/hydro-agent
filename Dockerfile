@@ -1,4 +1,4 @@
-# Hydro-Agent workbench: Archify UI + FastAPI (real SiliconFlow + XAJ)
+# Hydro-Agent workbench: Liquid Glass Vue UI + FastAPI (real SiliconFlow + XAJ)
 # Base-image ARGs default to a Docker Hub mirror; override to docker.io if you prefer.
 ARG NODE_IMAGE=docker.m.daocloud.io/library/node:22-bookworm
 ARG PYTHON_IMAGE=docker.m.daocloud.io/library/python:3.12-slim-bookworm
