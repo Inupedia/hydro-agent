@@ -6,6 +6,7 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from hydro_agent.agent.contracts import ActionCode, EvidencePacket
+from hydro_agent.agent.experiment_guardrail import apply_experiment_plan_guardrail
 from hydro_agent.agent.permissions import PermissionGate, decision_fingerprint
 from hydro_agent.agent.world_state import world_state_hash
 
@@ -57,7 +58,7 @@ def build_forecast_graph(
 
         task_id = state["task_id"]
         view = world_state.build(task_id)
-        decision = provider.decide(view)
+        decision = apply_experiment_plan_guardrail(view, provider.decide(view))
         try:
             gate.authorize(view, decision)
         except PermissionDenied:
@@ -98,7 +99,7 @@ def build_forecast_graph(
                     break
             from hydro_agent.agent.contracts import AgentDecision as AD
 
-            decision = AD.model_validate(fallback)
+            decision = apply_experiment_plan_guardrail(view, AD.model_validate(fallback))
             gate.authorize(view, decision)
         packet = tools.execute(task_id, decision)
         repository.add_evidence(packet)
