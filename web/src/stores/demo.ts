@@ -310,12 +310,12 @@ export const useDemoStore = defineStore('demo', () => {
   }
 
   async function pauseCompute() {
-    if (!taskId.value || demo.mode !== 'live') return
+    if (!taskId.value || mode.value !== 'live') return
     run.value = await api.pauseRun(taskId.value)
   }
 
   async function resumeCompute() {
-    if (!taskId.value || demo.mode !== 'live') return
+    if (!taskId.value || mode.value !== 'live') return
     run.value = await api.resumeRun(taskId.value)
     startPolling()
   }
