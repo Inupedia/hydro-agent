@@ -47,6 +47,12 @@ class SnapshotBuilder:
                 f"missing_count={len(missing)}, missing_first={preview or '-'}"
             )
         flows = self.policy.select_flow(context, flow_rows)
+        # The immutable manifest keeps every legally available observation and
+        # its quality metadata, but model scoring sees only approved rows. This
+        # lets reports audit excluded dates without allowing imputed truth into
+        # calibration, Gate, or final metrics.
+        scoring_flows = tuple(row for row in flows if row.eligible_for_scoring)
+
         parent = self.root / context.basin_id
         parent.mkdir(parents=True, exist_ok=True)
         if parent.is_symlink() or not parent.resolve().is_relative_to(self.root):
@@ -64,12 +70,14 @@ class SnapshotBuilder:
             with (path / "streamflow.csv").open("w", encoding="utf-8", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow(["date", "discharge_m3s"])
-                writer.writerows((r.valid_date.isoformat(), r.discharge_m3s) for r in flows)
+                writer.writerows(
+                    (r.valid_date.isoformat(), r.discharge_m3s) for r in scoring_flows
+                )
             (path / "basin.json").write_text(canonical_json(basin.model_dump()), encoding="utf-8")
             files = []
             for name, role, rows in [
                 ("forcing.csv", "forcing", forcing),
-                ("streamflow.csv", "observations", flows),
+                ("streamflow.csv", "observations", scoring_flows),
                 ("basin.json", "basin", []),
             ]:
                 files.append(
