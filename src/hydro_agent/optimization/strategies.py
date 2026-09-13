@@ -15,7 +15,7 @@ MORRIS_SCREENING = dict(
     sensitivity_levels=6,
     sensitivity_min_relative_mu_star=0.10,
     sensitivity_min_effects=2,
-    active_parameter_limit=6,
+    active_parameter_limit=None,
     min_active_parameters=2,
 )
 
