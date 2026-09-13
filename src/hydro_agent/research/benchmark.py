@@ -218,8 +218,16 @@ def aggregate_benchmark(runs: Sequence[BenchmarkRun]) -> BenchmarkAggregate:
                 candidate = run_index.get((scenario_id, arm))
                 if baseline is None or candidate is None:
                     continue
-                base_map = baseline.rolling_metrics if prefix == "rolling" else baseline.continuous_metrics
-                cand_map = candidate.rolling_metrics if prefix == "rolling" else candidate.continuous_metrics
+                base_map = (
+                    baseline.rolling_metrics
+                    if prefix == "rolling"
+                    else baseline.continuous_metrics
+                )
+                cand_map = (
+                    candidate.rolling_metrics
+                    if prefix == "rolling"
+                    else candidate.continuous_metrics
+                )
                 if key not in base_map or key not in cand_map:
                     continue
                 pairs += 1
