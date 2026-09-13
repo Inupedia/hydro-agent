@@ -27,9 +27,10 @@ def apply_experiment_plan_guardrail(
     """Replace novelty-based A07 choices with an evidence-conditioned registered plan.
 
     The LLM still decides whether optimization is warranted. Once A07 is chosen,
-    however, strategy/groups/objective are selected from persisted diagnosis and
-    prior trial outcomes. If planning context is unavailable, the original legal
-    decision is retained rather than inventing evidence.
+    however, strategy/groups are selected from persisted diagnosis and prior trial
+    outcomes while the objective is fixed by the campaign workbench contract. If
+    planning context is unavailable, the original legal decision is retained rather
+    than inventing evidence.
     """
 
     if decision.action != ActionCode.A07_OPTIMIZE:
@@ -39,6 +40,12 @@ def apply_experiment_plan_guardrail(
         return decision
 
     diagnosis = dict(view.hydro.diagnosis or {})
+    diagnostic_objective = str(diagnosis.get("recommended_objective") or "").strip()
+    # A diagnosis/expert prior may say which error pattern deserves attention,
+    # but cannot swap the scoring ruler between experiments. The workbench value
+    # is pre-registered in WorldStateBuilder and defaults to the historical NSE.
+    diagnosis["recommended_objective"] = view.hydro.campaign_objective
+
     diagnosis_row = _latest_diagnosis(view)
     evidence_refs = (diagnosis_row.evidence_id,) if diagnosis_row is not None else ()
     phenomenon = str(
@@ -81,9 +88,21 @@ def apply_experiment_plan_guardrail(
         prior_trials=prior_trials,
         planner="agent",
     )
+    plan = plan.model_copy(
+        update={
+            "reason_codes": tuple(
+                dict.fromkeys((*plan.reason_codes, "campaign_objective_locked"))
+            )
+        }
+    )
     reason_text = ",".join(plan.reason_codes) or "registered_plan"
     rationale = decision.rationale_summary
-    audit_suffix = f" [plan={plan.plan_id}; reasons={reason_text}]"
+    audit_suffix = (
+        f" [plan={plan.plan_id}; objective={view.hydro.campaign_objective}; "
+        f"reasons={reason_text}]"
+    )
+    if diagnostic_objective and diagnostic_objective != view.hydro.campaign_objective:
+        audit_suffix += f" [diagnostic_objective_ignored={diagnostic_objective}]"
     if audit_suffix not in rationale:
         rationale = (rationale + audit_suffix)[:600]
 
