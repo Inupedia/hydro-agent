@@ -175,6 +175,8 @@ export const useDemoStore = defineStore('demo', () => {
     draft.value.model_plan_id = task.model_plan_id ?? null
     if (task.start_date) draft.value.start_date = task.start_date
     if (task.end_date) draft.value.end_date = task.end_date
+    if (task.validation_days != null) draft.value.validation_days = task.validation_days
+    if (task.final_test_days != null) draft.value.final_test_days = task.final_test_days
     if (task.forcing_mode === 'R' || task.forcing_mode === 'F') {
       draft.value.forcing_mode = task.forcing_mode
     }
@@ -308,12 +310,12 @@ export const useDemoStore = defineStore('demo', () => {
   }
 
   async function pauseCompute() {
-    if (!taskId.value || mode.value !== 'live') return
+    if (!taskId.value || demo.mode !== 'live') return
     run.value = await api.pauseRun(taskId.value)
   }
 
   async function resumeCompute() {
-    if (!taskId.value || mode.value !== 'live') return
+    if (!taskId.value || demo.mode !== 'live') return
     run.value = await api.resumeRun(taskId.value)
     startPolling()
   }
