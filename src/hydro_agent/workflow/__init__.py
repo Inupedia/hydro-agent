@@ -13,7 +13,6 @@ from .definition import (
     list_versions,
     load_definition,
     load_definition_by_version,
-    version_html_names,
 )
 
 __all__ = [
@@ -27,5 +26,4 @@ __all__ = [
     "load_definition",
     "load_definition_by_version",
     "phase_action_ids",
-    "version_html_names",
 ]
