@@ -137,9 +137,6 @@ class SiliconFlowDecisionProvider:
         return AgentDecision.model_validate(payload)
 
 
-_BOUNDED_STRATEGIES = ("xaj-bounded-v1", "xaj-peak-bias-v1", "xaj-local-refine-v1")
-
-
 def _diagnosis_nse(view: WorldStateView) -> float | None:
     diagnosis = dict(view.hydro.diagnosis or {})
     metrics = diagnosis.get("metrics") if isinstance(diagnosis.get("metrics"), dict) else {}
@@ -169,38 +166,23 @@ def _latest_gates(view: WorldStateView, action: ActionCode) -> dict[str, str]:
     return {}
 
 
-def _rotate_strategy(view: WorldStateView, preferred: str | None) -> str:
-    used = [
-        item.gates.get("strategy_id") or ""
-        for item in view.evidence_summary
-        if item.action == ActionCode.A07_OPTIMIZE
-    ]
-    preferred = preferred or "xaj-bounded-v1"
-    if preferred == "xaj-hydrologist-manual-v1":
-        preferred = "xaj-bounded-v1"
-    order = [preferred, *[s for s in _BOUNDED_STRATEGIES if s != preferred]]
-    for strategy in order:
-        if strategy not in used:
-            return strategy
-    return order[min(len(used), len(order) - 1)]
-
-
 def _optimize_payload(view: WorldStateView, *, rationale: str) -> dict:
+    """Create a legal A07 proposal without novelty-based strategy rotation.
+
+    The provider may pass through the fresh diagnosis recommendation, but the
+    execution-semantic strategy is selected later by ExperimentPlan guardrail
+    from diagnosis + persisted trial evidence. This function must never choose a
+    different strategy merely because one was used before.
+    """
+
     diagnosis = dict(view.hydro.diagnosis or {})
-    recommended = str(diagnosis.get("recommended_strategy_id") or "") or None
-    strategy = _rotate_strategy(view, recommended)
+    strategy = str(diagnosis.get("recommended_strategy_id") or "xaj-bounded-v1")
+    if strategy == "xaj-hydrologist-manual-v1":
+        strategy = "xaj-bounded-v1"
     groups = diagnosis.get("recommended_param_groups") or ["runoff", "routing"]
     if isinstance(groups, str):
         groups = [g.strip() for g in groups.split(",") if g.strip()]
     objective = str(diagnosis.get("recommended_objective") or "nse")
-    # If rotation selects a different strategy, use that strategy's actual
-    # experiment contract instead of carrying stale groups/objective from A06.
-    if recommended and strategy != recommended:
-        from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
-
-        selected = CalibrationStrategyRegistry().get(strategy)
-        groups = list(selected.param_groups)
-        objective = selected.objective
     if objective not in {"nse", "peak", "composite"}:
         objective = "nse"
     return {
@@ -270,7 +252,7 @@ def _nse_calibration_progress(
         }
 
     # KEEP/ROLLBACK is new evidence. Refresh A06 before selecting another
-    # experiment; never rotate strategies from a stale pre-Gate diagnosis.
+    # experiment; never select from a stale pre-Gate diagnosis.
     if rediagnosis_required(view) and ActionCode.A06_DIAGNOSE.value in safe_actions:
         return {
             **payload,
@@ -366,13 +348,14 @@ def _nse_calibration_progress(
                 )
             return _optimize_payload(view, rationale=rationale)
 
-    # Remap manual strategy if LLM still picks it.
+    # Remap HITL-only manual strategy to a legal automatic proposal. The
+    # ExperimentPlan guardrail will still own the execution-semantic strategy.
     if (
         payload.get("action") == ActionCode.A07_OPTIMIZE.value
         and payload.get("strategy_id") == "xaj-hydrologist-manual-v1"
     ):
         fixed = dict(payload)
-        fixed["strategy_id"] = _rotate_strategy(view, "xaj-bounded-v1")
+        fixed["strategy_id"] = "xaj-bounded-v1"
         return fixed
     return payload
 
