@@ -37,9 +37,7 @@ def _resolved_view(qualification_status: str) -> WorldStateView:
             status="KEEP" if qualification_status != "QUALIFIED" else "ACCEPT",
             new_information_hash="h-resolve",
             gates={
-                "status": (
-                    "KEEP" if qualification_status != "QUALIFIED" else "ACCEPT"
-                ),
+                "status": ("KEEP" if qualification_status != "QUALIFIED" else "ACCEPT"),
                 "gate_status": "ACCEPT",
                 "adoption_status": "ADOPT",
                 "qualification_status": qualification_status,
@@ -63,9 +61,7 @@ def _resolved_view(qualification_status: str) -> WorldStateView:
             allow_optimization=True,
         ),
         model=ModelSummary(model_id="xaj", capabilities=("forecast", "calibrate")),
-        scheme=SchemeSummary(
-            scheme_id="scheme-adopted", status="candidate", content_hash="h"
-        ),
+        scheme=SchemeSummary(scheme_id="scheme-adopted", status="candidate", content_hash="h"),
         permissions=PermissionSummary(
             safe_actions=(ActionCode.A07_OPTIMIZE, ActionCode.A10_FREEZE), paused=False
         ),
