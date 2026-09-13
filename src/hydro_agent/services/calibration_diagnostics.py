@@ -1,4 +1,4 @@
-"""Leakage-safe calibration diagnostics built only from pre-validation evidence."""
+"""Leakage-safe calibration diagnostics built only from pre-development evidence."""
 
 from __future__ import annotations
 
@@ -59,17 +59,20 @@ def diagnose_prevalidation_window(
     lookback_issue_days: int = DIAGNOSTIC_LOOKBACK_ISSUE_DAYS,
     expert_knowledge: ExpertKnowledgeRepository | None = None,
 ) -> dict[str, Any]:
-    """Diagnose with issue/target dates strictly before the validation window.
+    """Diagnose with issue/target dates strictly before the development window.
 
-    The latest diagnostic issue is ``validation_start - 4 days`` so lead-3 truth
-    ends on ``validation_start - 1 day``. This keeps held-out validation
-    observations out of Agent planning.
+    ``validation_start`` is retained as an internal compatibility parameter while
+    callers migrate to the four-stage protocol. Semantically it is the first day
+    of the mutable development Gate window, never the final test. The latest
+    diagnostic issue is ``development_start - 4 days`` so lead-3 truth ends on
+    ``development_start - 1 day``.
     """
 
     if lookback_issue_days < 4:
         raise ValueError("lookback_issue_days must be >= 4")
 
-    latest_issue = validation_start - timedelta(days=DIAGNOSTIC_VALIDATION_GAP_DAYS)
+    development_start = validation_start
+    latest_issue = development_start - timedelta(days=DIAGNOSTIC_VALIDATION_GAP_DAYS)
     first_issue = latest_issue - timedelta(days=lookback_issue_days - 1)
     issue_days = tuple(first_issue + timedelta(days=i) for i in range(lookback_issue_days))
 
@@ -101,7 +104,7 @@ def diagnose_prevalidation_window(
             if row is None:
                 continue
             target = issue_day + timedelta(days=lead)
-            if target >= validation_start or target not in truth:
+            if target >= development_start or target not in truth:
                 continue
             key = str(lead)
             if key not in row.lead_values_json:
@@ -130,8 +133,8 @@ def diagnose_prevalidation_window(
             "metrics": {"diagnostic_pairs": float(len(all_obs))},
             "notes": [
                 f"diagnostic_window={first_issue.isoformat()}..{latest_issue.isoformat()}",
-                f"validation_starts={validation_start.isoformat()}",
-                "diagnostic_truth_strictly_precedes_validation=true",
+                f"development_starts={development_start.isoformat()}",
+                "diagnostic_truth_strictly_precedes_development=true",
             ],
         }
 
@@ -177,7 +180,7 @@ def diagnose_prevalidation_window(
             forcing_rows=source.forcing_rows,
             flow_rows=source.flow_rows,
             area_km2=float(area_raw),
-            before_date=validation_start,
+            before_date=development_start,
             evaporation_is_potential=evaporation_is_potential,
         )
         basin_attributes = profile.model_dump(exclude_none=True)
@@ -260,9 +263,9 @@ def diagnose_prevalidation_window(
     primary = hypotheses[0]
     notes = [
         f"diagnostic_window={first_issue.isoformat()}..{latest_issue.isoformat()}",
-        f"diagnostic_target_end={(validation_start - timedelta(days=1)).isoformat()}",
-        f"validation_starts={validation_start.isoformat()}",
-        "diagnostic_truth_strictly_precedes_validation=true",
+        f"diagnostic_target_end={(development_start - timedelta(days=1)).isoformat()}",
+        f"development_starts={development_start.isoformat()}",
+        "diagnostic_truth_strictly_precedes_development=true",
         "hydrologist_order=water_balance->peak_timing->peak_magnitude->overall_skill",
         f"expert_prior={water_balance_rule.rule_id}",
     ]
@@ -271,7 +274,7 @@ def diagnose_prevalidation_window(
             "basin_attributes_json="
             + json.dumps(basin_attributes, ensure_ascii=False, sort_keys=True)
         )
-        notes.append("basin_profile_strictly_precedes_validation=true")
+        notes.append("basin_profile_strictly_precedes_development=true")
     if not evaporation_is_potential:
         notes.append("aridity_not_derived=evaporation_input_is_not_potential_evapotranspiration")
 
