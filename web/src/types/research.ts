@@ -83,6 +83,7 @@ export type FinalTestEvidence = {
     metrics: Record<string, number>
     notes: string[]
   }>
+  annual_stability?: EvidenceSlice
 }
 
 export type ResearchSummary = {
@@ -101,6 +102,7 @@ export type ResearchSummary = {
     rolling_continuous_separated: boolean
     final_test_used_for_selection: boolean
     trial_ledger_source: string
+    evidence_source_priority?: string
     objective_alias: string
   }
 }
