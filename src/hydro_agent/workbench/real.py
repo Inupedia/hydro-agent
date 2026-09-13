@@ -296,19 +296,11 @@ class _TaskAwareOptimizeHandler:
         self.task_configs = task_configs
 
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
-        cfg = self.task_configs.get(task_id) or {}
         window = self.kernel.validation_gate.window_for(task_id)
         cal_day = window.calibration_issue
         cal_issue = datetime(cal_day.year, cal_day.month, cal_day.day, tzinfo=timezone.utc)
         cal_iso = cal_issue.isoformat().replace("+00:00", "Z")
-        # Development snapshot is mutable candidate-selection evidence. The final
-        # test is intentionally not resolved or materialized during optimization.
-        val_issue = _issue_from_config(cfg)
-        val_iso = val_issue.isoformat().replace("+00:00", "Z")
         cal_id = self.kernel.resolver.resolve(task_id, "calibrate", cal_iso)
-        val_id = self.kernel.resolver.resolve(task_id, "calibrate", val_iso)
-        if cal_id == val_id and window.start <= window.end:
-            pass
         strategy_id = decision.strategy_id
         param_groups = decision.param_groups
         objective = decision.objective
@@ -332,7 +324,7 @@ class _TaskAwareOptimizeHandler:
             calibration_service=self.kernel.calibration,
             candidate_service=self.kernel.candidates,
             calibration_snapshot_id=cal_id,
-            validation_snapshot_id=val_id,
+            validation_snapshot_id=None,
             policy=POLICY,
         )
         decision = AgentDecision(
@@ -347,9 +339,9 @@ class _TaskAwareOptimizeHandler:
         self._promote_calibration_hydrograph(task_id, packet.action_run_id)
         extra = (
             f"calibration_snapshot_id={cal_id}",
-            f"development_snapshot_id={val_id}",
             f"calibration_issue={cal_iso}",
             f"development_window={window.start.isoformat()}..{window.end.isoformat()}",
+            "development_evaluated_by=A08_GATE",
             "final_test_accessed=false",
         )
         return packet.model_copy(update={"observations": tuple(packet.observations) + extra})
@@ -397,6 +389,13 @@ class _TaskAwareEvaluateHandler:
         self.task_configs = task_configs
 
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
+        previous = self.kernel.repository.list_evidence(task_id)
+        if any(
+            row.action == ActionCode.A12_EVALUATE_REPORT.value and row.status == "succeeded"
+            for row in previous
+        ):
+            raise RuntimeError("final_test already consumed; A12 evaluation is read-only and single-use")
+
         cfg = self.task_configs.get(task_id) or {}
         issue = _final_test_issue_from_config(cfg)
         truth_id = self.kernel.ensure_eval_truth_snapshot(task_id, issue)
@@ -414,5 +413,6 @@ class _TaskAwareEvaluateHandler:
         extra = (
             f"final_test_window={start_d.isoformat()}..{end_d.isoformat()}",
             "final_test_read_only=true",
+            "final_test_consumption=1/1",
         )
         return packet.model_copy(update={"observations": tuple(packet.observations) + extra})
