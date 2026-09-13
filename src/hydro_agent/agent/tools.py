@@ -321,6 +321,10 @@ class OptimizeHandler:
         local_hits_text = ",".join(local_hits)
         absolute_hits_text = ",".join(absolute_hits)
         boundary_json = json.dumps(boundary, ensure_ascii=False, sort_keys=True)
+        optimizer = str(payload.get("optimizer") or "")
+        evaluation_budget = int(payload.get("evaluation_budget") or 0)
+        model_evaluations = int(payload.get("model_evaluations") or 0)
+        objective_metric = str(payload.get("objective_metric") or outcome.objective)
 
         candidate_id = self.candidate_service.register_candidate(
             base_scheme_id=outcome.base_scheme_id,
@@ -329,6 +333,9 @@ class OptimizeHandler:
                 "candidate_parameters": outcome.candidate_parameters,
                 "strategy_id": outcome.strategy_id,
                 "objective": outcome.objective,
+                "objective_metric": objective_metric,
+                "optimizer": optimizer,
+                "evaluation_budget": evaluation_budget,
                 "param_groups": list(outcome.param_groups),
                 "search_boundary_evidence": boundary,
             },
@@ -337,14 +344,22 @@ class OptimizeHandler:
             f"candidate_scheme_id={candidate_id}",
             f"base_scheme_id={outcome.base_scheme_id}",
             f"strategy_id={outcome.strategy_id}",
+            f"optimizer={optimizer or '-'}",
+            f"evaluation_budget={evaluation_budget}",
+            f"model_evaluations={model_evaluations}",
             f"objective={outcome.objective}",
+            f"objective_metric={objective_metric}",
             f"param_groups={groups_text}",
             f"objective_value={outcome.objective_value}",
             f"parameter_delta={json.dumps(delta, sort_keys=True)}",
             f"local_boundary_hits={local_hits_text or '-'}",
             f"absolute_boundary_hits={absolute_hits_text or '-'}",
         )
-        metrics = {"objective_value": float(outcome.objective_value)}
+        metrics = {
+            "objective_value": float(outcome.objective_value),
+            "evaluation_budget": float(evaluation_budget),
+            "model_evaluations": float(model_evaluations),
+        }
         for prefix, blob in (
             ("baseline", payload.get("baseline_metrics")),
             ("candidate", payload.get("candidate_metrics")),
@@ -358,7 +373,11 @@ class OptimizeHandler:
             "candidate_scheme_id": candidate_id,
             "base_scheme_id": outcome.base_scheme_id,
             "strategy_id": str(outcome.strategy_id),
+            "optimizer": optimizer,
+            "evaluation_budget": str(evaluation_budget),
+            "model_evaluations": str(model_evaluations),
             "objective": outcome.objective,
+            "objective_metric": objective_metric,
             "param_groups": groups_text,
             "parameter_delta_json": json.dumps(delta, sort_keys=True),
             "local_boundary_hits": local_hits_text,
@@ -414,10 +433,14 @@ class GateHandler:
         result = self.gate_evaluator.evaluate(base, candidate, self.policy, gbt_report=gbt_report)
         observations = (
             f"gate_status={result.status}",
+            f"adoption_status={result.adoption_status}",
+            f"qualification_status={result.qualification_status}",
             f"base_scheme_id={result.base_scheme_id}",
             f"candidate_scheme_id={result.candidate_scheme_id}",
             f"base_primary={base.primary_score:.4f}",
             f"candidate_primary={candidate.primary_score:.4f}",
+            f"primary_delta={result.primary_delta:.4f}",
+            f"min_primary_delta={self.policy.min_primary_delta:.4f}",
             f"min_candidate_primary={self.policy.min_candidate_primary:.4f}",
             f"min_scheme_grade={self.policy.min_scheme_grade}",
             *((f"scheme_grade={result.scheme_grade}",) if result.scheme_grade else ()),
@@ -428,20 +451,24 @@ class GateHandler:
             "primary_delta": float(result.primary_delta),
             "base_primary": float(base.primary_score),
             "candidate_primary": float(candidate.primary_score),
+            "min_primary_delta": float(self.policy.min_primary_delta),
             "min_candidate_primary": float(self.policy.min_candidate_primary),
         }
         if gbt_report is not None:
             metrics.update(gbt_report.as_metrics_dict())
         gates = {
             "status": result.status,
+            "adoption_status": result.adoption_status,
+            "qualification_status": result.qualification_status,
             "base_scheme_id": result.base_scheme_id,
             "candidate_scheme_id": result.candidate_scheme_id,
             "reasons": ",".join(result.reasons),
+            "qualification_reasons": ",".join(result.qualification_reasons),
             "scheme_grade": result.scheme_grade or "",
             "gbt_summary": result.gbt_summary or "",
         }
         if gbt_report is not None:
-            gates["gbt_report_json"] = __import__("json").dumps(
+            gates["gbt_report_json"] = json.dumps(
                 gbt_report.model_dump(), ensure_ascii=False, sort_keys=True
             )
         return EvidencePacket(
@@ -470,31 +497,66 @@ class ResolveHandler:
         gate = next(
             (row for row in reversed(evidence) if row.action == ActionCode.A08_GATE.value), None
         )
-        status = "KEEP"
+        gate_status = "KEEP"
+        adoption_status = "KEEP"
+        qualification_status = "NOT_EVALUATED"
+        candidate_id = ""
+        candidate_adopted = False
         if gate is not None:
-            status = gate.gates_json.get("status", gate.status)
-            if status == "ACCEPT":
-                candidate_id = gate.gates_json.get("candidate_scheme_id")
-                if candidate_id:
-                    self.repository.update_task_state(task_id, current_scheme_id=candidate_id)
-            elif status == "ROLLBACK":
+            gate_status = str(gate.gates_json.get("status", gate.status))
+            adoption_status = str(gate.gates_json.get("adoption_status") or "KEEP")
+            qualification_status = str(
+                gate.gates_json.get("qualification_status") or "NOT_EVALUATED"
+            )
+            candidate_id = str(gate.gates_json.get("candidate_scheme_id") or "")
+            if gate_status == "ACCEPT" and adoption_status == "ADOPT" and candidate_id:
+                self.repository.update_task_state(task_id, current_scheme_id=candidate_id)
+                candidate_adopted = True
+            elif gate_status == "ROLLBACK":
                 state = self.repository.get_task_state(task_id)
                 self.repository.update_task_state(
                     task_id, current_scheme_id=state.current_scheme_id
                 )
-        observations = (f"resolve_status={status}",)
+
+        # Workflow compatibility: only a qualified adopted candidate returns
+        # ACCEPT from A09 and therefore freezes. An improving but unqualified
+        # candidate is still adopted above, then returns KEEP so the Agent absorbs
+        # the new baseline and performs another diagnosis/experiment.
+        if candidate_adopted and qualification_status == "QUALIFIED":
+            resolve_status = "ACCEPT"
+        elif gate_status == "ROLLBACK":
+            resolve_status = "ROLLBACK"
+        else:
+            resolve_status = "KEEP"
+
+        observations = (
+            f"resolve_status={resolve_status}",
+            f"gate_status={gate_status}",
+            f"adoption_status={adoption_status}",
+            f"qualification_status={qualification_status}",
+            f"candidate_adopted={'true' if candidate_adopted else 'false'}",
+            *((f"current_scheme_id={candidate_id}",) if candidate_adopted else ()),
+        )
         metrics: dict[str, float] = {}
+        gates = {
+            "status": resolve_status,
+            "gate_status": gate_status,
+            "adoption_status": adoption_status,
+            "qualification_status": qualification_status,
+            "candidate_adopted": "true" if candidate_adopted else "false",
+            "candidate_scheme_id": candidate_id,
+        }
         return EvidencePacket(
             evidence_id=_evidence_id(),
             task_id=task_id,
             action=ActionCode.A09_RESOLVE,
-            status=status if status in ("KEEP", "ACCEPT", "ROLLBACK") else "succeeded",
+            status=resolve_status,
             observations=observations,
             metrics=metrics,
-            gates={"status": status},
+            gates=gates,
             new_information_hash=information_hash(
                 action=ActionCode.A09_RESOLVE,
-                status=status,
+                status=resolve_status,
                 observations=observations,
                 metrics=metrics,
             ),
