@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import date
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -12,11 +13,21 @@ class _Repo:
         return SimpleNamespace(current_scheme_id="scheme-base")
 
 
+@dataclass(frozen=True)
+class _FlowRow:
+    eligible_for_scoring: bool
+
+
+@dataclass(frozen=True)
+class _Source:
+    flow_rows: tuple[_FlowRow, ...]
+
+
 def test_real_workbench_binds_a06_to_predevelopment_diagnosis():
     kernel = RealWorkbenchKernel.__new__(RealWorkbenchKernel)
     kernel.repository = _Repo()
     kernel.forecast = object()
-    kernel.source = object()
+    kernel.source = _Source(flow_rows=(_FlowRow(True), _FlowRow(False)))
     kernel.skills = SimpleNamespace(nse_good_enough=lambda: 0.5)
     kernel.validation_gate = SimpleNamespace(
         window_for=lambda _task_id: SimpleNamespace(
@@ -43,6 +54,8 @@ def test_real_workbench_binds_a06_to_predevelopment_diagnosis():
     assert kwargs["scheme_id"] == "scheme-base"
     assert kwargs["validation_start"] == date(2000, 5, 1)
     assert kwargs["nse_good_enough"] == 0.5
+    assert len(kwargs["source"].flow_rows) == 1
+    assert kwargs["source"].flow_rows[0].eligible_for_scoring is True
     assert "diagnostic_truth_strictly_precedes_development=true" in result["notes"]
     assert "held_out_development_window=2000-05-01..2000-05-10" in result["notes"]
 
