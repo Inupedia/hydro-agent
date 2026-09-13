@@ -11,7 +11,6 @@ import math
 from collections.abc import Callable
 from dataclasses import dataclass
 
-
 ScoreFn = Callable[[dict[str, float]], float | None]
 
 
