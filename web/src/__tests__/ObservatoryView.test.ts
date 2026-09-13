@@ -66,9 +66,13 @@ describe('single page observatory',()=>{
       content_hash:'h',
       model_id:'xaj',
       provenance:{},
-      parameters:{K:0.5,SM:30},
+      parameters:{K:0.75,SM:20},
       base_parameters:{K:0.75,SM:20},
-      parameter_delta:{K:-0.25,SM:10},
+      parameter_delta:{},
+      adopted_parameter_delta:{},
+      candidate_scheme_id:'candidate-1',
+      candidate_parameters:{K:0.5,SM:30},
+      candidate_parameter_delta:{K:-0.25,SM:10},
     },
     forecasts:[{forecast_id:'f',scheme_id:'s',issue_time:'2020-01-01',lead_values:{1:10},unit:'m3/s'}],
     metrics:{},
@@ -88,6 +92,9 @@ describe('single page observatory',()=>{
   expect(wrapper.find('[data-test="header-delete-case"]').exists()).toBe(true)
   expect(wrapper.find('[data-test="param-tuning"]').exists()).toBe(true)
   expect(wrapper.text()).toContain('新安江参数如何被调整')
+  expect(wrapper.text()).toContain('优化器提出的候选参数（变化 2 项，未必采用）')
+  expect(wrapper.text()).toContain('最终采用参数（正式变化 0 项）')
+  expect(wrapper.text()).toContain('并非优化器没有工作')
   expect(wrapper.text()).toContain('保留原方案')
   expect(wrapper.find('a[href*="/report/"]').attributes('href')).toBe('/api/tasks/test-task/report/report.md')
   expect(router.currentRoute.value.path).toBe('/')

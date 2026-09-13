@@ -82,7 +82,12 @@ class SchemeResult(FrozenApiModel):
     provenance: dict[str, object] = Field(default_factory=dict)
     parameters: dict[str, float] = Field(default_factory=dict)
     base_parameters: dict[str, float] = Field(default_factory=dict)
+    # Backward-compatible adopted delta. A KEEP/ROLLBACK legitimately leaves it empty.
     parameter_delta: dict[str, float] = Field(default_factory=dict)
+    adopted_parameter_delta: dict[str, float] = Field(default_factory=dict)
+    candidate_scheme_id: str | None = None
+    candidate_parameters: dict[str, float] = Field(default_factory=dict)
+    candidate_parameter_delta: dict[str, float] = Field(default_factory=dict)
 
 
 class ForecastResult(FrozenApiModel):

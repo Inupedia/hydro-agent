@@ -10,7 +10,12 @@ from hydro_agent.agent.contracts import (
     ProblemHypothesis,
     WorldStateView,
 )
-from hydro_agent.agent.permissions import CLOSEOUT_RESERVE_ROUNDS
+from hydro_agent.agent.permissions import (
+    CLOSEOUT_RESERVE_ROUNDS,
+    latest_action_index,
+    pending_calibration_action,
+    rediagnosis_required,
+)
 from hydro_agent.llm.client import SiliconFlowClient
 from hydro_agent.llm.settings import LLMSettings
 from hydro_agent.skills import DEFAULT_NSE_GOOD_ENOUGH, SkillRegistry
@@ -158,11 +163,20 @@ def _rotate_strategy(view: WorldStateView, preferred: str | None) -> str:
 
 def _optimize_payload(view: WorldStateView, *, rationale: str) -> dict:
     diagnosis = dict(view.hydro.diagnosis or {})
-    strategy = _rotate_strategy(view, str(diagnosis.get("recommended_strategy_id") or "") or None)
+    recommended = str(diagnosis.get("recommended_strategy_id") or "") or None
+    strategy = _rotate_strategy(view, recommended)
     groups = diagnosis.get("recommended_param_groups") or ["runoff", "routing"]
     if isinstance(groups, str):
         groups = [g.strip() for g in groups.split(",") if g.strip()]
     objective = str(diagnosis.get("recommended_objective") or "nse")
+    # If rotation selects a different strategy, use that strategy's actual
+    # experiment contract instead of carrying stale groups/objective from A06.
+    if recommended and strategy != recommended:
+        from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
+
+        selected = CalibrationStrategyRegistry().get(strategy)
+        groups = list(selected.param_groups)
+        objective = selected.objective
     if objective not in {"nse", "peak", "composite"}:
         objective = "nse"
     return {
@@ -192,6 +206,20 @@ def _nse_calibration_progress(
     nse = _diagnosis_nse(view)
     gate_status = _latest_status(view, ActionCode.A08_GATE.value)
     resolve_status = _latest_status(view, ActionCode.A09_RESOLVE.value)
+    pending = pending_calibration_action(view)
+    if pending is not None and pending.value in safe_actions:
+        return {
+            **payload,
+            "action": pending.value,
+            "strategy_id": None,
+            "param_groups": None,
+            "objective": None,
+            "rationale_summary": (
+                "最新率定候选尚未完成独立 Gate。"
+                if pending == ActionCode.A08_GATE
+                else f"落实最新 Gate 结果（{gate_status or 'unknown'}）。"
+            ),
+        }
     # Adopted candidate → freeze.
     if (
         resolve_status == "ACCEPT"
@@ -207,34 +235,16 @@ def _nse_calibration_progress(
             "rationale_summary": "候选已 ACCEPT，NSE 达到可用水平，冻结方案。",
         }
 
-    # After optimize → always gate.
-    if (
-        ActionCode.A07_OPTIMIZE.value in actions
-        and ActionCode.A08_GATE.value not in actions
-        and ActionCode.A08_GATE.value in safe_actions
-    ):
+    # KEEP/ROLLBACK is new evidence. Refresh A06 before selecting another
+    # experiment; never rotate strategies from a stale pre-Gate diagnosis.
+    if rediagnosis_required(view) and ActionCode.A06_DIAGNOSE.value in safe_actions:
         return {
             **payload,
-            "action": ActionCode.A08_GATE.value,
+            "action": ActionCode.A06_DIAGNOSE.value,
             "strategy_id": None,
             "param_groups": None,
             "objective": None,
-            "rationale_summary": "率定候选已生成，用独立验证窗对比观测 NSE 做 Gate。",
-        }
-
-    # After gate → resolve.
-    if (
-        ActionCode.A08_GATE.value in actions
-        and ActionCode.A09_RESOLVE.value not in actions
-        and ActionCode.A09_RESOLVE.value in safe_actions
-    ):
-        return {
-            **payload,
-            "action": ActionCode.A09_RESOLVE.value,
-            "strategy_id": None,
-            "param_groups": None,
-            "objective": None,
-            "rationale_summary": f"落实 Gate 结果（{gate_status or 'unknown'}）。",
+            "rationale_summary": f"Gate={resolve_status or gate_status}，吸收失败证据后重新诊断。",
         }
 
     # Diagnose says NSE / GB/T grade already good enough → freeze (no more calibrate).
@@ -252,7 +262,8 @@ def _nse_calibration_progress(
         (gbt_ok or (nse is not None and nse >= threshold))
         and ActionCode.A06_DIAGNOSE.value in actions
         and ActionCode.A10_FREEZE.value in safe_actions
-        and ActionCode.A07_OPTIMIZE.value not in actions
+        and latest_action_index(view, ActionCode.A06_DIAGNOSE)
+        > latest_action_index(view, ActionCode.A07_OPTIMIZE)
     ):
         return {
             **payload,
@@ -265,25 +276,6 @@ def _nse_calibration_progress(
                 f"≥ {threshold}，视为率定足够，停止搜索。"
             ),
         }
-    # After KEEP/ROLLBACK with budget → try another bounded calibrate (rotated strategy).
-    if (
-        gate_status in {"KEEP", "ROLLBACK"}
-        and view.task.allow_optimization
-        and ActionCode.A07_OPTIMIZE.value in safe_actions
-        and view.budget.optimization_cycles_remaining > 0
-        and view.budget.agent_rounds_remaining > CLOSEOUT_RESERVE_ROUNDS
-    ):
-        a07_count = sum(1 for a in actions if a == ActionCode.A07_OPTIMIZE.value)
-        gate_count = sum(1 for a in actions if a == ActionCode.A08_GATE.value)
-        if a07_count <= gate_count:  # need a new optimize after latest gate
-            return _optimize_payload(
-                view,
-                rationale=(
-                    f"Gate={gate_status} 且 NSE 仍不足，换有界策略再率定 "
-                    f"(当前诊断 NSE={nse if nse is not None else 'n/a'})。"
-                ),
-            )
-
     # Opt budget or round reserve exhausted after KEEP → freeze base and close out.
     if (
         gate_status in {"KEEP", "ROLLBACK"}
@@ -310,7 +302,8 @@ def _nse_calibration_progress(
     if (
         view.task.allow_optimization
         and ActionCode.A06_DIAGNOSE.value in actions
-        and ActionCode.A07_OPTIMIZE.value not in actions
+        and latest_action_index(view, ActionCode.A06_DIAGNOSE)
+        > latest_action_index(view, ActionCode.A07_OPTIMIZE)
         and ActionCode.A07_OPTIMIZE.value in safe_actions
         and view.budget.agent_rounds_remaining > CLOSEOUT_RESERVE_ROUNDS
     ):
@@ -384,10 +377,11 @@ def _fallback_payload(view: WorldStateView, *, raw_text: str) -> dict:
     actions = [item.action.value for item in view.evidence_summary]
     safe = {a.value for a in view.permissions.safe_actions}
     preferred = None
-    if "A07_OPTIMIZE" in actions and "A08_GATE" not in actions:
-        preferred = ActionCode.A08_GATE.value
-    elif "A08_GATE" in actions and "A09_RESOLVE" not in actions:
-        preferred = ActionCode.A09_RESOLVE.value
+    pending = pending_calibration_action(view)
+    if pending is not None and pending.value in safe:
+        preferred = pending.value
+    elif rediagnosis_required(view) and ActionCode.A06_DIAGNOSE.value in safe:
+        preferred = ActionCode.A06_DIAGNOSE.value
     elif "A09_RESOLVE" in actions and "A10_FREEZE" not in actions:
         # Allow continue-or-freeze; default freeze to finish the smoke path.
         preferred = ActionCode.A10_FREEZE.value
@@ -451,18 +445,25 @@ def normalize_decision_payload(
         )
         action = next((a for a in preferred if a in safe_actions), sorted(safe_actions)[0])
 
-    # Soft format nudges only — do NOT force freeze after resolve (multi-round experiments allowed).
-    actions = set(evidence_actions)
+    # Soft format nudges only — calibration actions repeat, so compare the
+    # latest positions instead of letting an old Gate satisfy a new candidate.
+    def latest(code: ActionCode) -> int:
+        return max(
+            (index for index, item in enumerate(evidence_actions) if item == code.value),
+            default=-1,
+        )
+
+    optimize_index = latest(ActionCode.A07_OPTIMIZE)
+    gate_index = latest(ActionCode.A08_GATE)
+    resolve_index = latest(ActionCode.A09_RESOLVE)
     if (
-        ActionCode.A07_OPTIMIZE.value in actions
-        and ActionCode.A08_GATE.value not in actions
+        optimize_index > gate_index
         and action == ActionCode.A05_FORECAST.value
         and (not safe_actions or ActionCode.A08_GATE.value in safe_actions)
     ):
         action = ActionCode.A08_GATE.value
     if (
-        ActionCode.A08_GATE.value in actions
-        and ActionCode.A09_RESOLVE.value not in actions
+        gate_index > resolve_index
         and action == ActionCode.A05_FORECAST.value
         and (not safe_actions or ActionCode.A09_RESOLVE.value in safe_actions)
     ):

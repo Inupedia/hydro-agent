@@ -2,6 +2,7 @@ from datetime import date
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from hydro_agent.workbench.calibration_scientist import _apply_latest_gate_feedback
 from hydro_agent.workbench.real import RealWorkbenchKernel
 
 
@@ -44,3 +45,38 @@ def test_real_workbench_binds_a06_to_prevalidation_diagnosis():
     assert kwargs["nse_good_enough"] == 0.5
     assert "diagnostic_truth_strictly_precedes_validation=true" in result["notes"]
     assert "held_out_validation_window=2000-05-01..2000-05-10" in result["notes"]
+
+
+def test_gate_failure_changes_the_next_diagnostic_experiment():
+    result = {
+        "hypothesis": "MODEL",
+        "phenomenon": "old diagnosis",
+        "recommended_strategy_id": "xaj-water-balance-v1",
+        "recommended_param_groups": ["evap", "runoff"],
+        "recommended_objective": "composite",
+        "hypotheses": [],
+        "metrics": {},
+        "notes": [],
+    }
+    evidence = [
+        SimpleNamespace(
+            action="A08_GATE",
+            status="KEEP",
+            created_at=1,
+            gates_json={"reasons": "insufficient_absolute_skill"},
+            metrics_json={"candidate_primary": -2.0},
+        ),
+        SimpleNamespace(
+            action="A09_RESOLVE",
+            status="KEEP",
+            created_at=2,
+            gates_json={"status": "KEEP"},
+            metrics_json={},
+        ),
+    ]
+
+    updated = _apply_latest_gate_feedback(result, evidence)
+
+    assert updated["recommended_strategy_id"] == "xaj-hydro-composite-v1"
+    assert updated["recommended_param_groups"] == ["evap", "runoff", "routing"]
+    assert updated["gate_feedback"]["reasons"] == ["insufficient_absolute_skill"]

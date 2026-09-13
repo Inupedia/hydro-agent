@@ -78,6 +78,45 @@ def evidence_actions(view: WorldStateView) -> set[str]:
     return {item.action.value for item in view.evidence_summary}
 
 
+def latest_action_index(view: WorldStateView, action: ActionCode) -> int:
+    """Return the latest visible evidence position for an action, or -1.
+
+    Calibration is a repeated cycle, so set membership is insufficient: an old
+    A08 must not satisfy a newer A07, and an old A09 must not satisfy a newer
+    A08.  WorldState keeps the recent evidence tail, which is enough to resolve
+    the currently open cycle.
+    """
+
+    return max(
+        (index for index, item in enumerate(view.evidence_summary) if item.action == action),
+        default=-1,
+    )
+
+
+def pending_calibration_action(view: WorldStateView) -> ActionCode | None:
+    """Return the mandatory closeout action for the latest calibration cycle."""
+
+    optimize_index = latest_action_index(view, ActionCode.A07_OPTIMIZE)
+    gate_index = latest_action_index(view, ActionCode.A08_GATE)
+    resolve_index = latest_action_index(view, ActionCode.A09_RESOLVE)
+    if optimize_index > gate_index:
+        return ActionCode.A08_GATE
+    if gate_index > resolve_index:
+        return ActionCode.A09_RESOLVE
+    return None
+
+
+def rediagnosis_required(view: WorldStateView) -> bool:
+    """True when a rejected/kept cycle has not produced fresh A06 evidence."""
+
+    resolve_index = latest_action_index(view, ActionCode.A09_RESOLVE)
+    diagnose_index = latest_action_index(view, ActionCode.A06_DIAGNOSE)
+    if resolve_index < 0 or resolve_index <= diagnose_index:
+        return False
+    status = view.evidence_summary[resolve_index].status
+    return status in {"KEEP", "ROLLBACK"}
+
+
 def closeout_pending(view: WorldStateView) -> bool:
     """True when freeze/replay/evaluate (or in-flight gate/resolve) still needed."""
     actions = evidence_actions(view)
@@ -88,9 +127,7 @@ def closeout_pending(view: WorldStateView) -> bool:
         return ActionCode.A11_REPLAY.value not in actions
     if phase == "B":
         # Mid gate cycle must finish even if rounds are gone.
-        if ActionCode.A07_OPTIMIZE.value in actions and ActionCode.A08_GATE.value not in actions:
-            return True
-        if ActionCode.A08_GATE.value in actions and ActionCode.A09_RESOLVE.value not in actions:
+        if pending_calibration_action(view) is not None:
             return True
         # Opt budget gone or rounds reserved → must still be able to freeze.
         if ActionCode.A10_FREEZE.value not in actions:
@@ -132,6 +169,21 @@ class PermissionGate:
                     ActionCode.A09_RESOLVE,
                     ActionCode.A10_FREEZE,
                 } & _implemented()
+
+        # A calibration candidate is a transaction: the newest A07 must be
+        # gated and that exact Gate must be resolved before any freeze/retry.
+        # This remains mandatory even after the exploration budget is gone.
+        pending = pending_calibration_action(view)
+        if view.task.phase == "B" and pending is not None:
+            allowed = {pending} if pending in _implemented() else set()
+        elif view.task.phase == "B" and rediagnosis_required(view):
+            if (
+                view.budget.optimization_cycles_remaining > 0
+                and remaining > CLOSEOUT_RESERVE_ROUNDS
+            ):
+                allowed = {ActionCode.A06_DIAGNOSE} & _implemented()
+            else:
+                allowed = {ActionCode.A10_FREEZE} & _implemented()
 
         return tuple(sorted(allowed, key=lambda item: item.value))
 

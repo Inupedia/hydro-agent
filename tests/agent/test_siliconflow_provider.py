@@ -1,3 +1,5 @@
+from pydantic import SecretStr
+
 from hydro_agent.agent.contracts import (
     ActionCode,
     AgentDecision,
@@ -17,7 +19,6 @@ from hydro_agent.agent.providers.siliconflow import (
 )
 from hydro_agent.llm.client import Completion
 from hydro_agent.llm.settings import LLMSettings
-from pydantic import SecretStr
 
 
 class FakeClient:
@@ -322,6 +323,63 @@ def test_nse_progress_freezes_when_round_reserve_hit_after_keep():
         safe_actions={"A10_FREEZE", "A08_GATE", "A09_RESOLVE"},
     )
     assert out["action"] == "A10_FREEZE"
+
+
+def test_nse_progress_closes_the_latest_cycle_not_any_old_cycle():
+    from hydro_agent.agent.contracts import EvidenceSummary
+
+    evidence = tuple(
+        EvidenceSummary(
+            evidence_id=f"ev-{index}",
+            action=action,
+            status=status,
+            new_information_hash=f"h-{index}",
+        )
+        for index, (action, status) in enumerate(
+            (
+                (ActionCode.A07_OPTIMIZE, "succeeded"),
+                (ActionCode.A08_GATE, "KEEP"),
+                (ActionCode.A09_RESOLVE, "KEEP"),
+                (ActionCode.A06_DIAGNOSE, "succeeded"),
+                (ActionCode.A07_OPTIMIZE, "succeeded"),
+            )
+        )
+    )
+    view = _view().model_copy(update={"evidence_summary": evidence})
+    out = _nse_calibration_progress(
+        view,
+        {"action": "A10_FREEZE", "hypothesis": "MODEL", "rationale_summary": "x"},
+        safe_actions={"A08_GATE"},
+    )
+    assert out["action"] == "A08_GATE"
+
+
+def test_nse_progress_rediagnoses_after_keep():
+    from hydro_agent.agent.contracts import EvidenceSummary
+
+    evidence = tuple(
+        EvidenceSummary(
+            evidence_id=f"ev-{index}",
+            action=action,
+            status=status,
+            new_information_hash=f"h-{index}",
+        )
+        for index, (action, status) in enumerate(
+            (
+                (ActionCode.A06_DIAGNOSE, "succeeded"),
+                (ActionCode.A07_OPTIMIZE, "succeeded"),
+                (ActionCode.A08_GATE, "KEEP"),
+                (ActionCode.A09_RESOLVE, "KEEP"),
+            )
+        )
+    )
+    view = _view().model_copy(update={"evidence_summary": evidence})
+    out = _nse_calibration_progress(
+        view,
+        {"action": "A07_OPTIMIZE", "hypothesis": "MODEL", "rationale_summary": "x"},
+        safe_actions={"A06_DIAGNOSE"},
+    )
+    assert out["action"] == "A06_DIAGNOSE"
 
 
 def test_siliconflow_provider_injects_activated_skills():

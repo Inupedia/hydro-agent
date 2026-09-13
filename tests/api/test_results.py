@@ -2,6 +2,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from hydro_agent.agent.contracts import ActionCode, EvidencePacket
 
 CREATE_BODY = {
@@ -20,6 +22,25 @@ def test_results_are_read_from_persisted_scheme_forecast_gate_report(
 ):
     task_id = client.post("/api/tasks", json=CREATE_BODY).json()["task_id"]
     state = repository.get_task_state(task_id)
+    base_row = repository.get_scheme(state.current_scheme_id)
+    base_config = dict(base_row.config_json or {})
+    base_params = dict(base_config.get("parameters") or {})
+    changed_key = next(iter(base_params))
+    candidate_params = dict(base_params)
+    candidate_params[changed_key] = float(candidate_params[changed_key]) + 0.01
+    candidate_id = f"{state.current_scheme_id}--candidate"
+    repository.create_scheme(
+        scheme_id=candidate_id,
+        task_id=task_id,
+        model_id="xaj",
+        status="candidate",
+        config={
+            **base_config,
+            "parameters": candidate_params,
+            "provenance": {"base_scheme_id": state.current_scheme_id},
+        },
+        content_hash="candidate-hash",
+    )
     # Promote current scheme to frozen for result assembly.
     frozen_id = f"{state.current_scheme_id}--frozen"
     repository.create_scheme(
@@ -30,7 +51,7 @@ def test_results_are_read_from_persisted_scheme_forecast_gate_report(
         config={
             "model_id": "xaj",
             "warmup_days": 2,
-            "parameters": {"K": 0.7},
+            "parameters": base_params,
             "provenance": {"source_scheme_id": state.current_scheme_id},
         },
         content_hash="frozen-hash",
@@ -69,12 +90,29 @@ def test_results_are_read_from_persisted_scheme_forecast_gate_report(
     )
     repository.add_evidence(
         EvidencePacket(
+            evidence_id="ev-optimize",
+            task_id=task_id,
+            action=ActionCode.A07_OPTIMIZE,
+            status="succeeded",
+            observations=(f"candidate_scheme_id={candidate_id}",),
+            gates={
+                "candidate_scheme_id": candidate_id,
+                "base_scheme_id": state.current_scheme_id,
+                "strategy_id": "xaj-peak-bias-v1",
+                "param_groups": "runoff,routing",
+                "objective": "composite",
+            },
+            new_information_hash="hash-optimize",
+        )
+    )
+    repository.add_evidence(
+        EvidencePacket(
             evidence_id="ev-gate",
             task_id=task_id,
             action=ActionCode.A08_GATE,
             status="KEEP",
             observations=("insufficient_primary_delta",),
-            gates={"status": "KEEP"},
+            gates={"status": "KEEP", "candidate_scheme_id": candidate_id},
             new_information_hash="hash-gate",
         )
     )
@@ -123,6 +161,11 @@ def test_results_are_read_from_persisted_scheme_forecast_gate_report(
     )
     payload = client.get(f"/api/tasks/{task_id}/results").json()
     assert payload["scheme"]["status"] == "frozen"
+    assert payload["scheme"]["parameter_delta"] == {}
+    assert payload["scheme"]["adopted_parameter_delta"] == {}
+    assert payload["scheme"]["candidate_scheme_id"] == candidate_id
+    assert payload["scheme"]["candidate_parameter_delta"][changed_key] == pytest.approx(0.01)
+    assert payload["optimize"]["strategy_id"] == "xaj-peak-bias-v1"
     assert payload["forecasts"]
     assert payload["metrics"]["NSE"] is not None
     assert payload["report_artifacts"]

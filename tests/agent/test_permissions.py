@@ -168,3 +168,50 @@ def test_agent_cannot_evaluate_in_build_phase(world_view, evaluate_decision):
 def test_identical_no_progress_decision_is_rejected(no_progress_view, repeated_decision):
     with pytest.raises(PermissionDenied, match="no new evidence"):
         PermissionGate().authorize(no_progress_view, repeated_decision)
+
+
+def test_new_optimize_must_use_a_new_gate_even_when_old_cycle_exists(world_view):
+    from hydro_agent.agent.contracts import EvidenceSummary
+
+    evidence = tuple(
+        EvidenceSummary(
+            evidence_id=f"ev-{index}",
+            action=action,
+            status=status,
+            new_information_hash=f"h-{index}",
+        )
+        for index, (action, status) in enumerate(
+            (
+                (ActionCode.A07_OPTIMIZE, "succeeded"),
+                (ActionCode.A08_GATE, "KEEP"),
+                (ActionCode.A09_RESOLVE, "KEEP"),
+                (ActionCode.A06_DIAGNOSE, "succeeded"),
+                (ActionCode.A07_OPTIMIZE, "succeeded"),
+            )
+        )
+    )
+    view = world_view.model_copy(update={"evidence_summary": evidence})
+    assert PermissionGate().safe_actions(view) == (ActionCode.A08_GATE,)
+
+
+def test_rejected_cycle_requires_fresh_diagnosis_before_retry(world_view):
+    from hydro_agent.agent.contracts import EvidenceSummary
+
+    evidence = tuple(
+        EvidenceSummary(
+            evidence_id=f"ev-{index}",
+            action=action,
+            status=status,
+            new_information_hash=f"h-{index}",
+        )
+        for index, (action, status) in enumerate(
+            (
+                (ActionCode.A06_DIAGNOSE, "succeeded"),
+                (ActionCode.A07_OPTIMIZE, "succeeded"),
+                (ActionCode.A08_GATE, "KEEP"),
+                (ActionCode.A09_RESOLVE, "KEEP"),
+            )
+        )
+    )
+    view = world_view.model_copy(update={"evidence_summary": evidence})
+    assert PermissionGate().safe_actions(view) == (ActionCode.A06_DIAGNOSE,)

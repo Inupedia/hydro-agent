@@ -97,6 +97,10 @@ export type ResultSummary = {
     parameters?: Record<string, number>
     base_parameters?: Record<string, number>
     parameter_delta?: Record<string, number>
+    adopted_parameter_delta?: Record<string, number>
+    candidate_scheme_id?: string | null
+    candidate_parameters?: Record<string, number>
+    candidate_parameter_delta?: Record<string, number>
   } | null
   forecasts: Array<{
     forecast_id: string

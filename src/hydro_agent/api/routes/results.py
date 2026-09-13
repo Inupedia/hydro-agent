@@ -115,6 +115,36 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
         state = deps.repository.ensure_task_state(task_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="task not found") from exc
+    evidence_rows = deps.repository.list_evidence(task_id)
+    latest_gate_row = next(
+        (row for row in reversed(evidence_rows) if row.action == "A08_GATE"), None
+    )
+    candidate_scheme_id = None
+    if latest_gate_row is not None:
+        candidate_scheme_id = str(
+            dict(latest_gate_row.gates_json or {}).get("candidate_scheme_id") or ""
+        ) or None
+    matched_optimize_row = None
+    if candidate_scheme_id:
+        matched_optimize_row = next(
+            (
+                row
+                for row in reversed(evidence_rows)
+                if row.action == "A07_OPTIMIZE"
+                and dict(row.gates_json or {}).get("candidate_scheme_id")
+                == candidate_scheme_id
+            ),
+            None,
+        )
+    elif latest_gate_row is None:
+        matched_optimize_row = next(
+            (row for row in reversed(evidence_rows) if row.action == "A07_OPTIMIZE"), None
+        )
+        if matched_optimize_row is not None:
+            candidate_scheme_id = str(
+                dict(matched_optimize_row.gates_json or {}).get("candidate_scheme_id") or ""
+            ) or None
+
     scheme_row = deps.repository.get_scheme(state.current_scheme_id)
     parameters = {
         str(k): float(v)
@@ -145,6 +175,58 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
         if key in base_parameters
         and abs(float(parameters[key]) - float(base_parameters[key])) > 1e-12
     }
+    candidate_parameters: dict[str, float] = {}
+    candidate_parameter_delta: dict[str, float] = {}
+    candidate_base_parameters: dict[str, float] = dict(base_parameters)
+    if candidate_scheme_id:
+        try:
+            candidate_row = deps.repository.get_scheme(candidate_scheme_id)
+            candidate_parameters = {
+                str(k): float(v)
+                for k, v in dict(
+                    (candidate_row.config_json or {}).get("parameters") or {}
+                ).items()
+            }
+            candidate_base_id = None
+            if matched_optimize_row is not None:
+                candidate_base_id = dict(matched_optimize_row.gates_json or {}).get(
+                    "base_scheme_id"
+                )
+            candidate_base = base_parameters
+            if isinstance(candidate_base_id, str) and candidate_base_id:
+                base_row = deps.repository.get_scheme(candidate_base_id)
+                candidate_base = {
+                    str(k): float(v)
+                    for k, v in dict(
+                        (base_row.config_json or {}).get("parameters") or {}
+                    ).items()
+                }
+            candidate_base_parameters = dict(candidate_base)
+            candidate_parameter_delta = {
+                key: float(candidate_parameters[key]) - float(candidate_base[key])
+                for key in candidate_parameters
+                if key in candidate_base
+                and abs(float(candidate_parameters[key]) - float(candidate_base[key])) > 1e-12
+            }
+        except KeyError:
+            candidate_scheme_id = None
+            candidate_parameters = {}
+            candidate_parameter_delta = {}
+            candidate_base_parameters = dict(base_parameters)
+    latest_gate_status = (
+        str(
+            dict(latest_gate_row.gates_json or {}).get("status")
+            or latest_gate_row.status
+        )
+        if latest_gate_row is not None
+        else None
+    )
+    if latest_gate_status == "ACCEPT" and candidate_parameters:
+        # A frozen accepted scheme points to the candidate as its immediate
+        # source. Compare against the candidate's experiment base, otherwise
+        # the adopted delta is incorrectly reported as zero.
+        base_parameters = candidate_base_parameters
+        parameter_delta = dict(candidate_parameter_delta)
     scheme = SchemeResult(
         scheme_id=scheme_row.scheme_id,
         status=scheme_row.status,
@@ -154,6 +236,10 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
         parameters=parameters,
         base_parameters=base_parameters,
         parameter_delta=parameter_delta,
+        adopted_parameter_delta=parameter_delta,
+        candidate_scheme_id=candidate_scheme_id,
+        candidate_parameters=candidate_parameters,
+        candidate_parameter_delta=candidate_parameter_delta,
     )
     forecasts = tuple(
         ForecastResult(
@@ -168,9 +254,8 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
     gate = None
     diagnosis = None
     optimize = None
-    evidence_rows = deps.repository.list_evidence(task_id)
     for row in reversed(evidence_rows):
-        if gate is None and row.action == "A08_GATE":
+        if gate is None and row is latest_gate_row:
             gates = dict(row.gates_json or {})
             reason_codes = str(gates.get("reasons") or "")
             gate = {
@@ -186,7 +271,7 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
                 "metrics": dict(row.metrics_json or {}),
                 **dict(row.gates_json or {}),
             }
-        if optimize is None and row.action == "A07_OPTIMIZE":
+        if optimize is None and row is matched_optimize_row:
             optimize = {
                 "observations": list(row.observations_json or []),
                 "metrics": dict(row.metrics_json or {}),

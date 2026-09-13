@@ -44,13 +44,22 @@ const decisionPlain = computed(() => {
   }
 })
 
-const paramDeltaPlain = computed(() => {
-  const delta = props.result?.scheme?.parameter_delta || {}
+function deltaPlain(delta: Record<string, number>) {
   const lines = Object.entries(delta)
     .sort((a, b) => Math.abs(Number(b[1])) - Math.abs(Number(a[1])))
     .slice(0, 8)
     .map(([key, value]) => `${key} ${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(3)}`)
   return lines.length ? lines.join('，') : null
+}
+
+const candidateDeltaPlain = computed(() =>
+  deltaPlain(props.result?.scheme?.candidate_parameter_delta || {}),
+)
+
+const adoptedDeltaPlain = computed(() => {
+  const delta =
+    props.result?.scheme?.adopted_parameter_delta || props.result?.scheme?.parameter_delta || {}
+  return deltaPlain(delta)
 })
 
 const optimizePlain = computed(() => {
@@ -137,7 +146,9 @@ const modelPlain = computed(() => {
       <p v-if="schemePlain" class="lede">{{ schemePlain }}</p>
       <p v-if="modelPlain" class="lede">{{ modelPlain }}</p>
       <p v-if="optimizePlain" class="lede">调参设定：{{ optimizePlain }}</p>
-      <p v-if="paramDeltaPlain" class="lede">相对基础方案的参数变化：{{ paramDeltaPlain }}</p>
+      <p v-if="candidateDeltaPlain" class="lede">优化器候选参数变化：{{ candidateDeltaPlain }}</p>
+      <p v-if="adoptedDeltaPlain" class="lede">最终采纳参数变化：{{ adoptedDeltaPlain }}</p>
+      <p v-else-if="candidateDeltaPlain" class="lede">最终采纳参数变化：0 项（候选未通过 Gate）。</p>
     </header>
 
     <section>

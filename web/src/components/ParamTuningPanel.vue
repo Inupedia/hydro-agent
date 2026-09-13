@@ -8,6 +8,10 @@ const props = defineProps<{
     parameters?: Record<string, number>
     base_parameters?: Record<string, number>
     parameter_delta?: Record<string, number>
+    adopted_parameter_delta?: Record<string, number>
+    candidate_scheme_id?: string | null
+    candidate_parameters?: Record<string, number>
+    candidate_parameter_delta?: Record<string, number>
     model_id?: string
     status?: string
   } | null
@@ -108,10 +112,11 @@ const objectiveValue = computed(() => {
   return null
 })
 
-const rows = computed(() => {
-  const current = props.scheme?.parameters || {}
+function parameterRows(
+  current: Record<string, number>,
+  delta: Record<string, number>,
+) {
   const base = props.scheme?.base_parameters || {}
-  const delta = props.scheme?.parameter_delta || {}
   const keys = Array.from(new Set([...Object.keys(current), ...Object.keys(base), ...Object.keys(delta)]))
   return keys
     .map((key) => {
@@ -128,11 +133,26 @@ const rows = computed(() => {
     })
     .filter((row) => row.change == null || Math.abs(row.change) > 1e-12 || row.before != null || row.after != null)
     .sort((a, b) => Math.abs(b.change || 0) - Math.abs(a.change || 0))
+}
+
+const rows = computed(() => {
+  const current = props.scheme?.parameters || {}
+  const delta = props.scheme?.adopted_parameter_delta || props.scheme?.parameter_delta || {}
+  return parameterRows(current, delta)
 })
 
 const changedRows = computed(() => rows.value.filter((row) => row.change != null && Math.abs(row.change) > 1e-12))
+const candidateRows = computed(() =>
+  parameterRows(
+    props.scheme?.candidate_parameters || {},
+    props.scheme?.candidate_parameter_delta || {},
+  ),
+)
+const changedCandidateRows = computed(() =>
+  candidateRows.value.filter((row) => row.change != null && Math.abs(row.change) > 1e-12),
+)
 const showPanel = computed(
-  () => hypotheses.value.length > 0 || !!strategyId.value || changedRows.value.length > 0 || rows.value.length > 0,
+  () => hypotheses.value.length > 0 || !!strategyId.value || candidateRows.value.length > 0 || rows.value.length > 0,
 )
 
 function fmt(value: number | null) {
@@ -193,8 +213,34 @@ function fmtDelta(value: number | null) {
       </dl>
     </div>
 
+    <div v-if="candidateRows.length" class="tuning-block">
+      <h3>优化器提出的候选参数（变化 {{ changedCandidateRows.length }} 项，未必采用）</h3>
+      <div class="param-table-wrap">
+        <table>
+          <thead>
+            <tr><th>参数</th><th>组别</th><th>基础</th><th>候选</th><th>变化</th></tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="row in candidateRows"
+              :key="`candidate-${row.key}`"
+              :class="{ changed: row.change != null && Math.abs(row.change) > 1e-12 }"
+            >
+              <td>{{ row.key }}</td>
+              <td>{{ GROUP_ZH[row.group] || '—' }}</td>
+              <td>{{ fmt(row.before) }}</td>
+              <td>{{ fmt(row.after) }}</td>
+              <td :class="{ up: (row.change || 0) > 0, down: (row.change || 0) < 0 }">
+                {{ fmtDelta(row.change) }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <div v-if="rows.length" class="tuning-block">
-      <h3>参数对照{{ changedRows.length ? `（变化 ${changedRows.length} 项）` : '' }}</h3>
+      <h3>最终采用参数（正式变化 {{ changedRows.length }} 项）</h3>
       <div class="param-table-wrap">
         <table>
           <thead>
@@ -223,7 +269,9 @@ function fmtDelta(value: number | null) {
           </tbody>
         </table>
       </div>
-      <p v-if="!changedRows.length" class="hint">相对基础方案未检测到参数变化（可能仍是 base，或尚未优化）。</p>
+      <p v-if="!changedRows.length" class="hint">
+        正式采纳变化为 0 项；若上方存在候选变化，表示候选已搜索但未通过 Gate，并非优化器没有工作。
+      </p>
     </div>
   </section>
 </template>

@@ -5,7 +5,12 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from hydro_agent.agent.contracts import ActionCode, WorldStateView
-from hydro_agent.agent.permissions import CLOSEOUT_RESERVE_ROUNDS
+from hydro_agent.agent.permissions import (
+    CLOSEOUT_RESERVE_ROUNDS,
+    latest_action_index,
+    pending_calibration_action,
+    rediagnosis_required,
+)
 from hydro_agent.skills import DEFAULT_NSE_GOOD_ENOUGH
 
 ConditionFn = Callable[[WorldStateView], bool]
@@ -75,15 +80,16 @@ def needs_calibration(view: WorldStateView) -> bool:
 def calibration_good_enough(view: WorldStateView) -> bool:
     if ActionCode.A06_DIAGNOSE.value not in _evidence_actions(view):
         return False
-    if ActionCode.A07_OPTIMIZE.value in _evidence_actions(view):
+    if latest_action_index(view, ActionCode.A06_DIAGNOSE) <= latest_action_index(
+        view, ActionCode.A07_OPTIMIZE
+    ):
         return False
     nse = _diagnosis_nse(view)
     return _gbt_ok(view) or (nse is not None and nse >= DEFAULT_NSE_GOOD_ENOUGH)
 
 
 def candidate_ready(view: WorldStateView) -> bool:
-    actions = _evidence_actions(view)
-    return ActionCode.A07_OPTIMIZE.value in actions and ActionCode.A08_GATE.value not in actions
+    return pending_calibration_action(view) == ActionCode.A08_GATE
 
 
 def gate_retry_allowed(view: WorldStateView) -> bool:
@@ -96,7 +102,12 @@ def gate_retry_allowed(view: WorldStateView) -> bool:
         return False
     if view.budget.optimization_cycles_remaining <= 0:
         return False
-    return view.budget.agent_rounds_remaining > CLOSEOUT_RESERVE_ROUNDS
+    return (
+        view.budget.agent_rounds_remaining > CLOSEOUT_RESERVE_ROUNDS
+        and not rediagnosis_required(view)
+        and latest_action_index(view, ActionCode.A06_DIAGNOSE)
+        > latest_action_index(view, ActionCode.A09_RESOLVE)
+    )
 
 
 def gate_accept_or_stop(view: WorldStateView) -> bool:
@@ -106,6 +117,14 @@ def gate_accept_or_stop(view: WorldStateView) -> bool:
     if status == "ACCEPT":
         return True
     if status in {"KEEP", "ROLLBACK"}:
+        can_rediagnose = (
+            rediagnosis_required(view)
+            and view.task.allow_optimization
+            and view.budget.optimization_cycles_remaining > 0
+            and view.budget.agent_rounds_remaining > CLOSEOUT_RESERVE_ROUNDS
+        )
+        if can_rediagnose:
+            return False
         return not gate_retry_allowed(view)
     return False
 
