@@ -83,7 +83,7 @@ def latest_action_index(view: WorldStateView, action: ActionCode) -> int:
 
     Calibration is a repeated cycle, so set membership is insufficient: an old
     A08 must not satisfy a newer A07, and an old A09 must not satisfy a newer
-    A08.  WorldState keeps the recent evidence tail, which is enough to resolve
+    A08. WorldState keeps the recent evidence tail, which is enough to resolve
     the currently open cycle.
     """
 
@@ -177,13 +177,16 @@ class PermissionGate:
         if view.task.phase == "B" and pending is not None:
             allowed = {pending} if pending in _implemented() else set()
         elif view.task.phase == "B" and rediagnosis_required(view):
+            # A new A07 is forbidden until a fresh diagnosis exists, but the
+            # scientist is always allowed to stop experimenting and freeze the
+            # current resolved working scheme. Permission policy guards safety;
+            # it must not force the research policy to spend another experiment.
+            allowed = {ActionCode.A10_FREEZE} & _implemented()
             if (
                 view.budget.optimization_cycles_remaining > 0
                 and remaining > CLOSEOUT_RESERVE_ROUNDS
             ):
-                allowed = {ActionCode.A06_DIAGNOSE} & _implemented()
-            else:
-                allowed = {ActionCode.A10_FREEZE} & _implemented()
+                allowed |= {ActionCode.A06_DIAGNOSE} & _implemented()
 
         return tuple(sorted(allowed, key=lambda item: item.value))
 
