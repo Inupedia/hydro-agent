@@ -8,6 +8,7 @@ import type {
   TaskSummary,
   TimelineItem,
 } from '../types/api'
+import type { ResearchSummary } from '../types/research'
 
 export type { BasinInfo, ModelPlan }
 
@@ -135,5 +136,8 @@ export const api = {
   },
   getResults(taskId: string) {
     return request<ResultSummary>(`/api/tasks/${taskId}/results`)
+  },
+  getResearch(taskId: string) {
+    return request<ResearchSummary>(`/api/tasks/${taskId}/research`)
   },
 }
