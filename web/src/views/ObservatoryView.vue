@@ -8,6 +8,7 @@ import ModelPreparation from '../components/ModelPreparation.vue'
 import type { ModelPlan } from '../types/api'
 import HydrologistTune from '../components/HydrologistTune.vue'
 import ParamTuningPanel from '../components/ParamTuningPanel.vue'
+import ResearchEvidencePanel from '../components/ResearchEvidencePanel.vue'
 import { useDemoStore } from '../stores/demo'
 import { api } from '../api/client'
 import { gsap, motionDuration, prefersReducedMotion } from '../motion/gsap'
@@ -410,6 +411,7 @@ onUnmounted(() => {
             <p class="chart-note">{{ finalComparison.kind === 'independent_test' ? '主图只保留最终判断所需的过程线：观测、原始基准和最终冻结方案。' : '该历史案例缺少独立检验过程线，当前显示率定窗口对比。' }}</p>
           </template>
           <div v-else class="results-pending"><span class="overline">结果整理中</span><h2>正在整理最终方案对比</h2><p>运行已结束。观测、基准与最终方案过程线写入后会显示在这里，无需刷新页面。</p></div>
+          <ResearchEvidencePanel v-if="demo.taskId" :task-id="demo.taskId" />
         </div>
         <div v-else class="prep-placeholder"><span class="overline">数据准备</span><h2>等待建模服务</h2><p>建模服务就绪后，将在此完成资料检查、单元划分与边界复核。</p></div>
         <div v-if="showHydrologist" class="hydrologist-mount"><HydrologistTune :plan-id="demo.draft.model_plan_id" :task-id="demo.taskId" :locked="busy || demo.isRunning" /></div>
@@ -440,7 +442,13 @@ onUnmounted(() => {
                   <label>气象资料<select v-model="demo.draft.forcing_mode"><option value="R">实测日资料 · 历史率定</option><option value="F" disabled>预报资料 · 当前未开放</option></select></label>
                   <label class="toggle-row"><span>允许尝试改进方案</span><input v-model="demo.draft.allow_optimization" type="checkbox" role="switch" /></label>
                   <button class="text-button" type="button" :aria-expanded="advanced" @click="advanced = !advanced">{{ advanced ? '收起运行设置 −' : '运行设置 +' }}</button>
-                  <div v-if="advanced" class="advanced-fields"><label>基础方案<input v-model="demo.draft.base_scheme_id" required /></label><label>最多决策轮次<input v-model.number="demo.draft.max_agent_decision_rounds" type="number" min="1" max="100" required /></label><label>最多改进次数<input v-model.number="demo.draft.max_optimization_cycles" type="number" min="0" max="20" required /></label></div>
+                  <div v-if="advanced" class="advanced-fields">
+                    <label>基础方案<input v-model="demo.draft.base_scheme_id" required /></label>
+                    <label>开发验证窗（天）<input v-model.number="demo.draft.validation_days" data-test="development-days" type="number" min="3" max="90" required /><small>候选方案在此做 Gate；最终测试不会参与选择。</small></label>
+                    <label>最终测试窗（天）<input v-model.number="demo.draft.final_test_days" data-test="final-test-days" type="number" min="3" max="90" required /><small>方案冻结后只读、单次消费。</small></label>
+                    <label>最多决策轮次<input v-model.number="demo.draft.max_agent_decision_rounds" type="number" min="1" max="20" required /></label>
+                    <label>最多改进次数<input v-model.number="demo.draft.max_optimization_cycles" type="number" min="0" max="4" required /></label>
+                  </div>
                 </fieldset>
               </div>
             </fieldset>
@@ -491,6 +499,8 @@ onUnmounted(() => {
   width: min(520px, 100%);
   max-height: min(680px, 78vh);
   padding: 20px;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
 }
 .case-manager-head,
 .case-manager-toolbar,
@@ -518,12 +528,12 @@ onUnmounted(() => {
   font-size: 12px;
 }
 .case-manager-list {
-  flex: 1 1 auto;
   min-height: 0;
   display: grid;
   gap: 7px;
   padding: 10px 0;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 .case-manager-item {
   display: grid !important;
@@ -544,5 +554,18 @@ onUnmounted(() => {
   border-top: 1px solid var(--separator);
   color: var(--text-secondary);
   font-size: 12px;
+}
+.advanced-fields small {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .case-manager-backdrop {
+    background: rgba(26, 28, 34, 0.32);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
 }
 </style>
