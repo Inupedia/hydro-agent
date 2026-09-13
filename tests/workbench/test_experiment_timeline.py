@@ -94,6 +94,17 @@ def test_short_event_uses_explicit_smoke_protocol_without_window_reuse() -> None
     assert timeline.estimated_rolling_forecast_runs == 9
 
 
+def test_one_day_research_period_is_not_splittable() -> None:
+    with pytest.raises(ValueError, match="at least two days"):
+        build_experiment_timeline(
+            start_date=date(2000, 5, 1),
+            end_date=date(2000, 5, 1),
+            warmup_days=365,
+            validation_days=30,
+            final_test_days=30,
+        )
+
+
 def test_holdout_windows_have_hard_api_bounds() -> None:
     with pytest.raises(ValueError, match="validation_days"):
         build_experiment_timeline(
