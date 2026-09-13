@@ -21,6 +21,11 @@ class FlowObservation(FrozenModel):
     discharge_m3s: float = Field(ge=0, allow_inf_nan=False)
     source: str = Field(min_length=1)
     available_at: AwareDatetime
+    # Keep questionable/imputed rows available for chronology and inspection,
+    # while making scoring eligibility explicit all the way to model evaluation.
+    eligible_for_scoring: bool = True
+    quality_code: str = "approved"
+    quality_note: str | None = None
 
 
 class SnapshotContext(FrozenModel):
@@ -52,9 +57,6 @@ class SnapshotContext(FrozenModel):
     @property
     def dates(self):
         first = self.issue_date - timedelta(days=self.history_days - 1)
-        # Only forecast execution needs +1/+2/+3 forcing. Calibration and
-        # read-only evaluation do not need future forcing, which keeps held-out
-        # truth from being exposed to optimization through the forcing snapshot.
         forecast_horizon_days = 3 if self.capability == "forecast" else 0
         return tuple(
             first + timedelta(days=i)
@@ -64,10 +66,6 @@ class SnapshotContext(FrozenModel):
     @property
     def flow_dates(self):
         first = self.issue_date - timedelta(days=self.history_days - 1)
-        # Forecast snapshots may name the three lead dates but availability rules
-        # still prevent future observations from leaking into forecasting. The E
-        # phase is different: evaluate is read-only and must see realized +1/+2/+3
-        # discharge so replayed forecasts can be scored against truth.
         truth_horizon_days = 3 if self.capability in {"forecast", "evaluate"} else 0
         return tuple(
             first + timedelta(days=i)
