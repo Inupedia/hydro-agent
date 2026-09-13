@@ -134,6 +134,35 @@ class EvaluationService:
             return matches[0].parent
         return None
 
+    def _baseline_config_for_frozen(self, scheme) -> dict | None:
+        """Resolve the experiment baseline behind a frozen scheme when it is still available."""
+        frozen_cfg = dict(scheme.config_json or {})
+        frozen_provenance = dict(frozen_cfg.get("provenance") or {})
+        source_id = str(frozen_provenance.get("source_scheme_id") or "")
+        if not source_id:
+            return None
+        try:
+            source = self.repository.get_scheme(source_id)
+        except KeyError:
+            return None
+
+        source_cfg = dict(source.config_json or {})
+        if source.status == "base":
+            return source_cfg
+
+        source_provenance = dict(source_cfg.get("provenance") or {})
+        base_id = str(
+            source_provenance.get("base_scheme_id")
+            or source_provenance.get("source_scheme_id")
+            or ""
+        )
+        if not base_id:
+            return None
+        try:
+            return dict(self.repository.get_scheme(base_id).config_json or {})
+        except KeyError:
+            return None
+
     def _try_test_hydrograph(
         self,
         observation_snapshot_id: str,
@@ -175,6 +204,23 @@ class EvaluationService:
             if len(dates) < xaj.warmup_days + 2:
                 return None
             values = simulate(xaj, basin, array[:, None, :], include_warmup=True)
+
+            baseline_values = None
+            baseline_cfg = self._baseline_config_for_frozen(scheme)
+            if baseline_cfg:
+                try:
+                    baseline_xaj = XajScheme(
+                        model_id="xaj",
+                        warmup_days=int(baseline_cfg.get("warmup_days", cfg["warmup_days"])),
+                        parameters=baseline_cfg["parameters"],
+                        routing=baseline_cfg.get("routing") or {},
+                    )
+                    baseline_values = simulate(
+                        baseline_xaj, basin, array[:, None, :], include_warmup=True
+                    )
+                except Exception:  # noqa: BLE001 - baseline is optional context for the chart.
+                    baseline_values = None
+
             observed = self.observation_loader(observation_snapshot_id)
             if not isinstance(observed, dict):
                 return None
@@ -189,6 +235,11 @@ class EvaluationService:
                 observed=observed,
                 warmup_days=xaj.warmup_days,
                 evaluated_window="test",
+                baseline=(
+                    [float(v) for v in baseline_values]
+                    if baseline_values is not None
+                    else None
+                ),
                 frozen=[float(v) for v in values],
                 gate_status=gate_status,
                 frozen_is_candidate=frozen_is_candidate,
@@ -206,7 +257,6 @@ class EvaluationService:
     def _load_streamflow(self, snapshot_id: str) -> dict:
         path = self.snapshot_root / snapshot_id / "streamflow.csv"
         if not path.exists():
-            # Nested layout used by SnapshotBuilder under basin folders.
             matches = list(self.snapshot_root.rglob(f"{snapshot_id}/streamflow.csv"))
             if not matches:
                 raise FileNotFoundError(path)

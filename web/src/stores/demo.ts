@@ -141,7 +141,6 @@ export const useDemoStore = defineStore('demo', () => {
       conditions.value.modelDetail = '无法确认模型状态'
     }
 
-    // No dedicated source-readiness endpoint yet — stay honest.
     conditions.value.source = 'unchecked'
     conditions.value.sourceDetail =
       '资料是否齐全将在任务启动后由服务端检查；此处尚未检查'
@@ -154,7 +153,6 @@ export const useDemoStore = defineStore('demo', () => {
         .filter((t) => t.status === 'completed')
         .slice(0, 12)
     } catch {
-      // Service may still be starting after compose recreate.
       try {
         await new Promise((r) => setTimeout(r, 1200))
         const tasks = await api.listTasks()
@@ -213,22 +211,35 @@ export const useDemoStore = defineStore('demo', () => {
     persistSession()
   }
 
-  async function deleteCase(task: TaskSummary) {
+  async function deleteCases(tasks: TaskSummary[]) {
     error.value = null
-    if (isRunning.value && taskId.value === task.task_id) {
+    const unique = [...new Map(tasks.map((task) => [task.task_id, task])).values()]
+    if (!unique.length) return
+    if (isRunning.value && unique.some((task) => task.task_id === taskId.value)) {
       throw new Error('任务正在运行，无法删除')
     }
-    await api.deleteTask(task.task_id)
-    if (taskId.value === task.task_id) {
-      resetSession()
-    }
+
+    const deleteResults = await Promise.allSettled(unique.map((task) => api.deleteTask(task.task_id)))
+    const deletedIds = new Set<string>()
+    const failedIds: string[] = []
+    deleteResults.forEach((result, index) => {
+      const id = unique[index].task_id
+      if (result.status === 'fulfilled') deletedIds.add(id)
+      else failedIds.push(id)
+    })
+
+    if (taskId.value && deletedIds.has(taskId.value)) resetSession()
     await loadCaseLibrary()
+    if (failedIds.length) throw new Error(`有 ${failedIds.length} 个历史案例删除失败`)
+  }
+
+  async function deleteCase(task: TaskSummary) {
+    await deleteCases([task])
   }
 
   async function startRun() {
     if (!taskId.value) throw new Error('尚未创建任务')
     if (mode.value === 'replay') {
-      // Replay only follows recorded state; never restart compute.
       await refresh()
       return
     }
@@ -249,8 +260,7 @@ export const useDemoStore = defineStore('demo', () => {
       ])
       run.value = nextRun
       timeline.value = nextTimeline
-      const settled =
-        isCompleted.value || isFailed.value || mode.value === 'replay'
+      const settled = isCompleted.value || isFailed.value || mode.value === 'replay'
       if (settled) {
         try {
           results.value = await api.getResults(taskId.value)
@@ -258,7 +268,6 @@ export const useDemoStore = defineStore('demo', () => {
           // Keep run/timeline if results are not ready yet.
         }
         const visuals =
-          Boolean(results.value?.forecasts?.length) ||
           Boolean(results.value?.test_hydrograph?.series?.length) ||
           Boolean(results.value?.calibration_hydrograph?.series?.length)
         if (visuals || isFailed.value || ++completeSettleTicks >= 8) stopPolling()
@@ -366,6 +375,7 @@ export const useDemoStore = defineStore('demo', () => {
     createTaskFromDraft,
     openCaseReplay,
     deleteCase,
+    deleteCases,
     startRun,
     refresh,
     startPolling,

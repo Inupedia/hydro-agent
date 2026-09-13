@@ -2,7 +2,6 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import ExecutionJournal from '../components/ExecutionJournal.vue'
-import ForecastChart from '../components/ForecastChart.vue'
 import HydrographComparisonChart from '../components/HydrographComparisonChart.vue'
 import LiveWorkflow from '../components/LiveWorkflow.vue'
 import ModelPreparation from '../components/ModelPreparation.vue'
@@ -13,7 +12,6 @@ import { useDemoStore } from '../stores/demo'
 import { api } from '../api/client'
 import { gsap, motionDuration, prefersReducedMotion } from '../motion/gsap'
 import { basinLabel } from '../demo/stages'
-import { hydrographTitleZh } from '../chartTheme'
 
 const demo = useDemoStore()
 const route = useRoute()
@@ -32,7 +30,6 @@ const selectedBasin = computed(() =>
   basinOptions.value.find((basin) => basin.basin_id === demo.draft.basin_id),
 )
 const planReady = computed(() => !!demo.draft.model_plan_id)
-/** When true, basin changes come from plan binding — do not clear model_plan_id. */
 let syncingPlanBasin = false
 function selectPlan(plan: ModelPlan | null) {
   if (demo.taskId) return
@@ -52,7 +49,6 @@ function selectPlan(plan: ModelPlan | null) {
     if (plan.suggested_start) demo.draft.start_date = plan.suggested_start
     if (plan.suggested_end) demo.draft.end_date = plan.suggested_end
   }
-  // Watchers flush after this tick; keep the guard until then.
   void nextTick(() => {
     syncingPlanBasin = false
   })
@@ -64,16 +60,20 @@ const mainStage = ref<HTMLElement | null>(null)
 const journalPane = ref<HTMLElement | null>(null)
 const forecastSurface = ref<HTMLElement | null>(null)
 const tuningMount = ref<HTMLElement | null>(null)
+const caseManagerOpen = ref(false)
+const selectedCaseIds = ref<string[]>([])
 let timer: number | undefined
 let layoutTween: ReturnType<typeof gsap.timeline> | null = null
 
 const locked = computed(() => busy.value || !!demo.taskId)
 const action = computed(() => demo.run?.llm_decision_action || demo.run?.last_action || demo.timeline.at(-1)?.action)
-const hasHydrograph = computed(
-  () =>
-    Boolean(demo.results?.test_hydrograph?.series?.length) ||
-    Boolean(demo.results?.calibration_hydrograph?.series?.length),
-)
+const finalComparison = computed(() => {
+  const test = demo.results?.test_hydrograph
+  if (test?.series?.length) return test
+  const calibration = demo.results?.calibration_hydrograph
+  return calibration?.series?.length ? calibration : null
+})
+const hasHydrograph = computed(() => !!finalComparison.value)
 const showResultsStage = computed(() => demo.isCompleted && !demo.isFailed && !!demo.results)
 const showWorkflow = computed(
   () =>
@@ -84,7 +84,6 @@ const showWorkflow = computed(
       demo.isFailed ||
       (!!demo.taskId && !!demo.run && demo.run.status !== 'created' && !demo.isCompleted)),
 )
-/** Focus stage: live workflow + journal only. */
 const focusStage = computed(() => showWorkflow.value && !demo.isCompleted)
 const completedActions = computed(() =>
   demo.timeline
@@ -122,25 +121,9 @@ const showHydrologist = computed(
 const mode = computed(() =>
   demo.mode === 'replay' ? '历史记录' : serviceMode.value === 'real' ? '真实计算' : serviceMode.value ? '模拟演示' : '连接待确认',
 )
-/** Chart series: prefer frozen/current scheme, one point per issue day. */
-const chartForecasts = computed(() => {
-  const rows = demo.results?.forecasts || []
-  if (!rows.length) return []
-  const preferred =
-    demo.results?.scheme?.scheme_id ||
-    demo.run?.current_scheme_id ||
-    null
-  const scoped = preferred ? rows.filter((f) => f.scheme_id === preferred) : rows
-  const pool = scoped.length ? scoped : rows
-  const byIssue = new Map<string, (typeof rows)[number]>()
-  for (const row of pool) {
-    const key = String(row.issue_time).slice(0, 10)
-    byIssue.set(key, row)
-  }
-  return [...byIssue.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([, row]) => row)
-})
+const allCasesSelected = computed(
+  () => demo.caseLibrary.length > 0 && demo.caseLibrary.every((task) => selectedCaseIds.value.includes(task.task_id)),
+)
 const elapsed = computed(() => {
   if (!demo.startedAt || demo.isCompleted || demo.isFailed) return demo.isCompleted ? '已结束' : '等待开始'
   const seconds = Math.max(0, Math.floor((now.value - demo.startedAt) / 1000))
@@ -174,14 +157,33 @@ async function openCase(event: Event) {
   const task = demo.caseLibrary.find((t) => t.task_id === id)
   if (task) await demo.openCaseReplay(task)
 }
-async function deleteSelectedCase() {
-  const id = demo.mode === 'replay' ? demo.taskId : ''
-  const task = demo.caseLibrary.find((t) => t.task_id === id)
-  if (!task) return
-  if (!window.confirm('删除这份已完成记录？此操作不可恢复。')) return
+function openCaseManager() {
+  if (!demo.caseLibrary.length) return
+  selectedCaseIds.value =
+    demo.mode === 'replay' && demo.taskId && demo.caseLibrary.some((task) => task.task_id === demo.taskId)
+      ? [demo.taskId]
+      : []
+  caseManagerOpen.value = true
+}
+function closeCaseManager() {
+  caseManagerOpen.value = false
+  selectedCaseIds.value = []
+}
+function toggleAllCases() {
+  selectedCaseIds.value = allCasesSelected.value
+    ? []
+    : demo.caseLibrary.map((task) => task.task_id)
+}
+async function deleteSelectedCases() {
+  const selected = demo.caseLibrary.filter((task) => selectedCaseIds.value.includes(task.task_id))
+  if (!selected.length) return
+  if (!window.confirm(`删除选中的 ${selected.length} 份历史案例？此操作不可恢复。`)) return
+  const deletesCurrent = !!demo.taskId && selectedCaseIds.value.includes(demo.taskId)
   busy.value = true
   try {
-    await demo.deleteCase(task)
+    await demo.deleteCases(selected)
+    closeCaseManager()
+    if (deletesCurrent) history.replaceState(null, '', '/')
   } catch (err) {
     demo.error = String((err as Error).message || err)
   } finally {
@@ -292,11 +294,11 @@ watch(
 )
 
 watch(
-  () => [showWorkflow.value, showResultsStage.value, chartForecasts.value.length, hasHydrograph.value, showTuning.value] as const,
-  async ([workflow, resultsStage, forecastCount, hydrograph, tuning]) => {
+  () => [showWorkflow.value, showResultsStage.value, hasHydrograph.value, showTuning.value] as const,
+  async ([workflow, resultsStage, hydrograph, tuning]) => {
     if (workflow) return
     await nextTick()
-    if (resultsStage || forecastCount || hydrograph || tuning) animateResultsSurfaces()
+    if (resultsStage || hydrograph || tuning) animateResultsSurfaces()
   },
 )
 
@@ -341,7 +343,7 @@ onMounted(async () => {
   }
   await nextTick()
   if (focusStage.value) animateFocus(true)
-  else if (showResultsStage.value || chartForecasts.value.length || showTuning.value) animateResultsSurfaces()
+  else if (showResultsStage.value || hasHydrograph.value || showTuning.value) animateResultsSurfaces()
 })
 onUnmounted(() => {
   clearInterval(timer)
@@ -363,41 +365,60 @@ onUnmounted(() => {
               <option v-for="task in demo.caseLibrary" :key="task.task_id" :value="task.task_id">{{ task.start_date || task.task_id }} · {{ basinLabel(task.basin_id) }}</option>
             </select>
           </label>
-          <button data-test="header-delete-case" type="button" class="case-delete" :disabled="demo.isRunning || busy || demo.mode !== 'replay' || !demo.taskId" @click="deleteSelectedCase">删除</button>
+          <button data-test="header-delete-case" type="button" class="case-delete" :disabled="demo.isRunning || busy || !demo.caseLibrary.length" @click="openCaseManager">管理</button>
           <button data-test="header-new-task" type="button" class="header-new-task" @click="newTask">新建任务</button>
         </div>
         <div class="connection"><i :class="{ online: connected }" />{{ mode }}</div>
       </div>
     </header>
 
+    <div v-if="caseManagerOpen" class="case-manager-backdrop" @click.self="closeCaseManager">
+      <section class="case-manager-panel glass-pane" role="dialog" aria-modal="true" aria-label="批量管理历史案例">
+        <header class="case-manager-head">
+          <div><span class="overline">历史案例</span><h2>批量管理</h2></div>
+          <button type="button" class="case-manager-close" aria-label="关闭" @click="closeCaseManager">×</button>
+        </header>
+        <div class="case-manager-toolbar">
+          <span>共 {{ demo.caseLibrary.length }} 份已完成记录</span>
+          <button type="button" class="text-button" @click="toggleAllCases">{{ allCasesSelected ? '取消全选' : '全选' }}</button>
+        </div>
+        <div class="case-manager-list">
+          <label v-for="task in demo.caseLibrary" :key="task.task_id" class="case-manager-item">
+            <input v-model="selectedCaseIds" type="checkbox" :value="task.task_id" />
+            <span><strong>{{ task.start_date || task.task_id }}</strong><small>{{ basinLabel(task.basin_id) }} · {{ task.task_id }}</small></span>
+          </label>
+        </div>
+        <footer class="case-manager-footer">
+          <span>已选 {{ selectedCaseIds.length }} 份</span>
+          <button type="button" class="case-delete" data-test="delete-selected-cases" :disabled="!selectedCaseIds.length || busy" @click="deleteSelectedCases">删除选中</button>
+        </footer>
+      </section>
+    </div>
+
     <main class="observatory-grid">
       <section ref="mainStage" class="main-stage glass-pane" :class="{ 'main-stage--focus': focusStage, 'main-stage--results': showResultsStage }">
         <LiveWorkflow v-if="showWorkflow" :action="action" :status="demo.run?.paused ? 'paused' : demo.run?.status" :completed-actions="completedActions" :gate-status="gateStatus" :expanded="focusStage" :workflow-version="demo.taskMeta?.workflow_version" />
         <ModelPreparation v-else-if="modelingAvailable && !demo.taskId" :basin-id="demo.draft.basin_id" :selected-id="demo.draft.model_plan_id" :locked="busy" @selected="selectPlan" />
         <div v-else-if="showResultsStage" ref="forecastSurface" class="forecast-surface" data-test="forecast-surface">
-          <template v-if="demo.results?.test_hydrograph?.series?.length">
-            <div class="chart-title"><h2>{{ hydrographTitleZh(demo.results.test_hydrograph) }}</h2><span>{{ demo.results.test_hydrograph.evaluated_days }} 天 · {{ demo.results.test_hydrograph.calibrated ? '已采用候选' : '冻结方案' }}</span></div>
-            <HydrographComparisonChart :comparison="demo.results.test_hydrograph" />
+          <template v-if="finalComparison">
+            <div class="chart-title">
+              <h2>最终方案对比</h2>
+              <span v-if="finalComparison.kind === 'independent_test'">独立检验 · {{ finalComparison.evaluated_days }} 天 · 观测 / 基准 / 最终方案</span>
+              <span v-else>率定窗口 · 观测 / 基准 / 候选方案</span>
+            </div>
+            <HydrographComparisonChart :comparison="finalComparison" />
+            <p class="chart-note">{{ finalComparison.kind === 'independent_test' ? '主图只保留最终判断所需的过程线：观测、原始基准和最终冻结方案。' : '该历史案例缺少独立检验过程线，当前显示率定窗口对比。' }}</p>
           </template>
-          <template v-if="demo.results?.calibration_hydrograph?.series?.length">
-            <div class="chart-title"><h2>{{ hydrographTitleZh(demo.results.calibration_hydrograph) }}</h2><span>率定窗 · 观测 / 基线 / 候选</span></div>
-            <HydrographComparisonChart :comparison="demo.results.calibration_hydrograph" />
-          </template>
-          <template v-if="chartForecasts.length">
-            <div class="chart-title"><h2>{{ hasHydrograph ? '预报记录' : '流量预报' }}</h2><span>{{ mode }} · m³/s · {{ chartForecasts.length }} 个起报日</span></div>
-            <ForecastChart :forecasts="chartForecasts" />
-            <p class="chart-note">{{ hasHydrograph ? '横轴为起报日期；这是提前 1 / 2 / 3 天的滚动预报记录，不是独立检验过程线。' : '横轴为起报日期；曲线为提前 1 / 2 / 3 天预报（当前方案）。' }}</p>
-          </template>
-          <div v-if="!chartForecasts.length && !hasHydrograph" class="results-pending"><span class="overline">结果整理中</span><h2>正在整理过程线与预报记录</h2><p>运行已结束。过程线与预报序列写入后会显示在这里，无需刷新页面。</p></div>
+          <div v-else class="results-pending"><span class="overline">结果整理中</span><h2>正在整理最终方案对比</h2><p>运行已结束。观测、基准与最终方案过程线写入后会显示在这里，无需刷新页面。</p></div>
         </div>
-        <div v-else class="prep-placeholder"><span class="overline">01 / 数据准备</span><h2>等待建模服务</h2><p>建模服务就绪后，将在此完成资料检查、单元划分与边界复核。</p></div>
+        <div v-else class="prep-placeholder"><span class="overline">数据准备</span><h2>等待建模服务</h2><p>建模服务就绪后，将在此完成资料检查、单元划分与边界复核。</p></div>
         <div v-if="showHydrologist" class="hydrologist-mount"><HydrologistTune :plan-id="demo.draft.model_plan_id" :task-id="demo.taskId" :locked="busy || demo.isRunning" /></div>
         <div v-if="showTuning" ref="tuningMount" class="tuning-mount"><ParamTuningPanel :diagnosis="demo.results?.diagnosis" :optimize="demo.results?.optimize" :scheme="demo.results?.scheme" /></div>
       </section>
 
       <aside ref="taskPane" class="task-pane glass-pane">
         <div class="pane-head">
-          <div class="section-heading"><span class="overline">02 / 流域与任务</span></div>
+          <div class="section-heading"><span class="overline">流域与任务</span></div>
           <h2>研究流域</h2>
           <p class="muted">选择本地资料完整的流域，再建立并复核计算方案。</p>
         </div>
@@ -430,7 +451,7 @@ onUnmounted(() => {
             <button v-else-if="demo.isRunning" type="button" class="start-button" disabled>正在计算<span class="activity-dot" /></button>
             <button v-else type="button" class="start-button" @click="newTask">新建任务</button>
             <p class="source-note">{{ demo.draft.forcing_mode === 'R' ? `使用 ${selectedBasin?.label || demo.draft.basin_id} 本地日资料做历史率定与检验，不代表业务预报。` : '预报资料可用性将在运行时检查。' }}</p>
-            <div class="case-picker-row"><label class="case-picker">已有案例<select aria-label="已有案例" :disabled="demo.isRunning || busy" :value="demo.mode === 'replay' ? demo.taskId : ''" @change="openCase"><option value="">{{ demo.caseLibrary.length ? '选择一份已完成记录' : '暂无已完成记录' }}</option><option v-for="task in demo.caseLibrary" :key="task.task_id" :value="task.task_id">{{ task.start_date || task.task_id }} · {{ basinLabel(task.basin_id) }}</option></select></label><button data-test="delete-case" type="button" class="case-delete" :disabled="demo.isRunning || busy || demo.mode !== 'replay' || !demo.taskId" @click="deleteSelectedCase">删除</button></div>
+            <div class="case-picker-row"><label class="case-picker">已有案例<select aria-label="已有案例" :disabled="demo.isRunning || busy" :value="demo.mode === 'replay' ? demo.taskId : ''" @change="openCase"><option value="">{{ demo.caseLibrary.length ? '选择一份已完成记录' : '暂无已完成记录' }}</option><option v-for="task in demo.caseLibrary" :key="task.task_id" :value="task.task_id">{{ task.start_date || task.task_id }} · {{ basinLabel(task.basin_id) }}</option></select></label><button data-test="delete-case" type="button" class="case-delete" :disabled="demo.isRunning || busy || !demo.caseLibrary.length" @click="openCaseManager">管理</button></div>
           </div>
         </form>
       </aside>
@@ -443,6 +464,7 @@ onUnmounted(() => {
           :completed="demo.isCompleted"
           :failed="demo.isFailed"
           :elapsed="elapsed"
+          :current-action="action"
           :error="error"
           @refresh="demo.refresh()"
         />
@@ -453,3 +475,74 @@ onUnmounted(() => {
 </template>
 
 <style src="../observatory.css"></style>
+<style scoped>
+.case-manager-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(26, 28, 34, 0.2);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.case-manager-panel {
+  width: min(520px, 100%);
+  max-height: min(680px, 78vh);
+  padding: 20px;
+}
+.case-manager-head,
+.case-manager-toolbar,
+.case-manager-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.case-manager-head h2 { margin: 4px 0 0; }
+.case-manager-close {
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--neutral-soft);
+  color: var(--text-secondary);
+  font-size: 20px;
+  cursor: pointer;
+}
+.case-manager-toolbar {
+  padding: 12px 0 10px;
+  border-bottom: 1px solid var(--separator);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.case-manager-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  gap: 7px;
+  padding: 10px 0;
+  overflow: auto;
+}
+.case-manager-item {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px !important;
+  padding: 10px 11px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.case-manager-item input { width: 15px; height: 15px; margin: 0; }
+.case-manager-item span { display: grid; min-width: 0; gap: 2px; }
+.case-manager-item strong { font-size: 13px; }
+.case-manager-item small { overflow: hidden; color: var(--text-secondary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.case-manager-footer {
+  padding-top: 12px;
+  border-top: 1px solid var(--separator);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+</style>

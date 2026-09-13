@@ -12,6 +12,7 @@ const props = defineProps<{
   completed: boolean
   failed: boolean
   elapsed: string
+  currentAction?: string | null
   error?: string | null
 }>()
 
@@ -23,7 +24,42 @@ let requestSerial = 0
 const orderedEvents = computed(() =>
   [...props.events].sort((a, b) => Date.parse(a.occurred_at) - Date.parse(b.occurred_at)),
 )
-const latestEventId = computed(() => orderedEvents.value.at(-1)?.id || '')
+
+function parsedTime(value?: string | null) {
+  if (!value) return Number.NaN
+  return Date.parse(value)
+}
+
+const currentWorkingEvent = computed<TimelineItem | null>(() => {
+  if (!props.running || !props.currentAction) return null
+  const last = orderedEvents.value.at(-1)
+  if (last?.action === props.currentAction && String(last.status).toLowerCase() === 'running') return null
+
+  const round = [...agentRounds.value].reverse().find((item) => item.action === props.currentAction)
+  const lastTime = parsedTime(last?.occurred_at)
+  const roundTime = parsedTime(round?.occurred_at)
+  if (
+    last?.action === props.currentAction &&
+    (Number.isNaN(roundTime) || (!Number.isNaN(lastTime) && roundTime <= lastTime))
+  ) {
+    return null
+  }
+
+  return {
+    id: `working-${props.currentAction}-${round?.round_number || 'current'}`,
+    occurred_at: round?.occurred_at || last?.occurred_at || new Date().toISOString(),
+    label: `正在${actionTitle(props.currentAction)}`,
+    status: 'running',
+    action: props.currentAction,
+    evidence_id: null,
+    details: {},
+  }
+})
+
+const displayEvents = computed(() =>
+  currentWorkingEvent.value ? [...orderedEvents.value, currentWorkingEvent.value] : orderedEvents.value,
+)
+const latestEventId = computed(() => displayEvents.value.at(-1)?.id || '')
 const statusLabel = computed(() =>
   props.running ? '运行中' : props.completed ? '已完成' : props.failed ? '已受阻' : '等待执行',
 )
@@ -35,7 +71,7 @@ function scrollToLatest() {
 }
 
 watch(
-  [() => props.taskId, () => props.events.length],
+  [() => props.taskId, () => props.events.length, () => props.currentAction],
   async ([taskId]) => {
     const serial = ++requestSerial
     if (!taskId) {
@@ -228,19 +264,19 @@ function displayTitle(event: TimelineItem) {
     </div>
 
     <div ref="journalList" class="journal-list" data-test="journal-list">
-      <div v-if="!orderedEvents.length" class="journal-empty">
+      <div v-if="!displayEvents.length" class="journal-empty">
         <span aria-hidden="true">⌁</span>
         <h3>等待第一条记录</h3>
         <p>开始后，这里会记录智能体看到了什么、如何判断、决定做什么，以及工具实际返回了什么。</p>
       </div>
 
       <article
-        v-for="(event, index) in orderedEvents"
+        v-for="(event, index) in displayEvents"
         :key="event.id"
         class="journal-event-card"
         :class="{
           'is-failed': ['failed', 'error', 'blocked'].includes(event.status),
-          'is-latest': index === orderedEvents.length - 1,
+          'is-latest': running && event.status === 'running' && index === displayEvents.length - 1,
         }"
         :data-action="event.action || undefined"
       >
@@ -256,7 +292,7 @@ function displayTitle(event: TimelineItem) {
           <p v-if="journalCopy(event).decision" class="event-support"><span>决定</span>{{ journalCopy(event).decision }}</p>
           <p v-if="journalCopy(event).result" class="event-support is-result"><span>结果</span>{{ journalCopy(event).result }}</p>
 
-          <details class="technical-details">
+          <details v-if="Object.keys(event.details).length" class="technical-details">
             <summary><span>技术详情</span><span>JSON</span></summary>
             <pre>{{ JSON.stringify(event.details, null, 2) }}</pre>
           </details>
@@ -272,7 +308,7 @@ function displayTitle(event: TimelineItem) {
 .section-heading { margin-bottom: 18px; }
 .journal-intro { margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
 .journal-status { display: flex; justify-content: space-between; gap: 8px; padding: 12px 0 16px; border-bottom: 1px solid var(--separator); color: var(--text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
-.journal-list { flex: 1 1 auto; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 8px 2px 18px 0; scrollbar-gutter: stable; }
+.journal-list { flex: 1 1 auto; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 8px 2px 18px 0; }
 .journal-empty { padding: 48px 4px; text-align: center; }
 .journal-empty > span { color: var(--text-tertiary); font-size: 40px; }
 .journal-empty h3 { margin: 14px 0 10px; font-size: 16px; font-weight: 600; }
@@ -283,7 +319,8 @@ function displayTitle(event: TimelineItem) {
 .event-rail i { width: 1px; flex: 1; min-height: 18px; margin-top: 7px; background: var(--separator); }
 .journal-event-card:last-child .event-rail i { display: none; }
 .is-latest .event-dot { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.08); }
-.is-failed .event-dot { border-color: var(--danger); }
+.is-latest .event-meta { color: var(--accent-text); }
+.is-failed .event-dot { border-color: var(--danger); box-shadow: none; }
 .event-content { min-width: 0; max-width: 100%; overflow: hidden; }
 .event-meta { color: var(--text-tertiary); font-size: 10px; font-weight: 650; letter-spacing: 0.03em; }
 .event-title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
@@ -296,7 +333,7 @@ function displayTitle(event: TimelineItem) {
 .technical-details { max-width: 100%; margin-top: 10px; overflow: hidden; border-top: 1px solid rgba(220, 221, 227, 0.62); padding-top: 8px; }
 .technical-details summary { display: flex; justify-content: space-between; cursor: pointer; list-style: none; color: var(--text-tertiary); font-size: 10px; font-weight: 650; }
 .technical-details summary::-webkit-details-marker { display: none; }
-.technical-details pre { max-width: 100%; max-height: 220px; margin: 9px 0 0; overflow-x: hidden; overflow-y: auto; border-radius: var(--radius-md); background: var(--surface-secondary); padding: 10px; color: var(--text-secondary); font-family: var(--mono); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; word-break: break-word; white-space: pre-wrap; }
+.technical-details pre { max-width: 100%; max-height: 220px; margin: 9px 0 0; overflow: auto; border-radius: var(--radius-md); background: var(--surface-secondary); padding: 10px; color: var(--text-secondary); font-family: var(--mono); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; word-break: break-word; white-space: pre-wrap; }
 .inline-error { margin-top: 12px; border: 1px solid #f0c8c3; border-radius: var(--radius-md); background: var(--danger-soft); padding: 11px; color: var(--danger); font-size: 12px; }
 .inline-error p { margin: 5px 0; line-height: 1.5; }
 .text-button { border: 0; background: none; color: var(--accent-text); padding: 0; font: inherit; cursor: pointer; }
