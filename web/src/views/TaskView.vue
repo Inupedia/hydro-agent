@@ -14,6 +14,8 @@ const form = reactive({
   forcing_mode: 'R' as 'R' | 'F',
   base_scheme_id: 'scheme-base',
   allow_optimization: true,
+  validation_days: 30,
+  final_test_days: 30,
   max_agent_decision_rounds: 20,
   max_optimization_cycles: 4,
 })
@@ -35,7 +37,7 @@ async function onSubmit() {
   <section class="page">
     <h1>创建预报任务</h1>
     <p class="lede">
-      点一下就会自动跑完整流程。你不需要懂水文模型参数，也不用勾选技术动作——系统会自己预报、尝试改进、把关、锁定，并给出白话结果说明。
+      点一下就会自动跑完整流程。研究期会按“率定 → 开发验证 → 最终测试”隔离使用；最终测试只在方案冻结后读取，避免智能体提前看到最终答案。
     </p>
     <form class="form" @submit.prevent="onSubmit">
       <label>
@@ -50,11 +52,11 @@ async function onSubmit() {
         </select>
       </label>
       <label>
-        起始日期
+        研究期起始日期
         <input v-model="form.start_date" type="date" required />
       </label>
       <label>
-        结束日期
+        研究期结束日期
         <input v-model="form.end_date" type="date" required />
       </label>
 
@@ -62,6 +64,16 @@ async function onSubmit() {
         {{ showAdvanced ? '收起高级选项' : '高级选项（一般不用改）' }}
       </button>
       <template v-if="showAdvanced">
+        <label>
+          开发验证窗（天）
+          <input v-model.number="form.validation_days" type="number" min="3" max="90" />
+          <small>候选方案可反复在这里做 Gate，比对当前基线。</small>
+        </label>
+        <label>
+          最终测试窗（天）
+          <input v-model.number="form.final_test_days" type="number" min="3" max="90" />
+          <small>方案冻结前不可读取；冻结后只用于回放与最终评价。</small>
+        </label>
         <label>
           Forcing 模式
           <select v-model="form.forcing_mode" name="forcing_mode">
