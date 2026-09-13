@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -456,7 +456,7 @@ def test_gate_bundles_compare_accepted_baseline_not_initial_base(tmp_path, repos
             "task-1": {"start_date": "2021-06-01", "end_date": "2021-06-02"},
         },
     )
-    base_bundle, cand_bundle = gate.bundles("task-1")
+    base_bundle, cand_bundle, _ = gate.bundles("task-1")
     assert base_bundle.scheme_id == "scheme-accepted"
     assert cand_bundle.scheme_id == "scheme-cand-r2"
     assert base_bundle.primary_score > cand_bundle.primary_score
@@ -485,18 +485,22 @@ def _tiny_source(tmp_path):
         '{"basin_id":"b1","area_km2":100.0,"day_timezone":"UTC"}',
         encoding="utf-8",
     )
-    (root / "forcing.jsonl").write_text(
-        '{"valid_date":"2021-05-01","precipitation_mm_day":0.0,"pet_mm_day":1.0,'
-        '"source_kind":"reanalysis","source":"fixture","available_at":"2021-05-02T00:00:00Z"}\n'
-        '{"valid_date":"2021-06-15","precipitation_mm_day":0.0,"pet_mm_day":1.0,'
-        '"source_kind":"reanalysis","source":"fixture","available_at":"2021-06-16T00:00:00Z"}\n',
-        encoding="utf-8",
-    )
-    (root / "flow.jsonl").write_text(
-        '{"valid_date":"2021-05-01","discharge_m3s":1.0,"source":"fixture",'
-        '"available_at":"2021-05-02T00:00:00Z"}\n'
-        '{"valid_date":"2021-06-15","discharge_m3s":1.0,"source":"fixture",'
-        '"available_at":"2021-06-16T00:00:00Z"}\n',
-        encoding="utf-8",
-    )
+    forcing_lines = []
+    flow_lines = []
+    day = date(2021, 2, 1)
+    end = date(2021, 6, 30)
+    while day <= end:
+        available = day + timedelta(days=1)
+        forcing_lines.append(
+            f'{{"valid_date":"{day.isoformat()}","precipitation_mm_day":0.0,'
+            f'"pet_mm_day":1.0,"source_kind":"reanalysis","source":"fixture",'
+            f'"available_at":"{available.isoformat()}T00:00:00Z"}}'
+        )
+        flow_lines.append(
+            f'{{"valid_date":"{day.isoformat()}","discharge_m3s":1.0,"source":"fixture",'
+            f'"available_at":"{available.isoformat()}T00:00:00Z"}}'
+        )
+        day += timedelta(days=1)
+    (root / "forcing.jsonl").write_text("\n".join(forcing_lines) + "\n", encoding="utf-8")
+    (root / "flow.jsonl").write_text("\n".join(flow_lines) + "\n", encoding="utf-8")
     return root
