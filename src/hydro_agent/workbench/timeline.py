@@ -169,6 +169,9 @@ def build_experiment_timeline(
 
     if end_date < start_date:
         raise ValueError("end_date before start_date")
+    research_days = (end_date - start_date).days + 1
+    if research_days < 2:
+        raise ValueError("research period must contain at least two days")
     if warmup_days < 1:
         raise ValueError("warmup_days must be positive")
     if validation_days < MIN_WINDOW_DAYS or validation_days > MAX_HOLDOUT_DAYS:
@@ -180,7 +183,6 @@ def build_experiment_timeline(
             f"final_test_days must be between {MIN_WINDOW_DAYS} and {MAX_HOLDOUT_DAYS}"
         )
 
-    research_days = (end_date - start_date).days + 1
     requested_holdout = validation_days + final_test_days
     warmup_start = start_date - timedelta(days=warmup_days)
     warmup_end = start_date - timedelta(days=1)
