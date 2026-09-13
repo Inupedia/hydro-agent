@@ -194,7 +194,7 @@ def test_new_optimize_must_use_a_new_gate_even_when_old_cycle_exists(world_view)
     assert PermissionGate().safe_actions(view) == (ActionCode.A08_GATE,)
 
 
-def test_rejected_cycle_requires_fresh_diagnosis_before_retry(world_view):
+def test_resolved_cycle_requires_diagnosis_before_retry_but_allows_freeze(world_view):
     from hydro_agent.agent.contracts import EvidenceSummary
 
     evidence = tuple(
@@ -214,4 +214,6 @@ def test_rejected_cycle_requires_fresh_diagnosis_before_retry(world_view):
         )
     )
     view = world_view.model_copy(update={"evidence_summary": evidence})
-    assert PermissionGate().safe_actions(view) == (ActionCode.A06_DIAGNOSE,)
+    safe = PermissionGate().safe_actions(view)
+    assert safe == (ActionCode.A06_DIAGNOSE, ActionCode.A10_FREEZE)
+    assert ActionCode.A07_OPTIMIZE not in safe
