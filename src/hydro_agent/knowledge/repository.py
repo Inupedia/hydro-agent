@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-
 DEFAULT_STANDARD_ID = "GB/T 22482-2026"
 DEFAULT_POLICY_ID = "hydro-agent-research-v1"
 DEFAULT_PROFILE_ID = "flood_forecast_discharge"
