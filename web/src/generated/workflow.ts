@@ -3,10 +3,6 @@ export const WORKFLOW = {
   "workflow_id": "hydro-agent-calibration",
   "version": "1.0.0",
   "hash": "sha256:a0aa0ee0be8cf8c095e5a15f341fed064dcbc7cad44e54d5494a21d91362306d",
-  "html_name": "hydro-agent.v1.workflow.html",
-  "diagrams_by_version": {
-    "1.0.0": "hydro-agent.v1.workflow.html"
-  },
   "display_stages": [
     {
       "id": "data",
@@ -245,10 +241,4 @@ export function displayNodeFor(action: string | null | undefined, status?: strin
     return item.display_node_by_status[status as keyof typeof item.display_node_by_status]
   }
   return item.display_node
-}
-
-export function diagramHtmlFor(version?: string | null): string {
-  if (!version || version === WORKFLOW.version) return WORKFLOW.html_name
-  const mapped = WORKFLOW.diagrams_by_version[version as keyof typeof WORKFLOW.diagrams_by_version]
-  return mapped || WORKFLOW.html_name
 }
