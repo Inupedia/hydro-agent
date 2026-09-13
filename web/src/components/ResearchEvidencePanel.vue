@@ -274,7 +274,7 @@ watch(() => props.taskId, load)
   font-weight: 600;
 }
 .protocol-badge { color: var(--info); background: var(--info-soft); }
-.success { color: var(--success); background: var(--success-soft); }
+.success { color: var(--accent-text); background: var(--accent-soft); }
 .caution { color: var(--caution); background: var(--caution-soft); }
 .danger { color: var(--danger); background: var(--danger-soft); }
 .neutral { color: var(--neutral); background: var(--neutral-soft); }
