@@ -21,6 +21,11 @@ class ReplayReportBuilder:
         return json_path, md_path
 
     def _markdown(self, evaluation: ReplayEvaluation) -> str:
+        rolling = evaluation.rolling_metrics or {
+            key: float(evaluation.metrics[key])
+            for key in ("NSE", "KGE", "MAE", "Bias")
+            if key in evaluation.metrics
+        }
         lines = [
             "# Hydro-Agent Replay Report",
             "",
@@ -32,17 +37,21 @@ class ReplayReportBuilder:
             "## Observation Snapshot / Time-Leak Rules",
             f"- observation_snapshot_id: `{evaluation.observation_snapshot_id}`",
             "- future truth is read only in phase E",
+            "- final_test is consumed only after the scheme is frozen",
             "",
             "## Forecast Coverage",
             f"- forecast_ids: {', '.join(evaluation.forecast_ids) or '(none)'}",
             f"- sample_counts: {json.dumps(evaluation.sample_counts, sort_keys=True)}",
             "",
-            "## Metrics",
+            "## Rolling Forecast Skill · final_test",
+            "Rolling skill evaluates repeated +1/+2/+3 forecasts issued inside final_test.",
+            "",
             "| Metric | Value |",
             "| --- | ---: |",
         ]
         for key in ("NSE", "KGE", "MAE", "Bias"):
-            lines.append(f"| {key} | {evaluation.metrics[key]:.4f} |")
+            if key in rolling:
+                lines.append(f"| {key} | {rolling[key]:.4f} |")
         lines.extend(
             [
                 "",
@@ -53,6 +62,33 @@ class ReplayReportBuilder:
             lines.append(f"### {lead}")
             for key in ("NSE", "KGE", "MAE", "Bias"):
                 lines.append(f"- {key}: {metrics[key]:.4f}")
+
+        lines.extend(["", "## Continuous Simulation Skill · final_test"])
+        if evaluation.continuous_metrics:
+            lines.extend(
+                [
+                    "One uninterrupted frozen-scheme simulation is scored across final_test.",
+                    "",
+                    "| Metric | Value |",
+                    "| --- | ---: |",
+                ]
+            )
+            for key in (
+                "NSE",
+                "KGE",
+                "PBIAS",
+                "RMSE",
+                "MAE",
+                "HighFlowMAE",
+                "PeakRatio",
+                "PeakTimingLagSteps",
+                "SampleCount",
+            ):
+                if key in evaluation.continuous_metrics:
+                    lines.append(f"| {key} | {evaluation.continuous_metrics[key]:.4f} |")
+        else:
+            lines.append("- continuous evidence unavailable for this evaluation snapshot")
+
         lines.extend(
             [
                 "",
@@ -64,6 +100,7 @@ class ReplayReportBuilder:
                 "- cost ledger remains on ActionRun records; report does not invent costs",
                 "",
                 "## Limitations",
+                "- Rolling metrics and continuous-simulation metrics are intentionally not averaged together.",
                 "- Metrics come only from persisted forecasts and E-phase observations.",
                 "- No LLM prose was used to compute numeric scores.",
                 "",
@@ -75,10 +112,10 @@ class ReplayReportBuilder:
         hydro = evaluation.hydrograph
         if not hydro:
             return []
-        title = str(hydro.get("title") or "观测与冻结方案 · 独立检验")
+        title = str(hydro.get("title") or "观测与冻结方案 · 最终独立检验")
         calibrated = bool(hydro.get("calibrated"))
         lines = [
-            "## 独立检验过程线",
+            "## 最终独立检验过程线",
             f"- 标题: {title}",
             f"- calibrated: `{str(calibrated).lower()}`",
             f"- warmup_days: {hydro.get('warmup_days')}",
@@ -88,8 +125,16 @@ class ReplayReportBuilder:
             hydro.get("frozen_metrics") if isinstance(hydro.get("frozen_metrics"), dict) else {}
         )
         if frozen:
-            lines.append("- frozen scheme (after warmup):")
-            for key in ("nse", "kge", "pbias_percent", "rmse_m3s"):
+            lines.append("- frozen scheme continuous metrics (after warmup):")
+            for key in (
+                "nse",
+                "kge",
+                "pbias_percent",
+                "rmse_m3s",
+                "high_flow_mae",
+                "peak_ratio",
+                "peak_timing_lag_steps",
+            ):
                 value = frozen.get(key)
                 if value is None:
                     continue
@@ -97,7 +142,7 @@ class ReplayReportBuilder:
         lines.extend(
             [
                 "- Series files: `test-hydrograph.csv`, `test-metrics.json`.",
-                "- This is the independent test window, not the calibration window.",
+                "- This is the frozen-scheme final_test window, never a calibration/development window.",
                 "",
             ]
         )
