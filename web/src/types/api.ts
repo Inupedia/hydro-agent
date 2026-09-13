@@ -6,10 +6,13 @@ export type TaskSummary = {
   status: string
   paused: boolean
   current_scheme_id: string | null
+  model_plan_id?: string | null
   agent_rounds_used: number
   optimization_cycles_used: number
   start_date?: string | null
   end_date?: string | null
+  validation_days?: number | null
+  final_test_days?: number | null
   forcing_mode?: 'R' | 'F' | null
   created_at?: string | null
   workflow_id?: string | null
