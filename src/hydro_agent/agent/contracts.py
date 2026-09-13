@@ -119,6 +119,9 @@ class HydroContext(FrozenModel):
     available_strategies: tuple[str, ...] = ()
     available_param_groups: tuple[str, ...] = ("evap", "runoff", "routing")
     available_objectives: tuple[str, ...] = ("nse", "peak", "composite")
+    # Pre-registered objective for the campaign. Diagnosis/expert advice may
+    # choose where/how to search but cannot change the scoring ruler mid-run.
+    campaign_objective: Literal["nse", "peak", "composite"] = "nse"
     diagnosis: dict[str, object] = Field(default_factory=dict)
     experiment_history: tuple[str, ...] = ()
     skill_cards: tuple[dict[str, object], ...] = ()
