@@ -9,8 +9,9 @@ from datetime import date
 from pathlib import Path
 
 from hydro_agent.evaluation.hydrograph import build_comparison, write_bundle
-from hydro_agent.evaluation.metrics import nse
+from hydro_agent.evaluation.metrics import kge, nse
 from hydro_agent.execution.contracts import ExecutionRequest
+from hydro_agent.optimization.dds import optimize_dds
 from hydro_agent.optimization.param_groups import normalize_param_groups, resolve_param_names
 from hydro_agent.optimization.sceua import optimize_sceua
 from hydro_agent.optimization.search_evidence import analyze_search_boundaries
@@ -65,29 +66,18 @@ def _peak_score(obs: list[float], sim: list[float]) -> float:
 
 
 def _objective_score(obs: list[float], sim: list[float], objective: str) -> float:
-    nse_value = nse(obs, sim)
     if objective == "nse":
-        return float(nse_value)
-    peak_value = _peak_score(obs, sim)
+        return float(nse(obs, sim))
     if objective == "peak":
-        return float(peak_value)
-
-    # Hydrologic composite: preserve overall shape while discouraging a high-NSE
-    # solution that damages water balance, peak magnitude or peak timing.
-    obs_total = sum(obs)
-    sim_total = sum(sim)
-    volume_rel_error = abs(sim_total - obs_total) / max(abs(obs_total), 1e-9)
-    volume_score = 1.0 - min(1.0, volume_rel_error)
-    obs_peak_i = max(range(len(obs)), key=lambda i: obs[i])
-    sim_peak_i = max(range(len(sim)), key=lambda i: sim[i])
-    timing_rel_error = abs(sim_peak_i - obs_peak_i) / max(1, len(obs) - 1)
-    timing_score = 1.0 - min(1.0, timing_rel_error)
-    return float(
-        0.55 * nse_value
-        + 0.15 * peak_value
-        + 0.20 * volume_score
-        + 0.10 * timing_score
-    )
+        return _peak_score(obs, sim)
+    if objective == "composite":
+        # Backward-compatible objective name, but no longer an ad-hoc weighted
+        # mixture of NSE/one global peak/volume/timing. KGE is a standard whole-
+        # series efficiency criterion that jointly reflects correlation,
+        # variability and bias; peak/timing behaviour remains explicit evidence
+        # and Gate guardrails instead of being hidden inside arbitrary weights.
+        return float(kge(obs, sim))
+    raise ValueError(f"unsupported objective: {objective}")
 
 
 def _search_bounds(
@@ -168,7 +158,8 @@ def run(workspace: Path) -> dict:
         local_scale=strategy.local_scale,
     )
 
-    # Cache simulator outputs because SCE-UA may revisit the same integer-L point.
+    # Cache simulator outputs because optimizers may revisit the same canonical
+    # point, especially when the integer routing lag L is active.
     cache: dict[
         tuple[tuple[str, float], ...], tuple[float, list[float], dict[str, float]]
     ] = {}
@@ -230,7 +221,22 @@ def run(workspace: Path) -> dict:
     trace: list[dict[str, float | int]] = []
     selected_source = strategy.optimizer
 
-    if strategy.optimizer == "sce-ua":
+    if strategy.optimizer == "dds":
+        opt = optimize_dds(
+            bounds=bounds,
+            score_fn=evaluate,
+            evaluation_budget=strategy.evaluation_budget,
+            random_seed=strategy.random_seed,
+            initial_parameters=initial_tunable,
+        )
+        best_tunable = _canonical_tunable(opt.best_parameters, bounds)
+        best_score = float(opt.best_score)
+        trace = [
+            {"evaluation": int(evaluation), "best_score": float(score)}
+            for evaluation, score in opt.improvement_history
+        ]
+        optimizer_calls = int(opt.evaluations)
+    elif strategy.optimizer == "sce-ua":
         opt = optimize_sceua(
             bounds=bounds,
             score_fn=evaluate,
@@ -301,6 +307,7 @@ def run(workspace: Path) -> dict:
         and abs(float(best_parameters[key]) - float(base_parameters[key])) > 1e-12
     }
     calibrated = bool(delta)
+    objective_metric = "kge" if objective == "composite" else objective
 
     candidate_payload = {
         "model_id": "xaj",
@@ -312,6 +319,7 @@ def run(workspace: Path) -> dict:
         "strategy_id": strategy.strategy_id,
         "optimizer": strategy.optimizer,
         "objective": objective,
+        "objective_metric": objective_metric,
         "param_groups": list(groups),
         "evaluation_budget": strategy.evaluation_budget,
         "search_boundary_evidence": boundary_evidence.as_dict(),
@@ -333,6 +341,7 @@ def run(workspace: Path) -> dict:
         "selected_candidate_index": 0 if not calibrated else -1,
         "selected_candidate_source": "baseline" if not calibrated else selected_source,
         "objective": objective,
+        "objective_metric": objective_metric,
         "param_groups": list(groups),
         "objective_value": float(best_score),
         "candidate_parameters": best_parameters,

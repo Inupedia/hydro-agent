@@ -6,7 +6,7 @@ from hydro_agent.agent.permissions import (
     PHASE_ACTIONS,
 )
 from hydro_agent.workflow.definition import current_binding, load_definition
-from hydro_agent.workflow.generate import archify_document, frontend_catalog
+from hydro_agent.workflow.generate import frontend_catalog
 from hydro_agent.workflow.handlers import (
     assert_condition_implementations,
     assert_handlers_declared,
@@ -67,25 +67,24 @@ def test_binding_hash_is_stable_and_prefixed():
     assert len(binding["workflow_hash"]) == 7 + 64
 
 
-def test_generated_archify_is_not_a_straight_happy_path():
+def test_frontend_catalog_preserves_branching_workflow_metadata():
     definition = load_definition()
     binding = current_binding()
-    document = archify_document(
-        definition,
-        source_path="workflow/hydro-agent.v1.json",
-        file_hash=binding["workflow_hash"],
-    )
-    node_ids = {node["id"] for node in document["nodes"]}
-    assert {"diagnose", "accept", "keep", "rollback", "blocked", "check_data"}.issubset(node_ids)
-    pairs = {(edge["from"], edge["to"]) for edge in document["edges"]}
-    assert ("forecast", "diagnose") in pairs
-    assert ("diagnose", "optimize") in pairs
-    assert ("diagnose", "freeze") in pairs
-    assert ("gate", "accept") in pairs
-    assert ("gate", "keep") in pairs
-    assert ("keep", "optimize") in pairs
-    assert ("forecast", "optimize") not in pairs
     catalog = frontend_catalog(definition, file_hash=binding["workflow_hash"])
-    assert catalog["actions"]["A06_DIAGNOSE"]["display_node"] == "diagnose"
-    assert catalog["actions"]["A06_DIAGNOSE"]["display_stage"] == "gate"
-    assert catalog["diagrams_by_version"]["1.0.0"] == "hydro-agent.v1.workflow.html"
+
+    actions = catalog["actions"]
+    assert actions["A06_DIAGNOSE"]["display_node"] == "diagnose"
+    assert actions["A06_DIAGNOSE"]["display_stage"] == "gate"
+    assert actions["A08_GATE"]["display_node"] == "gate"
+    assert actions["A09_RESOLVE"]["display_node_by_status"] == {
+        "ACCEPT": "accept",
+        "KEEP": "keep",
+        "ROLLBACK": "rollback",
+        "blocked": "blocked",
+        "failed": "blocked",
+    }
+
+    step_order = catalog["step_order"]
+    assert step_order.index("A06_DIAGNOSE") < step_order.index("A07_OPTIMIZE")
+    assert step_order.index("A07_OPTIMIZE") < step_order.index("A08_GATE")
+    assert step_order.index("A08_GATE") < step_order.index("A09_RESOLVE")

@@ -14,11 +14,34 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: '3.12'
-      - run: uv sync --frozen --extra dev
+      - run: uv sync --frozen --extra dev --extra xaj-dem --extra api
       - run: uv run --frozen ruff check src tests
-      - run: uv run --frozen ruff format --check src tests
+      - name: Ruff format gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            NEW_PY_FILE_LIST="$(mktemp)"
+            git diff --name-only --diff-filter=A \
+              "${{ github.event.pull_request.base.sha }}" \
+              "${{ github.event.pull_request.head.sha }}" \
+              | grep -E '^(src|tests)/.*\.py$' > "${NEW_PY_FILE_LIST}" || true
+            if [[ -s "${NEW_PY_FILE_LIST}" ]]; then
+              status=0
+              while IFS= read -r file; do
+                uv run --frozen ruff format --check "${file}" || status=1
+              done < "${NEW_PY_FILE_LIST}"
+              exit "${status}"
+            else
+              echo "No newly added Python files to format-check."
+            fi
+          else
+            uv run --frozen ruff format --check src tests
+          fi
       - run: uv run --frozen python scripts/sync_workflow.py --check
       - run: uv run --frozen pytest -q

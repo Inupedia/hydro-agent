@@ -9,11 +9,12 @@ import math
 import shutil
 import threading
 import time
-import uuid
 import urllib.error
 import urllib.request
+import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, time as dt_time, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from datetime import time as dt_time
 from pathlib import Path
 from typing import Any
 

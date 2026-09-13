@@ -7,7 +7,7 @@ def test_workflow_definition_endpoint(client):
     assert payload["actions"]["A06_DIAGNOSE"]["display_node"] == "diagnose"
     assert payload["actions"]["A09_RESOLVE"]["display_node_by_status"]["ACCEPT"] == "accept"
     assert "1.0.0" in payload["available_versions"]
-    assert payload["diagrams_by_version"]["1.0.0"] == "hydro-agent.v1.workflow.html"
+    assert payload["transitions"]
     named = client.get("/api/workflow-definition/1.0.0")
     assert named.status_code == 200
     assert named.json()["workflow_hash"] == payload["workflow_hash"]

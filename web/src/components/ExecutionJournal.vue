@@ -108,13 +108,9 @@ const STATUS_LABELS: Record<string, string> = {
   error: '失败',
   skipped: '已跳过',
   ACCEPT: '采用候选',
-  KEEP: '保留原方案',
-  ROLLBACK: '回退原方案',
+  KEEP: '继续率定',
+  ROLLBACK: '回退候选',
   blocked: '已受阻',
-}
-
-function eventStatus(status: string) {
-  return STATUS_LABELS[status] || status || '执行记录'
 }
 
 function formatTime(value: string) {
@@ -142,6 +138,12 @@ function matchingRound(event: TimelineItem) {
     const bestDistance = Number.isNaN(bestTime) ? Number.POSITIVE_INFINITY : Math.abs(bestTime - eventTime)
     return candidateDistance < bestDistance ? candidate : best
   }, null as AgentRoundLogItem | null)
+}
+
+function observationValue(round: AgentRoundLogItem | null, key: string) {
+  const prefix = `${key}=`
+  const raw = (round?.tool_observations || []).find((item) => item.startsWith(prefix))
+  return raw ? raw.slice(prefix.length).trim() : ''
 }
 
 function workflowExplain(action: string | null) {
@@ -185,11 +187,70 @@ function llmAudit(round: AgentRoundLogItem | null): AuditPayload {
   }
 }
 
+function optimizerLabel(value: string) {
+  if (value === 'dds') return 'DDS'
+  if (value === 'sce-ua') return 'SCE-UA'
+  if (value === 'random-search') return 'Random'
+  return value
+}
+
+function calibrationTags(event: TimelineItem) {
+  const round = matchingRound(event)
+  const tags: string[] = []
+  if (event.action === 'A07_OPTIMIZE') {
+    const optimizer = observationValue(round, 'optimizer')
+    const budget = observationValue(round, 'evaluation_budget')
+    const evaluations = observationValue(round, 'model_evaluations')
+    if (optimizer && optimizer !== '-') tags.push(optimizerLabel(optimizer))
+    if (budget && budget !== '0') tags.push(`预算 ${budget}`)
+    if (evaluations && evaluations !== '0') tags.push(`模型运行 ${evaluations}`)
+  }
+  if (event.action === 'A08_GATE' || event.action === 'A09_RESOLVE') {
+    const adoption = observationValue(round, 'adoption_status')
+    const qualification = observationValue(round, 'qualification_status')
+    const adopted = observationValue(round, 'candidate_adopted')
+    if (adoption === 'ADOPT' || adopted === 'true') tags.push('已采用')
+    else if (adoption === 'REJECT') tags.push('已拒绝')
+    else if (adoption === 'KEEP') tags.push('未替换')
+    if (qualification === 'QUALIFIED') tags.push('已达标')
+    else if (qualification === 'UNQUALIFIED') tags.push('未达标')
+    else if (qualification === 'NOT_EVALUATED') tags.push('待资格评价')
+  }
+  return [...new Set(tags)]
+}
+
+function eventStatus(event: TimelineItem) {
+  const round = matchingRound(event)
+  if (event.action === 'A09_RESOLVE' && observationValue(round, 'candidate_adopted') === 'true') {
+    return observationValue(round, 'qualification_status') === 'QUALIFIED' ? '采用并达标' : '采用并继续率定'
+  }
+  return STATUS_LABELS[event.status] || event.status || '执行记录'
+}
+
 function toolResult(event: TimelineItem, round: AgentRoundLogItem | null) {
   const status = String(event.status || '').toUpperCase()
+  const adoption = observationValue(round, 'adoption_status')
+  const qualification = observationValue(round, 'qualification_status')
+  const adopted = observationValue(round, 'candidate_adopted') === 'true'
   if (status === 'RUNNING') return '工具正在执行，完成后会自动更新结果。'
+  if (event.action === 'A07_OPTIMIZE') {
+    const optimizer = optimizerLabel(observationValue(round, 'optimizer'))
+    const evaluations = observationValue(round, 'model_evaluations')
+    if (optimizer && evaluations && evaluations !== '0') return `${optimizer} 完成 ${evaluations} 次有效模型运行并生成候选方案。`
+  }
+  if (event.action === 'A08_GATE') {
+    if (adoption === 'ADOPT' && qualification === 'QUALIFIED') return '候选优于当前方案，并且已经达到资格条件。'
+    if (adoption === 'ADOPT') return '候选值得采用为新的工作基线，但尚未达到最终资格条件。'
+    if (adoption === 'REJECT') return '候选触发保护条件，本轮实验被拒绝。'
+    if (adoption === 'KEEP') return '候选改善幅度不足，当前工作方案保持不变。'
+  }
+  if (event.action === 'A09_RESOLVE' && adopted) {
+    return qualification === 'QUALIFIED'
+      ? '候选已成为当前方案并达到资格条件，可以进入冻结与回放。'
+      : '候选已成为新的当前方案，但尚未达标；下一轮将基于新基线重新诊断。'
+  }
   if (status === 'ROLLBACK') return '本次候选已撤销，当前方案恢复到回退前状态。'
-  if (status === 'KEEP') return '当前方案保持不变。'
+  if (status === 'KEEP') return '当前工作方案保持不变，将根据新证据继续诊断。'
   if (status === 'ACCEPT') return '候选方案已被采用。'
   const observations = (round?.tool_observations || [])
     .map((item) => readable(item, 100))
@@ -237,11 +298,17 @@ function journalCopy(event: TimelineItem): JournalCopy {
 
 function displayTitle(event: TimelineItem) {
   const status = String(event.status || '').toUpperCase()
+  const round = matchingRound(event)
   if (event.action === 'A09_RESOLVE') {
-    if (status === 'ROLLBACK') return '回退原方案'
-    if (status === 'KEEP') return '保留原方案'
+    const adopted = observationValue(round, 'candidate_adopted') === 'true'
+    const qualification = observationValue(round, 'qualification_status')
+    if (adopted && qualification === 'QUALIFIED') return '采用候选并通过资格评价'
+    if (adopted) return '采用候选，继续率定'
+    if (status === 'ROLLBACK') return '回退候选方案'
+    if (status === 'KEEP') return '保持当前方案'
     if (status === 'ACCEPT') return '采用候选方案'
   }
+  if (event.action === 'A08_GATE') return '候选采用与资格评价'
   return event.label || actionTitle(event.action)
 }
 </script>
@@ -282,10 +349,13 @@ function displayTitle(event: TimelineItem) {
       >
         <div class="event-rail" aria-hidden="true"><span class="event-dot" /><i /></div>
         <div class="event-content">
-          <div class="event-meta"><span>{{ eventStatus(event.status) }}</span></div>
+          <div class="event-meta"><span>{{ eventStatus(event) }}</span></div>
           <div class="event-title-row">
             <h3>{{ displayTitle(event) }}</h3>
             <time v-if="formatTime(event.occurred_at)">{{ formatTime(event.occurred_at) }}</time>
+          </div>
+          <div v-if="calibrationTags(event).length" class="calibration-tags" aria-label="率定实验状态">
+            <span v-for="tag in calibrationTags(event)" :key="tag">{{ tag }}</span>
           </div>
           <p class="event-subtitle">{{ journalCopy(event).analysis }}</p>
           <p v-if="journalCopy(event).observation" class="event-support"><span>观察</span>{{ journalCopy(event).observation }}</p>
@@ -326,6 +396,8 @@ function displayTitle(event: TimelineItem) {
 .event-title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
 .event-title-row h3 { min-width: 0; margin: 4px 0 0; color: var(--text-primary); font-size: 14px; font-weight: 650; line-height: 1.4; overflow-wrap: anywhere; }
 .event-title-row time { flex: 0 0 auto; color: var(--text-tertiary); font-size: 10px; font-variant-numeric: tabular-nums; }
+.calibration-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.calibration-tags span { border: 1px solid var(--separator); border-radius: 999px; background: var(--surface-secondary); padding: 2px 7px; color: var(--text-secondary); font-size: 9px; font-weight: 650; line-height: 1.4; }
 .event-subtitle { margin: 7px 0 0; color: var(--text-primary); font-size: 12px; font-weight: 560; line-height: 1.65; overflow-wrap: anywhere; }
 .event-support { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 6px; margin: 7px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
 .event-support span { color: var(--text-tertiary); font-size: 10px; font-weight: 700; }

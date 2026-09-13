@@ -17,7 +17,7 @@ from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 
 ParameterGroup = Literal["evap", "runoff", "routing"]
 ObjectiveName = Literal["nse", "peak", "composite"]
-OptimizerName = Literal["sce-ua", "random-search", "manual"]
+OptimizerName = Literal["dds", "sce-ua", "random-search", "manual"]
 SearchScope = Literal["global", "local"]
 SearchAdjustment = Literal["keep", "broaden_within_absolute_bounds", "hold_absolute_bounds"]
 
@@ -37,7 +37,7 @@ class CalibrationPlan(FrozenModel):
     optimizer: OptimizerName
     search_scope: SearchScope
     local_scale: float | None = Field(default=None, ge=0.0, le=1.0)
-    evaluation_budget: int = Field(ge=2, le=500)
+    evaluation_budget: int = Field(ge=2, le=10_000)
     search_adjustment: SearchAdjustment = "keep"
     knowledge_refs: tuple[str, ...] = ()
     expert_notes: tuple[str, ...] = ()
@@ -51,6 +51,9 @@ class CalibrationPlan(FrozenModel):
 
 class CalibrationReflection(FrozenModel):
     gate_status: Literal["ACCEPT", "KEEP", "ROLLBACK"]
+    qualification_status: Literal["QUALIFIED", "UNQUALIFIED", "NOT_EVALUATED"] = (
+        "NOT_EVALUATED"
+    )
     conclusion: str = Field(min_length=1)
     next_step: Literal["freeze", "re-diagnose", "rollback", "handover"]
     evidence: tuple[str, ...] = ()
@@ -210,7 +213,8 @@ def plan_from_diagnosis(
         expert_notes=advice.notes,
         rationale=(
             f"基于 {primary_id} 假设，仅开放 {','.join(groups)} 参数组；"
-            f"由 {strategy.optimizer} 在确定性边界内完成数值搜索，Agent 不直接给参数值。"
+            f"由 {strategy.optimizer} 在确定性边界内完成至多 {strategy.evaluation_budget} 次模型评估，"
+            "Agent 不直接给参数值。"
             f"{prior_text}{search_text}"
         ),
     )
@@ -220,36 +224,54 @@ def reflect_on_gate(
     plan: CalibrationPlan,
     *,
     gate_status: str,
+    qualification_status: str = "NOT_EVALUATED",
     reasons: tuple[str, ...] = (),
 ) -> CalibrationReflection:
     """Turn independent validation into the next scientific decision."""
 
     status = gate_status if gate_status in {"ACCEPT", "KEEP", "ROLLBACK"} else "KEEP"
+    qualification = (
+        qualification_status
+        if qualification_status in {"QUALIFIED", "UNQUALIFIED", "NOT_EVALUATED"}
+        else "NOT_EVALUATED"
+    )
     evidence = (
         f"strategy={plan.strategy_id}",
         f"optimizer={plan.optimizer}",
         f"hypothesis={plan.hypothesis.hypothesis}",
         f"search_adjustment={plan.search_adjustment}",
+        f"qualification={qualification}",
         *tuple(f"knowledge={item}" for item in plan.knowledge_refs),
         *tuple(reasons),
     )
+    if status == "ACCEPT" and qualification == "QUALIFIED":
+        return CalibrationReflection(
+            gate_status="ACCEPT",
+            qualification_status="QUALIFIED",
+            conclusion="候选既优于当前方案，也通过独立资格评价。",
+            next_step="freeze",
+            evidence=evidence,
+        )
     if status == "ACCEPT":
         return CalibrationReflection(
             gate_status="ACCEPT",
-            conclusion="独立验证支持本轮假设与候选方案。",
-            next_step="freeze",
+            qualification_status=qualification,  # type: ignore[arg-type]
+            conclusion="候选值得采用为新的工作基线，但尚未达到最终资格条件。",
+            next_step="re-diagnose",
             evidence=evidence,
         )
     if status == "ROLLBACK":
         return CalibrationReflection(
             gate_status="ROLLBACK",
+            qualification_status=qualification,  # type: ignore[arg-type]
             conclusion="候选在独立验证中退化，本轮率定假设不能继续沿用。",
             next_step="rollback",
             evidence=evidence,
         )
     return CalibrationReflection(
         gate_status="KEEP",
-        conclusion="证据不足以接受候选；保留基线并重新诊断，而不是继续盲目搜索。",
+        qualification_status=qualification,  # type: ignore[arg-type]
+        conclusion="证据不足以采用候选；保留当前方案并重新诊断，而不是继续盲目搜索。",
         next_step="re-diagnose",
         evidence=evidence,
     )

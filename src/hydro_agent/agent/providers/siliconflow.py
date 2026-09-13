@@ -31,8 +31,11 @@ Follow activated Agent Skills below for calibration/diagnosis methods and thresh
 Do NOT choose xaj-hydrologist-manual-v1 in the automatic loop.
 
 Preferred B-phase path:
-A01/A03 -> A05_FORECAST -> A06_DIAGNOSE -> (calibrate if NSE below skill threshold) ->
-A07_OPTIMIZE -> A08_GATE -> A09_RESOLVE -> A10_FREEZE then (F) A11_REPLAY -> (E) A12_EVALUATE_REPORT
+A01/A03 -> A05_FORECAST -> A06_DIAGNOSE -> (calibrate if evidence requires it) ->
+A07_OPTIMIZE -> A08_GATE -> A09_RESOLVE -> either re-diagnose or A10_FREEZE,
+then (F) A11_REPLAY -> (E) A12_EVALUATE_REPORT.
+Adoption and qualification are separate: an adopted candidate may still be unqualified.
+Only qualification evidence may declare an optimized candidate complete.
 
 Return ONLY one JSON object with keys:
 - action: ActionCode string
@@ -159,6 +162,13 @@ def _latest_status(view: WorldStateView, action: str) -> str | None:
     return None
 
 
+def _latest_gates(view: WorldStateView, action: ActionCode) -> dict[str, str]:
+    for item in reversed(view.evidence_summary):
+        if item.action == action:
+            return dict(item.gates or {})
+    return {}
+
+
 def _rotate_strategy(view: WorldStateView, preferred: str | None) -> str:
     used = [
         item.gates.get("strategy_id") or ""
@@ -210,7 +220,7 @@ def _nse_calibration_progress(
     safe_actions: set[str],
     nse_good_enough: float | None = None,
 ) -> dict:
-    """Deterministic NSE loop: calibrate vs observed, stop when NSE is good enough."""
+    """Deterministic scientific guardrail around the live LLM calibration loop."""
     threshold = (
         float(nse_good_enough)
         if nse_good_enough is not None
@@ -220,6 +230,14 @@ def _nse_calibration_progress(
     nse = _diagnosis_nse(view)
     gate_status = _latest_status(view, ActionCode.A08_GATE.value)
     resolve_status = _latest_status(view, ActionCode.A09_RESOLVE.value)
+    resolve_gates = _latest_gates(view, ActionCode.A09_RESOLVE)
+    qualification_status = str(resolve_gates.get("qualification_status") or "")
+    resolved_outcome = resolve_status
+    if not resolve_gates and resolve_status not in {"ACCEPT", "KEEP", "ROLLBACK"}:
+        # Compatibility for evidence persisted before dual-gate A09 semantics:
+        # older A09 rows used status="succeeded" while A08 carried KEEP/ROLLBACK.
+        if gate_status in {"ACCEPT", "KEEP", "ROLLBACK"}:
+            resolved_outcome = gate_status
     pending = pending_calibration_action(view)
     if pending is not None and pending.value in safe_actions:
         return {
@@ -234,9 +252,11 @@ def _nse_calibration_progress(
                 else f"落实最新 Gate 结果（{gate_status or 'unknown'}）。"
             ),
         }
-    # Adopted candidate → freeze.
+
+    # A qualified Resolve is the only optimized-candidate path that may declare
+    # calibration complete. Adoption alone is not qualification.
     if (
-        resolve_status == "ACCEPT"
+        qualification_status == "QUALIFIED"
         and ActionCode.A10_FREEZE.value in safe_actions
         and ActionCode.A10_FREEZE.value not in actions
     ):
@@ -246,7 +266,7 @@ def _nse_calibration_progress(
             "strategy_id": None,
             "param_groups": None,
             "objective": None,
-            "rationale_summary": "候选已 ACCEPT，NSE 达到可用水平，冻结方案。",
+            "rationale_summary": "候选已通过独立资格评价，冻结方案进入回放。",
         }
 
     # KEEP/ROLLBACK is new evidence. Refresh A06 before selecting another
@@ -258,10 +278,15 @@ def _nse_calibration_progress(
             "strategy_id": None,
             "param_groups": None,
             "objective": None,
-            "rationale_summary": f"Gate={resolve_status or gate_status}，吸收失败证据后重新诊断。",
+            "rationale_summary": (
+                f"Gate={resolved_outcome or gate_status} / Qualification="
+                f"{qualification_status or 'UNKNOWN'}，吸收独立验证证据后重新诊断。"
+            ),
         }
 
-    # Diagnose says NSE / GB/T grade already good enough → freeze (no more calibrate).
+    # Before any independent Gate exists, a sufficiently good baseline diagnosis
+    # may stop calibration. Once a Gate has explicitly said UNQUALIFIED or
+    # NOT_EVALUATED, a later diagnostic NSE cannot override that qualification.
     grade_rank = None
     diagnosis = dict(view.hydro.diagnosis or {})
     metrics = diagnosis.get("metrics") if isinstance(diagnosis.get("metrics"), dict) else {}
@@ -270,10 +295,11 @@ def _nse_calibration_progress(
             grade_rank = float(metrics["scheme_grade_rank"])
         except (TypeError, ValueError):
             grade_rank = None
-    # 丙 = 1
-    gbt_ok = grade_rank is not None and grade_rank >= 1.0
+    gbt_ok = grade_rank is not None and grade_rank >= 1.0  # 丙 = 1
+    independent_gate_exists = bool(resolve_gates)
     if (
-        (gbt_ok or (nse is not None and nse >= threshold))
+        not independent_gate_exists
+        and (gbt_ok or (nse is not None and nse >= threshold))
         and ActionCode.A06_DIAGNOSE.value in actions
         and ActionCode.A10_FREEZE.value in safe_actions
         and latest_action_index(view, ActionCode.A06_DIAGNOSE)
@@ -286,13 +312,15 @@ def _nse_calibration_progress(
             "param_groups": None,
             "objective": None,
             "rationale_summary": (
-                f"GB/T 方案等级达标或 DC/NSE={nse if nse is not None else 'n/a'} "
-                f"≥ {threshold}，视为率定足够，停止搜索。"
+                f"尚无失败的独立资格证据，且 DC/NSE={nse if nse is not None else 'n/a'} "
+                f"达到诊断停止阈值 {threshold}，停止不必要搜索。"
             ),
         }
-    # Opt budget or round reserve exhausted after KEEP → freeze base and close out.
+
+    # Opt budget or round reserve exhausted after a resolved but unqualified
+    # cycle: close out the current working scheme without claiming qualification.
     if (
-        gate_status in {"KEEP", "ROLLBACK"}
+        resolved_outcome in {"KEEP", "ROLLBACK"}
         and ActionCode.A10_FREEZE.value in safe_actions
         and ActionCode.A10_FREEZE.value not in actions
         and (
@@ -308,11 +336,14 @@ def _nse_calibration_progress(
             "param_groups": None,
             "objective": None,
             "rationale_summary": (
-                f"Gate={gate_status} 且优化/收尾预算不足，停止搜索并冻结当前方案以进入回放评估。"
+                f"Resolve={resolved_outcome} / Qualification={qualification_status or 'UNKNOWN'}，"
+                "优化或收尾预算已耗尽；冻结当前工作方案进入回放，但不宣称率定达标。"
             ),
         }
 
-    # First calibrate after diagnose when NSE is poor / MODEL.
+    # After a fresh diagnosis, start another bounded experiment when either the
+    # diagnostic skill is poor or the latest independent qualification has not
+    # passed. This prevents a high in-sample NSE from bypassing a failed Gate.
     if (
         view.task.allow_optimization
         and ActionCode.A06_DIAGNOSE.value in actions
@@ -321,14 +352,20 @@ def _nse_calibration_progress(
         and ActionCode.A07_OPTIMIZE.value in safe_actions
         and view.budget.agent_rounds_remaining > CLOSEOUT_RESERVE_ROUNDS
     ):
-        if nse is None or nse < threshold:
-            return _optimize_payload(
-                view,
-                rationale=(
+        qualification_requires_more = qualification_status in {"UNQUALIFIED", "NOT_EVALUATED"}
+        if nse is None or nse < threshold or qualification_requires_more:
+            if qualification_requires_more:
+                rationale = (
+                    f"最近独立资格评价为 {qualification_status}；即使诊断 NSE="
+                    f"{nse if nse is not None else 'n/a'}，也不能绕过 Gate，继续设计受控率定实验。"
+                )
+            else:
+                rationale = (
                     f"模拟与观测对比 NSE={nse if nse is not None else 'n/a'} "
                     f"< {threshold}（skill nse_good_enough），启动有界参数率定。"
-                ),
-            )
+                )
+            return _optimize_payload(view, rationale=rationale)
+
     # Remap manual strategy if LLM still picks it.
     if (
         payload.get("action") == ActionCode.A07_OPTIMIZE.value

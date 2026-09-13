@@ -3,6 +3,15 @@ from hydro_agent.optimization.contracts import GateDecision, GatePolicy
 
 
 class GateEvaluator:
+    """Evaluate two independent questions for a calibration candidate.
+
+    Adoption asks whether the candidate is a meaningful, non-harmful improvement
+    over the current working scheme. Qualification asks whether the candidate has
+    already reached the preregistered absolute/standard target. Keeping these
+    questions separate lets an improving but not-yet-qualified candidate become
+    the baseline for the next controlled experiment.
+    """
+
     def evaluate(
         self,
         base,
@@ -11,58 +20,70 @@ class GateEvaluator:
         *,
         gbt_report: GbtAccuracyReport | None = None,
     ) -> GateDecision:
-        reasons: list[str] = []
+        adoption_reasons: list[str] = []
+        guardrail_failed = False
         for base_lead, cand_lead in zip(base.leads, candidate.leads):
             if cand_lead.nse - base_lead.nse < -policy.max_single_lead_drop:
-                reasons.append("lead_guardrail")
+                adoption_reasons.append("lead_guardrail")
+                guardrail_failed = True
             if base_lead.high_flow_mae > 0:
                 relative = (
                     cand_lead.high_flow_mae - base_lead.high_flow_mae
                 ) / base_lead.high_flow_mae
                 if relative > policy.max_high_flow_mae_relative_increase:
-                    reasons.append("high_flow_guardrail")
+                    adoption_reasons.append("high_flow_guardrail")
+                    guardrail_failed = True
+
         primary_delta = float(candidate.primary_score - base.primary_score)
+        if guardrail_failed:
+            status = "ROLLBACK"
+            adoption_status = "REJECT"
+        elif primary_delta >= policy.min_primary_delta:
+            status = "ACCEPT"
+            adoption_status = "ADOPT"
+            adoption_reasons.append("meaningful_primary_improvement")
+        else:
+            status = "KEEP"
+            adoption_status = "KEEP"
+            adoption_reasons.append("insufficient_primary_improvement")
+
+        qualification_reasons: list[str] = []
         scheme_grade = gbt_report.scheme_grade if gbt_report is not None else None
         gbt_summary = gbt_report.summary if gbt_report is not None else None
 
-        if reasons:
-            status = "ROLLBACK"
-        elif candidate.primary_score < policy.min_candidate_primary:
-            status = "KEEP"
-            reasons.append("insufficient_absolute_skill")
+        if candidate.primary_score < policy.min_candidate_primary:
+            qualification_status = "UNQUALIFIED"
+            qualification_reasons.append("insufficient_absolute_skill")
         elif policy.require_gbt_grade:
-            # The standard is a knowledge dependency, not a numeric fallback in
-            # Gate code. If the deterministic GB/T report is missing, the safe
-            # outcome is KEEP until the knowledge-backed evaluation is available.
             if gbt_report is None:
-                status = "KEEP"
-                reasons.append("missing_standard_evaluation")
+                qualification_status = "NOT_EVALUATED"
+                qualification_reasons.append("missing_standard_evaluation")
             elif gbt_report.meets_min_grade:
-                status = "ACCEPT"
-                reasons.append("gbt_scheme_grade_ok")
-                reasons.append(f"scheme_grade={gbt_report.scheme_grade}")
+                qualification_status = "QUALIFIED"
+                qualification_reasons.append("gbt_scheme_grade_ok")
+                qualification_reasons.append(f"scheme_grade={gbt_report.scheme_grade}")
             else:
-                status = "KEEP"
-                reasons.append("insufficient_gbt_scheme_grade")
-                reasons.append(f"scheme_grade={gbt_report.scheme_grade}")
-                reasons.append(f"min_scheme_grade={policy.min_scheme_grade}")
+                qualification_status = "UNQUALIFIED"
+                qualification_reasons.append("insufficient_gbt_scheme_grade")
+                qualification_reasons.append(f"scheme_grade={gbt_report.scheme_grade}")
+                qualification_reasons.append(f"min_scheme_grade={policy.min_scheme_grade}")
         elif candidate.primary_score >= policy.accept_primary_floor:
-            # Non-standard research policies may still use a numeric floor. This
-            # branch is intentionally unreachable for require_gbt_grade=True.
-            status = "ACCEPT"
-            reasons.append("primary_floor_ok")
+            qualification_status = "QUALIFIED"
+            qualification_reasons.append("primary_floor_ok")
         else:
-            status = "KEEP"
-            reasons.append("insufficient_primary_skill")
-            if primary_delta >= policy.min_primary_delta:
-                reasons.append("primary_improved_but_below_policy_floor")
+            qualification_status = "UNQUALIFIED"
+            qualification_reasons.append("insufficient_primary_skill")
 
+        reasons = tuple(dict.fromkeys((*adoption_reasons, *qualification_reasons)))
         return GateDecision(
             status=status,  # type: ignore[arg-type]
             base_scheme_id=base.scheme_id,
             candidate_scheme_id=candidate.scheme_id,
-            reasons=tuple(dict.fromkeys(reasons)),
+            reasons=reasons,
             primary_delta=primary_delta,
+            adoption_status=adoption_status,  # type: ignore[arg-type]
+            qualification_status=qualification_status,  # type: ignore[arg-type]
+            qualification_reasons=tuple(dict.fromkeys(qualification_reasons)),
             scheme_grade=scheme_grade,
             gbt_summary=gbt_summary,
         )

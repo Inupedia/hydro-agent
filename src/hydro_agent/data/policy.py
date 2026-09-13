@@ -51,11 +51,13 @@ class DataAccessPolicy:
 
     def select_flow(self, context, rows):
         self.check_context(context)
-        # Only evaluation may receive future truth; forecasting never receives it in R either.
+        # Only read-only evaluation may receive realized future truth. Forecast
+        # snapshots can name +1/+2/+3 dates, but availability checks still keep
+        # those future observations hidden at issue time.
         selected = [
             r
             for r in rows
-            if r.valid_date in context.dates
+            if r.valid_date in context.flow_dates
             and (
                 (context.phase == "E" and context.capability == "evaluate")
                 or (

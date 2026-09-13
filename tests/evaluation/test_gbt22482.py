@@ -125,13 +125,16 @@ def _gbt_policy() -> GatePolicy:
     )
 
 
-def test_gate_accepts_only_with_gbt_grade():
+def test_gate_adopts_improvement_but_qualifies_only_with_gbt_grade():
     base = _bundle("base", [0.2, 0.2, 0.2])
     cand = _bundle("cand", [0.35, 0.35, 0.35])
     policy = _gbt_policy()
 
     decision = GateEvaluator().evaluate(base, cand, policy, gbt_report=None)
-    assert decision.status == "KEEP"
+    assert decision.status == "ACCEPT"
+    assert decision.adoption_status == "ADOPT"
+    assert decision.qualification_status == "NOT_EVALUATED"
+    assert "meaningful_primary_improvement" in decision.reasons
     assert "missing_standard_evaluation" in decision.reasons
 
     good = build_gbt_accuracy_report(_good_series(), _cfg())
@@ -142,13 +145,17 @@ def test_gate_accepts_only_with_gbt_grade():
         gbt_report=good,
     )
     assert decision_ok.status == "ACCEPT"
+    assert decision_ok.adoption_status == "ADOPT"
+    assert decision_ok.qualification_status == "QUALIFIED"
     assert "gbt_scheme_grade_ok" in decision_ok.reasons
 
 
-def test_high_nse_cannot_bypass_missing_standard_report():
+def test_high_nse_can_be_adopted_without_bypassing_standard_qualification():
     base = _bundle("base", [0.6, 0.6, 0.6])
     candidate = _bundle("cand", [0.95, 0.95, 0.95])
     decision = GateEvaluator().evaluate(base, candidate, _gbt_policy(), gbt_report=None)
-    assert decision.status == "KEEP"
+    assert decision.status == "ACCEPT"
+    assert decision.adoption_status == "ADOPT"
+    assert decision.qualification_status == "NOT_EVALUATED"
     assert decision.scheme_grade is None
     assert "missing_standard_evaluation" in decision.reasons
