@@ -8,6 +8,7 @@ from langgraph.graph import END, START, StateGraph
 from hydro_agent.agent.contracts import ActionCode, EvidencePacket
 from hydro_agent.agent.experiment_guardrail import apply_experiment_plan_guardrail
 from hydro_agent.agent.permissions import PermissionGate, decision_fingerprint
+from hydro_agent.agent.tools import information_hash
 from hydro_agent.agent.world_state import world_state_hash
 
 
@@ -16,6 +17,36 @@ class ForecastGraphState(TypedDict, total=False):
     last_packet: EvidencePacket | None
     stop: bool
     stop_reason: str
+
+
+def _attach_experiment_plan(packet: EvidencePacket, decision) -> EvidencePacket:
+    if decision.action != ActionCode.A07_OPTIMIZE or not decision.experiment_plan_id:
+        return packet
+    observations = packet.observations + (
+        f"experiment_plan_id={decision.experiment_plan_id}",
+        f"experiment_signature={decision.experiment_signature or '-'}",
+        "experiment_reason_codes=" + ",".join(decision.experiment_reason_codes),
+        "experiment_evidence_refs=" + ",".join(decision.experiment_evidence_refs),
+    )
+    gates = {
+        **packet.gates,
+        "experiment_plan_id": decision.experiment_plan_id,
+        "experiment_signature": decision.experiment_signature or "",
+        "experiment_reason_codes": ",".join(decision.experiment_reason_codes),
+        "experiment_evidence_refs": ",".join(decision.experiment_evidence_refs),
+    }
+    return packet.model_copy(
+        update={
+            "observations": observations,
+            "gates": gates,
+            "new_information_hash": information_hash(
+                action=packet.action,
+                status=packet.status,
+                observations=observations,
+                metrics=packet.metrics,
+            ),
+        }
+    )
 
 
 def build_forecast_graph(
@@ -101,7 +132,7 @@ def build_forecast_graph(
 
             decision = apply_experiment_plan_guardrail(view, AD.model_validate(fallback))
             gate.authorize(view, decision)
-        packet = tools.execute(task_id, decision)
+        packet = _attach_experiment_plan(tools.execute(task_id, decision), decision)
         repository.add_evidence(packet)
         task_state = repository.get_task_state(task_id)
         rounds_used = task_state.agent_rounds_used + 1
