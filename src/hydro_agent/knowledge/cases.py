@@ -79,11 +79,13 @@ def lesson_from_gate(
 
     adoption = str(adoption_status or "").upper()
     qualification = str(qualification_status or "").upper()
-    if qualification == "QUALIFIED":
+    if adoption == "ADOPT" and qualification == "QUALIFIED":
         return "候选已被采用且通过独立资格评价，可作为经验证的正案例。"
     if adoption == "ADOPT" and qualification in {"UNQUALIFIED", "NOT_EVALUATED"}:
         return "候选相对基线有改进，可作为后续工作的基线，但尚未通过独立资格评价，不能标记为达标正案例。"
     if status == "ROLLBACK" or adoption == "ROLLBACK":
+        if qualification == "QUALIFIED":
+            return "候选绝对资格指标虽达标，但相对基线验证触发回滚条件；不得替换当前方案，也不标记为采用成功。"
         return "候选在独立验证中退化，应回滚并降低本轮假设优先级。"
     if status == "ACCEPT":
         # Legacy single-gate cases had no separate qualification field.
