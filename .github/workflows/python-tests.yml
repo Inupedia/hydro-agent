@@ -26,14 +26,17 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            mapfile -t NEW_PY_FILES < <(
-              git diff --name-only --diff-filter=A \
-                "${{ github.event.pull_request.base.sha }}" \
-                "${{ github.event.pull_request.head.sha }}" \
-                | grep -E '^(src|tests)/.*\.py$' || true
-            )
-            if ((${#NEW_PY_FILES[@]})); then
-              uv run --frozen ruff format --check "${NEW_PY_FILES[@]}"
+            NEW_PY_FILE_LIST="$(mktemp)"
+            git diff --name-only --diff-filter=A \
+              "${{ github.event.pull_request.base.sha }}" \
+              "${{ github.event.pull_request.head.sha }}" \
+              | grep -E '^(src|tests)/.*\.py$' > "${NEW_PY_FILE_LIST}" || true
+            if [[ -s "${NEW_PY_FILE_LIST}" ]]; then
+              status=0
+              while IFS= read -r file; do
+                uv run --frozen ruff format --check "${file}" || status=1
+              done < "${NEW_PY_FILE_LIST}"
+              exit "${status}"
             else
               echo "No newly added Python files to format-check."
             fi
