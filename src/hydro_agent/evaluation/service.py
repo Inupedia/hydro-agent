@@ -36,6 +36,7 @@ class EvaluationService:
         if snapshot.task_id != task_id:
             raise ValueError("cross-task references are forbidden")
         truth = self.observation_loader(observation_snapshot_id)
+        quality_by_date = self._quality_by_date(observation_snapshot_id)
         final_test_window = self._final_test_window_from_scheme(scheme)
         forecasts = [
             row
@@ -75,16 +76,11 @@ class EvaluationService:
         if not lead_metrics:
             raise ValueError("insufficient observation pairs for evaluation")
 
-        # Rolling replay skill answers: if the frozen scheme were issued every
-        # day in final_test, how good are +1/+2/+3 forecasts whose target truth
-        # also lies inside final_test? Keep it separate from one uninterrupted
-        # continuous simulation of the same frozen scheme.
         rolling_metrics = {
             key: float(sum(item[key] for item in lead_metrics.values()) / len(lead_metrics))
             for key in ("NSE", "KGE", "MAE", "Bias")
         }
 
-        # Attach GB/T 22482 multi-metric report on concatenated rolling leads.
         gbt_payload: dict = {}
         try:
             from hydro_agent.evaluation.gbt22482 import HydroSeries, build_gbt_accuracy_report
@@ -117,6 +113,15 @@ class EvaluationService:
                     "end": final_end.isoformat(),
                 },
             }
+        excluded_quality = sum(not eligible for eligible in quality_by_date.values())
+        provenance = {
+            **provenance,
+            "observation_quality": {
+                "source": "snapshot-manifest.flow_rows",
+                "excluded_count": excluded_quality,
+                "scoring_csv_contains_only_eligible": True,
+            },
+        }
         gate_status = self._latest_gate_status(task_id)
         frozen_is_candidate = gate_status == "ACCEPT"
         hydrograph = self._try_test_hydrograph(
@@ -127,10 +132,11 @@ class EvaluationService:
             frozen_is_candidate=frozen_is_candidate,
         )
         continuous_metrics = self._continuous_metrics_from_hydrograph(hydrograph)
-        hydrologic_evidence = self._hydrologic_evidence_from_hydrograph(hydrograph)
+        hydrologic_evidence = self._hydrologic_evidence_from_hydrograph(
+            hydrograph,
+            quality_by_date=quality_by_date,
+        )
 
-        # Keep the original unprefixed rolling aggregate for API compatibility,
-        # while emitting explicit namespaced evidence for all new consumers.
         metrics = dict(rolling_metrics)
         metrics.update({f"rolling_{key}": float(value) for key, value in rolling_metrics.items()})
         metrics.update(
@@ -196,7 +202,11 @@ class EvaluationService:
         return out
 
     @staticmethod
-    def _hydrologic_evidence_from_hydrograph(hydrograph: dict | None) -> dict[str, object]:
+    def _hydrologic_evidence_from_hydrograph(
+        hydrograph: dict | None,
+        *,
+        quality_by_date: dict[date, bool] | None = None,
+    ) -> dict[str, object]:
         if not hydrograph:
             return {}
         raw_series = hydrograph.get("series")
@@ -208,6 +218,7 @@ class EvaluationService:
         dates: list[date] = []
         observed: list[float | None] = []
         simulated: list[float | None] = []
+        quality_mask: list[bool] = []
         for row in rows:
             raw_time = row.get("time")
             if not raw_time:
@@ -219,6 +230,9 @@ class EvaluationService:
             dates.append(day)
             observed.append(row.get("observed_m3s"))
             simulated.append(row.get("frozen_m3s"))
+            quality_mask.append(
+                True if quality_by_date is None else bool(quality_by_date.get(day, False))
+            )
         if not dates:
             return {}
         try:
@@ -227,12 +241,30 @@ class EvaluationService:
                 dates=dates,
                 observed=observed,
                 simulated=simulated,
+                quality_mask=quality_mask,
             )
         except ValueError:
             return {}
         payload = bundle.as_dict()
         payload["annual_stability"] = asdict(annual_stability_evidence(bundle))
         return payload
+
+    def _quality_by_date(self, snapshot_id: str) -> dict[date, bool]:
+        snapshot = self.repository.get_snapshot(snapshot_id)
+        manifest = dict(snapshot.manifest_json or {})
+        rows = manifest.get("flow_rows")
+        if not isinstance(rows, list):
+            return {}
+        out: dict[date, bool] = {}
+        for row in rows:
+            if not isinstance(row, dict) or not row.get("valid_date"):
+                continue
+            try:
+                day = date.fromisoformat(str(row["valid_date"])[:10])
+            except ValueError:
+                continue
+            out[day] = bool(row.get("eligible_for_scoring", True))
+        return out
 
     def _latest_gate_status(self, task_id: str) -> str | None:
         for row in reversed(self.repository.list_evidence(task_id)):
@@ -253,7 +285,6 @@ class EvaluationService:
         return None
 
     def _baseline_config_for_frozen(self, scheme) -> dict | None:
-        """Resolve the experiment baseline behind a frozen scheme when it is still available."""
         frozen_cfg = dict(scheme.config_json or {})
         frozen_provenance = dict(frozen_cfg.get("provenance") or {})
         source_id = str(frozen_provenance.get("source_scheme_id") or "")
@@ -317,7 +348,10 @@ class EvaluationService:
                 rows = list(csv.DictReader(handle))
             dates = [date_cls.fromisoformat(row["date"]) for row in rows]
             array = np.asarray(
-                [[float(row["precipitation_mm_day"]), float(row["pet_mm_day"])] for row in rows]
+                [
+                    [float(row["precipitation_mm_day"]), float(row["pet_mm_day"])]
+                    for row in rows
+                ]
             )
             if len(dates) < xaj.warmup_days + 2:
                 return None
@@ -336,7 +370,7 @@ class EvaluationService:
                     baseline_values = simulate(
                         baseline_xaj, basin, array[:, None, :], include_warmup=True
                     )
-                except Exception:  # noqa: BLE001 - baseline is optional context for the chart.
+                except Exception:  # noqa: BLE001
                     baseline_values = None
 
             observed = self.observation_loader(observation_snapshot_id)
