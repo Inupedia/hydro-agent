@@ -102,6 +102,13 @@ class WorldStateBuilder:
             f"{row.action}:{row.status}:{';'.join((row.observations_json or [])[:2])}"
             for row in evidence_rows[-6:]
         )
+        workbench = dict((scheme.config_json or {}).get("workbench") or {})
+        raw_campaign_objective = str(workbench.get("calibration_objective") or "nse").strip()
+        campaign_objective = (
+            raw_campaign_objective
+            if raw_campaign_objective in {"nse", "peak", "composite"}
+            else "nse"
+        )
         hydro = HydroContext(
             current_parameters={k: float(v) for k, v in current_params.items()},
             candidate_parameters=candidate_params,
@@ -121,11 +128,11 @@ class WorldStateBuilder:
             or self.strategies.list_ids(),
             available_param_groups=("evap", "runoff", "routing"),
             available_objectives=("nse", "peak", "composite"),
+            campaign_objective=campaign_objective,
             diagnosis=diagnosis,
             experiment_history=history,
             skill_cards=tuple(self.skills.cards_for_prompt()),
         )
-        workbench = dict((scheme.config_json or {}).get("workbench") or {})
         allow_optimization = bool(workbench.get("allow_optimization", True))
         max_rounds = int(workbench.get("max_agent_decision_rounds") or MAX_AGENT_ROUNDS)
         max_opt = int(
