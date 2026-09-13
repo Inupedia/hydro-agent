@@ -24,6 +24,14 @@ const finalTestStatus = computed(() => {
   return '已读取 · 审计信息不完整'
 })
 
+const annualStabilityStatus = computed(() => {
+  const canonical = evidence.value?.annual_stability?.status
+  if (canonical) return canonical
+  return Object.values(evidence.value?.years || {}).some((item) => item.status === 'available')
+    ? 'available'
+    : 'insufficient_data'
+})
+
 function range(start?: string, end?: string) {
   if (!start && !end) return '—'
   return `${start || '—'} → ${end || '—'}`
@@ -202,7 +210,7 @@ watch(() => props.taskId, load)
           <div class="evidence-availability">
             <div>
               <small>年度稳定性</small>
-              <strong>{{ Object.values(evidence.years).some((item) => item.status === 'available') ? '有可用证据' : '样本不足' }}</strong>
+              <strong>{{ annualStabilityStatus === 'available' ? '有可用证据' : '样本不足' }}</strong>
             </div>
             <div>
               <small>FDC</small>
@@ -213,8 +221,8 @@ watch(() => props.taskId, load)
               <strong>{{ evidence.flood_events.some((item) => item.status === 'available') ? `${evidence.flood_events.filter((item) => item.status === 'available').length} 场可用` : '样本不足' }}</strong>
             </div>
           </div>
-          <p v-if="evidence.fdc.status !== 'available' || !Object.values(evidence.years).some((item) => item.status === 'available')" class="insufficient-note">
-            “样本不足”不是零分：当前窗口不支持年度/FDC等结论，系统不会用短样本伪造稳定性证据。
+          <p v-if="evidence.fdc.status !== 'available' || annualStabilityStatus !== 'available'" class="insufficient-note">
+            “样本不足”不是零分：当前窗口不支持年度稳定性/FDC等结论，系统不会用短样本伪造稳定性证据。
           </p>
         </template>
         <p v-else class="empty-copy">最终检验过程线尚未形成，当前不展示推断性证据。</p>
@@ -225,6 +233,7 @@ watch(() => props.taskId, load)
         <dl>
           <div><dt>Final test</dt><dd>{{ audit?.window || range(protocol.final_test_start_date, protocol.final_test_end_date) }}</dd></div>
           <div><dt>Trial source</dt><dd>{{ summary.contracts.trial_ledger_source }}</dd></div>
+          <div v-if="summary.contracts.evidence_source_priority"><dt>Evidence source</dt><dd>{{ summary.contracts.evidence_source_priority }}</dd></div>
           <div><dt>Objective alias</dt><dd>{{ summary.contracts.objective_alias }}</dd></div>
           <div v-if="plan?.experiment_signature"><dt>Experiment signature</dt><dd>{{ plan.experiment_signature }}</dd></div>
         </dl>
