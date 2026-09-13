@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import asdict
 from datetime import date, timedelta
 from pathlib import Path
 
+from hydro_agent.evaluation.evidence import HydrologicEvidenceBuilder
+from hydro_agent.evaluation.evidence_summary import annual_stability_evidence
 from hydro_agent.evaluation.hydrograph import build_comparison, write_bundle
 from hydro_agent.evaluation.metrics import bias, kge, mae, nse
 from hydro_agent.replay.contracts import ReplayEvaluation
@@ -124,6 +127,7 @@ class EvaluationService:
             frozen_is_candidate=frozen_is_candidate,
         )
         continuous_metrics = self._continuous_metrics_from_hydrograph(hydrograph)
+        hydrologic_evidence = self._hydrologic_evidence_from_hydrograph(hydrograph)
 
         # Keep the original unprefixed rolling aggregate for API compatibility,
         # while emitting explicit namespaced evidence for all new consumers.
@@ -142,6 +146,7 @@ class EvaluationService:
             rolling_metrics=rolling_metrics,
             lead_metrics=lead_metrics,
             continuous_metrics=continuous_metrics,
+            hydrologic_evidence=hydrologic_evidence,
             sample_counts=sample_counts,
             forcing_mode=task.forcing_mode,
             provenance=provenance,
@@ -189,6 +194,45 @@ class EvaluationService:
             if isinstance(value, (int, float)):
                 out[output_key] = float(value)
         return out
+
+    @staticmethod
+    def _hydrologic_evidence_from_hydrograph(hydrograph: dict | None) -> dict[str, object]:
+        if not hydrograph:
+            return {}
+        raw_series = hydrograph.get("series")
+        if not isinstance(raw_series, list):
+            return {}
+        rows = [row for row in raw_series if isinstance(row, dict) and not row.get("is_warmup")]
+        if not rows:
+            return {}
+        dates: list[date] = []
+        observed: list[float | None] = []
+        simulated: list[float | None] = []
+        for row in rows:
+            raw_time = row.get("time")
+            if not raw_time:
+                continue
+            try:
+                day = date.fromisoformat(str(raw_time)[:10])
+            except ValueError:
+                continue
+            dates.append(day)
+            observed.append(row.get("observed_m3s"))
+            simulated.append(row.get("frozen_m3s"))
+        if not dates:
+            return {}
+        try:
+            bundle = HydrologicEvidenceBuilder().build(
+                window="final_test",
+                dates=dates,
+                observed=observed,
+                simulated=simulated,
+            )
+        except ValueError:
+            return {}
+        payload = bundle.as_dict()
+        payload["annual_stability"] = asdict(annual_stability_evidence(bundle))
+        return payload
 
     def _latest_gate_status(self, task_id: str) -> str | None:
         for row in reversed(self.repository.list_evidence(task_id)):
