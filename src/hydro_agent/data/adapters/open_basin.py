@@ -257,7 +257,6 @@ def download_skadi_dem_for_bbox(
     on_tile: ProgressCb | None = None,
 ) -> dict[str, Any]:
     import gzip
-    import shutil
 
     west, south, east, north = bbox
     pad = 0.05
