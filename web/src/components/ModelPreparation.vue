@@ -22,6 +22,8 @@ const unitArea = ref(50)
 const warmup = ref(365)
 const basin = ref<BasinInfo | null>(null)
 const mapBroken = ref(false)
+const manageOpen = ref(false)
+const selectedPlanIds = ref<string[]>([])
 let timer: ReturnType<typeof setInterval> | undefined
 
 const labels: Record<string, string> = {
@@ -43,8 +45,14 @@ const buildLabel = computed(() => {
   return '本地资料不完整'
 })
 const reusablePlans = computed(() => plans.value.filter((p) => p.basin_id === props.basinId))
+const deletablePlans = computed(() =>
+  reusablePlans.value.filter((p) => !['queued', 'running'].includes(p.status)),
+)
 const canDelete = computed(
   () => !!current.value && !['queued', 'running'].includes(current.value.status) && !props.locked && !busy.value,
+)
+const allDeletableSelected = computed(
+  () => deletablePlans.value.length > 0 && deletablePlans.value.every((plan) => selectedPlanIds.value.includes(plan.plan_id)),
 )
 const showMap = computed(
   () =>
@@ -80,10 +88,20 @@ async function refreshBasin() {
 async function refreshPlans() {
   try {
     plans.value = await api.listModelPlans()
-    if (current.value) {
-      current.value = await api.getModelPlan(current.value.plan_id)
-      emit('selected', current.value.status === 'ready' ? current.value : null)
+    const activeId = current.value?.plan_id
+    if (activeId) {
+      const exists = plans.value.some((plan) => plan.plan_id === activeId)
+      if (!exists) {
+        current.value = null
+        emit('selected', null)
+      } else {
+        current.value = await api.getModelPlan(activeId)
+        emit('selected', current.value.status === 'ready' ? current.value : null)
+      }
     }
+    selectedPlanIds.value = selectedPlanIds.value.filter((id) =>
+      deletablePlans.value.some((plan) => plan.plan_id === id),
+    )
   } catch (e) {
     error.value = String((e as Error).message || e)
   }
@@ -137,24 +155,54 @@ async function confirm() {
   }
 }
 
-async function remove() {
-  if (!current.value || !canDelete.value) return
-  const id = current.value.plan_id
-  if (!window.confirm(`删除复用方案 ${id}？此操作不可恢复。`)) return
+async function performDelete(ids: string[]) {
+  const uniqueIds = [...new Set(ids)].filter(Boolean)
+  if (!uniqueIds.length) return
   busy.value = true
   error.value = ''
-  try {
-    await api.deleteModelPlan(id)
+  const results = await Promise.allSettled(uniqueIds.map((id) => api.deleteModelPlan(id)))
+  const deleted = new Set<string>()
+  const failed: string[] = []
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') deleted.add(uniqueIds[index])
+    else failed.push(uniqueIds[index])
+  })
+  if (current.value && deleted.has(current.value.plan_id)) {
     current.value = null
     reviewed.value = false
     mapBroken.value = false
     emit('selected', null)
-    await refreshPlans()
-  } catch (e) {
-    error.value = String((e as Error).message || e)
-  } finally {
-    busy.value = false
   }
+  selectedPlanIds.value = selectedPlanIds.value.filter((id) => !deleted.has(id))
+  await refreshPlans()
+  busy.value = false
+  if (failed.length) error.value = `有 ${failed.length} 个方案删除失败，请检查是否仍被任务占用。`
+}
+
+async function remove() {
+  if (!current.value || !canDelete.value) return
+  const id = current.value.plan_id
+  if (!window.confirm(`删除复用方案 ${id}？此操作不可恢复。`)) return
+  await performDelete([id])
+}
+
+function toggleManage() {
+  manageOpen.value = !manageOpen.value
+  if (!manageOpen.value) selectedPlanIds.value = []
+}
+
+function toggleAllPlans() {
+  selectedPlanIds.value = allDeletableSelected.value
+    ? []
+    : deletablePlans.value.map((plan) => plan.plan_id)
+}
+
+async function removeSelectedPlans() {
+  const ids = [...selectedPlanIds.value]
+  if (!ids.length) return
+  if (!window.confirm(`删除选中的 ${ids.length} 个模型方案？此操作不可恢复。`)) return
+  await performDelete(ids)
+  if (!selectedPlanIds.value.length) manageOpen.value = false
 }
 
 watch(
@@ -162,6 +210,8 @@ watch(
   async () => {
     current.value = null
     mapBroken.value = false
+    selectedPlanIds.value = []
+    manageOpen.value = false
     emit('selected', null)
     await refreshBasin()
     await refreshPlans()
@@ -225,16 +275,37 @@ onUnmounted(() => {
             </option>
           </select>
         </label>
-        <button
-          type="button"
-          class="danger-button"
-          data-test="delete-plan"
-          :disabled="!canDelete"
-          @click="remove"
-        >
-          删除方案
-        </button>
+        <div class="reuse-actions">
+          <button type="button" class="manage-button" data-test="manage-plans" :disabled="locked || busy || !reusablePlans.length" @click="toggleManage">
+            {{ manageOpen ? '收起管理' : '批量管理' }}
+          </button>
+          <button type="button" class="danger-button" data-test="delete-plan" :disabled="!canDelete" @click="remove">
+            删除当前
+          </button>
+        </div>
       </div>
+
+      <section v-if="manageOpen" class="bulk-plan-manager" data-test="bulk-plan-manager">
+        <div class="bulk-plan-head">
+          <div><strong>批量管理模型方案</strong><span>仅可删除未在建模中的方案</span></div>
+          <button type="button" class="text-button" :disabled="!deletablePlans.length" @click="toggleAllPlans">
+            {{ allDeletableSelected ? '取消全选' : '全选可删除方案' }}
+          </button>
+        </div>
+        <div v-if="deletablePlans.length" class="bulk-plan-list">
+          <label v-for="plan in deletablePlans" :key="plan.plan_id" class="bulk-plan-item">
+            <input v-model="selectedPlanIds" type="checkbox" :value="plan.plan_id" />
+            <span><strong>{{ plan.plan_id }}</strong><small>{{ plan.model_mode || 'lumped' }} · {{ labels[plan.status] || plan.status }}</small></span>
+          </label>
+        </div>
+        <p v-else class="basin-caption">当前没有可批量删除的模型方案。</p>
+        <div class="bulk-plan-actions">
+          <span>已选 {{ selectedPlanIds.length }} 个</span>
+          <button type="button" class="danger-button" data-test="delete-selected-plans" :disabled="!selectedPlanIds.length || busy || locked" @click="removeSelectedPlans">
+            删除选中
+          </button>
+        </div>
+      </section>
 
       <fieldset :disabled="locked || busy || loadingBasin || !canBuild">
         <label>结构模式
@@ -328,16 +399,6 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 16px;
   padding-right: 4px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(90, 105, 125, 0.28) transparent;
-}
-.prep-body::-webkit-scrollbar { width: 9px; }
-.prep-body::-webkit-scrollbar-track { background: transparent; }
-.prep-body::-webkit-scrollbar-thumb {
-  background: rgba(90, 105, 125, 0.3);
-  border-radius: 999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
 }
 .prep-actions {
   flex: 0 0 auto;
@@ -385,6 +446,7 @@ onUnmounted(() => {
   gap: 12px;
   align-items: end;
 }
+.reuse-actions { display: flex; gap: 8px; align-items: center; }
 .model-settings {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -397,7 +459,8 @@ onUnmounted(() => {
   color: var(--text-secondary);
 }
 .primary-button,
-.danger-button {
+.danger-button,
+.manage-button {
   min-height: 40px;
   padding: 0 18px;
   border-radius: var(--radius-sm);
@@ -413,6 +476,8 @@ onUnmounted(() => {
 }
 .primary-button:hover:not(:disabled) { background: var(--accent-hover); }
 .primary-button:active:not(:disabled) { background: var(--accent-pressed); }
+.manage-button { background: var(--neutral-soft); color: var(--text-primary); white-space: nowrap; }
+.manage-button:hover:not(:disabled) { background: #e7e8ec; }
 .danger-button {
   background: var(--danger-soft);
   color: var(--danger);
@@ -429,6 +494,35 @@ onUnmounted(() => {
   font-weight: 500;
   cursor: pointer;
 }
+.bulk-plan-manager {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.72);
+}
+.bulk-plan-head,
+.bulk-plan-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.bulk-plan-head > div { display: grid; gap: 2px; }
+.bulk-plan-head strong { font-size: 13px; }
+.bulk-plan-head span,
+.bulk-plan-actions span { color: var(--text-secondary); font-size: 11px; }
+.bulk-plan-list { display: grid; gap: 6px; max-height: 220px; overflow: auto; }
+.bulk-plan-item {
+  grid-template-columns: auto minmax(0, 1fr) !important;
+  align-items: center;
+  gap: 9px !important;
+  padding: 8px 10px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+}
+.bulk-plan-item input { width: 14px; height: 14px; margin: 0; }
+.bulk-plan-item span { min-width: 0; display: grid; gap: 2px; }
+.bulk-plan-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.bulk-plan-item small { color: var(--text-secondary); font-size: 10px; }
+.bulk-plan-actions .danger-button { min-height: 34px; padding: 0 12px; font-size: 12px; }
 .materials {
   display: grid;
   gap: 10px;

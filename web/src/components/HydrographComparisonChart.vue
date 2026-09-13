@@ -13,6 +13,9 @@ let chart: echarts.ECharts | null = null
 let observer: ResizeObserver | null = null
 
 const seriesRows = computed(() => props.comparison?.series || [])
+const finalLabel = computed(() =>
+  props.comparison?.calibrated ? '最终方案（率定后）' : '最终方案',
+)
 
 function metricLine(label: string, metrics?: Record<string, number | null> | null) {
   if (!metrics) return null
@@ -33,15 +36,15 @@ const captions = computed(() => {
   const item = props.comparison
   if (!item) return []
   return [
-    metricLine('基线方案', item.baseline_metrics),
+    metricLine('基准方案', item.baseline_metrics),
     metricLine('候选方案', item.candidate_metrics),
-    metricLine('冻结方案', item.frozen_metrics),
+    metricLine(finalLabel.value, item.frozen_metrics),
     item.calibrated
-      ? '判定已采用候选方案'
+      ? '质量把关通过，候选方案已作为最终方案。'
       : item.gate_status === 'KEEP'
-        ? '判定维持原方案，未称作率定成功'
+        ? '质量把关后维持原方案，最终方案与基准方案可能重合。'
         : item.gate_status === 'ROLLBACK'
-          ? '判定已回退原方案'
+          ? '候选方案已撤销，最终方案回到安全方案。'
           : null,
   ].filter(Boolean)
 })
@@ -85,7 +88,7 @@ async function render() {
   ]
   if (has('baseline_m3s')) {
     series.push({
-      name: '基线方案',
+      name: '基准方案',
       type: 'line',
       showSymbol: false,
       lineStyle: { width: 2, color: CHART_COLORS[0], type: 'dashed' },
@@ -105,7 +108,7 @@ async function render() {
   }
   if (has('frozen_m3s')) {
     series.push({
-      name: '冻结方案',
+      name: finalLabel.value,
       type: 'line',
       showSymbol: false,
       lineStyle: { width: 3, color: CHART_COLORS[2] },
