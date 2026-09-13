@@ -52,18 +52,9 @@ def render_workflow_ts(catalog: dict[str, object]) -> str:
     )
 
 
-def render_workflow_meta_js(catalog: dict[str, object]) -> str:
-    payload = json.dumps(catalog, ensure_ascii=False, indent=2)
-    return (
-        "/* Generated from workflow/hydro-agent.v*.json. Do not edit. */\n"
-        f"window.HYDRO_WORKFLOW_META = {payload};\n"
-    )
-
-
 def derived_paths(repo_root: Path) -> dict[str, Path]:
     return {
         "frontend_ts": repo_root / "web" / "src" / "generated" / "workflow.ts",
-        "frontend_js": repo_root / "web" / "public" / "workflow-meta.js",
     }
 
 
@@ -81,24 +72,21 @@ def sync_derived(repo_root: Path, *, check: bool = False) -> list[Path]:
 
     file_hash = definition_hash(raw)
     catalog = frontend_catalog(definition, file_hash=file_hash)
-    paths = derived_paths(repo_root)
-    outputs = {
-        paths["frontend_ts"]: render_workflow_ts(catalog),
-        paths["frontend_js"]: render_workflow_meta_js(catalog),
-    }
+    target = derived_paths(repo_root)["frontend_ts"]
+    outputs = {target: render_workflow_ts(catalog)}
 
     drifted: list[Path] = []
     written: list[Path] = []
-    for target, content in outputs.items():
-        existing = target.read_text(encoding="utf-8") if target.is_file() else None
+    for output_path, content in outputs.items():
+        existing = output_path.read_text(encoding="utf-8") if output_path.is_file() else None
         if existing != content:
-            drifted.append(target)
+            drifted.append(output_path)
             if not check:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(content, encoding="utf-8")
-                written.append(target)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_text(content, encoding="utf-8")
+                written.append(output_path)
     if check and drifted:
-        names = ", ".join(str(path.relative_to(repo_root)) for path in drifted)
+        names = ", ".join(str(output_path.relative_to(repo_root)) for output_path in drifted)
         raise SystemExit(f"workflow artifacts drifted: {names}")
     return written if not check else []
 
