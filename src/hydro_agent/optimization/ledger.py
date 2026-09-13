@@ -104,9 +104,7 @@ class TrialLedgerBuilder:
             )
             primary_delta_raw = gate_metrics.get("primary_delta")
             try:
-                primary_delta = (
-                    float(primary_delta_raw) if primary_delta_raw is not None else None
-                )
+                primary_delta = float(primary_delta_raw) if primary_delta_raw is not None else None
             except (TypeError, ValueError):
                 primary_delta = None
             metric_deltas = {
