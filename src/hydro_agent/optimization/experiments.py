@@ -200,8 +200,10 @@ class ExperimentPlanner:
 
         strategy = self.registry.get(strategy_id)
         selected_groups = groups or tuple(strategy.param_groups)
-        selected_objective = objective if diagnosis.get("recommended_objective") else canonical_objective(
-            strategy.objective
+        selected_objective = (
+            objective
+            if diagnosis.get("recommended_objective")
+            else canonical_objective(strategy.objective)
         )
         evidence_refs = tuple(dict.fromkeys(hypothesis.evidence_refs))
         fingerprint = {
@@ -211,9 +213,12 @@ class ExperimentPlanner:
             "param_groups": selected_groups,
             "evidence_refs": evidence_refs,
         }
-        plan_id = "plan-" + hashlib.sha256(
-            json.dumps(fingerprint, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()[:16]
+        plan_id = (
+            "plan-"
+            + hashlib.sha256(
+                json.dumps(fingerprint, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()[:16]
+        )
         return ExperimentPlan(
             plan_id=plan_id,
             hypothesis_id=hypothesis.hypothesis_id,
@@ -242,7 +247,8 @@ class ExperimentPlanner:
 
 
 def infer_trial_outcome(
-    *, adoption_status: str,
+    *,
+    adoption_status: str,
     qualification_status: str,
     primary_delta: float | None,
 ) -> TrialOutcome:
