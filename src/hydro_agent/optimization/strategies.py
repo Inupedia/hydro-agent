@@ -1,51 +1,56 @@
 from hydro_agent.optimization.contracts import CalibrationStrategy
 
-# Production/research strategies: the Agent selects WHAT/WHY; SCE-UA searches
-# concrete parameter values under teacher-kernel bounds.
+# Research strategies: the Agent chooses WHAT/WHY; a deterministic numerical
+# optimizer searches concrete values under teacher/kernel bounds. DDS is the
+# default for higher-dimensional/budget-limited searches; SCE-UA is retained for
+# low-dimensional refinement and benchmark/ablation runs.
 XAJ_BOUNDED_V1 = CalibrationStrategy(
     strategy_id="xaj-bounded-v1",
-    max_candidates=96,
+    max_candidates=512,
     random_seed=20260908,
     objective="nse",
     local_scale=None,
     param_groups=("evap", "runoff", "routing"),
-    optimizer="sce-ua",
+    optimizer="dds",
 )
 
 XAJ_PEAK_BIAS_V1 = CalibrationStrategy(
     strategy_id="xaj-peak-bias-v1",
-    max_candidates=96,
+    max_candidates=384,
     random_seed=20260911,
     objective="composite",
     local_scale=None,
     param_groups=("runoff", "routing"),
-    optimizer="sce-ua",
+    optimizer="dds",
 )
 
 XAJ_LOCAL_REFINE_V1 = CalibrationStrategy(
     strategy_id="xaj-local-refine-v1",
-    max_candidates=64,
+    max_candidates=256,
     random_seed=20260912,
     objective="nse",
     local_scale=0.25,
     param_groups=("evap", "runoff", "routing"),
-    optimizer="sce-ua",
+    optimizer="dds",
 )
 
 # Process-oriented strategies used by the calibration-scientist loop.
 XAJ_WATER_BALANCE_V1 = CalibrationStrategy(
     strategy_id="xaj-water-balance-v1",
-    max_candidates=72,
+    max_candidates=384,
     random_seed=20260914,
     objective="composite",
     local_scale=0.35,
     param_groups=("evap", "runoff"),
-    optimizer="sce-ua",
+    optimizer="dds",
 )
 
+# Routing is only four parameters, so the classic SCE-UA benchmark remains a
+# sensible default here and gives the scientist two genuinely different search
+# mechanisms rather than cosmetic strategy rotation.
 XAJ_ROUTING_REFINE_V1 = CalibrationStrategy(
     strategy_id="xaj-routing-refine-v1",
-    max_candidates=56,
+    max_candidates=256,
     random_seed=20260915,
     objective="composite",
     local_scale=0.35,
@@ -55,12 +60,12 @@ XAJ_ROUTING_REFINE_V1 = CalibrationStrategy(
 
 XAJ_HYDRO_COMPOSITE_V1 = CalibrationStrategy(
     strategy_id="xaj-hydro-composite-v1",
-    max_candidates=96,
+    max_candidates=512,
     random_seed=20260916,
     objective="composite",
     local_scale=0.35,
     param_groups=("evap", "runoff", "routing"),
-    optimizer="sce-ua",
+    optimizer="dds",
 )
 
 # Second-stage search used only when the selected candidate presses against a
@@ -68,18 +73,30 @@ XAJ_HYDRO_COMPOSITE_V1 = CalibrationStrategy(
 # It never expands beyond the absolute parameter bounds.
 XAJ_BROADENED_REFINE_V1 = CalibrationStrategy(
     strategy_id="xaj-broadened-refine-v1",
-    max_candidates=96,
+    max_candidates=512,
     random_seed=20260917,
     objective="composite",
     local_scale=0.65,
     param_groups=("evap", "runoff", "routing"),
+    optimizer="dds",
+)
+
+# Explicit SCE-UA full-search benchmark for O/P/A experiments. Keeping this as
+# a first-class strategy lets evaluation compare Agent value at the same budget.
+XAJ_SCEUA_BENCHMARK_V1 = CalibrationStrategy(
+    strategy_id="xaj-sceua-benchmark-v1",
+    max_candidates=512,
+    random_seed=20260918,
+    objective="nse",
+    local_scale=None,
+    param_groups=("evap", "runoff", "routing"),
     optimizer="sce-ua",
 )
 
-# Explicit baseline retained for ablation and fair O/P/A experiments.
+# Explicit random baseline retained for ablation and fair O/P/A experiments.
 XAJ_RANDOM_SEARCH_V1 = CalibrationStrategy(
     strategy_id="xaj-random-search-v1",
-    max_candidates=32,
+    max_candidates=128,
     random_seed=20260908,
     objective="nse",
     local_scale=None,
@@ -111,6 +128,7 @@ class CalibrationStrategyRegistry:
                 XAJ_ROUTING_REFINE_V1,
                 XAJ_HYDRO_COMPOSITE_V1,
                 XAJ_BROADENED_REFINE_V1,
+                XAJ_SCEUA_BENCHMARK_V1,
                 XAJ_RANDOM_SEARCH_V1,
                 XAJ_HYDROLOGIST_MANUAL_V1,
             )
