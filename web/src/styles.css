@@ -220,6 +220,32 @@ th.numeric {
   font-variant-numeric: tabular-nums;
 }
 
+@media (min-width: 761px) {
+  .observatory.is-focus .live-workflow .workflow-focus {
+    display: flex;
+    align-items: stretch;
+  }
+
+  .observatory.is-focus .live-workflow .focus-stage {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+  }
+
+  .observatory.is-focus .live-workflow .linear-flow,
+  .observatory.is-focus .live-workflow .single-stage-flow,
+  .observatory.is-focus .live-workflow .decision-stage-flow {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .observatory.is-focus .live-workflow .gate-flow {
+    flex: 1 1 auto;
+    min-height: 0;
+    align-content: center;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
