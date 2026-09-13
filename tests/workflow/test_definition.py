@@ -80,6 +80,8 @@ def test_frontend_catalog_preserves_branching_workflow_metadata():
         "ACCEPT": "accept",
         "KEEP": "keep",
         "ROLLBACK": "rollback",
+        "blocked": "blocked",
+        "failed": "blocked",
     }
 
     step_order = catalog["step_order"]
