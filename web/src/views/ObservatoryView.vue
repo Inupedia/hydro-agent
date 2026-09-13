@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import ExecutionJournal from '../components/ExecutionJournal.vue'
 import ForecastChart from '../components/ForecastChart.vue'
 import HydrographComparisonChart from '../components/HydrographComparisonChart.vue'
 import LiveWorkflow from '../components/LiveWorkflow.vue'
@@ -11,7 +12,7 @@ import ParamTuningPanel from '../components/ParamTuningPanel.vue'
 import { useDemoStore } from '../stores/demo'
 import { api } from '../api/client'
 import { gsap, motionDuration, prefersReducedMotion } from '../motion/gsap'
-import { actionTitle, basinLabel, gateDecisionZh } from '../demo/stages'
+import { basinLabel } from '../demo/stages'
 import { hydrographTitleZh } from '../chartTheme'
 
 const demo = useDemoStore()
@@ -134,7 +135,6 @@ const chartForecasts = computed(() => {
   const byIssue = new Map<string, (typeof rows)[number]>()
   for (const row of pool) {
     const key = String(row.issue_time).slice(0, 10)
-    // Keep the latest forecast id for that issue day.
     byIssue.set(key, row)
   }
   return [...byIssue.entries()]
@@ -146,19 +146,7 @@ const elapsed = computed(() => {
   const seconds = Math.max(0, Math.floor((now.value - demo.startedAt) / 1000))
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 })
-const eventStatus = (status: string) =>
-  ({ succeeded: '已完成', completed: '已完成', success: '已完成', running: '进行中', failed: '失败', error: '失败', skipped: '已跳过' })[
-    status
-  ] || '执行记录'
-const events = computed(() => [...demo.timeline].reverse())
-const reports = computed(() => demo.results?.report_artifacts || [])
 const error = computed(() => demo.error || demo.run?.llm_error)
-const gate = computed(() =>
-  gateDecisionZh(typeof demo.results?.gate?.status === 'string' ? demo.results.gate.status : null, {
-    reasons: demo.results?.gate?.reason_codes || demo.results?.gate?.reasons,
-    metrics: (demo.results?.gate?.metrics as Record<string, unknown> | undefined) || null,
-  }),
-)
 
 async function begin() {
   busy.value = true
@@ -251,7 +239,6 @@ function animateResultsSurfaces() {
   const tuning = tuningMount.value
   const dur = motionDuration(0.6)
   if (chart) {
-    // Always clear opacity/visibility so interrupted tweens cannot hide the chart.
     gsap.fromTo(
       chart,
       { autoAlpha: prefersReducedMotion() ? 1 : 0.2, y: prefersReducedMotion() ? 0 : 16 },
@@ -305,8 +292,7 @@ watch(
 )
 
 watch(
-  () =>
-    [showWorkflow.value, showResultsStage.value, chartForecasts.value.length, hasHydrograph.value, showTuning.value] as const,
+  () => [showWorkflow.value, showResultsStage.value, chartForecasts.value.length, hasHydrograph.value, showTuning.value] as const,
   async ([workflow, resultsStage, forecastCount, hydrograph, tuning]) => {
     if (workflow) return
     await nextTick()
@@ -372,24 +358,12 @@ onUnmounted(() => {
       <div class="header-end">
         <div v-if="showResultsStage" class="header-actions">
           <label class="header-case-picker">已有案例
-            <select
-              data-test="header-case-picker"
-              aria-label="已有案例"
-              :disabled="demo.isRunning || busy"
-              :value="demo.mode === 'replay' ? demo.taskId : ''"
-              @change="openCase"
-            >
+            <select data-test="header-case-picker" aria-label="已有案例" :disabled="demo.isRunning || busy" :value="demo.mode === 'replay' ? demo.taskId : ''" @change="openCase">
               <option value="">{{ demo.caseLibrary.length ? '选择一份已完成记录' : '暂无已完成记录' }}</option>
               <option v-for="task in demo.caseLibrary" :key="task.task_id" :value="task.task_id">{{ task.start_date || task.task_id }} · {{ basinLabel(task.basin_id) }}</option>
             </select>
           </label>
-          <button
-            data-test="header-delete-case"
-            type="button"
-            class="case-delete"
-            :disabled="demo.isRunning || busy || demo.mode !== 'replay' || !demo.taskId"
-            @click="deleteSelectedCase"
-          >删除</button>
+          <button data-test="header-delete-case" type="button" class="case-delete" :disabled="demo.isRunning || busy || demo.mode !== 'replay' || !demo.taskId" @click="deleteSelectedCase">删除</button>
           <button data-test="header-new-task" type="button" class="header-new-task" @click="newTask">新建任务</button>
         </div>
         <div class="connection"><i :class="{ online: connected }" />{{ mode }}</div>
@@ -398,70 +372,27 @@ onUnmounted(() => {
 
     <main class="observatory-grid">
       <section ref="mainStage" class="main-stage glass-pane" :class="{ 'main-stage--focus': focusStage, 'main-stage--results': showResultsStage }">
-        <LiveWorkflow
-          v-if="showWorkflow"
-          :action="action"
-          :status="demo.run?.paused ? 'paused' : demo.run?.status"
-          :completed-actions="completedActions"
-          :gate-status="gateStatus"
-          :expanded="focusStage"
-          :workflow-version="demo.taskMeta?.workflow_version"
-        />
-        <ModelPreparation
-          v-else-if="modelingAvailable && !demo.taskId"
-          :basin-id="demo.draft.basin_id"
-          :selected-id="demo.draft.model_plan_id"
-          :locked="busy"
-          @selected="selectPlan"
-        />
+        <LiveWorkflow v-if="showWorkflow" :action="action" :status="demo.run?.paused ? 'paused' : demo.run?.status" :completed-actions="completedActions" :gate-status="gateStatus" :expanded="focusStage" :workflow-version="demo.taskMeta?.workflow_version" />
+        <ModelPreparation v-else-if="modelingAvailable && !demo.taskId" :basin-id="demo.draft.basin_id" :selected-id="demo.draft.model_plan_id" :locked="busy" @selected="selectPlan" />
         <div v-else-if="showResultsStage" ref="forecastSurface" class="forecast-surface" data-test="forecast-surface">
           <template v-if="demo.results?.test_hydrograph?.series?.length">
-            <div class="chart-title">
-              <h2>{{ hydrographTitleZh(demo.results.test_hydrograph) }}</h2>
-              <span>{{ demo.results.test_hydrograph.evaluated_days }} 天 · {{ demo.results.test_hydrograph.calibrated ? '已采用候选' : '冻结方案' }}</span>
-            </div>
+            <div class="chart-title"><h2>{{ hydrographTitleZh(demo.results.test_hydrograph) }}</h2><span>{{ demo.results.test_hydrograph.evaluated_days }} 天 · {{ demo.results.test_hydrograph.calibrated ? '已采用候选' : '冻结方案' }}</span></div>
             <HydrographComparisonChart :comparison="demo.results.test_hydrograph" />
           </template>
           <template v-if="demo.results?.calibration_hydrograph?.series?.length">
-            <div class="chart-title">
-              <h2>{{ hydrographTitleZh(demo.results.calibration_hydrograph) }}</h2>
-              <span>率定窗 · 观测 / 基线 / 候选</span>
-            </div>
+            <div class="chart-title"><h2>{{ hydrographTitleZh(demo.results.calibration_hydrograph) }}</h2><span>率定窗 · 观测 / 基线 / 候选</span></div>
             <HydrographComparisonChart :comparison="demo.results.calibration_hydrograph" />
           </template>
           <template v-if="chartForecasts.length">
-            <div class="chart-title">
-              <h2>{{ hasHydrograph ? '预报记录' : '流量预报' }}</h2>
-              <span>{{ mode }} · m³/s · {{ chartForecasts.length }} 个起报日</span>
-            </div>
+            <div class="chart-title"><h2>{{ hasHydrograph ? '预报记录' : '流量预报' }}</h2><span>{{ mode }} · m³/s · {{ chartForecasts.length }} 个起报日</span></div>
             <ForecastChart :forecasts="chartForecasts" />
             <p class="chart-note">{{ hasHydrograph ? '横轴为起报日期；这是提前 1 / 2 / 3 天的滚动预报记录，不是独立检验过程线。' : '横轴为起报日期；曲线为提前 1 / 2 / 3 天预报（当前方案）。' }}</p>
           </template>
-          <div v-if="!chartForecasts.length && !hasHydrograph" class="results-pending">
-            <span class="overline">结果整理中</span>
-            <h2>正在整理过程线与预报记录</h2>
-            <p>运行已结束。过程线与预报序列写入后会显示在这里，无需刷新页面。</p>
-          </div>
+          <div v-if="!chartForecasts.length && !hasHydrograph" class="results-pending"><span class="overline">结果整理中</span><h2>正在整理过程线与预报记录</h2><p>运行已结束。过程线与预报序列写入后会显示在这里，无需刷新页面。</p></div>
         </div>
-        <div v-else class="prep-placeholder">
-          <span class="overline">01 / 数据准备</span>
-          <h2>等待建模服务</h2>
-          <p>建模服务就绪后，将在此完成资料检查、单元划分与边界复核。</p>
-        </div>
-        <div v-if="showHydrologist" class="hydrologist-mount">
-          <HydrologistTune
-            :plan-id="demo.draft.model_plan_id"
-            :task-id="demo.taskId"
-            :locked="busy || demo.isRunning"
-          />
-        </div>
-        <div v-if="showTuning" ref="tuningMount" class="tuning-mount">
-          <ParamTuningPanel
-            :diagnosis="demo.results?.diagnosis"
-            :optimize="demo.results?.optimize"
-            :scheme="demo.results?.scheme"
-          />
-        </div>
+        <div v-else class="prep-placeholder"><span class="overline">01 / 数据准备</span><h2>等待建模服务</h2><p>建模服务就绪后，将在此完成资料检查、单元划分与边界复核。</p></div>
+        <div v-if="showHydrologist" class="hydrologist-mount"><HydrologistTune :plan-id="demo.draft.model_plan_id" :task-id="demo.taskId" :locked="busy || demo.isRunning" /></div>
+        <div v-if="showTuning" ref="tuningMount" class="tuning-mount"><ParamTuningPanel :diagnosis="demo.results?.diagnosis" :optimize="demo.results?.optimize" :scheme="demo.results?.scheme" /></div>
       </section>
 
       <aside ref="taskPane" class="task-pane glass-pane">
@@ -475,14 +406,7 @@ onUnmounted(() => {
             <fieldset :disabled="locked">
               <label>研究流域
                 <select v-model="demo.draft.basin_id" data-test="basin-selector" aria-label="研究流域">
-                  <option
-                    v-for="basin in basinOptions"
-                    :key="basin.basin_id"
-                    :value="basin.basin_id"
-                    :disabled="basin.ready_for_build === false"
-                  >
-                    {{ basin.label }} · {{ basin.basin_id }}{{ basin.ready_for_build === false ? '（资料不完整）' : '' }}
-                  </option>
+                  <option v-for="basin in basinOptions" :key="basin.basin_id" :value="basin.basin_id" :disabled="basin.ready_for_build === false">{{ basin.label }} · {{ basin.basin_id }}{{ basin.ready_for_build === false ? '（资料不完整）' : '' }}</option>
                 </select>
               </label>
               <p v-if="demo.draft.model_plan_id" class="basin-caption">已绑定方案：{{ demo.draft.model_plan_id }}</p>
@@ -490,12 +414,12 @@ onUnmounted(() => {
               <div class="section-heading subsection"><span class="overline">预报任务</span></div>
               <div :class="{ 'is-locked': serviceMode === 'real' && !planReady }">
                 <fieldset :disabled="locked || (serviceMode === 'real' && !planReady)">
-                <div class="date-fields"><label>开始日期<input v-model="demo.draft.start_date" type="date" required /></label><label>结束日期<input v-model="demo.draft.end_date" type="date" :min="demo.draft.start_date" required /></label></div>
-                <label>计算模型<select v-model="demo.draft.model_id"><option value="xaj">新安江 · XAJ</option><option value="openhydronet" disabled>OpenHydroNet · 尚未启用</option></select></label>
-                <label>气象资料<select v-model="demo.draft.forcing_mode"><option value="R">实测日资料 · 历史率定</option><option value="F" disabled>预报资料 · 当前未开放</option></select></label>
-                <label class="toggle-row"><span>允许尝试改进方案</span><input v-model="demo.draft.allow_optimization" type="checkbox" role="switch" /></label>
-                <button class="text-button" type="button" :aria-expanded="advanced" @click="advanced = !advanced">{{ advanced ? '收起运行设置 −' : '运行设置 +' }}</button>
-                <div v-if="advanced" class="advanced-fields"><label>基础方案<input v-model="demo.draft.base_scheme_id" required /></label><label>最多决策轮次<input v-model.number="demo.draft.max_agent_decision_rounds" type="number" min="1" max="100" required /></label><label>最多改进次数<input v-model.number="demo.draft.max_optimization_cycles" type="number" min="0" max="20" required /></label></div>
+                  <div class="date-fields"><label>开始日期<input v-model="demo.draft.start_date" type="date" required /></label><label>结束日期<input v-model="demo.draft.end_date" type="date" :min="demo.draft.start_date" required /></label></div>
+                  <label>计算模型<select v-model="demo.draft.model_id"><option value="xaj">新安江 · XAJ</option><option value="openhydronet" disabled>OpenHydroNet · 尚未启用</option></select></label>
+                  <label>气象资料<select v-model="demo.draft.forcing_mode"><option value="R">实测日资料 · 历史率定</option><option value="F" disabled>预报资料 · 当前未开放</option></select></label>
+                  <label class="toggle-row"><span>允许尝试改进方案</span><input v-model="demo.draft.allow_optimization" type="checkbox" role="switch" /></label>
+                  <button class="text-button" type="button" :aria-expanded="advanced" @click="advanced = !advanced">{{ advanced ? '收起运行设置 −' : '运行设置 +' }}</button>
+                  <div v-if="advanced" class="advanced-fields"><label>基础方案<input v-model="demo.draft.base_scheme_id" required /></label><label>最多决策轮次<input v-model.number="demo.draft.max_agent_decision_rounds" type="number" min="1" max="100" required /></label><label>最多改进次数<input v-model.number="demo.draft.max_optimization_cycles" type="number" min="0" max="20" required /></label></div>
                 </fieldset>
               </div>
             </fieldset>
@@ -506,34 +430,22 @@ onUnmounted(() => {
             <button v-else-if="demo.isRunning" type="button" class="start-button" disabled>正在计算<span class="activity-dot" /></button>
             <button v-else type="button" class="start-button" @click="newTask">新建任务</button>
             <p class="source-note">{{ demo.draft.forcing_mode === 'R' ? `使用 ${selectedBasin?.label || demo.draft.basin_id} 本地日资料做历史率定与检验，不代表业务预报。` : '预报资料可用性将在运行时检查。' }}</p>
-            <div class="case-picker-row">
-              <label class="case-picker">已有案例<select aria-label="已有案例" :disabled="demo.isRunning || busy" :value="demo.mode === 'replay' ? demo.taskId : ''" @change="openCase"><option value="">{{ demo.caseLibrary.length ? '选择一份已完成记录' : '暂无已完成记录' }}</option><option v-for="task in demo.caseLibrary" :key="task.task_id" :value="task.task_id">{{ task.start_date || task.task_id }} · {{ basinLabel(task.basin_id) }}</option></select></label>
-              <button data-test="delete-case" type="button" class="case-delete" :disabled="demo.isRunning || busy || demo.mode !== 'replay' || !demo.taskId" @click="deleteSelectedCase">删除</button>
-            </div>
+            <div class="case-picker-row"><label class="case-picker">已有案例<select aria-label="已有案例" :disabled="demo.isRunning || busy" :value="demo.mode === 'replay' ? demo.taskId : ''" @change="openCase"><option value="">{{ demo.caseLibrary.length ? '选择一份已完成记录' : '暂无已完成记录' }}</option><option v-for="task in demo.caseLibrary" :key="task.task_id" :value="task.task_id">{{ task.start_date || task.task_id }} · {{ basinLabel(task.basin_id) }}</option></select></label><button data-test="delete-case" type="button" class="case-delete" :disabled="demo.isRunning || busy || demo.mode !== 'replay' || !demo.taskId" @click="deleteSelectedCase">删除</button></div>
           </div>
         </form>
       </aside>
 
       <aside ref="journalPane" class="journal-pane glass-pane">
-        <div class="pane-head">
-          <div class="section-heading"><span class="overline">执行记录</span></div>
-          <h2>执行记录</h2>
-          <div class="journal-status"><span :class="{ 'blue-dot': demo.isRunning }">{{ demo.isRunning ? '运行中' : demo.isCompleted ? '已完成' : demo.isFailed ? '已受阻' : '等待执行' }}</span><span>{{ elapsed }}</span></div>
-          <div v-if="error" class="inline-error" role="alert"><strong>暂时无法继续</strong><p>{{ error }}</p><button v-if="demo.taskId" class="text-button" @click="demo.refresh()">重新读取状态</button></div>
-        </div>
-        <div class="pane-body journal-list">
-          <div v-if="!events.length" class="journal-empty"><span aria-hidden="true">⌁</span><h3>等待第一条记录</h3><p>开始后，这里会记录系统做了什么，以及得到了什么。</p></div>
-          <details v-for="event in events" :key="event.id" class="journal-event"><summary><span class="event-dot" :class="{ failed: ['failed', 'error'].includes(event.status) }" /><span><small>{{ eventStatus(event.status) }}</small><strong>{{ event.label || actionTitle(event.action) }}</strong></span><span class="expand-icon">＋</span></summary><pre>{{ JSON.stringify(event.details, null, 2) }}</pre></details>
-        </div>
-        <div class="pane-actions report-area">
-          <span class="overline">结果与报告</span>
-          <div v-if="demo.results" class="gate-note">
-            <strong>{{ gate.title }}</strong>
-            <p>{{ gate.reason }}</p>
-          </div>
-          <template v-if="reports.length"><a v-for="name in reports" :key="name" :href="`/api/tasks/${encodeURIComponent(demo.taskId || '')}/report/${encodeURIComponent(name)}`" target="_blank" rel="noreferrer">{{ name }} <span>↗</span></a></template>
-          <p v-else>{{ demo.isCompleted ? '尚未取得报告，可刷新结果重试。' : '运行完成后，可在这里打开报告。' }}</p>
-        </div>
+        <ExecutionJournal
+          :task-id="demo.taskId"
+          :events="demo.timeline"
+          :running="demo.isRunning"
+          :completed="demo.isCompleted"
+          :failed="demo.isFailed"
+          :elapsed="elapsed"
+          :error="error"
+          @refresh="demo.refresh()"
+        />
       </aside>
     </main>
     <footer class="observatory-footer"><span>HYDRO-AGENT <span class="footer-divider">/</span> 课题工作台</span><span>新安江模型 · 可追溯执行</span></footer>

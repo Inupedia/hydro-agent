@@ -7,7 +7,7 @@ import { useDemoStore } from '../stores/demo'
 import { api } from '../api/client'
 vi.mock('../components/ForecastChart.vue', () => ({ default: { template: '<div data-test="chart" />' } }))
 vi.mock('../components/HydrographComparisonChart.vue', () => ({ default: { template: '<div data-test="hydrograph" />' } }))
-vi.mock('../api/client', () => ({ api: { health: vi.fn(async () => ({ status: 'ok', mode: 'demo', basin_catalog: true })), listBasins: vi.fn(async () => [{basin_id:'yaogu',label:'腰古',ready_for_build:true},{basin_id:'usgs_02472000',label:'Leaf River near Collins (MS)',ready_for_build:true}]), listTasks: vi.fn(async () => []), createTask: vi.fn(async () => ({task_id:'test-task'})), deleteTask: vi.fn(async () => undefined), startRun: vi.fn(async () => ({ status:'running',worker_active:true })), getRun: vi.fn(async () => ({ status:'running',worker_active:true })), getTimeline: vi.fn(async () => []), getTask: vi.fn(async () => ({ basin_id:'basin-restored',start_date:'2021-01-01',end_date:'2021-01-03',forcing_mode:'R' })) } }))
+vi.mock('../api/client', () => ({ api: { health: vi.fn(async () => ({ status: 'ok', mode: 'demo', basin_catalog: true })), listBasins: vi.fn(async () => [{basin_id:'yaogu',label:'腰古',ready_for_build:true},{basin_id:'usgs_02472000',label:'Leaf River near Collins (MS)',ready_for_build:true}]), listTasks: vi.fn(async () => []), createTask: vi.fn(async () => ({task_id:'test-task'})), deleteTask: vi.fn(async () => undefined), startRun: vi.fn(async () => ({ status:'running',worker_active:true })), getRun: vi.fn(async () => ({ status:'running',worker_active:true })), getTimeline: vi.fn(async () => []), getAgentLog: vi.fn(async () => ({task_id:'test-task',rounds:[]})), getTask: vi.fn(async () => ({ basin_id:'basin-restored',start_date:'2021-01-01',end_date:'2021-01-03',forcing_mode:'R' })) } }))
 async function setup(path='/') {
   const router = createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:ObservatoryView}]})
   await router.push(path)
@@ -41,7 +41,7 @@ describe('single page observatory',()=>{
   expect(wrapper.find('.record-count').exists()).toBe(false)
   expect(wrapper.find('.water-scene').exists()).toBe(false)
   expect(wrapper.find('.stage-track').exists()).toBe(false)
- expect(wrapper.find('.hero-copy').exists()).toBe(false)
+  expect(wrapper.find('.hero-copy').exists()).toBe(false)
   wrapper.unmount()
  })
  it('lists Leaf River and keeps the selected basin',async()=>{
@@ -53,7 +53,7 @@ describe('single page observatory',()=>{
   expect(wrapper.text()).toContain('使用 Leaf River near Collins (MS) 本地日资料')
   wrapper.unmount()
  })
- it('renders arriving results in place and exposes report links',async()=>{
+ it('renders arriving results in place without report download links',async()=>{
   const {wrapper,store,router}=await setup()
   store.taskId='test-task'
   store.run={status:'completed',worker_active:false,phase:'E',needs_follow_up:false} as typeof store.run
@@ -95,8 +95,8 @@ describe('single page observatory',()=>{
   expect(wrapper.text()).toContain('优化器提出的候选参数（变化 2 项，未必采用）')
   expect(wrapper.text()).toContain('最终采用参数（正式变化 0 项）')
   expect(wrapper.text()).toContain('并非优化器没有工作')
-  expect(wrapper.text()).toContain('保留原方案')
-  expect(wrapper.find('a[href*="/report/"]').attributes('href')).toBe('/api/tasks/test-task/report/report.md')
+  expect(wrapper.find('a[href*="/report/"]').exists()).toBe(false)
+  expect(wrapper.text()).not.toContain('结果与报告')
   expect(router.currentRoute.value.path).toBe('/')
   wrapper.unmount()
  })

@@ -58,6 +58,31 @@ export type TimelineItem = {
   details: Record<string, unknown>
 }
 
+export type AgentRoundLogItem = {
+  round_number: number
+  occurred_at?: string | null
+  action?: string | null
+  action_zh: string
+  hypothesis?: string | null
+  hypothesis_zh: string
+  strategy_id?: string | null
+  rationale_summary: string
+  llm_output: string
+  input_summary_zh: string
+  judgment_zh: string
+  input_world_state: Record<string, unknown>
+  tool_status?: string | null
+  tool_status_zh: string
+  tool_observations: string[]
+  tool_metrics: Record<string, number>
+  error?: string | null
+}
+
+export type AgentLogSummary = {
+  task_id: string
+  rounds: AgentRoundLogItem[]
+}
+
 export type HydrographPoint = {
   time: string
   observed_m3s?: number | null

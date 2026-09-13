@@ -1,4 +1,5 @@
 import type {
+  AgentLogSummary,
   BasinInfo,
   ModelPlan,
   ResultSummary,
@@ -128,6 +129,9 @@ export const api = {
   },
   getTimeline(taskId: string) {
     return request<TimelineItem[]>(`/api/tasks/${taskId}/timeline`)
+  },
+  getAgentLog(taskId: string) {
+    return request<AgentLogSummary>(`/api/tasks/${taskId}/agent-log`)
   },
   getResults(taskId: string) {
     return request<ResultSummary>(`/api/tasks/${taskId}/results`)

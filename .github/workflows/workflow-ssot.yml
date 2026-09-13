@@ -7,7 +7,13 @@ on:
       - 'src/hydro_agent/workflow/**'
       - 'web/src/generated/**'
       - 'web/src/components/LiveWorkflow.vue'
+      - 'web/src/components/ExecutionJournal.vue'
+      - 'web/src/views/ObservatoryView.vue'
+      - 'web/src/api/client.ts'
+      - 'web/src/types/api.ts'
       - 'web/src/__tests__/LiveWorkflow.test.ts'
+      - 'web/src/__tests__/ExecutionJournal.test.ts'
+      - 'web/src/__tests__/ObservatoryView.test.ts'
       - 'scripts/sync_workflow.py'
       - '.github/workflows/workflow-ssot.yml'
   pull_request:
@@ -16,7 +22,13 @@ on:
       - 'src/hydro_agent/workflow/**'
       - 'web/src/generated/**'
       - 'web/src/components/LiveWorkflow.vue'
+      - 'web/src/components/ExecutionJournal.vue'
+      - 'web/src/views/ObservatoryView.vue'
+      - 'web/src/api/client.ts'
+      - 'web/src/types/api.ts'
       - 'web/src/__tests__/LiveWorkflow.test.ts'
+      - 'web/src/__tests__/ExecutionJournal.test.ts'
+      - 'web/src/__tests__/ObservatoryView.test.ts'
       - 'scripts/sync_workflow.py'
       - '.github/workflows/workflow-ssot.yml'
   workflow_dispatch:
@@ -54,7 +66,7 @@ jobs:
 
       - name: Test workflow UI
         working-directory: web
-        run: npm test -- LiveWorkflow.test.ts
+        run: npm test -- LiveWorkflow.test.ts ExecutionJournal.test.ts ObservatoryView.test.ts
 
       - name: Build web app
         working-directory: web
