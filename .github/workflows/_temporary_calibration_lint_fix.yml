@@ -35,10 +35,20 @@ jobs:
           fi
           for file in "${files[@]}"; do
             sha=$(gh api "repos/${GITHUB_REPOSITORY}/contents/${file}?ref=${TARGET_BRANCH}" --jq .sha)
-            content=$(base64 -w0 "${file}")
-            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${file}" \
-              -f message="chore: apply safe ruff fix to ${file}" \
-              -f content="${content}" \
-              -f sha="${sha}" \
-              -f branch="${TARGET_BRANCH}" >/dev/null
+            python - "${file}" "${sha}" "${TARGET_BRANCH}" > /tmp/request.json <<'PY'
+          import base64
+          import json
+          import pathlib
+          import sys
+
+          path, sha, branch = sys.argv[1:]
+          payload = {
+              "message": f"chore: apply safe ruff fix to {path}",
+              "content": base64.b64encode(pathlib.Path(path).read_bytes()).decode("ascii"),
+              "sha": sha,
+              "branch": branch,
+          }
+          print(json.dumps(payload))
+          PY
+            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${file}" --input /tmp/request.json >/dev/null
           done
