@@ -7,9 +7,9 @@ concrete parameter values.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
-import math
 
 
 ScoreFn = Callable[[dict[str, float]], float | None]
