@@ -56,3 +56,13 @@ def test_qualified_case_is_the_only_dual_gate_positive_lesson():
         qualification_status="QUALIFIED",
     )
     assert "经验证的正案例" in lesson
+
+
+def test_qualified_but_rolled_back_case_is_not_an_adoption_success():
+    lesson = lesson_from_gate(
+        "ROLLBACK",
+        adoption_status="ROLLBACK",
+        qualification_status="QUALIFIED",
+    )
+    assert "不得替换当前方案" in lesson
+    assert "不标记为采用成功" in lesson
