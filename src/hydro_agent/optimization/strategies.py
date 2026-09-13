@@ -9,6 +9,10 @@ from hydro_agent.optimization.contracts import CalibrationStrategy
 # strategies. It consumes the same hard evaluation budget as the optimizer.
 # Benchmarks intentionally remain unscreened so O/P/A experiments preserve a
 # full-space numerical-search baseline.
+#
+# NOTE: ``composite`` is retained in these serialized runtime contracts only as a
+# compatibility alias. ``CalibrationStrategy.canonical_objective`` and new
+# ExperimentPlan/reporting code expose the actual metric name: KGE.
 MORRIS_SCREENING = dict(
     sensitivity_method="morris",
     sensitivity_trajectories=6,
@@ -34,7 +38,7 @@ XAJ_PEAK_BIAS_V1 = CalibrationStrategy(
     strategy_id="xaj-peak-bias-v1",
     max_candidates=384,
     random_seed=20260911,
-    objective="kge",
+    objective="composite",
     local_scale=None,
     param_groups=("runoff", "routing"),
     optimizer="dds",
@@ -57,7 +61,7 @@ XAJ_WATER_BALANCE_V1 = CalibrationStrategy(
     strategy_id="xaj-water-balance-v1",
     max_candidates=384,
     random_seed=20260914,
-    objective="kge",
+    objective="composite",
     local_scale=0.35,
     param_groups=("evap", "runoff"),
     optimizer="dds",
@@ -71,7 +75,7 @@ XAJ_ROUTING_REFINE_V1 = CalibrationStrategy(
     strategy_id="xaj-routing-refine-v1",
     max_candidates=256,
     random_seed=20260915,
-    objective="kge",
+    objective="composite",
     local_scale=0.35,
     param_groups=("routing",),
     optimizer="sce-ua",
@@ -81,7 +85,7 @@ XAJ_HYDRO_COMPOSITE_V1 = CalibrationStrategy(
     strategy_id="xaj-hydro-composite-v1",
     max_candidates=512,
     random_seed=20260916,
-    objective="kge",
+    objective="composite",
     local_scale=0.35,
     param_groups=("evap", "runoff", "routing"),
     optimizer="dds",
@@ -95,7 +99,7 @@ XAJ_BROADENED_REFINE_V1 = CalibrationStrategy(
     strategy_id="xaj-broadened-refine-v1",
     max_candidates=512,
     random_seed=20260917,
-    objective="kge",
+    objective="composite",
     local_scale=0.65,
     param_groups=("evap", "runoff", "routing"),
     optimizer="dds",
