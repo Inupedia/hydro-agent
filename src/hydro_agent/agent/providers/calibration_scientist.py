@@ -141,30 +141,42 @@ class CalibrationScientistDecisionProvider:
 
         if latest.action == ActionCode.A09_RESOLVE:
             completed = view.budget.max_optimization_cycles - view.budget.optimization_cycles_remaining
-            gate_status = str(latest.gates.get("status") or latest.status)
-            if gate_status == "ACCEPT":
+            resolve_status = str(latest.gates.get("status") or latest.status)
+            gate_status = str(latest.gates.get("gate_status") or resolve_status)
+            qualification_status = str(latest.gates.get("qualification_status") or "")
+            candidate_adopted = str(latest.gates.get("candidate_adopted") or "").lower() == "true"
+
+            # Adoption and qualification are independent. Only qualification can
+            # declare calibration complete; ACCEPT+UNQUALIFIED means "keep the
+            # improved working baseline and continue scientific diagnosis".
+            if qualification_status == "QUALIFIED":
                 action = self._fallback(view, ActionCode.A10_FREEZE)
                 return AgentDecision(
                     action=action,
                     hypothesis=ProblemHypothesis.MODEL,
-                    rationale_summary="候选通过独立验证，冻结已解析方案。",
+                    rationale_summary="候选已通过独立资格评价，冻结解析后的工作方案。",
                 )
+
             if completed < self.max_experiments and view.budget.optimization_cycles_remaining > 0:
                 action = self._fallback(view, ActionCode.A06_DIAGNOSE)
+                adopted_note = "已采用改进候选" if candidate_adopted else "候选未采用"
                 return AgentDecision(
                     action=action,
                     hypothesis=ProblemHypothesis.UNKNOWN,
                     rationale_summary=(
-                        f"Gate={gate_status}；失败本身作为新 Evidence，重新诊断后再设计一次率定实验，"
+                        f"Gate={gate_status} / Qualification={qualification_status or 'UNKNOWN'}；"
+                        f"{adopted_note}。失败或未达标本身作为新 Evidence，重新诊断后再设计一次率定实验，"
                         "而不是重复同一参数搜索。"
                     ),
                 )
+
             action = self._fallback(view, ActionCode.A10_FREEZE)
             return AgentDecision(
                 action=action,
                 hypothesis=ProblemHypothesis.MODEL,
                 rationale_summary=(
-                    f"已完成 {completed} 次受控率定实验且未通过 Gate；停止继续试探，冻结解析后的基线方案。"
+                    f"已完成 {completed} 次受控率定实验，Qualification="
+                    f"{qualification_status or 'UNKNOWN'}；停止继续试探，冻结当前解析后的工作方案。"
                 ),
             )
 
