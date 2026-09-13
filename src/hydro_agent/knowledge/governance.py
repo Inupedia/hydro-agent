@@ -121,8 +121,7 @@ def _rejection_reasons(entry: KnowledgeEntry, context: KnowledgeQueryContext) ->
         reasons.append(f"verification_{entry.verification_status}")
     elif entry.verification_status == "unverified":
         allowed_prior = (
-            context.allow_unverified_expert_priors
-            and entry.category == "expert_diagnostic_prior"
+            context.allow_unverified_expert_priors and entry.category == "expert_diagnostic_prior"
         )
         if not allowed_prior:
             reasons.append("unverified_not_allowed")
