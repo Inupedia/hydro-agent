@@ -5,37 +5,28 @@ on:
     paths:
       - 'workflow/**'
       - 'src/hydro_agent/workflow/**'
-      - 'docs/diagrams/**'
       - 'web/src/generated/**'
-      - 'web/public/workflow-meta.js'
-      - 'web/public/diagrams/**'
+      - 'web/src/components/LiveWorkflow.vue'
+      - 'web/src/__tests__/LiveWorkflow.test.ts'
       - 'scripts/sync_workflow.py'
       - '.github/workflows/workflow-ssot.yml'
   pull_request:
     paths:
       - 'workflow/**'
       - 'src/hydro_agent/workflow/**'
-      - 'docs/diagrams/**'
       - 'web/src/generated/**'
-      - 'web/public/workflow-meta.js'
-      - 'web/public/diagrams/**'
+      - 'web/src/components/LiveWorkflow.vue'
+      - 'web/src/__tests__/LiveWorkflow.test.ts'
       - 'scripts/sync_workflow.py'
       - '.github/workflows/workflow-ssot.yml'
   workflow_dispatch:
-    inputs:
-      render_experimental:
-        description: 'Also render the experimental dual-model diagram'
-        type: boolean
-        default: false
 
 permissions:
   contents: read
 
 jobs:
-  sync:
+  validate:
     runs-on: ubuntu-latest
-    env:
-      ARCHIFY_UPDATE_CHECK_DISABLED: '1'
     steps:
       - name: Checkout Hydro-Agent
         uses: actions/checkout@v4
@@ -47,67 +38,24 @@ jobs:
       - name: Install Python package
         run: uv sync --frozen --extra dev
 
-      - name: Validate definition and derived artifacts
+      - name: Validate workflow definition and generated metadata
         run: uv run --frozen python scripts/sync_workflow.py --check
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
 
-      - name: Install Archify
-        run: |
-          curl -fL 'https://github.com/tt-a1i/archify/raw/refs/heads/main/archify.zip' -o /tmp/archify.zip
-          mkdir -p /tmp/archify-skill
-          unzip -q /tmp/archify.zip -d /tmp/archify-skill
-          node /tmp/archify-skill/archify/bin/archify.mjs doctor
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
 
-      - name: Validate generated Archify JSON
-        run: |
-          node /tmp/archify-skill/archify/bin/archify.mjs validate workflow \
-            docs/diagrams/hydro-agent.v1.workflow.json --quality standard --json
+      - name: Test workflow UI
+        working-directory: web
+        run: npm test -- LiveWorkflow.test.ts
 
-      - name: Render HTML from generated JSON
-        run: |
-          mkdir -p dist
-          node /tmp/archify-skill/archify/bin/archify.mjs deliver workflow \
-            docs/diagrams/hydro-agent.v1.workflow.json \
-            dist/hydro-agent.v1.workflow.html --quality standard --json
-
-      - name: Fail if committed HTML drifted
-        run: |
-          cmp -s dist/hydro-agent.v1.workflow.html web/public/diagrams/hydro-agent.v1.workflow.html
-          cmp -s dist/hydro-agent.v1.workflow.html web/public/diagrams/hydro-agent-xaj.workflow.html
-
-      - name: Upload Archify artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: hydro-agent-workflow-ssot
-          path: |
-            dist/hydro-agent.v1.workflow.html
-            docs/diagrams/hydro-agent.v1.workflow.json
-            workflow/hydro-agent.v1.json
-          if-no-files-found: error
-
-  experimental-dual-model:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.render_experimental }}
-    runs-on: ubuntu-latest
-    env:
-      ARCHIFY_UPDATE_CHECK_DISABLED: '1'
-    steps:
-      - uses: actions/checkout@v4
-      - name: Download Archify
-        run: |
-          curl -fL 'https://github.com/tt-a1i/archify/raw/refs/heads/main/archify.zip' -o /tmp/archify.zip
-          mkdir -p /tmp/archify-skill
-          unzip -q /tmp/archify.zip -d /tmp/archify-skill
-          node /tmp/archify-skill/archify/bin/archify.mjs doctor
-      - name: Render experimental diagram
-        run: |
-          node /tmp/archify-skill/archify/bin/archify.mjs deliver workflow \
-            docs/diagrams/hydro-agent.dual-model.workflow.json \
-            /tmp/hydro-agent.dual-model.html --quality showcase --json
-      - uses: actions/upload-artifact@v4
-        with:
-          name: hydro-agent-dual-model-experimental
-          path: /tmp/hydro-agent.dual-model.html
+      - name: Build web app
+        working-directory: web
+        run: npm run build
