@@ -12,7 +12,14 @@ from hydro_agent.agent.contracts import (
 from hydro_agent.agent.providers.calibration_scientist import CalibrationScientistDecisionProvider
 
 
-def _view(*, latest_action: ActionCode, latest_status: str, hydro: HydroContext) -> WorldStateView:
+def _view(
+    *,
+    latest_action: ActionCode,
+    latest_status: str,
+    hydro: HydroContext,
+    latest_gates: dict[str, str] | None = None,
+    optimization_cycles_remaining: int = 4,
+) -> WorldStateView:
     return WorldStateView(
         task=TaskSummary(
             task_id="task-1",
@@ -36,7 +43,7 @@ def _view(*, latest_action: ActionCode, latest_status: str, hydro: HydroContext)
         ),
         budget=BudgetSummary(
             agent_rounds_remaining=15,
-            optimization_cycles_remaining=4,
+            optimization_cycles_remaining=optimization_cycles_remaining,
             max_agent_rounds=20,
             max_optimization_cycles=4,
         ),
@@ -46,6 +53,7 @@ def _view(*, latest_action: ActionCode, latest_status: str, hydro: HydroContext)
                 action=latest_action,
                 status=latest_status,
                 new_information_hash="hash-1",
+                gates=latest_gates or {},
             ),
         ),
         latest_forecast_id="forecast-1",
@@ -54,7 +62,7 @@ def _view(*, latest_action: ActionCode, latest_status: str, hydro: HydroContext)
     )
 
 
-def test_provider_turns_diagnosis_into_group_level_sceua_experiment():
+def test_provider_turns_diagnosis_into_group_level_dds_experiment():
     hydro = HydroContext(
         diagnosis={
             "hypothesis": "MODEL",
@@ -81,18 +89,77 @@ def test_provider_reflects_rollback_into_rediagnosis_before_second_experiment():
     view = _view(
         latest_action=ActionCode.A09_RESOLVE,
         latest_status="ROLLBACK",
+        latest_gates={
+            "status": "ROLLBACK",
+            "gate_status": "ROLLBACK",
+            "adoption_status": "REJECT",
+            "qualification_status": "UNQUALIFIED",
+            "candidate_adopted": "false",
+        },
         hydro=HydroContext(),
-    ).model_copy(
-        update={
-            "budget": BudgetSummary(
-                agent_rounds_remaining=12,
-                optimization_cycles_remaining=3,
-                max_agent_rounds=20,
-                max_optimization_cycles=4,
-            )
-        }
+        optimization_cycles_remaining=3,
     )
     provider = CalibrationScientistDecisionProvider(max_experiments=2)
     decision = provider.decide(view)
     assert decision.action == ActionCode.A06_DIAGNOSE
     assert "新 Evidence" in decision.rationale_summary
+
+
+def test_provider_continues_after_adoption_when_candidate_is_unqualified():
+    view = _view(
+        latest_action=ActionCode.A09_RESOLVE,
+        latest_status="KEEP",
+        latest_gates={
+            "status": "KEEP",
+            "gate_status": "ACCEPT",
+            "adoption_status": "ADOPT",
+            "qualification_status": "UNQUALIFIED",
+            "candidate_adopted": "true",
+        },
+        hydro=HydroContext(),
+        optimization_cycles_remaining=3,
+    )
+    provider = CalibrationScientistDecisionProvider(max_experiments=2)
+    decision = provider.decide(view)
+    assert decision.action == ActionCode.A06_DIAGNOSE
+    assert "已采用改进候选" in decision.rationale_summary
+
+
+def test_provider_freezes_when_qualification_passes():
+    view = _view(
+        latest_action=ActionCode.A09_RESOLVE,
+        latest_status="ACCEPT",
+        latest_gates={
+            "status": "ACCEPT",
+            "gate_status": "ACCEPT",
+            "adoption_status": "ADOPT",
+            "qualification_status": "QUALIFIED",
+            "candidate_adopted": "true",
+        },
+        hydro=HydroContext(),
+        optimization_cycles_remaining=3,
+    )
+    provider = CalibrationScientistDecisionProvider(max_experiments=2)
+    decision = provider.decide(view)
+    assert decision.action == ActionCode.A10_FREEZE
+    assert "资格评价" in decision.rationale_summary
+
+
+def test_provider_freezes_after_experiment_budget_even_if_unqualified():
+    view = _view(
+        latest_action=ActionCode.A09_RESOLVE,
+        latest_status="ROLLBACK",
+        latest_gates={
+            "status": "ROLLBACK",
+            "gate_status": "ROLLBACK",
+            "adoption_status": "REJECT",
+            "qualification_status": "UNQUALIFIED",
+            "candidate_adopted": "false",
+        },
+        hydro=HydroContext(),
+        optimization_cycles_remaining=2,
+    )
+    provider = CalibrationScientistDecisionProvider(max_experiments=2)
+    decision = provider.decide(view)
+    assert decision.action == ActionCode.A10_FREEZE
+    assert "已完成 2 次" in decision.rationale_summary
