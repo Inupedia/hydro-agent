@@ -40,14 +40,22 @@ async function mountWithApp() {
 }
 
 describe('TaskView', () => {
-  it('creates a task using domain fields without action checkboxes', async () => {
+  it('creates a task with isolated development and final-test windows', async () => {
     const wrapper = await mountWithApp()
     expect(wrapper.text()).toContain('创建预报任务')
+    expect(wrapper.text()).toContain('率定 → 开发验证 → 最终测试')
     expect(wrapper.text()).toContain('流域')
     expect(wrapper.text()).toContain('模型')
     expect(wrapper.text()).toContain('高级选项')
+    expect(wrapper.text()).not.toContain('开发验证窗（天）')
+    expect(wrapper.text()).not.toContain('最终测试窗（天）')
     expect(wrapper.text()).not.toContain('Forcing 模式')
+
     await wrapper.get('button.linkish').trigger('click')
+
+    expect(wrapper.text()).toContain('开发验证窗（天）')
+    expect(wrapper.text()).toContain('最终测试窗（天）')
+    expect(wrapper.text()).toContain('方案冻结前不可读取')
     expect(wrapper.text()).toContain('Forcing 模式')
     expect(wrapper.findAll('input[type="checkbox"][name^="A0"]')).toHaveLength(0)
   })
