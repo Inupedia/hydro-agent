@@ -119,7 +119,6 @@ def test_build_tools_shares_live_task_configs_dict(tmp_path, repository):
     window = kernel.validation_gate.window_for("task-new")
     assert window.start == date(2021, 6, 1)
     assert window.end == date(2021, 6, 10)
-    # Diagnose path also reads the live dict via kernel._task_configs.
     assert kernel._task_configs is live
 
 
@@ -136,7 +135,6 @@ def test_resolve_gate_uses_current_scheme_not_initial_base(repository):
         },
         content_hash="h-cand-r2",
     )
-    # Older candidate still present; must not be selected.
     repository.create_scheme(
         scheme_id="zzz-old-cand",
         task_id="task-1",
@@ -174,7 +172,6 @@ def test_aligned_series_ignores_extra_out_of_window_forecast():
         date(2021, 6, 3): 11.0,
         date(2021, 6, 4): 12.0,
         date(2021, 6, 5): 13.0,
-        # Extra truth that would bias an unfiltered series:
         date(2020, 5, 1): 999.0,
         date(2020, 5, 2): 999.0,
         date(2020, 5, 3): 999.0,
@@ -204,7 +201,6 @@ def test_aligned_series_ignores_extra_out_of_window_forecast():
             issue=date(2021, 6, 2),
             leads={1: 11.0, 2: 12.0, 3: 13.0},
         ),
-        # Out-of-window forecast only on base — must not enter either series.
         _forecast_row(
             forecast_id="fc-base-old",
             scheme_id="base",
@@ -249,7 +245,6 @@ def test_aligned_series_drops_issue_missing_on_one_scheme():
             issue=date(2021, 6, 1),
             leads={1: 9.5, 2: 10.5, 3: 11.5},
         ),
-        # Candidate missing 2021-06-02 — that day must be excluded for both.
         _forecast_row(
             forecast_id="b2",
             scheme_id="base",
@@ -302,36 +297,62 @@ def test_diagnose_uses_current_scheme_after_rollback(tmp_path, repository):
         manifest={"files": []},
         content_hash="snap-hash",
     )
-    for run_id, scheme_id, leads in (
-        ("run-good", "scheme-base", {1: 100.0, 2: 110.0, 3: 90.0}),
-        ("run-bad", "scheme-rejected", {1: 10.0, 2: 11.0, 3: 9.0}),
-    ):
+
+    truth = {
+        date(2021, 5, 20) + timedelta(days=offset): 100.0 + offset
+        for offset in range(12)
+    }
+    first_issue = date(2021, 5, 19)
+    for offset in range(10):
+        issue = first_issue + timedelta(days=offset)
+        leads = {lead: truth[issue + timedelta(days=lead)] for lead in (1, 2, 3)}
+        run_id = f"run-good-{issue.isoformat()}"
         repository.create_action_run(
             task_id="task-1",
             action_run_id=run_id,
             model_id="xaj",
             capability="forecast",
             data_snapshot_id=snap,
-            scheme_id=scheme_id,
-            issue_time="2021-06-10T00:00:00Z",
+            scheme_id="scheme-base",
+            issue_time=f"{issue.isoformat()}T00:00:00Z",
         )
         repository.create_forecast(
-            forecast_id=f"fc-{scheme_id}",
+            forecast_id=f"fc-good-{issue.isoformat()}",
             task_id="task-1",
             action_run_id=run_id,
-            scheme_id=scheme_id,
+            scheme_id="scheme-base",
             data_snapshot_id=snap,
-            issue_time="2021-06-10T00:00:00Z",
+            issue_time=f"{issue.isoformat()}T00:00:00Z",
             lead_values=leads,
             unit="m3/s",
             artifact_ids=(),
         )
 
+    repository.create_action_run(
+        task_id="task-1",
+        action_run_id="run-bad",
+        model_id="xaj",
+        capability="forecast",
+        data_snapshot_id=snap,
+        scheme_id="scheme-rejected",
+        issue_time="2021-05-28T00:00:00Z",
+    )
+    repository.create_forecast(
+        forecast_id="fc-rejected",
+        task_id="task-1",
+        action_run_id="run-bad",
+        scheme_id="scheme-rejected",
+        data_snapshot_id=snap,
+        issue_time="2021-05-28T00:00:00Z",
+        lead_values={1: 10.0, 2: 11.0, 3: 9.0},
+        unit="m3/s",
+        artifact_ids=(),
+    )
+
     class FakeSource:
         flow_rows = [
-            SimpleNamespace(valid_date=date(2021, 6, 11), discharge_m3s=100.0),
-            SimpleNamespace(valid_date=date(2021, 6, 12), discharge_m3s=110.0),
-            SimpleNamespace(valid_date=date(2021, 6, 13), discharge_m3s=90.0),
+            SimpleNamespace(valid_date=day, discharge_m3s=value)
+            for day, value in sorted(truth.items())
         ]
 
     live = {
@@ -352,7 +373,7 @@ def test_diagnose_uses_current_scheme_after_rollback(tmp_path, repository):
     kernel.build_tools(task_configs=live)
     result = kernel._diagnose("task-1")
     assert "scheme_id=scheme-base" in result["notes"]
-    # Perfect match on current scheme should not claim peak underestimation.
+    assert result["metrics"]["nse"] == pytest.approx(1.0)
     assert "洪峰低估" not in result["phenomenon"]
     assert result.get("recommended_strategy_id") != "xaj-peak-bias-v1"
 
@@ -391,7 +412,6 @@ def test_gate_bundles_compare_accepted_baseline_not_initial_base(tmp_path, repos
                 artifact_ids=(),
             )
 
-    # Seed aligned forecasts so bundles can score without calling real XAJ.
     snap = "snap-gate"
     repository.create_snapshot(
         snapshot_id=snap,
@@ -408,7 +428,6 @@ def test_gate_bundles_compare_accepted_baseline_not_initial_base(tmp_path, repos
         date(2021, 6, 5),
     ]
     window_days = [date(2021, 6, 1), date(2021, 6, 2)]
-    # Accepted baseline is better than the new candidate (0.8 vs 0.6 story).
     for day in window_days:
         for scheme_id, scale in (("scheme-accepted", 1.0), ("scheme-cand-r2", 0.6)):
             run_id = f"run-{scheme_id}-{day.isoformat()}"
@@ -460,7 +479,6 @@ def test_gate_bundles_compare_accepted_baseline_not_initial_base(tmp_path, repos
     assert base_bundle.scheme_id == "scheme-accepted"
     assert cand_bundle.scheme_id == "scheme-cand-r2"
     assert base_bundle.primary_score > cand_bundle.primary_score
-    # ensure_forecasts still targets accepted + latest candidate, never initial base alone.
     schemes_called = {scheme for scheme, _ in spy.calls}
     assert "scheme-accepted" in schemes_called
     assert "scheme-cand-r2" in schemes_called
