@@ -96,6 +96,24 @@ def test_evaluation_reads_future_truth_only_in_e_phase(evaluation_service, repos
     assert repository.get_scheme("scheme-frozen-1").content_hash == before_scheme
 
 
+def test_rolling_target_truth_is_clipped_to_final_test_dates(
+    evaluation_service, repository, monkeypatch
+):
+    repository.set_task_phase("task-1", "E")
+    monkeypatch.setattr(
+        evaluation_service,
+        "_final_test_window_from_scheme",
+        lambda _scheme: (date(2020, 5, 2), date(2020, 5, 4)),
+    )
+
+    result = evaluation_service.evaluate("task-1", "snapshot-eval-truth")
+
+    assert result.sample_counts == {"lead_1": 3, "lead_2": 2, "lead_3": 1}
+    assert set(result.lead_metrics) == {"lead_1", "lead_2"}
+    assert result.lead_metrics["lead_1"]["NSE"] == pytest.approx(1.0)
+    assert result.lead_metrics["lead_2"]["NSE"] == pytest.approx(1.0)
+
+
 def test_evaluation_separates_rolling_and_continuous_final_test_skill(
     evaluation_service, repository, monkeypatch
 ):
