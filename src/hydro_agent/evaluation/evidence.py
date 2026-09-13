@@ -236,7 +236,9 @@ class HydrologicEvidenceBuilder:
         return _CleanSeries(tuple(kept_dates), tuple(obs_values), tuple(sim_values), quality)
 
     @staticmethod
-    def _metric_set(obs: Sequence[float], sim: Sequence[float]) -> tuple[dict[str, float], list[str]]:
+    def _metric_set(
+        obs: Sequence[float], sim: Sequence[float]
+    ) -> tuple[dict[str, float], list[str]]:
         metrics: dict[str, float] = {
             "mae": float(mae(obs, sim)),
             "rmse": float(rmse(obs, sim)),
@@ -417,7 +419,9 @@ class HydrologicEvidenceBuilder:
     def _events(self, clean: _CleanSeries) -> tuple[FloodEventEvidence, ...]:
         if len(clean.obs) < self.min_fdc_samples:
             return ()
-        threshold = float(np.quantile(np.asarray(clean.obs, dtype=float), self.flood_threshold_quantile))
+        threshold = float(
+            np.quantile(np.asarray(clean.obs, dtype=float), self.flood_threshold_quantile)
+        )
         groups: list[list[int]] = []
         current: list[int] = []
         for index, (day, value) in enumerate(zip(clean.dates, clean.obs)):
