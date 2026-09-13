@@ -36,7 +36,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install Python package
-        run: uv sync --frozen --extra dev
+        run: uv sync --frozen --extra dev --extra data
 
       - name: Validate workflow definition and generated metadata
         run: uv run --frozen python scripts/sync_workflow.py --check
