@@ -14,7 +14,7 @@ from hydro_agent.agent.contracts import (
 from hydro_agent.agent.experiment_guardrail import apply_experiment_plan_guardrail
 
 
-def view(*, diagnosis, evidence=()):
+def view(*, diagnosis, evidence=(), campaign_objective="nse"):
     return WorldStateView(
         task=TaskSummary(
             task_id="task-1",
@@ -40,6 +40,7 @@ def view(*, diagnosis, evidence=()):
                 "xaj-local-refine-v1",
                 "xaj-broadened-refine-v1",
             ),
+            campaign_objective=campaign_objective,
             diagnosis=diagnosis,
         ),
     )
@@ -66,7 +67,7 @@ def diagnosis_row(evidence_id="ev-diag"):
     )
 
 
-def test_guardrail_obeys_fresh_diagnosis_not_provider_novelty_choice():
+def test_guardrail_obeys_fresh_diagnosis_but_keeps_campaign_objective_locked():
     state = view(
         diagnosis={
             "phenomenon": "水量偏差显著，优先处理蒸散发和产流",
@@ -76,17 +77,38 @@ def test_guardrail_obeys_fresh_diagnosis_not_provider_novelty_choice():
             "metrics": {"nse": 0.1, "pbias_percent": 25.0},
         },
         evidence=(diagnosis_row(),),
+        campaign_objective="nse",
     )
 
     planned = apply_experiment_plan_guardrail(state, optimize_decision("xaj-local-refine-v1"))
 
     assert planned.strategy_id == "xaj-water-balance-v1"
     assert planned.param_groups == ("evap", "runoff")
-    assert planned.objective == "composite"  # runtime alias; plan itself is canonical KGE
+    assert planned.objective == "nse"
     assert planned.experiment_plan_id
     assert planned.experiment_signature
     assert planned.experiment_evidence_refs == ("ev-diag",)
     assert "diagnosis_recommendation" in planned.experiment_reason_codes
+    assert "campaign_objective_locked" in planned.experiment_reason_codes
+    assert "diagnostic_objective_ignored=composite" in planned.rationale_summary
+
+
+def test_guardrail_can_lock_kge_profile_via_runtime_composite_alias():
+    state = view(
+        diagnosis={
+            "phenomenon": "洪峰偏差需要诊断",
+            "recommended_objective": "peak",
+            "metrics": {"nse": 0.4, "kge": 0.5},
+        },
+        evidence=(diagnosis_row(),),
+        campaign_objective="composite",
+    )
+
+    planned = apply_experiment_plan_guardrail(state, optimize_decision())
+
+    assert planned.objective == "composite"
+    assert "campaign_objective_locked" in planned.experiment_reason_codes
+    assert "diagnostic_objective_ignored=peak" in planned.rationale_summary
 
 
 def test_guardrail_uses_boundary_evidence_to_widen_search():
@@ -103,7 +125,9 @@ def test_guardrail_uses_boundary_evidence_to_widen_search():
     planned = apply_experiment_plan_guardrail(state, optimize_decision("xaj-bounded-v1"))
 
     assert planned.strategy_id == "xaj-broadened-refine-v1"
+    assert planned.objective == "nse"
     assert "local_boundary_hit" in planned.experiment_reason_codes
+    assert "campaign_objective_locked" in planned.experiment_reason_codes
 
 
 def test_non_optimize_decision_is_untouched():
