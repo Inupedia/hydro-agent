@@ -232,6 +232,12 @@ def _nse_calibration_progress(
     resolve_status = _latest_status(view, ActionCode.A09_RESOLVE.value)
     resolve_gates = _latest_gates(view, ActionCode.A09_RESOLVE)
     qualification_status = str(resolve_gates.get("qualification_status") or "")
+    resolved_outcome = resolve_status
+    if not resolve_gates and resolve_status not in {"ACCEPT", "KEEP", "ROLLBACK"}:
+        # Compatibility for evidence persisted before dual-gate A09 semantics:
+        # older A09 rows used status="succeeded" while A08 carried KEEP/ROLLBACK.
+        if gate_status in {"ACCEPT", "KEEP", "ROLLBACK"}:
+            resolved_outcome = gate_status
     pending = pending_calibration_action(view)
     if pending is not None and pending.value in safe_actions:
         return {
@@ -273,7 +279,7 @@ def _nse_calibration_progress(
             "param_groups": None,
             "objective": None,
             "rationale_summary": (
-                f"Gate={resolve_status or gate_status} / Qualification="
+                f"Gate={resolved_outcome or gate_status} / Qualification="
                 f"{qualification_status or 'UNKNOWN'}，吸收独立验证证据后重新诊断。"
             ),
         }
@@ -314,7 +320,7 @@ def _nse_calibration_progress(
     # Opt budget or round reserve exhausted after a resolved but unqualified
     # cycle: close out the current working scheme without claiming qualification.
     if (
-        resolve_status in {"KEEP", "ROLLBACK"}
+        resolved_outcome in {"KEEP", "ROLLBACK"}
         and ActionCode.A10_FREEZE.value in safe_actions
         and ActionCode.A10_FREEZE.value not in actions
         and (
@@ -330,7 +336,7 @@ def _nse_calibration_progress(
             "param_groups": None,
             "objective": None,
             "rationale_summary": (
-                f"Resolve={resolve_status} / Qualification={qualification_status or 'UNKNOWN'}，"
+                f"Resolve={resolved_outcome} / Qualification={qualification_status or 'UNKNOWN'}，"
                 "优化或收尾预算已耗尽；冻结当前工作方案进入回放，但不宣称率定达标。"
             ),
         }
