@@ -1,9 +1,8 @@
 """Executable, auditable research-suite manifests for O/P/A/A+ experiments.
 
-The suite is intentionally agnostic to where a cell runs. A caller injects the
-isolated task executor; this module owns preregistration, fair budgets, deterministic
-replicates/seeds, validation and export. Empirical superiority is never inferred
-from configuration alone: only returned successful runs are summarized.
+The suite compares complete system configurations under preregistered windows and
+budgets. Because the canonical arms use different optimizers, these comparisons
+must not be interpreted as a causal estimate of "Agent value" in isolation.
 """
 
 from __future__ import annotations
@@ -46,11 +45,13 @@ class ExperimentCell(FrozenModel):
 
 
 class ResearchSuiteManifest(FrozenModel):
-    schema_version: str = "research-suite/v1"
+    schema_version: str = "research-suite/v2"
     manifest_id: str = Field(min_length=1, max_length=96)
     evaluation_budget: int = Field(ge=1, le=10_000)
     replicates: int = Field(ge=1, le=100)
     base_seed: int = Field(ge=0)
+    comparison_scope: str = "whole_system_configuration"
+    causal_attribution_to_agent: bool = False
     scenarios: tuple[BenchmarkScenario, ...]
     variants: tuple[ResearchVariant, ...]
     cells: tuple[ExperimentCell, ...]
@@ -68,6 +69,10 @@ class ResearchSuiteSummary(FrozenModel):
     manifest_id: str
     successful_runs: int
     failed_runs: int
+    incomplete_runs: int
+    missing_runs: int
+    comparison_scope: str
+    causal_attribution_to_agent: bool
     variant_metrics: dict[str, dict[str, MetricAggregate]]
     win_rates_vs_o: dict[str, dict[str, float]]
     ablation_delta_vs_full: dict[str, dict[str, float]]
@@ -75,8 +80,6 @@ class ResearchSuiteSummary(FrozenModel):
 
 
 def default_research_variants(evaluation_budget: int = 512) -> tuple[ResearchVariant, ...]:
-    """Core paper arms plus one-factor A+ ablations under the same budget."""
-
     core = {arm.arm_id: arm for arm in default_research_arms(evaluation_budget)}
     full = core["A+"]
     return (
@@ -131,8 +134,6 @@ def _parse_day(raw: str, *, field_name: str) -> date:
 
 
 def validate_scenario_protocol(scenario: BenchmarkScenario) -> None:
-    """Reject overlap or chronology errors before any model budget is spent."""
-
     cal_start = _parse_day(scenario.calibration_start, field_name="calibration_start")
     cal_end = _parse_day(scenario.calibration_end, field_name="calibration_end")
     dev_start = _parse_day(scenario.development_start, field_name="development_start")
@@ -188,11 +189,12 @@ def build_research_manifest(
         raise ValueError("variant budget does not match manifest evaluation_budget")
 
     cells: list[ExperimentCell] = []
-    ordinal = 0
-    for scenario in scenario_rows:
+    # A paired replicate must share its stochastic seed across all variants in
+    # the same scenario. Variant-specific seeds confound paired comparisons.
+    for scenario_index, scenario in enumerate(scenario_rows):
         for variant in variant_rows:
             for replicate in range(replicates):
-                seed = base_seed + ordinal * 1009 + replicate
+                seed = base_seed + scenario_index * 1009 + replicate
                 cells.append(
                     ExperimentCell(
                         cell_id=_cell_id(
@@ -209,20 +211,24 @@ def build_research_manifest(
                         seed=seed,
                     )
                 )
-            ordinal += 1
 
     fingerprint = {
-        "schema_version": "research-suite/v1",
+        "schema_version": "research-suite/v2",
         "evaluation_budget": evaluation_budget,
         "replicates": replicates,
         "base_seed": base_seed,
+        "comparison_scope": "whole_system_configuration",
+        "causal_attribution_to_agent": False,
         "scenarios": [item.model_dump(mode="json") for item in scenario_rows],
         "variants": [item.model_dump(mode="json") for item in variant_rows],
         "cells": [item.model_dump(mode="json") for item in cells],
     }
-    manifest_id = "manifest-" + hashlib.sha256(
-        json.dumps(fingerprint, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()[:20]
+    manifest_id = (
+        "manifest-"
+        + hashlib.sha256(
+            json.dumps(fingerprint, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()[:20]
+    )
     return ResearchSuiteManifest(
         manifest_id=manifest_id,
         evaluation_budget=evaluation_budget,
@@ -234,35 +240,56 @@ def build_research_manifest(
     )
 
 
-class ResearchSuiteRunner:
-    """Execute preregistered cells through an injected isolated-task executor."""
+def validate_research_suite_run(
+    manifest: ResearchSuiteManifest,
+    run: ResearchSuiteRun,
+    *,
+    known_cells: dict[str, ExperimentCell] | None = None,
+) -> ExperimentCell:
+    """One audit validator shared by live execution and imported run bundles."""
 
+    cells = known_cells or {cell.cell_id: cell for cell in manifest.cells}
+    cell = cells.get(run.cell_id)
+    if cell is None:
+        raise ValueError(f"run references unknown cell: {run.cell_id}")
+    if run.variant_id != cell.variant_id:
+        raise ValueError(f"run variant does not match manifest: {run.cell_id}")
+    if run.replicate != cell.replicate:
+        raise ValueError(f"run replicate does not match manifest: {run.cell_id}")
+    if run.seed != cell.seed:
+        raise ValueError(f"run seed does not match manifest: {run.cell_id}")
+    if run.result.scenario_id != cell.scenario.scenario_id:
+        raise ValueError(f"run scenario does not match manifest: {run.cell_id}")
+    if run.result.arm_id != cell.arm.arm_id:
+        raise ValueError(f"run arm does not match manifest: {run.cell_id}")
+    if run.result.evaluation_budget != manifest.evaluation_budget:
+        raise ValueError(f"run budget does not match manifest: {run.cell_id}")
+    if run.result.evaluation_budget != cell.arm.evaluation_budget:
+        raise ValueError(f"run budget does not match preregistered arm: {run.cell_id}")
+    if run.result.model_evaluations > run.result.evaluation_budget:
+        raise ValueError(f"run exceeded hard evaluation budget: {run.cell_id}")
+    if run.result.status == "succeeded" and not run.result.final_test_consumed:
+        raise ValueError(f"successful run did not consume final_test: {run.cell_id}")
+    return cell
+
+
+class ResearchSuiteRunner:
     def __init__(self, executor: Callable[[ExperimentCell], BenchmarkRun]):
         self.executor = executor
 
     def execute(self, manifest: ResearchSuiteManifest) -> tuple[ResearchSuiteRun, ...]:
         rows: list[ResearchSuiteRun] = []
+        known = {cell.cell_id: cell for cell in manifest.cells}
         for cell in manifest.cells:
-            result = self.executor(cell)
-            if result.scenario_id != cell.scenario.scenario_id:
-                raise ValueError(f"executor changed scenario for {cell.cell_id}")
-            if result.arm_id != cell.arm.arm_id:
-                raise ValueError(f"executor changed arm for {cell.cell_id}")
-            if result.evaluation_budget != manifest.evaluation_budget:
-                raise ValueError(f"executor changed budget for {cell.cell_id}")
-            if result.model_evaluations > result.evaluation_budget:
-                raise ValueError(f"executor exceeded budget for {cell.cell_id}")
-            if result.status == "succeeded" and not result.final_test_consumed:
-                raise ValueError(f"successful run did not consume final_test for {cell.cell_id}")
-            rows.append(
-                ResearchSuiteRun(
-                    cell_id=cell.cell_id,
-                    variant_id=cell.variant_id,
-                    replicate=cell.replicate,
-                    seed=cell.seed,
-                    result=result,
-                )
+            run = ResearchSuiteRun(
+                cell_id=cell.cell_id,
+                variant_id=cell.variant_id,
+                replicate=cell.replicate,
+                seed=cell.seed,
+                result=self.executor(cell),
             )
+            validate_research_suite_run(manifest, run, known_cells=known)
+            rows.append(run)
         return tuple(rows)
 
 
@@ -301,13 +328,13 @@ def summarize_research_suite(
     if len({run.cell_id for run in runs}) != len(runs):
         raise ValueError("suite runs contain duplicate cell ids")
     for run in runs:
-        cell = known_cells.get(run.cell_id)
-        if cell is None:
-            raise ValueError(f"run references unknown cell: {run.cell_id}")
-        if run.variant_id != cell.variant_id or run.replicate != cell.replicate:
-            raise ValueError(f"run metadata does not match manifest: {run.cell_id}")
+        validate_research_suite_run(manifest, run, known_cells=known_cells)
 
     successful = [run for run in runs if run.result.status == "succeeded"]
+    failed = [run for run in runs if run.result.status == "failed"]
+    incomplete = [run for run in runs if run.result.status == "insufficient_data"]
+    missing_runs = len(manifest.cells) - len(runs)
+
     variant_values: dict[str, dict[str, list[float]]] = {}
     for run in successful:
         store = variant_values.setdefault(run.variant_id, {})
@@ -321,10 +348,7 @@ def summarize_research_suite(
         for variant, metric_map in sorted(variant_values.items())
     }
 
-    index = {
-        (run.result.scenario_id, run.variant_id, run.replicate): run
-        for run in successful
-    }
+    index = {(run.result.scenario_id, run.variant_id, run.replicate): run for run in successful}
     higher_is_better = ("rolling_NSE", "rolling_KGE", "continuous_NSE", "continuous_KGE")
     win_rates: dict[str, dict[str, float]] = {}
     for variant in sorted(variant_values):
@@ -340,6 +364,10 @@ def summarize_research_suite(
                     candidate = index.get((scenario.scenario_id, variant, replicate))
                     if baseline is None or candidate is None:
                         continue
+                    # Paired comparison is valid only because manifest construction
+                    # and strict import validation guarantee the same replicate seed.
+                    if baseline.seed != candidate.seed:
+                        raise ValueError("paired research runs use different seeds")
                     base_metrics = _metric_map(baseline.result)
                     cand_metrics = _metric_map(candidate.result)
                     if metric not in base_metrics or metric not in cand_metrics:
@@ -360,6 +388,8 @@ def summarize_research_suite(
                 ablated = index.get((scenario.scenario_id, variant, replicate))
                 if full is None or ablated is None:
                     continue
+                if full.seed != ablated.seed:
+                    raise ValueError("paired ablation runs use different seeds")
                 full_metrics = _metric_map(full.result)
                 ablated_metrics = _metric_map(ablated.result)
                 for metric in higher_is_better:
@@ -382,7 +412,11 @@ def summarize_research_suite(
     return ResearchSuiteSummary(
         manifest_id=manifest.manifest_id,
         successful_runs=len(successful),
-        failed_runs=len(runs) - len(successful),
+        failed_runs=len(failed),
+        incomplete_runs=len(incomplete),
+        missing_runs=missing_runs,
+        comparison_scope=manifest.comparison_scope,
+        causal_attribution_to_agent=manifest.causal_attribution_to_agent,
         variant_metrics=variant_metrics,
         win_rates_vs_o=win_rates,
         ablation_delta_vs_full=ablation_delta,
@@ -395,8 +429,6 @@ def write_research_suite_bundle(
     runs: Sequence[ResearchSuiteRun],
     output_dir: Path,
 ) -> tuple[Path, Path, Path]:
-    """Write deterministic preregistration, empirical rows and aggregate summary."""
-
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = output_dir / "research-manifest.json"
