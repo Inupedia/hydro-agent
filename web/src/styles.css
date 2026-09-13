@@ -72,15 +72,13 @@
 
 * {
   box-sizing: border-box;
-  scrollbar-width: none !important;
-  -ms-overflow-style: none;
 }
 
-*::-webkit-scrollbar {
-  width: 0 !important;
-  height: 0 !important;
-  display: none !important;
-}
+/*
+ * Keep native scrollbars available. The workbench has several independent
+ * scroll panes and research tables; hiding scrollbars globally makes those
+ * regions undiscoverable and overrides the user's OS/browser preference.
+ */
 
 html,
 body,
@@ -260,6 +258,19 @@ th.numeric {
   *::after {
     animation: none !important;
     transition: none !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-light: var(--surface);
+    --glass: var(--surface);
+    --glass-strong: var(--surface);
+  }
+
+  .glass-pane {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
   }
 }
 
