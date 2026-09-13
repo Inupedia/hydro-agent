@@ -9,6 +9,10 @@ from hydro_agent.optimization.contracts import CalibrationStrategy
 # strategies. It consumes the same hard evaluation budget as the optimizer.
 # Benchmarks intentionally remain unscreened so O/P/A experiments preserve a
 # full-space numerical-search baseline.
+#
+# NOTE: ``composite`` is retained in these serialized runtime contracts only as a
+# compatibility alias. ``CalibrationStrategy.canonical_objective`` and new
+# ExperimentPlan/reporting code expose the actual metric name: KGE.
 MORRIS_SCREENING = dict(
     sensitivity_method="morris",
     sensitivity_trajectories=6,

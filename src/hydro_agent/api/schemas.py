@@ -41,6 +41,8 @@ class TaskSummary(FrozenApiModel):
     optimization_cycles_used: int
     start_date: str | None = None
     end_date: str | None = None
+    validation_days: int | None = None
+    final_test_days: int | None = None
     forcing_mode: Literal["R", "F"] | None = None
     created_at: str | None = None
     workflow_id: str | None = None

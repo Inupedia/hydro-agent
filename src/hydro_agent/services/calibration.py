@@ -48,14 +48,12 @@ class CalibrationService:
         policy,
         param_groups: tuple[str, ...] | None = None,
         objective: str | None = None,
-        validation_snapshot_id: str | None = None,
     ) -> CalibrationOutcome:
         """Search parameters using calibration data only.
 
-        ``validation_snapshot_id`` is accepted temporarily for source compatibility
-        with older handlers, but is intentionally ignored. Previous code validated
-        and serialized that id even though the sandbox never materialized or read
-        the snapshot. Candidate selection belongs exclusively to A08/development.
+        Candidate selection belongs exclusively to A08/development. A07 accepts
+        only the calibration snapshot, so a development/final-test snapshot
+        cannot accidentally cross the optimizer boundary.
         """
 
         task = self.repository.get_task(task_id)

@@ -30,6 +30,10 @@ class ReplayEvaluation(FrozenModel):
     lead_metrics: dict[str, dict[str, float]]
     # One uninterrupted frozen-scheme simulation across final_test.
     continuous_metrics: dict[str, float] = {}
+    # Multi-scale evidence is derived from that same uninterrupted final-test
+    # trajectory. Unsupported annual/seasonal/FDC sections remain explicitly
+    # ``insufficient_data`` rather than being inferred from a short window.
+    hydrologic_evidence: dict[str, object] = {}
     sample_counts: dict[str, int]
     forcing_mode: Literal["R", "F"]
     provenance: dict[str, object] = {}

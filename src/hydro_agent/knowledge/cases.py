@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 
 from hydro_agent.execution.contracts import FrozenModel
 
@@ -24,13 +24,23 @@ class CalibrationCase(FrozenModel):
     param_groups: tuple[str, ...] = ()
     objective: str = "nse"
     calibration_metrics: dict[str, float] = Field(default_factory=dict)
-    validation_metrics: dict[str, float] = Field(default_factory=dict)
+    development_metrics: dict[str, float] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("development_metrics", "validation_metrics"),
+        serialization_alias="development_metrics",
+    )
     gate_status: str = Field(min_length=1)
     # Defaults keep pre-dual-gate JSONL cases readable after the schema upgrade.
     adoption_status: str = "UNKNOWN"
     qualification_status: str = "NOT_EVALUATED"
     parameter_delta: dict[str, float] = Field(default_factory=dict)
     lesson: str = Field(min_length=1)
+
+    @property
+    def validation_metrics(self) -> dict[str, float]:
+        """Read-only source-compatibility alias; new JSONL writes development_metrics."""
+
+        return self.development_metrics
 
 
 class CalibrationCaseMemory:
@@ -40,7 +50,7 @@ class CalibrationCaseMemory:
     def append(self, case: CalibrationCase) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(case.model_dump_json() + "\n")
+            handle.write(case.model_dump_json(by_alias=True) + "\n")
 
     def list(self) -> tuple[CalibrationCase, ...]:
         if not self.path.is_file():

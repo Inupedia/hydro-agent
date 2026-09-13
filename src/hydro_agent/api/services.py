@@ -174,7 +174,14 @@ def build_task_summary(deps: AppDependencies, task_id: str) -> TaskSummary:
     model_id = str(config.get("model_id") or "xaj")
     start_date = config.get("research_start_date") or config.get("start_date")
     end_date = config.get("research_end_date") or config.get("end_date")
-    if start_date is None or end_date is None:
+    validation_days = config.get("validation_days") or config.get("development_days")
+    final_test_days = config.get("final_test_days")
+    if (
+        start_date is None
+        or end_date is None
+        or validation_days is None
+        or final_test_days is None
+    ):
         try:
             schemes = deps.repository.list_schemes(task_id=task_id)
             for scheme in schemes:
@@ -189,9 +196,15 @@ def build_task_summary(deps: AppDependencies, task_id: str) -> TaskSummary:
                     or workbench.get("research_end_date")
                     or workbench.get("end_date")
                 )
+                validation_days = (
+                    validation_days
+                    or workbench.get("validation_days")
+                    or workbench.get("development_days")
+                )
+                final_test_days = final_test_days or workbench.get("final_test_days")
                 if not model_id or model_id == "xaj":
                     model_id = str(scheme.model_id or model_id or "xaj")
-                if start_date and end_date:
+                if start_date and end_date and validation_days is not None and final_test_days is not None:
                     break
         except Exception:
             pass
@@ -236,6 +249,8 @@ def build_task_summary(deps: AppDependencies, task_id: str) -> TaskSummary:
         optimization_cycles_used=state.optimization_cycles_used,
         start_date=str(start_date) if start_date else None,
         end_date=str(end_date) if end_date else None,
+        validation_days=int(validation_days) if validation_days is not None else None,
+        final_test_days=int(final_test_days) if final_test_days is not None else None,
         forcing_mode=forcing if forcing in ("R", "F") else None,
         created_at=created_at,
         workflow_id=getattr(task, "workflow_id", None),

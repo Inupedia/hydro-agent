@@ -9,10 +9,15 @@ AdoptionStatus = Literal["ADOPT", "KEEP", "REJECT"]
 QualificationStatus = Literal["QUALIFIED", "UNQUALIFIED", "NOT_EVALUATED"]
 SchemeGrade = Literal["甲", "乙", "丙", "不合格"]
 SensitivityMethod = Literal["none", "morris"]
+CalibrationObjective = Literal["nse", "kge", "peak", "composite"]
 
 
 class CalibrationStrategy(FrozenModel):
-    """Scientific search strategy; it does not contain raw parameter values."""
+    """Scientific search strategy; it does not contain raw parameter values.
+
+    ``composite`` remains accepted only as a compatibility alias for historical
+    serialized strategies. New strategies should use the explicit ``kge`` name.
+    """
 
     strategy_id: str = Field(min_length=1)
     # Legacy field name retained for API compatibility. Semantically this is a
@@ -22,7 +27,7 @@ class CalibrationStrategy(FrozenModel):
     # to 10k model evaluations.
     max_candidates: int = Field(ge=1, le=10_000)
     random_seed: int
-    objective: Literal["nse", "peak", "composite"] = "nse"
+    objective: CalibrationObjective = "nse"
     local_scale: float | None = Field(default=None, ge=0.0, le=1.0)
     param_groups: tuple[Literal["evap", "runoff", "routing"], ...] = (
         "evap",
@@ -46,6 +51,10 @@ class CalibrationStrategy(FrozenModel):
     @property
     def evaluation_budget(self) -> int:
         return int(self.max_candidates)
+
+    @property
+    def canonical_objective(self) -> Literal["nse", "kge", "peak"]:
+        return "kge" if self.objective == "composite" else self.objective
 
 
 class LeadMetrics(FrozenModel):

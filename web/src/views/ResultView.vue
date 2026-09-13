@@ -6,6 +6,7 @@ import HydrographComparisonChart from '../components/HydrographComparisonChart.v
 import ProcessStory from '../components/ProcessStory.vue'
 import ReportLinks from '../components/ReportLinks.vue'
 import ArchifyWorkflow from '../components/ArchifyWorkflow.vue'
+import ResearchEvidencePanel from '../components/ResearchEvidencePanel.vue'
 import { api } from '../api/client'
 import { useResultsStore } from '../stores/results'
 import type { TimelineItem } from '../types/api'
@@ -29,8 +30,8 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="page">
-    <header class="header">
+  <section class="page result-page">
+    <header class="header result-header">
       <div>
         <h1>结果说明</h1>
         <p class="lede">下面用普通人能看懂的话，说明系统自动走完了哪些步骤、为什么做出这个决定。</p>
@@ -47,27 +48,29 @@ onMounted(async () => {
 
     <ArchifyWorkflow view="gate-keep" height="480px" />
 
-    <section v-if="store.result?.test_hydrograph?.series?.length" class="chart-block">
+    <section v-if="store.result?.test_hydrograph?.series?.length" class="chart-block content-surface">
       <h3>{{ hydrographTitleZh(store.result.test_hydrograph) }}</h3>
       <p class="lede">独立检验窗上的观测与最终冻结方案。KEEP/ROLLBACK 时冻结的仍是原方案，不会标成已率定。</p>
       <HydrographComparisonChart :comparison="store.result.test_hydrograph" />
     </section>
 
-    <section v-if="store.result?.calibration_hydrograph?.series?.length" class="chart-block">
+    <ResearchEvidencePanel :task-id="taskId" />
+
+    <section v-if="store.result?.calibration_hydrograph?.series?.length" class="chart-block content-surface">
       <h3>{{ hydrographTitleZh(store.result.calibration_hydrograph) }}</h3>
       <p class="lede">率定窗上的观测、基线方案与候选方案，含预热期阴影。</p>
       <HydrographComparisonChart :comparison="store.result.calibration_hydrograph" />
     </section>
 
-    <section class="chart-block">
+    <section class="chart-block content-surface">
       <h3>预报记录（提前 1 / 2 / 3 天）</h3>
-      <p class="lede">横轴是起报日期。这是滚动预报存档，不能替代上面的过程线对比。</p>
+      <p class="lede">横轴是起报日期。这是滚动预报存档，不能替代上面的连续过程线对比。</p>
       <ForecastChart :forecasts="store.result?.forecasts || []" />
     </section>
 
     <ReportLinks :task-id="taskId" :artifacts="store.result?.report_artifacts || []" />
 
-    <section class="tech">
+    <section class="tech content-surface">
       <button type="button" class="linkish" data-test="toggle-tech" @click="showTech = !showTech">
         {{ showTech ? '收起技术细节' : '展开技术细节（方案编号、哈希等）' }}
       </button>
@@ -91,28 +94,70 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.result-page {
+  min-height: 100dvh;
+}
+
+.result-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  margin: -8px -8px 20px;
+  padding: 12px 8px;
+  background: var(--glass);
+  border-bottom: 1px solid var(--glass-edge);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  backdrop-filter: blur(24px) saturate(140%);
+}
+
 .secondary {
-  background: transparent;
-  color: #1f6b4a;
-  border: 1px solid rgba(31, 107, 74, 0.35);
+  min-height: var(--control-h);
+  padding: 0 14px;
+  color: var(--accent-text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
 }
 
-.chart-block {
-  margin: 1.5rem 0 2rem;
-}
-
+.chart-block,
 .tech {
-  margin-top: 2rem;
-  padding-top: 1rem;
-  border-top: 1px solid rgba(16, 35, 28, 0.12);
+  margin: 24px 0;
+}
+
+.content-surface {
+  padding: 20px 24px;
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
 }
 
 .tech-panel {
-  margin-top: 0.75rem;
-  padding: 0.9rem 1rem;
-  background: rgba(255, 255, 255, 0.65);
-  border: 1px solid rgba(16, 35, 28, 0.08);
-  font-size: 0.9rem;
-  color: rgba(16, 35, 28, 0.8);
+  margin-top: 12px;
+  padding: 14px 16px;
+  color: var(--text-secondary);
+  background: var(--surface-secondary);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .result-header {
+    position: static;
+    margin: 0 0 16px;
+  }
+
+  .content-surface {
+    padding: 16px;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .result-header {
+    background: var(--surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 </style>

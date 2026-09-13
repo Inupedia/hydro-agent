@@ -9,7 +9,16 @@ from fastapi.staticfiles import StaticFiles
 
 from hydro_agent.api.deps import AppDependencies
 from hydro_agent.api.executor import TaskExecutor
-from hydro_agent.api.routes import basins, hydrologist, model_plans, results, runs, tasks, workflow
+from hydro_agent.api.routes import (
+    basins,
+    hydrologist,
+    model_plans,
+    research,
+    results,
+    runs,
+    tasks,
+    workflow,
+)
 
 
 def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> FastAPI:
@@ -49,6 +58,7 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
     app.include_router(tasks.router)
     app.include_router(runs.router)
     app.include_router(results.router)
+    app.include_router(research.router)
     app.include_router(workflow.router)
 
     if static_dir is not None:

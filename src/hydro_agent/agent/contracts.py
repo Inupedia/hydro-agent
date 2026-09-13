@@ -41,6 +41,12 @@ class AgentDecision(FrozenModel):
     param_groups: tuple[Literal["evap", "runoff", "routing"], ...] | None = None
     objective: Literal["nse", "peak", "composite"] | None = None
     rationale_summary: str = Field(min_length=1, max_length=600)
+    # Structured ExperimentPlan metadata is populated by the deterministic
+    # planning guardrail, never invented as free-form model reasoning.
+    experiment_plan_id: str | None = Field(default=None, max_length=96)
+    experiment_signature: str | None = Field(default=None, max_length=64)
+    experiment_reason_codes: tuple[str, ...] = ()
+    experiment_evidence_refs: tuple[str, ...] = ()
     # User-facing audit trace. These are concise decision summaries, not hidden chain-of-thought.
     observation_zh: str = Field(default="", max_length=240)
     analysis_zh: str = Field(default="", max_length=600)
