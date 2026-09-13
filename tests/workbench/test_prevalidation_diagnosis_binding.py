@@ -26,7 +26,7 @@ class _Source:
 def test_real_workbench_binds_a06_to_predevelopment_diagnosis():
     kernel = RealWorkbenchKernel.__new__(RealWorkbenchKernel)
     kernel.repository = _Repo()
-    kernel._task_configs = {}
+    kernel._task_configs = {"task-1": {"allow_optimization": True}}
     kernel.forecast = object()
     kernel.source = _Source(flow_rows=(_FlowRow(True), _FlowRow(False)))
     kernel.skills = SimpleNamespace(nse_good_enough=lambda: 0.5)
