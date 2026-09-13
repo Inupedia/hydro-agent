@@ -74,14 +74,6 @@ def list_versions() -> tuple[str, ...]:
     return tuple(versions)
 
 
-def version_html_names() -> dict[str, str]:
-    mapping: dict[str, str] = {}
-    for path in _iter_definition_files():
-        definition = WorkflowDefinition.model_validate_json(path.read_text(encoding="utf-8"))
-        mapping[definition.version] = definition.diagram.html_name
-    return mapping
-
-
 @lru_cache(maxsize=16)
 def _load_cached(path: str, mtime_ns: int) -> WorkflowDefinition:
     return WorkflowDefinition.model_validate_json(Path(path).read_text(encoding="utf-8"))
