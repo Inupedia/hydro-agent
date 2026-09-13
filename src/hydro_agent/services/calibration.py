@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from pydantic import Field
@@ -108,29 +107,10 @@ class CalibrationService:
                 )
             )
 
-        payload = result.result_payload
-        sensitivity = payload.get("sensitivity_evidence") if isinstance(payload, dict) else None
-        if result.status == "succeeded" and isinstance(sensitivity, dict):
-            relative = "output/sensitivity-evidence.json"
-            path = workspace / relative
-            path.write_text(
-                json.dumps(sensitivity, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
-                encoding="utf-8",
-            )
-            artifacts.append(
-                dict(
-                    artifact_id=f"{action_run_id}-a{len(artifacts)}",
-                    kind="execution",
-                    relative_path=relative,
-                    sha256=sha256_file(path),
-                    bytes=path.stat().st_size,
-                    promoted=True,
-                )
-            )
-
         self.repository.record_execution_result(result, artifacts)
         if result.status != "succeeded":
             raise CalibrationExecutionFailed(action_run_id, result.status, result.error_code)
+        payload = result.result_payload
         parameters = payload.get("candidate_parameters")
         if not isinstance(parameters, dict) or payload.get("strategy_id") != strategy.strategy_id:
             raise CalibrationExecutionFailed(
