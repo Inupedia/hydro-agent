@@ -101,12 +101,12 @@ def title_for(kind: ComparisonKind, *, calibrated: bool, gate_status: str | None
     if kind == "calibration":
         return "观测与基线 / 候选 · 率定窗口"
     if calibrated:
-        return "观测与冻结方案 · 最终独立测试"
+        return "观测与冻结方案 · 最终独立检验"
     if gate_status == "KEEP":
-        return "观测与冻结方案 · 最终独立测试（维持原方案）"
+        return "观测与冻结方案 · 最终独立检验（维持原方案）"
     if gate_status == "ROLLBACK":
-        return "观测与冻结方案 · 最终独立测试（已回退）"
-    return "观测与冻结方案 · 最终独立测试"
+        return "观测与冻结方案 · 最终独立检验（已回退）"
+    return "观测与冻结方案 · 最终独立检验"
 
 
 def calibrated_flag(*, gate_status: str | None, frozen_is_candidate: bool) -> bool:
