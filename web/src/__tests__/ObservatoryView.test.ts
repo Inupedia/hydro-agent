@@ -7,6 +7,7 @@ import { useDemoStore } from '../stores/demo'
 import { api } from '../api/client'
 
 vi.mock('../components/HydrographComparisonChart.vue', () => ({ default: { template: '<div data-test="hydrograph" />' } }))
+vi.mock('../components/ResearchEvidencePanel.vue', () => ({ default: { props: ['taskId'], template: '<div data-test="research-evidence-panel">research</div>' } }))
 vi.mock('../api/client', () => ({
   api: {
     health: vi.fn(async () => ({ status: 'ok', mode: 'demo', basin_catalog: true })),
@@ -80,7 +81,29 @@ describe('single page observatory', () => {
     wrapper.unmount()
   })
 
-  it('shows one final comparison chart and removes the redundant forecast-record chart', async () => {
+  it('submits development and final-test windows with backend budget limits', async () => {
+    const { wrapper } = await setup()
+    await wrapper.find('.text-button').trigger('click')
+    const development = wrapper.find('[data-test="development-days"]')
+    const finalTest = wrapper.find('[data-test="final-test-days"]')
+    expect(development.exists()).toBe(true)
+    expect(finalTest.exists()).toBe(true)
+    expect(development.attributes('min')).toBe('3')
+    expect(development.attributes('max')).toBe('90')
+    expect(finalTest.attributes('min')).toBe('3')
+    expect(finalTest.attributes('max')).toBe('90')
+    expect(wrapper.find('input[v-model="demo.draft.max_agent_decision_rounds"]').exists()).toBe(false)
+    await development.setValue(21)
+    await finalTest.setValue(14)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(api.createTask).toHaveBeenCalledWith(
+      expect.objectContaining({ validation_days: 21, final_test_days: 14, max_agent_decision_rounds: 20, max_optimization_cycles: 4 }),
+    )
+    wrapper.unmount()
+  })
+
+  it('shows one final comparison chart, research audit, and removes the redundant forecast-record chart', async () => {
     const { wrapper, store, router } = await setup()
     store.taskId = 'test-task'
     store.run = { status: 'completed', worker_active: false, phase: 'E', needs_follow_up: false } as typeof store.run
@@ -125,6 +148,7 @@ describe('single page observatory', () => {
     }
     await flushPromises()
     expect(wrapper.findAll('[data-test="hydrograph"]')).toHaveLength(1)
+    expect(wrapper.find('[data-test="research-evidence-panel"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('最终方案对比')
     expect(wrapper.text()).toContain('观测 / 基准 / 最终方案')
     expect(wrapper.text()).not.toContain('预报记录')
@@ -177,6 +201,7 @@ describe('single page observatory', () => {
     await flushPromises()
     expect(wrapper.find('[data-test="live-workflow"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="forecast-surface"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="research-evidence-panel"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('正在整理最终方案对比')
     expect(wrapper.find('.observatory').classes()).toContain('is-results')
     expect(wrapper.find('[data-test="header-new-task"]').exists()).toBe(true)
@@ -188,6 +213,8 @@ describe('single page observatory', () => {
     const { wrapper, store } = await setup()
     expect(api.getTask).toHaveBeenCalledWith('existing')
     expect(store.draft.basin_id).toBe('basin-restored')
+    expect(store.draft.validation_days).toBe(30)
+    expect(store.draft.final_test_days).toBe(30)
     expect(api.startRun).not.toHaveBeenCalled()
     wrapper.unmount()
   })
