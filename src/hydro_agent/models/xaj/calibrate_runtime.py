@@ -12,6 +12,7 @@ from hydro_agent.evaluation.hydrograph import build_comparison, write_bundle
 from hydro_agent.evaluation.metrics import kge, nse
 from hydro_agent.execution.contracts import ExecutionRequest
 from hydro_agent.optimization.dds import optimize_dds
+from hydro_agent.optimization.morris import screen_morris
 from hydro_agent.optimization.param_groups import normalize_param_groups, resolve_param_names
 from hydro_agent.optimization.sceua import optimize_sceua
 from hydro_agent.optimization.search_evidence import analyze_search_boundaries
@@ -114,6 +115,17 @@ def _canonical_tunable(
     return out
 
 
+def _screening_trajectories(*, requested: int, dimension: int, evaluation_budget: int) -> int:
+    """Cap Morris work so at least half (and at least 32 calls) remains for search."""
+
+    if requested <= 0 or dimension <= 4:
+        return 0
+    optimizer_reserve = min(evaluation_budget, max(32, evaluation_budget // 2))
+    screening_allowance = max(0, evaluation_budget - optimizer_reserve)
+    by_budget = screening_allowance // (dimension + 1)
+    return max(0, min(requested, by_budget))
+
+
 def run(workspace: Path) -> dict:
     import numpy as np
 
@@ -158,8 +170,8 @@ def run(workspace: Path) -> dict:
         local_scale=strategy.local_scale,
     )
 
-    # Cache simulator outputs because optimizers may revisit the same canonical
-    # point, especially when the integer routing lag L is active.
+    # Cache simulator outputs because screening and optimizers may revisit the
+    # same canonical point, especially when the integer routing lag L is active.
     cache: dict[
         tuple[tuple[str, float], ...], tuple[float, list[float], dict[str, float]]
     ] = {}
@@ -218,18 +230,69 @@ def run(workspace: Path) -> dict:
         return float(score)
 
     initial_tunable = {name: base_parameters[name] for name in tunable_names}
+    active_names = tunable_names
+    sensitivity_evidence: dict[str, object] = {
+        "method": strategy.sensitivity_method,
+        "status": "not_run",
+        "parameter_universe": list(tunable_names),
+        "active_parameters": list(tunable_names),
+        "screened_out_parameters": [],
+        "model_evaluations": 0,
+    }
+    screening_model_evaluations = 0
+    screening_score_calls = 0
+
+    if strategy.sensitivity_method == "morris":
+        trajectories = _screening_trajectories(
+            requested=strategy.sensitivity_trajectories,
+            dimension=len(tunable_names),
+            evaluation_budget=strategy.evaluation_budget,
+        )
+        if trajectories > 0:
+            before_screening = model_evaluations
+            screening = screen_morris(
+                bounds=bounds,
+                score_fn=evaluate,
+                trajectories=trajectories,
+                levels=strategy.sensitivity_levels,
+                random_seed=strategy.random_seed + 101,
+                min_relative_mu_star=strategy.sensitivity_min_relative_mu_star,
+                min_effects_per_parameter=strategy.sensitivity_min_effects,
+                min_active_parameters=strategy.min_active_parameters,
+                active_parameter_limit=strategy.active_parameter_limit,
+            )
+            screening_model_evaluations = model_evaluations - before_screening
+            screening_score_calls = screening.score_calls
+            active_names = screening.active_parameters or tunable_names
+            sensitivity_evidence = screening.as_dict()
+            sensitivity_evidence.update(
+                {
+                    "status": "completed",
+                    "parameter_universe": list(tunable_names),
+                    "model_evaluations": screening_model_evaluations,
+                }
+            )
+        else:
+            sensitivity_evidence["status"] = "skipped_budget_or_low_dimension"
+
+    active_bounds = {name: bounds[name] for name in active_names}
+    initial_active = {name: base_parameters[name] for name in active_names}
+    optimizer_budget = strategy.evaluation_budget - model_evaluations
+    if optimizer_budget < 1:
+        raise ValueError("sensitivity screening exhausted calibration evaluation budget")
+
     trace: list[dict[str, float | int]] = []
     selected_source = strategy.optimizer
 
     if strategy.optimizer == "dds":
         opt = optimize_dds(
-            bounds=bounds,
+            bounds=active_bounds,
             score_fn=evaluate,
-            evaluation_budget=strategy.evaluation_budget,
+            evaluation_budget=optimizer_budget,
             random_seed=strategy.random_seed,
-            initial_parameters=initial_tunable,
+            initial_parameters=initial_active,
         )
-        best_tunable = _canonical_tunable(opt.best_parameters, bounds)
+        best_tunable = _canonical_tunable(opt.best_parameters, active_bounds)
         best_score = float(opt.best_score)
         trace = [
             {"evaluation": int(evaluation), "best_score": float(score)}
@@ -238,13 +301,13 @@ def run(workspace: Path) -> dict:
         optimizer_calls = int(opt.evaluations)
     elif strategy.optimizer == "sce-ua":
         opt = optimize_sceua(
-            bounds=bounds,
+            bounds=active_bounds,
             score_fn=evaluate,
-            evaluation_budget=strategy.evaluation_budget,
+            evaluation_budget=optimizer_budget,
             random_seed=strategy.random_seed,
-            initial_parameters=initial_tunable,
+            initial_parameters=initial_active,
         )
-        best_tunable = _canonical_tunable(opt.best_parameters, bounds)
+        best_tunable = _canonical_tunable(opt.best_parameters, active_bounds)
         best_score = float(opt.best_score)
         trace = [
             {"evaluation": int(evaluation), "best_score": float(score)}
@@ -253,10 +316,10 @@ def run(workspace: Path) -> dict:
         optimizer_calls = int(opt.evaluations)
     elif strategy.optimizer == "random-search":
         rng = np.random.default_rng(strategy.random_seed)
-        candidates = [initial_tunable]
-        while len(candidates) < strategy.evaluation_budget:
-            candidates.append(_sample_vector(rng, tunable_names, bounds))
-        best_tunable = dict(initial_tunable)
+        candidates = [initial_active]
+        while len(candidates) < optimizer_budget:
+            candidates.append(_sample_vector(rng, active_names, active_bounds))
+        best_tunable = dict(initial_active)
         best_score = float("-inf")
         optimizer_calls = 0
         for index, values in enumerate(candidates):
@@ -265,7 +328,7 @@ def run(workspace: Path) -> dict:
             score = float(raw) if raw is not None else float("-inf")
             if score > best_score:
                 best_score = score
-                best_tunable = _canonical_tunable(values, bounds)
+                best_tunable = _canonical_tunable(values, active_bounds)
                 trace.append({"evaluation": index + 1, "best_score": score})
     else:
         raise ValueError(f"unsupported optimizer: {strategy.optimizer}")
@@ -293,10 +356,15 @@ def run(workspace: Path) -> dict:
         baseline_cached = cache[baseline_key]
     _, baseline_full, _ = baseline_cached
 
-    absolute_bounds = {name: tuple(float(v) for v in ranges[name]) for name in tunable_names}
+    if model_evaluations > strategy.evaluation_budget:
+        raise RuntimeError(
+            f"calibration exceeded hard evaluation budget: {model_evaluations}>{strategy.evaluation_budget}"
+        )
+
+    absolute_bounds = {name: tuple(float(v) for v in ranges[name]) for name in active_names}
     boundary_evidence = analyze_search_boundaries(
         values=best_tunable,
-        search_bounds=bounds,
+        search_bounds=active_bounds,
         absolute_bounds=absolute_bounds,
     )
 
@@ -308,6 +376,7 @@ def run(workspace: Path) -> dict:
     }
     calibrated = bool(delta)
     objective_metric = "kge" if objective == "composite" else objective
+    screened_out = tuple(name for name in tunable_names if name not in set(active_names))
 
     candidate_payload = {
         "model_id": "xaj",
@@ -321,7 +390,14 @@ def run(workspace: Path) -> dict:
         "objective": objective,
         "objective_metric": objective_metric,
         "param_groups": list(groups),
+        "parameter_universe": list(tunable_names),
+        "active_parameters": list(active_names),
+        "screened_out_parameters": list(screened_out),
+        "sensitivity_method": strategy.sensitivity_method,
+        "sensitivity_evidence": sensitivity_evidence,
         "evaluation_budget": strategy.evaluation_budget,
+        "screening_model_evaluations": screening_model_evaluations,
+        "optimizer_budget": optimizer_budget,
         "search_boundary_evidence": boundary_evidence.as_dict(),
     }
     result = {
@@ -331,7 +407,10 @@ def run(workspace: Path) -> dict:
         "strategy_id": strategy.strategy_id,
         "optimizer": strategy.optimizer,
         "evaluation_budget": strategy.evaluation_budget,
+        "optimizer_budget": optimizer_budget,
         "optimizer_calls": optimizer_calls,
+        "screening_score_calls": screening_score_calls,
+        "screening_model_evaluations": screening_model_evaluations,
         "model_evaluations": model_evaluations,
         # Backward-compatible aliases used by existing reports/tests.
         "evaluated_candidates": model_evaluations,
@@ -343,10 +422,16 @@ def run(workspace: Path) -> dict:
         "objective": objective,
         "objective_metric": objective_metric,
         "param_groups": list(groups),
+        "parameter_universe": list(tunable_names),
+        "active_parameters": list(active_names),
+        "screened_out_parameters": list(screened_out),
+        "sensitivity_method": strategy.sensitivity_method,
+        "sensitivity_evidence": sensitivity_evidence,
         "objective_value": float(best_score),
         "candidate_parameters": best_parameters,
         "optimization_trace": trace,
-        "search_bounds": {name: list(bound) for name, bound in bounds.items()},
+        "search_bounds": {name: list(bound) for name, bound in active_bounds.items()},
+        "screening_bounds": {name: list(bound) for name, bound in bounds.items()},
         "absolute_bounds": {name: list(bound) for name, bound in absolute_bounds.items()},
         "search_boundary_evidence": boundary_evidence.as_dict(),
         "calibrated": calibrated,
