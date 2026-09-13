@@ -18,6 +18,14 @@ from hydro_agent.knowledge.expert import (
     ExpertKnowledgeRepository,
     ExpertRule,
 )
+from hydro_agent.knowledge.governance import (
+    KnowledgeApplicability,
+    KnowledgeEntry,
+    KnowledgeEvidenceBundle,
+    KnowledgeFilterDecision,
+    KnowledgeQueryContext,
+    select_knowledge_entries,
+)
 from hydro_agent.knowledge.repository import KnowledgeRepository
 
 __all__ = [
@@ -27,7 +35,13 @@ __all__ = [
     "ExpertAdvice",
     "ExpertKnowledgeRepository",
     "ExpertRule",
+    "KnowledgeApplicability",
+    "KnowledgeEntry",
+    "KnowledgeEvidenceBundle",
+    "KnowledgeFilterDecision",
+    "KnowledgeQueryContext",
     "KnowledgeRepository",
     "derive_basin_hydro_profile",
     "lesson_from_gate",
+    "select_knowledge_entries",
 ]
