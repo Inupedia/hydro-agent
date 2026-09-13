@@ -2,8 +2,9 @@
 """Real Yaogu calibration-scientist E2E smoke.
 
 The smoke uses the user-supplied Yaogu academy materials, the vendored teacher
-XAJ kernel, leakage-safe diagnostics, structured calibration plans, SCE-UA,
-independent GB/T Gate, reflection/rollback, case memory, replay and evaluation.
+XAJ kernel, leakage-safe diagnostics, structured calibration plans, a
+budget-aware numerical optimizer, independent GB/T Gate, reflection/rollback,
+case memory, replay and evaluation.
 
 For reproducibility this CI smoke uses the deterministic CalibrationScientist
 policy provider rather than an external LLM. The provider obeys the same
@@ -120,20 +121,30 @@ def write_case_memory(repository, task_id: str) -> list[CalibrationCase]:
             if item.strip()
         )
         gate_status = str(gate_gates.get("status") or row.status)
+        adoption_status = str(gate_gates.get("adoption_status") or "UNKNOWN")
+        qualification_status = str(
+            gate_gates.get("qualification_status") or "NOT_EVALUATED"
+        )
         case = CalibrationCase(
             case_id=f"{task_id}-case-{case_index:02d}",
             basin_id="yaogu",
             hypothesis=str(dgates.get("hypothesis") or "UNKNOWN"),
             phenomenon=str(dgates.get("phenomenon") or ""),
             strategy_id=str(ogates.get("strategy_id") or "unknown"),
-            optimizer="sce-ua",
+            optimizer=str(ogates.get("optimizer") or "unknown"),
             param_groups=groups,
             objective=str(ogates.get("objective") or "nse"),
             calibration_metrics=cal_metrics,
             validation_metrics=val_metrics,
             gate_status=gate_status,
+            adoption_status=adoption_status,
+            qualification_status=qualification_status,
             parameter_delta=_parse_delta(ogates),
-            lesson=lesson_from_gate(gate_status),
+            lesson=lesson_from_gate(
+                gate_status,
+                adoption_status=adoption_status,
+                qualification_status=qualification_status,
+            ),
         )
         memory.append(case)
         cases.append(case)
@@ -276,7 +287,10 @@ def main() -> int:
         diagnoses = [packet for packet in packets if packet.action == ActionCode.A06_DIAGNOSE]
         optimizations = [packet for packet in packets if packet.action == ActionCode.A07_OPTIMIZE]
         strict_prevalidation = all(
-            any("diagnostic_truth_strictly_precedes_validation=true" in obs for obs in packet.observations)
+            any(
+                "diagnostic_truth_strictly_precedes_validation=true" in obs
+                for obs in packet.observations
+            )
             for packet in diagnoses
         )
         summary = {
