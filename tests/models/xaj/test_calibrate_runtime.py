@@ -91,11 +91,19 @@ def test_dds_calibration_is_deterministic(calibration_workspace):
     second = run_calibration_copy(calibration_workspace, "b")
     assert first["strategy_id"] == "xaj-bounded-v1"
     assert first["optimizer"] == "dds"
+    assert first["sensitivity_method"] == "morris"
     assert first["candidate_parameters"] == second["candidate_parameters"]
+    assert first["active_parameters"] == second["active_parameters"]
+    assert first["sensitivity_evidence"] == second["sensitivity_evidence"]
     assert first["requested_candidates"] == 512
-    assert first["optimizer_calls"] == 512
+    assert 0 < first["screening_model_evaluations"] < 512
+    assert 0 < first["optimizer_budget"] < 512
+    assert first["optimizer_calls"] == first["optimizer_budget"]
     assert 0 < first["evaluated_candidates"] <= 512
+    assert first["model_evaluations"] <= first["evaluation_budget"]
     assert first["evaluated_candidates"] == second["evaluated_candidates"]
+    assert set(first["active_parameters"]).issubset(first["parameter_universe"])
+    assert set(first["screened_out_parameters"]).isdisjoint(first["active_parameters"])
     assert first["objective_value"] == second["objective_value"]
     assert first["model_version"] == "teacher-xaj-v6-20260908"
     assert first["optimization_trace"]

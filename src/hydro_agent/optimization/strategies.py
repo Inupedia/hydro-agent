@@ -4,6 +4,21 @@ from hydro_agent.optimization.contracts import CalibrationStrategy
 # optimizer searches concrete values under teacher/kernel bounds. DDS is the
 # default for higher-dimensional/budget-limited searches; SCE-UA is retained for
 # low-dimensional refinement and benchmark/ablation runs.
+#
+# Morris screening is enabled only on the Agent's high-dimensional production
+# strategies. It consumes the same hard evaluation budget as the optimizer.
+# Benchmarks intentionally remain unscreened so O/P/A experiments preserve a
+# full-space numerical-search baseline.
+MORRIS_SCREENING = dict(
+    sensitivity_method="morris",
+    sensitivity_trajectories=6,
+    sensitivity_levels=6,
+    sensitivity_min_relative_mu_star=0.10,
+    sensitivity_min_effects=2,
+    active_parameter_limit=None,
+    min_active_parameters=2,
+)
+
 XAJ_BOUNDED_V1 = CalibrationStrategy(
     strategy_id="xaj-bounded-v1",
     max_candidates=512,
@@ -12,6 +27,7 @@ XAJ_BOUNDED_V1 = CalibrationStrategy(
     local_scale=None,
     param_groups=("evap", "runoff", "routing"),
     optimizer="dds",
+    **MORRIS_SCREENING,
 )
 
 XAJ_PEAK_BIAS_V1 = CalibrationStrategy(
@@ -22,6 +38,7 @@ XAJ_PEAK_BIAS_V1 = CalibrationStrategy(
     local_scale=None,
     param_groups=("runoff", "routing"),
     optimizer="dds",
+    **MORRIS_SCREENING,
 )
 
 XAJ_LOCAL_REFINE_V1 = CalibrationStrategy(
@@ -32,6 +49,7 @@ XAJ_LOCAL_REFINE_V1 = CalibrationStrategy(
     local_scale=0.25,
     param_groups=("evap", "runoff", "routing"),
     optimizer="dds",
+    **MORRIS_SCREENING,
 )
 
 # Process-oriented strategies used by the calibration-scientist loop.
@@ -43,11 +61,12 @@ XAJ_WATER_BALANCE_V1 = CalibrationStrategy(
     local_scale=0.35,
     param_groups=("evap", "runoff"),
     optimizer="dds",
+    **MORRIS_SCREENING,
 )
 
 # Routing is only four parameters, so the classic SCE-UA benchmark remains a
-# sensible default here and gives the scientist two genuinely different search
-# mechanisms rather than cosmetic strategy rotation.
+# sensible default here. Screening four already-targeted routing parameters would
+# spend budget without enough dimensionality reduction to justify the cost.
 XAJ_ROUTING_REFINE_V1 = CalibrationStrategy(
     strategy_id="xaj-routing-refine-v1",
     max_candidates=256,
@@ -66,6 +85,7 @@ XAJ_HYDRO_COMPOSITE_V1 = CalibrationStrategy(
     local_scale=0.35,
     param_groups=("evap", "runoff", "routing"),
     optimizer="dds",
+    **MORRIS_SCREENING,
 )
 
 # Second-stage search used only when the selected candidate presses against a
@@ -79,6 +99,7 @@ XAJ_BROADENED_REFINE_V1 = CalibrationStrategy(
     local_scale=0.65,
     param_groups=("evap", "runoff", "routing"),
     optimizer="dds",
+    **MORRIS_SCREENING,
 )
 
 # Explicit SCE-UA full-search benchmark for O/P/A experiments. Keeping this as

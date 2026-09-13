@@ -106,6 +106,7 @@ class CalibrationService:
                     promoted=relative in result.output_artifacts,
                 )
             )
+
         self.repository.record_execution_result(result, artifacts)
         if result.status != "succeeded":
             raise CalibrationExecutionFailed(action_run_id, result.status, result.error_code)
