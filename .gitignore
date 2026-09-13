@@ -20,3 +20,4 @@ data/basins/*
 !data/basins/usgs_02472000/
 !data/basins/usgs_02472000/**
 artifacts/
+.repo_memory/
