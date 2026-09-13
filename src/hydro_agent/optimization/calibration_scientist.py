@@ -99,17 +99,34 @@ def _progressive_strategy(
     return "xaj-broadened-refine-v1"
 
 
+def _locked_objective(
+    diagnosis: dict[str, Any], campaign_objective: ObjectiveName | None
+) -> ObjectiveName | None:
+    raw = campaign_objective
+    if raw is None and diagnosis.get("campaign_objective") is not None:
+        raw = str(diagnosis["campaign_objective"])  # type: ignore[assignment]
+    if raw is None:
+        return None
+    if raw not in {"nse", "peak", "composite"}:
+        raise ValueError(f"unsupported campaign objective: {raw}")
+    return raw  # type: ignore[return-value]
+
+
 def plan_from_diagnosis(
     diagnosis: dict[str, Any],
     *,
     strategies: CalibrationStrategyRegistry | None = None,
     expert_knowledge: ExpertKnowledgeRepository | None = None,
+    campaign_objective: ObjectiveName | None = None,
 ) -> CalibrationPlan:
     """Translate a diagnosis into an auditable optimization experiment.
 
-    Evidence is primary. Expert priors may refine the parameter group/objective
-    choice and bounded search scope, but remain advisory metadata and never alter
-    validation Gate rules or the teacher/kernel absolute parameter limits.
+    Evidence is primary. Expert priors may refine parameter groups and bounded
+    search scope, but remain advisory metadata and never alter validation Gate
+    rules or the teacher/kernel absolute parameter limits. When the campaign
+    objective is supplied (directly or as ``diagnosis['campaign_objective']``),
+    it is immutable for this plan and expert/diagnosis objective suggestions are
+    ignored.
     """
 
     registry = strategies or CalibrationStrategyRegistry()
@@ -129,6 +146,7 @@ def plan_from_diagnosis(
     objective = str(diagnosis.get("recommended_objective") or strategy.objective)
     if objective not in {"nse", "peak", "composite"}:
         objective = strategy.objective
+    locked_objective = _locked_objective(diagnosis, campaign_objective)
 
     basin_attributes = diagnosis.get("basin_attributes")
     expert = expert_knowledge or ExpertKnowledgeRepository()
@@ -138,8 +156,10 @@ def plan_from_diagnosis(
     )
     if advice.recommended_param_groups:
         groups = _normalize_groups(advice.recommended_param_groups, groups)
-    if advice.recommended_objective in {"nse", "peak", "composite"}:
+    if locked_objective is None and advice.recommended_objective in {"nse", "peak", "composite"}:
         objective = advice.recommended_objective
+    if locked_objective is not None:
+        objective = locked_objective
 
     adjustment = str(advice.search_adjustment or "keep")
     if adjustment not in {
@@ -193,6 +213,15 @@ def plan_from_diagnosis(
         search_text = " 搜索窗口按专家先验逐级放宽，但不越过老师/内核绝对边界；"
     elif adjustment == "hold_absolute_bounds":
         search_text = " 已触及绝对参数边界，本轮禁止继续外扩并保留为诊断证据；"
+    objective_text = ""
+    expert_notes = list(advice.notes)
+    if locked_objective is not None:
+        objective_text = f" campaign 主目标锁定为 {locked_objective}；"
+        if advice.recommended_objective and advice.recommended_objective != locked_objective:
+            expert_notes.append(
+                f"专家目标建议 {advice.recommended_objective} 未采用：campaign objective 已锁定为 "
+                f"{locked_objective}。"
+            )
 
     return CalibrationPlan(
         hypothesis=CalibrationHypothesis(
@@ -210,12 +239,12 @@ def plan_from_diagnosis(
         evaluation_budget=strategy.evaluation_budget,
         search_adjustment=adjustment,  # type: ignore[arg-type]
         knowledge_refs=advice.matched_rule_ids,
-        expert_notes=advice.notes,
+        expert_notes=tuple(expert_notes),
         rationale=(
             f"基于 {primary_id} 假设，仅开放 {','.join(groups)} 参数组；"
             f"由 {strategy.optimizer} 在确定性边界内完成至多 {strategy.evaluation_budget} 次模型评估，"
             "Agent 不直接给参数值。"
-            f"{prior_text}{search_text}"
+            f"{objective_text}{prior_text}{search_text}"
         ),
     )
 
