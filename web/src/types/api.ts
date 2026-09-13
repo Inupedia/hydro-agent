@@ -26,6 +26,10 @@ export type TaskCreateRequest = {
   model_plan_id?: string | null
   base_scheme_id: string
   allow_optimization: boolean
+  /** Backward-compatible API name for the mutable development Gate window. */
+  validation_days?: number
+  /** Frozen-scheme-only holdout consumed by replay/evaluation after A10. */
+  final_test_days?: number
   max_agent_decision_rounds: number
   max_optimization_cycles: number
 }
