@@ -25,7 +25,7 @@ def test_dds_respects_budget_and_improves_simple_objective():
 def test_dds_is_reproducible_for_same_seed():
     kwargs = dict(
         bounds={"x": (-1.0, 1.0)},
-        score_fn=lambda p: -(p["x"] - 0.1) ** 2,
+        score_fn=lambda p: -((p["x"] - 0.1) ** 2),
         evaluation_budget=32,
         random_seed=7,
         initial_parameters={"x": 0.8},
