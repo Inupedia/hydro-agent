@@ -32,7 +32,7 @@ def test_external_expert_skill_is_seed_prior_not_normative():
     assert advice.is_normative is False
 
 
-def test_water_balance_prior_refines_broad_plan_before_sceua():
+def test_water_balance_prior_refines_broad_plan_before_dds():
     plan = plan_from_diagnosis(
         {
             "hypothesis": "MODEL",
@@ -47,7 +47,7 @@ def test_water_balance_prior_refines_broad_plan_before_sceua():
     assert plan.parameter_groups == ("evap", "runoff")
     assert plan.objective == "composite"
     assert "expert.water_balance_first" in plan.knowledge_refs
-    assert plan.optimizer == "sce-ua"
+    assert plan.optimizer == "dds"
     assert plan.tunes_raw_parameter_vector is False
 
 
