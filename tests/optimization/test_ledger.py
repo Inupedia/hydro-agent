@@ -71,6 +71,32 @@ def test_ledger_reconstructs_complete_calibration_cycle():
     assert trial.metric_deltas["primary_delta"] == -0.2
 
 
+def test_ledger_prefers_persisted_plan_metadata_when_available():
+    ledger = TrialLedgerBuilder().build(
+        [
+            row("diag", "A06_DIAGNOSE"),
+            row(
+                "opt",
+                "A07_OPTIMIZE",
+                gates={
+                    "strategy_id": "xaj-broadened-refine-v1",
+                    "experiment_plan_id": "plan-explicit",
+                    "experiment_signature": "sig-explicit",
+                    "experiment_reason_codes": "local_boundary_hit,diagnosis_recommendation",
+                    "experiment_evidence_refs": "diag,ev-boundary",
+                },
+            ),
+        ]
+    )
+
+    trial = ledger.records[0]
+    assert trial.plan_id == "plan-explicit"
+    assert trial.experiment_signature == "sig-explicit"
+    assert trial.evidence_refs == ("diag", "ev-boundary", "opt")
+    assert "local_boundary_hit" in trial.reason_codes
+    assert "diagnosis_recommendation" in trial.reason_codes
+
+
 def test_ledger_flushes_incomplete_trial_as_inconclusive():
     ledger = TrialLedgerBuilder().build(
         [
