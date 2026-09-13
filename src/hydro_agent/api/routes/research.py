@@ -73,19 +73,45 @@ def _latest_experiment_plan(evidence_rows) -> dict[str, Any] | None:
     }
 
 
-def _load_final_test_evidence(report_root: Path | None, task_id: str) -> dict[str, Any] | None:
-    if report_root is None:
-        return None
-    path = report_root / task_id / "test-hydrograph.json"
-    if not path.is_file():
-        path = report_root / "test-hydrograph.json"
+def _read_json(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    series = payload.get("series") if isinstance(payload, dict) else None
+    return payload if isinstance(payload, dict) else None
+
+
+def _task_report_path(report_root: Path, task_id: str, name: str) -> Path:
+    task_path = report_root / task_id / name
+    return task_path if task_path.is_file() else report_root / name
+
+
+def _load_final_test_evidence(report_root: Path | None, task_id: str) -> dict[str, Any] | None:
+    if report_root is None:
+        return None
+
+    # New tasks persist the exact A12 evidence bundle. This is the canonical
+    # source for Web/report/benchmark consumers and avoids metric drift.
+    persisted = _read_json(_task_report_path(report_root, task_id, "research-evidence.json"))
+    if persisted:
+        return persisted
+
+    # report.json has carried the same ReplayEvaluation.hydrologic_evidence since
+    # the research-loop migration. Prefer it before rebuilding historical data.
+    report = _read_json(_task_report_path(report_root, task_id, "report.json"))
+    if report:
+        evidence = report.get("hydrologic_evidence")
+        if isinstance(evidence, dict) and evidence:
+            return evidence
+
+    # Legacy compatibility: old task reports only stored the final-test process
+    # line. Rebuild once for display; no new parameter decision is made here.
+    payload = _read_json(_task_report_path(report_root, task_id, "test-hydrograph.json"))
+    if not payload:
+        return None
+    series = payload.get("series")
     if not isinstance(series, list):
         return None
 
@@ -171,6 +197,7 @@ def get_research_summary(task_id: str, request: Request) -> dict[str, Any]:
             "rolling_continuous_separated": True,
             "final_test_used_for_selection": False,
             "trial_ledger_source": "persisted_evidence",
+            "evidence_source_priority": "research-evidence.json>report.json>legacy-hydrograph",
             "objective_alias": "composite->kge",
         },
     }
