@@ -664,13 +664,16 @@ class EvaluateReportToolHandler:
         ):
             if (Path(self.output_dir) / name).is_file():
                 artifacts.append(name)
+        research_observation = (
+            ("research_evidence=research-evidence.json",)
+            if "research-evidence.json" in artifacts
+            else ()
+        )
         observations = (
             f"scheme_id={evaluation.scheme_id}",
             f"report_json={json_path.name}",
             f"report_md={md_path.name}",
-            *("research_evidence=research-evidence.json",)
-            if "research-evidence.json" in artifacts
-            else (),
+            *research_observation,
         )
         return EvidencePacket(
             evidence_id=_evidence_id(),
