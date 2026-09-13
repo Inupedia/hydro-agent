@@ -4,15 +4,11 @@ import { useRoute, useRouter } from 'vue-router'
 import DemoShell from '../layouts/DemoShell.vue'
 import { useDemoStore } from '../stores/demo'
 import { actionTitle, basinLabel } from '../demo/stages'
-import { diagramHtmlFor } from '../generated/workflow'
 
 const route = useRoute()
 const router = useRouter()
 const demo = useDemoStore()
 const taskId = computed(() => String(route.params.taskId))
-const diagramSrc = computed(
-  () => `/diagrams/${diagramHtmlFor(demo.taskMeta?.workflow_version)}?theme=light&embed=true&motion=still`,
-)
 
 onMounted(() => {
   if (!demo.taskId) demo.restoreTask(taskId.value)
@@ -29,14 +25,10 @@ onMounted(() => {
         <div>
           <p class="eyebrow">详细过程</p>
           <h1>系统实际执行路径</h1>
-          <p class="lede">蓝色强调对应最近动作。流程图用于解释，不作为主操作入口。</p>
+          <p class="lede">执行记录来自真实任务时间线；这里不再加载已经移除的旧流程图实现。</p>
         </div>
         <button type="button" class="secondary" @click="router.back()">返回</button>
       </header>
-
-      <div class="frame">
-        <iframe :src="diagramSrc" title="Hydro-Agent 流程详图" />
-      </div>
 
       <div class="log card">
         <h2>执行记录</h2>
@@ -90,20 +82,6 @@ h1 {
 .lede {
   margin: 0.4rem 0 0;
   color: var(--secondary);
-}
-.frame {
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  border: 1px solid var(--separator);
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  min-height: 520px;
-}
-iframe {
-  width: 100%;
-  height: min(62vh, 640px);
-  border: 0;
-  background: #fff;
 }
 .card {
   background: var(--surface);

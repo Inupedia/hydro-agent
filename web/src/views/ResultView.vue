@@ -5,7 +5,6 @@ import ForecastChart from '../components/ForecastChart.vue'
 import HydrographComparisonChart from '../components/HydrographComparisonChart.vue'
 import ProcessStory from '../components/ProcessStory.vue'
 import ReportLinks from '../components/ReportLinks.vue'
-import ArchifyWorkflow from '../components/ArchifyWorkflow.vue'
 import ResearchEvidencePanel from '../components/ResearchEvidencePanel.vue'
 import { api } from '../api/client'
 import { useResultsStore } from '../stores/results'
@@ -46,9 +45,7 @@ onMounted(async () => {
 
     <ProcessStory :result="store.result" :timeline="timeline" />
 
-    <ArchifyWorkflow view="gate-keep" height="480px" />
-
-    <section v-if="store.result?.test_hydrograph?.series?.length" class="chart-block content-surface">
+    <section v-if="store.result?.test_hydrograph?.series?.length" class="chart-block content-surface final-chart-block">
       <h3>{{ hydrographTitleZh(store.result.test_hydrograph) }}</h3>
       <p class="lede">独立检验窗上的观测与最终冻结方案。KEEP/ROLLBACK 时冻结的仍是原方案，不会标成已率定。</p>
       <HydrographComparisonChart :comparison="store.result.test_hydrograph" />
@@ -122,6 +119,10 @@ onMounted(async () => {
 .chart-block,
 .tech {
   margin: 24px 0;
+}
+
+.final-chart-block {
+  padding-top: 24px;
 }
 
 .content-surface {

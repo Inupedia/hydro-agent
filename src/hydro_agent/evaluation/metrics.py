@@ -73,9 +73,21 @@ def kge(obs, sim) -> float:
 
 
 def build_evaluation_bundle(scheme_id: str, lead_series: dict[int, tuple]) -> EvaluationBundle:
-    leads = []
+    """Build Gate evidence from leads that have enough *legal* development targets.
+
+    A lead with fewer than two observations is not statistically scoreable and is
+    omitted rather than borrowing truth from outside the development window. This
+    matters for compressed smoke protocols where lead-2/3 can legitimately be
+    unavailable after target-date isolation is enforced.
+    """
+
+    leads: list[LeadMetrics] = []
     for lead in (1, 2, 3):
-        obs, sim = lead_series[lead]
+        obs, sim = lead_series.get(lead, ([], []))
+        if len(obs) != len(sim):
+            raise ValueError(f"lead-{lead} obs/sim length mismatch")
+        if len(obs) < 2:
+            continue
         leads.append(
             LeadMetrics(
                 lead=lead,  # type: ignore[arg-type]
@@ -83,7 +95,10 @@ def build_evaluation_bundle(scheme_id: str, lead_series: dict[int, tuple]) -> Ev
                 mae=mae(obs, sim),
                 bias=bias(obs, sim),
                 high_flow_mae=high_flow_mae(obs, sim),
+                sample_count=len(obs),
             )
         )
+    if not leads:
+        raise ValueError("development Gate requires at least one lead with >=2 legal pairs")
     primary = float(np.mean([item.nse for item in leads]))
     return EvaluationBundle(scheme_id=scheme_id, leads=tuple(leads), primary_score=primary)

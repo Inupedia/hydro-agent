@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -38,6 +39,10 @@ from hydro_agent.replay.service import ReplayService
 from hydro_agent.reporting.report import ReplayReportBuilder
 from hydro_agent.services.calibration import CalibrationService
 from hydro_agent.services.calibration_diagnostics import diagnose_prevalidation_window
+from hydro_agent.services.calibration_evidence import (
+    apply_calibration_evidence_to_diagnosis,
+    build_calibration_evidence,
+)
 from hydro_agent.services.forecast import ForecastService
 from hydro_agent.services.snapshots import SnapshotResolver
 from hydro_agent.services.workspace import MaterializingWorkspaceManager
@@ -50,7 +55,6 @@ POLICY = ExecutionPolicy(
 
 
 def gate_policy_from_skills(skills: SkillRegistry | None = None) -> GatePolicy:
-    """Gate ACCEPT requires GB/T scheme grade from gbt-22482-accuracy skill."""
     registry = skills or SkillRegistry()
     grade = registry.min_scheme_grade()
     return GatePolicy(
@@ -130,6 +134,16 @@ class RealWorkbenchKernel:
     def scheme_config(self) -> dict:
         return json.loads(json.dumps(self.scheme_template))
 
+    def _workbench_config(self, task_id: str) -> dict:
+        runtime = dict(self._task_configs.get(task_id) or {})
+        if runtime:
+            return runtime
+        state = self.repository.ensure_task_state(task_id)
+        if state.current_scheme_id:
+            scheme = self.repository.get_scheme(state.current_scheme_id)
+            return dict((scheme.config_json or {}).get("workbench") or {})
+        return {}
+
     def ensure_eval_truth_snapshot(self, task_id: str, issue: datetime) -> str:
         snap_id = f"{task_id}--E--evaluate--{issue.strftime('%Y%m%dT%H%M%SZ')}"
         try:
@@ -138,6 +152,12 @@ class RealWorkbenchKernel:
         except KeyError:
             pass
         task = self.repository.get_task(task_id)
+        cfg = self._workbench_config(task_id)
+        final_days = int(cfg.get("final_test_days") or 0)
+        history_days = int(
+            cfg.get("evaluation_history_days")
+            or (self.scheme_template["warmup_days"] + max(final_days, 60))
+        )
         self.builder.build(
             SnapshotContext(
                 task_id=task_id,
@@ -147,7 +167,7 @@ class RealWorkbenchKernel:
                 forcing_mode=task.forcing_mode,
                 capability="evaluate",
                 issue_time=issue,
-                history_days=max(60, self.scheme_template["warmup_days"] + 60),
+                history_days=history_days,
                 day_timezone=str(self.source.basin.get("day_timezone", "UTC")),
             ),
             forcing_rows=list(self.source.forcing_rows),
@@ -157,7 +177,6 @@ class RealWorkbenchKernel:
         return snap_id
 
     def build_tools(self, *, task_configs: dict) -> ToolRouter:
-        # Share the live dict reference so create_task updates are visible to Gate/diagnose.
         self._task_configs = task_configs
         self.validation_gate.task_configs = task_configs
         tools = ToolRouter()
@@ -216,16 +235,45 @@ class RealWorkbenchKernel:
                 "notes": ["no current scheme"],
             }
         window = self.validation_gate.window_for(task_id)
+        scoring_source = replace(
+            self.source,
+            flow_rows=tuple(row for row in self.source.flow_rows if row.eligible_for_scoring),
+        )
         result = diagnose_prevalidation_window(
             repository=self.repository,
             forecast_service=self.forecast,
-            source=self.source,
+            source=scoring_source,
             policy=POLICY,
             task_id=task_id,
             scheme_id=scheme_id,
             validation_start=window.start,
             nse_good_enough=self.skills.nse_good_enough(),
         )
+
+        cfg = self._workbench_config(task_id)
+        raw_cal_start = cfg.get("calibration_start_date")
+        raw_cal_end = cfg.get("calibration_end_date")
+        if raw_cal_start and raw_cal_end:
+            cal_start = date.fromisoformat(str(raw_cal_start)[:10])
+            cal_end = date.fromisoformat(str(raw_cal_end)[:10])
+            scheme = self.repository.get_scheme(scheme_id)
+            try:
+                full_evidence = build_calibration_evidence(
+                    source=self.source,
+                    scheme_config=dict(scheme.config_json or {}),
+                    calibration_start=cal_start,
+                    calibration_end=cal_end,
+                )
+                result = apply_calibration_evidence_to_diagnosis(
+                    result,
+                    full_evidence,
+                    nse_good_enough=self.skills.nse_good_enough(),
+                )
+            except (KeyError, ValueError) as exc:
+                notes = list(result.get("notes") or [])
+                notes.append(f"continuous_calibration_evidence_unavailable={exc}")
+                result["notes"] = notes
+
         notes = list(result.get("notes") or [])
         notes.insert(0, f"scheme_id={scheme_id}")
         notes.insert(
@@ -238,29 +286,19 @@ class RealWorkbenchKernel:
 
 def _issue_from_config(cfg: dict) -> datetime:
     end = cfg.get("end_date") or "2020-05-01"
-    if isinstance(end, str):
-        day = date.fromisoformat(end[:10])
-    else:
-        day = end
+    day = date.fromisoformat(end[:10]) if isinstance(end, str) else end
     return datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
 
 
 def _dates_from_config(cfg: dict) -> tuple[date, date]:
     start = cfg.get("start_date") or "2020-04-29"
     end = cfg.get("end_date") or "2020-05-01"
-    if isinstance(start, str):
-        start_d = date.fromisoformat(start[:10])
-    else:
-        start_d = start
-    if isinstance(end, str):
-        end_d = date.fromisoformat(end[:10])
-    else:
-        end_d = end
+    start_d = date.fromisoformat(start[:10]) if isinstance(start, str) else start
+    end_d = date.fromisoformat(end[:10]) if isinstance(end, str) else end
     return start_d, end_d
 
 
 def _final_test_dates_from_config(cfg: dict) -> tuple[date, date]:
-    """Resolve the frozen-scheme-only final test, with legacy fallback."""
     start = cfg.get("final_test_start_date") or cfg.get("start_date") or "2020-04-29"
     end = cfg.get("final_test_end_date") or cfg.get("end_date") or "2020-05-01"
     start_d = date.fromisoformat(start[:10]) if isinstance(start, str) else start

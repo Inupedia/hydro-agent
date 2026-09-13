@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class FrozenApiModel(BaseModel):
@@ -19,13 +19,32 @@ class TaskCreateRequest(FrozenApiModel):
     base_scheme_id: str = Field(min_length=1)
     model_plan_id: str | None = None
     allow_optimization: bool
-    # start/end describe the complete research period. ``validation_days`` is a
-    # backward-compatible API name for the mutable development Gate window;
-    # ``final_test_days`` is independently held out until the scheme is frozen.
-    validation_days: int = Field(default=30, ge=3, le=90)
-    final_test_days: int = Field(default=30, ge=3, le=90)
-    max_agent_decision_rounds: int = Field(default=20, ge=1, le=20)
-    max_optimization_cycles: int = Field(default=4, ge=0, le=4)
+    # Day-count controls remain convenient for short/smoke tasks. Formal studies
+    # should preregister explicit development/final-test dates so complete years
+    # are not silently truncated by UI/API defaults.
+    validation_days: int = Field(default=30, ge=3, le=3650)
+    final_test_days: int = Field(default=30, ge=3, le=3650)
+    development_start_date: date | None = None
+    development_end_date: date | None = None
+    final_test_start_date: date | None = None
+    final_test_end_date: date | None = None
+    max_agent_decision_rounds: int = Field(default=20, ge=1, le=100)
+    max_optimization_cycles: int = Field(default=4, ge=0, le=20)
+
+    @model_validator(mode="after")
+    def explicit_protocol_is_complete(self):
+        values = (
+            self.development_start_date,
+            self.development_end_date,
+            self.final_test_start_date,
+            self.final_test_end_date,
+        )
+        supplied = sum(value is not None for value in values)
+        if supplied not in {0, 4}:
+            raise ValueError(
+                "explicit protocol requires development_start/end and final_test_start/end together"
+            )
+        return self
 
 
 class TaskSummary(FrozenApiModel):
@@ -86,7 +105,6 @@ class SchemeResult(FrozenApiModel):
     provenance: dict[str, object] = Field(default_factory=dict)
     parameters: dict[str, float] = Field(default_factory=dict)
     base_parameters: dict[str, float] = Field(default_factory=dict)
-    # Backward-compatible adopted delta. A KEEP/ROLLBACK legitimately leaves it empty.
     parameter_delta: dict[str, float] = Field(default_factory=dict)
     adopted_parameter_delta: dict[str, float] = Field(default_factory=dict)
     candidate_scheme_id: str | None = None

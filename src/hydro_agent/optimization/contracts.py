@@ -36,10 +36,6 @@ class CalibrationStrategy(FrozenModel):
     )
     optimizer: Literal["dds", "sce-ua", "random-search", "manual"] = "sce-ua"
 
-    # Optional global screening before numerical optimization. Screening spends
-    # from the same hard evaluation budget as the optimizer; it never grants
-    # extra model calls. ``mu_star`` is used for importance ranking while sigma
-    # remains audit evidence for non-linearity/interactions.
     sensitivity_method: SensitivityMethod = "none"
     sensitivity_trajectories: int = Field(default=0, ge=0, le=50)
     sensitivity_levels: int = Field(default=6, ge=4, le=20)
@@ -63,37 +59,34 @@ class LeadMetrics(FrozenModel):
     mae: float
     bias: float
     high_flow_mae: float
+    sample_count: int = Field(default=0, ge=0)
 
 
 class EvaluationBundle(FrozenModel):
+    """Independent development evidence available for one or more forecast leads.
+
+    Short smoke windows may not contain enough in-window target dates to score all
+    three leads without leaking into final_test. Only leads with at least two legal
+    target observations are materialized; formal research windows normally retain
+    all three. ``primary_score`` is the mean NSE over exactly those evaluated leads.
+    """
+
     scheme_id: Identifier
-    leads: tuple[LeadMetrics, LeadMetrics, LeadMetrics]
+    leads: tuple[LeadMetrics, ...]
     primary_score: float
 
 
 class GatePolicy(FrozenModel):
-    # Adoption threshold: a candidate must make a meaningful improvement before
-    # it replaces the current working scheme. This is intentionally independent
-    # from whether the candidate already meets the final qualification standard.
     min_primary_delta: float
     max_single_lead_drop: float = Field(ge=0)
     max_high_flow_mae_relative_increase: float = Field(ge=0)
-    # Qualification floor. A candidate may still be ADOPTed below this value so
-    # later experiments can accumulate progress without calling the run complete.
     min_candidate_primary: float = 0.0
-    # Legacy NSE/DC floor. Runtime standard thresholds come from KnowledgeRepository.
     accept_primary_floor: float = 0.5
-    # GB/T 22482 §6.5.6 minimum scheme grade for qualification.
     min_scheme_grade: SchemeGrade = "丙"
-    # When True, qualification is determined by the GB/T scheme grade rather
-    # than a numeric NSE fallback. Adoption remains based on independent evidence.
     require_gbt_grade: bool = True
 
 
 class GateDecision(FrozenModel):
-    # ``status`` remains for workflow compatibility and now represents the
-    # adoption outcome: ACCEPT=adopt candidate, KEEP=keep working scheme,
-    # ROLLBACK=reject a harmful candidate.
     status: GateStatus
     base_scheme_id: Identifier
     candidate_scheme_id: Identifier

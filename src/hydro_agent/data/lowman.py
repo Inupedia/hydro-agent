@@ -50,6 +50,21 @@ def normalize_caravan_row(row, *, area_km2, available_at, streamflow_unit):
     return NormalizedCaravanRow(forcing, flow)
 
 
+def _imputation_metadata(root: Path) -> dict[str, dict]:
+    path = root / "flow_imputations.jsonl"
+    if not path.is_file():
+        return {}
+    rows: dict[str, dict] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        payload = json.loads(line)
+        valid_date = str(payload.get("valid_date") or "")
+        if valid_date:
+            rows[valid_date] = payload
+    return rows
+
+
 def load_normalized_source(path: Path) -> NormalizedSource:
     root = path.resolve()
     forcing = tuple(
@@ -57,11 +72,27 @@ def load_normalized_source(path: Path) -> NormalizedSource:
         for line in (root / "forcing.jsonl").read_text(encoding="utf-8").splitlines()
         if line.strip()
     )
-    flow = tuple(
-        FlowObservation.model_validate_json(line)
-        for line in (root / "flow.jsonl").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    )
+    imputed = _imputation_metadata(root)
+    flow_rows: list[FlowObservation] = []
+    for line in (root / "flow.jsonl").read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        observation = FlowObservation.model_validate_json(line)
+        quality = imputed.get(observation.valid_date.isoformat())
+        if quality is not None:
+            observation = observation.model_copy(
+                update={
+                    "eligible_for_scoring": False,
+                    "quality_code": "imputed",
+                    "quality_note": str(
+                        quality.get("risk")
+                        or quality.get("method")
+                        or "imputed observation excluded from formal scoring"
+                    ),
+                }
+            )
+        flow_rows.append(observation)
+    flow = tuple(flow_rows)
     basin = json.loads((root / "basin.json").read_text(encoding="utf-8"))
     meta_path = root / "basin_meta.json"
     metadata = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}

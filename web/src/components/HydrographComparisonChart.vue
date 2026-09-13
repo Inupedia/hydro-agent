@@ -28,7 +28,7 @@ function metricLine(label: string, metrics?: Record<string, number | null> | nul
       if (key === 'nse') return `纳什效率 ${value.toFixed(3)}`
       return `克林-古普塔 ${value.toFixed(3)}`
     })
-    .filter(Boolean)
+    .filter((item): item is string => Boolean(item))
   return bits.length ? `${label}：${bits.join(' · ')}` : null
 }
 
@@ -46,7 +46,7 @@ const captions = computed(() => {
         : item.gate_status === 'ROLLBACK'
           ? '候选方案已撤销，最终方案回到安全方案。'
           : null,
-  ].filter(Boolean)
+  ].filter((line): line is string => Boolean(line))
 })
 
 async function render() {
@@ -65,6 +65,8 @@ async function render() {
   if (!chart) chart = echarts.init(el.value)
   const categories = rows.map((row) => row.time)
   const warmup = rows.filter((row) => row.is_warmup)
+  const firstWarmup = warmup.at(0)
+  const lastWarmup = warmup.at(-1)
   const has = (key: 'baseline_m3s' | 'candidate_m3s' | 'frozen_m3s') =>
     rows.some((row) => typeof row[key] === 'number' && Number.isFinite(row[key] as number))
   const series: echarts.LineSeriesOption[] = [
@@ -76,12 +78,12 @@ async function render() {
       itemStyle: { color: '#1d1d1f' },
       data: rows.map((row) => row.observed_m3s ?? null),
       markArea:
-        warmup.length > 1
+        firstWarmup && lastWarmup
           ? {
               silent: true,
               itemStyle: { color: 'rgba(215,221,227,0.38)' },
               label: { color: '#698197', fontSize: 11 },
-              data: [[{ xAxis: warmup[0].time, name: '预热期' }, { xAxis: warmup[warmup.length - 1].time }]],
+              data: [[{ xAxis: firstWarmup.time, name: '预热期' }, { xAxis: lastWarmup.time }]],
             }
           : undefined,
     },
@@ -122,7 +124,8 @@ async function render() {
       animationDuration: rows.length > 80 ? 0 : 400,
       tooltip: {
         ...chartBase.tooltip,
-        valueFormatter: (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? formatFlow(value) : '—'),
+        valueFormatter: (value: unknown) =>
+          typeof value === 'number' && Number.isFinite(value) ? formatFlow(value) : '—',
       },
       dataZoom: rows.length > 40 ? [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }] : undefined,
       xAxis: {
@@ -163,7 +166,7 @@ watch(() => props.comparison, render, { deep: true })
 
 <template>
   <div v-if="!seriesRows.length" class="empty" data-test="hydrograph-empty">暂无过程线</div>
-  <div v-else class="wrap">
+  <div v-else class="wrap" data-test="final-comparison-chart-wrap">
     <div ref="el" data-test="hydrograph-chart" class="chart" />
     <p v-for="line in captions" :key="line" class="caption">{{ line }}</p>
   </div>
@@ -172,8 +175,8 @@ watch(() => props.comparison, render, { deep: true })
 <style scoped>
 .chart {
   width: 100%;
-  height: 320px;
-  min-height: 220px;
+  height: 400px;
+  min-height: 280px;
 }
 .empty,
 .caption {
@@ -182,5 +185,11 @@ watch(() => props.comparison, render, { deep: true })
 }
 .caption {
   margin: 0.35rem 0 0;
+}
+
+@media (max-width: 720px) {
+  .chart {
+    height: 340px;
+  }
 }
 </style>
