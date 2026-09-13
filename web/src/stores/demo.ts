@@ -14,6 +14,8 @@ export type DraftConfig = {
   forcing_mode: 'R' | 'F'
   base_scheme_id: string
   allow_optimization: boolean
+  validation_days: number
+  final_test_days: number
   max_agent_decision_rounds: number
   max_optimization_cycles: number
 }
@@ -48,6 +50,8 @@ function defaultDraft(): DraftConfig {
     forcing_mode: 'R',
     base_scheme_id: 'scheme-base',
     allow_optimization: true,
+    validation_days: 30,
+    final_test_days: 30,
     max_agent_decision_rounds: 20,
     max_optimization_cycles: 4,
     model_plan_id: null,
@@ -56,7 +60,7 @@ function defaultDraft(): DraftConfig {
 
 export const useDemoStore = defineStore('demo', () => {
   const saved = loadSession()
-  const draft = ref<DraftConfig>(saved?.draft || defaultDraft())
+  const draft = ref<DraftConfig>({ ...defaultDraft(), ...(saved?.draft || {}) })
 
   const taskId = ref<string | null>(saved?.taskId || null)
   const mode = ref<RunMode>(saved?.mode || 'live')
@@ -317,12 +321,15 @@ export const useDemoStore = defineStore('demo', () => {
   function restoreTask(id: string, nextMode?: RunMode) {
     taskId.value = id
     if (nextMode) mode.value = nextMode
-    void api.getTask(id).then((task) => {
-      taskMeta.value = task
-      applyTaskMeta(task)
-    }).catch(() => {
-      taskMeta.value = null
-    })
+    void api
+      .getTask(id)
+      .then((task) => {
+        taskMeta.value = task
+        applyTaskMeta(task)
+      })
+      .catch(() => {
+        taskMeta.value = null
+      })
     completeSettleTicks = 0
     startPolling()
     persistSession()
