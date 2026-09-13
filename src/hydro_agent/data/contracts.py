@@ -52,13 +52,26 @@ class SnapshotContext(FrozenModel):
     @property
     def dates(self):
         first = self.issue_date - timedelta(days=self.history_days - 1)
-        # Only a forecast snapshot is allowed to carry the +1/+2/+3 forcing
-        # horizon. Calibration/evaluation snapshots stop exactly at issue_date;
-        # otherwise the first held-out validation days leak into optimization.
+        # Only forecast execution needs +1/+2/+3 forcing. Calibration and
+        # read-only evaluation do not need future forcing, which keeps held-out
+        # truth from being exposed to optimization through the forcing snapshot.
         forecast_horizon_days = 3 if self.capability == "forecast" else 0
         return tuple(
             first + timedelta(days=i)
             for i in range(self.history_days + forecast_horizon_days)
+        )
+
+    @property
+    def flow_dates(self):
+        first = self.issue_date - timedelta(days=self.history_days - 1)
+        # Forecast snapshots may name the three lead dates but availability rules
+        # still prevent future observations from leaking into forecasting. The E
+        # phase is different: evaluate is read-only and must see realized +1/+2/+3
+        # discharge so replayed forecasts can be scored against truth.
+        truth_horizon_days = 3 if self.capability in {"forecast", "evaluate"} else 0
+        return tuple(
+            first + timedelta(days=i)
+            for i in range(self.history_days + truth_horizon_days)
         )
 
 
