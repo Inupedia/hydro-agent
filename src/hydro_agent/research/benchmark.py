@@ -219,9 +219,7 @@ def aggregate_benchmark(runs: Sequence[BenchmarkRun]) -> BenchmarkAggregate:
                 if baseline is None or candidate is None:
                     continue
                 base_map = (
-                    baseline.rolling_metrics
-                    if prefix == "rolling"
-                    else baseline.continuous_metrics
+                    baseline.rolling_metrics if prefix == "rolling" else baseline.continuous_metrics
                 )
                 cand_map = (
                     candidate.rolling_metrics
