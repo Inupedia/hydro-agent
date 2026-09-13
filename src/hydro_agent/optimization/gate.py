@@ -3,14 +3,7 @@ from hydro_agent.optimization.contracts import GateDecision, GatePolicy
 
 
 class GateEvaluator:
-    """Evaluate two independent questions for a calibration candidate.
-
-    Adoption asks whether the candidate is a meaningful, non-harmful improvement
-    over the current working scheme. Qualification asks whether the candidate has
-    already reached the preregistered absolute/standard target. Keeping these
-    questions separate lets an improving but not-yet-qualified candidate become
-    the baseline for the next controlled experiment.
-    """
+    """Evaluate adoption and absolute qualification on independent development evidence."""
 
     def evaluate(
         self,
@@ -20,18 +13,27 @@ class GateEvaluator:
         *,
         gbt_report: GbtAccuracyReport | None = None,
     ) -> GateDecision:
+        base_by_lead = {item.lead: item for item in base.leads}
+        candidate_by_lead = {item.lead: item for item in candidate.leads}
+        if not base_by_lead or set(base_by_lead) != set(candidate_by_lead):
+            raise ValueError("Gate requires identical evaluated leads for base and candidate")
+
         adoption_reasons: list[str] = []
         guardrail_failed = False
-        for base_lead, cand_lead in zip(base.leads, candidate.leads):
+        for lead in sorted(base_by_lead):
+            base_lead = base_by_lead[lead]
+            cand_lead = candidate_by_lead[lead]
+            if base_lead.sample_count != cand_lead.sample_count:
+                raise ValueError(f"Gate lead-{lead} sample count mismatch")
             if cand_lead.nse - base_lead.nse < -policy.max_single_lead_drop:
-                adoption_reasons.append("lead_guardrail")
+                adoption_reasons.append(f"lead_{lead}_guardrail")
                 guardrail_failed = True
             if base_lead.high_flow_mae > 0:
                 relative = (
                     cand_lead.high_flow_mae - base_lead.high_flow_mae
                 ) / base_lead.high_flow_mae
                 if relative > policy.max_high_flow_mae_relative_increase:
-                    adoption_reasons.append("high_flow_guardrail")
+                    adoption_reasons.append(f"lead_{lead}_high_flow_guardrail")
                     guardrail_failed = True
 
         primary_delta = float(candidate.primary_score - base.primary_score)
