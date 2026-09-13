@@ -55,7 +55,9 @@ def apply_experiment_plan_guardrail(
     target_metrics: list[str] = []
     recommended_objective = str(diagnosis.get("recommended_objective") or "").strip()
     if recommended_objective:
-        target_metrics.append("kge" if recommended_objective == "composite" else recommended_objective)
+        target_metrics.append(
+            "kge" if recommended_objective == "composite" else recommended_objective
+        )
     metrics = diagnosis.get("metrics") if isinstance(diagnosis.get("metrics"), dict) else {}
     for key in ("nse", "kge", "pbias_percent", "peak_ratio", "peak_timing_lag_days"):
         if key in metrics and key not in target_metrics:
@@ -66,8 +68,7 @@ def apply_experiment_plan_guardrail(
         category=decision.hypothesis.value,
         phenomenon=phenomenon[:400],
         testable_claim=(
-            "候选方案必须在独立 development Gate 中验证该诊断假设；"
-            "final_test 不参与实验选择。"
+            "候选方案必须在独立 development Gate 中验证该诊断假设；final_test 不参与实验选择。"
         ),
         evidence_refs=evidence_refs,
         target_metrics=tuple(target_metrics),
