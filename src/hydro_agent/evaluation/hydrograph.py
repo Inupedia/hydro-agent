@@ -9,8 +9,16 @@ from pathlib import Path
 from typing import Any, Literal
 
 from hydro_agent.evaluation.metrics import kge, mae, nse, pbias_percent, rmse
+from hydro_agent.services.continuous_simulation import ContinuousSimulationEvidenceService
 
-WindowName = Literal["warmup", "calibration", "validation", "test"]
+WindowName = Literal[
+    "warmup",
+    "calibration",
+    "development",
+    "final_test",
+    "validation",
+    "test",
+]
 ComparisonKind = Literal["calibration", "independent_test"]
 
 CSV_FIELDS = (
@@ -33,8 +41,44 @@ def _safe(fn, obs: list[float], sim: list[float]) -> float | None:
 
 
 def score_series(
-    obs: list[float], sim: list[float], *, warmup_days: int, evaluated_days: int
+    obs: list[float],
+    sim: list[float],
+    *,
+    dates: list[date] | None = None,
+    window: str = "continuous",
+    warmup_days: int,
+    evaluated_days: int,
 ) -> dict[str, Any]:
+    """Score one uninterrupted observed/simulated trajectory.
+
+    When real dates are available, all hydrologic metrics are delegated to the
+    shared ContinuousSimulationEvidenceService. The fallback keeps compatibility
+    for older direct callers that supplied values without dates.
+    """
+
+    if dates is not None and len(dates) == len(obs) == len(sim) and len(obs) >= 2:
+        evidence = ContinuousSimulationEvidenceService().evaluate(
+            window=window,
+            dates=dates,
+            observed=obs,
+            simulated=sim,
+        )
+        return {
+            "nse": evidence.nse,
+            "kge": evidence.kge,
+            "pbias_percent": evidence.pbias_percent,
+            "rmse_m3s": evidence.rmse,
+            "mae": evidence.mae,
+            "high_flow_mae": evidence.high_flow_mae,
+            "peak_ratio": evidence.peak_ratio,
+            "peak_timing_lag_steps": evidence.peak_timing_lag_steps,
+            "count": evidence.sample_count,
+            "warmup_days": warmup_days,
+            "evaluated_days": evaluated_days,
+            "window": evidence.window,
+            "start_date": evidence.start.isoformat(),
+            "end_date": evidence.end.isoformat(),
+        }
     return {
         "nse": _safe(nse, obs, sim),
         "kge": _safe(kge, obs, sim),
@@ -57,12 +101,12 @@ def title_for(kind: ComparisonKind, *, calibrated: bool, gate_status: str | None
     if kind == "calibration":
         return "观测与基线 / 候选 · 率定窗口"
     if calibrated:
-        return "观测与冻结方案 · 独立检验"
+        return "观测与冻结方案 · 最终独立检验"
     if gate_status == "KEEP":
-        return "观测与冻结方案 · 独立检验（维持原方案）"
+        return "观测与冻结方案 · 最终独立检验（维持原方案）"
     if gate_status == "ROLLBACK":
-        return "观测与冻结方案 · 独立检验（已回退）"
-    return "观测与冻结方案 · 独立检验"
+        return "观测与冻结方案 · 最终独立检验（已回退）"
+    return "观测与冻结方案 · 最终独立检验"
 
 
 def calibrated_flag(*, gate_status: str | None, frozen_is_candidate: bool) -> bool:
@@ -90,6 +134,7 @@ def build_comparison(
             raise ValueError("hydrograph series length must match dates")
     calibrated = calibrated_flag(gate_status=gate_status, frozen_is_candidate=frozen_is_candidate)
     points: list[dict[str, Any]] = []
+    eval_dates: list[date] = []
     eval_obs: list[float] = []
     eval_baseline: list[float] = []
     eval_candidate: list[float] = []
@@ -119,6 +164,7 @@ def build_comparison(
         points.append(point)
         if is_warmup or obs is None:
             continue
+        eval_dates.append(day)
         eval_obs.append(float(obs))
         if base is not None:
             eval_baseline.append(base)
@@ -129,20 +175,37 @@ def build_comparison(
     evaluated_days = len(eval_obs)
     baseline_metrics = (
         score_series(
-            eval_obs, eval_baseline, warmup_days=warmup_days, evaluated_days=evaluated_days
+            eval_obs,
+            eval_baseline,
+            dates=eval_dates,
+            window=evaluated_window,
+            warmup_days=warmup_days,
+            evaluated_days=evaluated_days,
         )
         if eval_baseline and len(eval_baseline) == len(eval_obs)
         else None
     )
     candidate_metrics = (
         score_series(
-            eval_obs, eval_candidate, warmup_days=warmup_days, evaluated_days=evaluated_days
+            eval_obs,
+            eval_candidate,
+            dates=eval_dates,
+            window=evaluated_window,
+            warmup_days=warmup_days,
+            evaluated_days=evaluated_days,
         )
         if eval_candidate and len(eval_candidate) == len(eval_obs)
         else None
     )
     frozen_metrics = (
-        score_series(eval_obs, eval_frozen, warmup_days=warmup_days, evaluated_days=evaluated_days)
+        score_series(
+            eval_obs,
+            eval_frozen,
+            dates=eval_dates,
+            window=evaluated_window,
+            warmup_days=warmup_days,
+            evaluated_days=evaluated_days,
+        )
         if eval_frozen and len(eval_frozen) == len(eval_obs)
         else None
     )

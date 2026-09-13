@@ -36,15 +36,24 @@ def build_runtime_task_config(
     base: Mapping[str, Any] | None = None,
     model_plan_id: str | None = None,
 ) -> dict[str, Any]:
-    """Restore the bounded runtime window from persisted task provenance."""
+    """Restore the mutable development window from persisted task provenance.
+
+    Legacy handlers consume ``start_date``/``end_date`` for forecast and Gate.
+    Those aliases must point to development, never to the independently held-out
+    final test. A11/A12 read explicit ``final_test_*`` keys instead.
+    """
     runtime = copy.deepcopy(dict(base or {}))
     runtime.update(copy.deepcopy(dict(workbench)))
-    validation_start = runtime.get("validation_start_date")
-    validation_end = runtime.get("validation_end_date")
-    if validation_start:
-        runtime["start_date"] = validation_start
-    if validation_end:
-        runtime["end_date"] = validation_end
+    development_start = runtime.get("development_start_date") or runtime.get(
+        "validation_start_date"
+    )
+    development_end = runtime.get("development_end_date") or runtime.get(
+        "validation_end_date"
+    )
+    if development_start:
+        runtime["start_date"] = development_start
+    if development_end:
+        runtime["end_date"] = development_end
     if model_plan_id:
         runtime["model_plan_id"] = model_plan_id
     return runtime
@@ -128,12 +137,13 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
         end_date=payload.end_date,
         warmup_days=int(config["warmup_days"]),
         validation_days=payload.validation_days,
+        final_test_days=payload.final_test_days,
     )
     config["workbench"].update(timeline.as_dict())
-    # Hard cost guard: the API can accept a decade of research data, but it may
-    # not silently convert that into thousands of daily Gate/replay executions.
+    # Hard cost guard: development evaluates base+candidate; final test replays
+    # only the frozen scheme. Long research periods therefore stay bounded.
     if timeline.estimated_rolling_forecast_runs > 270:
-        raise ValueError("validation window would create too many rolling XAJ executions")
+        raise ValueError("development/final-test windows would create too many rolling XAJ runs")
 
     content_hash = sha256_bytes(
         json.dumps(config, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -148,10 +158,6 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
     )
     deps.repository.ensure_task_state(task_id, current_scheme_id=scheme_id)
 
-    # Runtime compatibility: legacy workbench handlers still consume start/end.
-    # Feed them the bounded holdout, while preserving the complete research
-    # period under explicit names. This immediately prevents a 10-year study
-    # from becoming a 10-year daily Gate and A11 replay.
     runtime_config = build_runtime_task_config(
         config["workbench"],
         base=payload.model_dump(mode="json"),

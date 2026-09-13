@@ -230,7 +230,7 @@ class RealWorkbenchKernel:
         notes.insert(0, f"scheme_id={scheme_id}")
         notes.insert(
             1,
-            f"held_out_validation_window={window.start.isoformat()}..{window.end.isoformat()}",
+            f"held_out_development_window={window.start.isoformat()}..{window.end.isoformat()}",
         )
         result["notes"] = notes
         return result
@@ -259,6 +259,20 @@ def _dates_from_config(cfg: dict) -> tuple[date, date]:
     return start_d, end_d
 
 
+def _final_test_dates_from_config(cfg: dict) -> tuple[date, date]:
+    """Resolve the frozen-scheme-only final test, with legacy fallback."""
+    start = cfg.get("final_test_start_date") or cfg.get("start_date") or "2020-04-29"
+    end = cfg.get("final_test_end_date") or cfg.get("end_date") or "2020-05-01"
+    start_d = date.fromisoformat(start[:10]) if isinstance(start, str) else start
+    end_d = date.fromisoformat(end[:10]) if isinstance(end, str) else end
+    return start_d, end_d
+
+
+def _final_test_issue_from_config(cfg: dict) -> datetime:
+    _start, end = _final_test_dates_from_config(cfg)
+    return datetime(end.year, end.month, end.day, tzinfo=timezone.utc)
+
+
 class _TaskAwareForecastHandler:
     def __init__(self, kernel: RealWorkbenchKernel, task_configs: dict):
         self.kernel = kernel
@@ -282,19 +296,11 @@ class _TaskAwareOptimizeHandler:
         self.task_configs = task_configs
 
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
-        cfg = self.task_configs.get(task_id) or {}
         window = self.kernel.validation_gate.window_for(task_id)
         cal_day = window.calibration_issue
         cal_issue = datetime(cal_day.year, cal_day.month, cal_day.day, tzinfo=timezone.utc)
         cal_iso = cal_issue.isoformat().replace("+00:00", "Z")
-        # Independent validation snapshot keyed by validation end issue (held-out window).
-        val_issue = _issue_from_config(cfg)
-        val_iso = val_issue.isoformat().replace("+00:00", "Z")
         cal_id = self.kernel.resolver.resolve(task_id, "calibrate", cal_iso)
-        val_id = self.kernel.resolver.resolve(task_id, "calibrate", val_iso)
-        if cal_id == val_id and window.start <= window.end:
-            # Force distinct snapshot ids when issue dates differ; resolver already does.
-            pass
         strategy_id = decision.strategy_id
         param_groups = decision.param_groups
         objective = decision.objective
@@ -318,7 +324,7 @@ class _TaskAwareOptimizeHandler:
             calibration_service=self.kernel.calibration,
             candidate_service=self.kernel.candidates,
             calibration_snapshot_id=cal_id,
-            validation_snapshot_id=val_id,
+            validation_snapshot_id=None,
             policy=POLICY,
         )
         decision = AgentDecision(
@@ -331,12 +337,12 @@ class _TaskAwareOptimizeHandler:
         )
         packet = handler.execute(task_id, decision)
         self._promote_calibration_hydrograph(task_id, packet.action_run_id)
-        # Attach calibration/validation separation into observations for the agent log.
         extra = (
             f"calibration_snapshot_id={cal_id}",
-            f"validation_snapshot_id={val_id}",
             f"calibration_issue={cal_iso}",
-            f"validation_window={window.start.isoformat()}..{window.end.isoformat()}",
+            f"development_window={window.start.isoformat()}..{window.end.isoformat()}",
+            "development_evaluated_by=A08_GATE",
+            "final_test_accessed=false",
         )
         return packet.model_copy(update={"observations": tuple(packet.observations) + extra})
 
@@ -364,7 +370,7 @@ class _TaskAwareReplayHandler:
 
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
         cfg = self.task_configs.get(task_id) or {}
-        start_d, end_d = _dates_from_config(cfg)
+        start_d, end_d = _final_test_dates_from_config(cfg)
         handler = ReplayToolHandler(
             self.kernel.repository,
             planner=self.kernel.planner,
@@ -372,7 +378,9 @@ class _TaskAwareReplayHandler:
             start_date=start_d,
             end_date=end_d,
         )
-        return handler.execute(task_id, decision)
+        packet = handler.execute(task_id, decision)
+        extra = (f"final_test_window={start_d.isoformat()}..{end_d.isoformat()}",)
+        return packet.model_copy(update={"observations": tuple(packet.observations) + extra})
 
 
 class _TaskAwareEvaluateHandler:
@@ -381,8 +389,15 @@ class _TaskAwareEvaluateHandler:
         self.task_configs = task_configs
 
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
+        previous = self.kernel.repository.list_evidence(task_id)
+        if any(
+            row.action == ActionCode.A12_EVALUATE_REPORT.value and row.status == "succeeded"
+            for row in previous
+        ):
+            raise RuntimeError("final_test already consumed; A12 evaluation is read-only and single-use")
+
         cfg = self.task_configs.get(task_id) or {}
-        issue = _issue_from_config(cfg)
+        issue = _final_test_issue_from_config(cfg)
         truth_id = self.kernel.ensure_eval_truth_snapshot(task_id, issue)
         out_dir = self.kernel.report_root / task_id
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -393,4 +408,11 @@ class _TaskAwareEvaluateHandler:
             observation_snapshot_id=truth_id,
             output_dir=out_dir,
         )
-        return handler.execute(task_id, decision)
+        packet = handler.execute(task_id, decision)
+        start_d, end_d = _final_test_dates_from_config(cfg)
+        extra = (
+            f"final_test_window={start_d.isoformat()}..{end_d.isoformat()}",
+            "final_test_read_only=true",
+            "final_test_consumption=1/1",
+        )
+        return packet.model_copy(update={"observations": tuple(packet.observations) + extra})

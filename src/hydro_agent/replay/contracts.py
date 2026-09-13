@@ -23,8 +23,13 @@ class ReplayEvaluation(FrozenModel):
     scheme_id: Identifier
     observation_snapshot_id: Identifier
     forecast_ids: tuple[str, ...]
+    # Compatibility aggregate: rolling forecast skill plus namespaced evidence.
     metrics: dict[str, float]
+    # Rolling issue-date replay skill, including per-lead forecast metrics.
+    rolling_metrics: dict[str, float] = {}
     lead_metrics: dict[str, dict[str, float]]
+    # One uninterrupted frozen-scheme simulation across final_test.
+    continuous_metrics: dict[str, float] = {}
     sample_counts: dict[str, int]
     forcing_mode: Literal["R", "F"]
     provenance: dict[str, object] = {}

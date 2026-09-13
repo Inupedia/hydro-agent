@@ -61,22 +61,21 @@ def calibration_service(tmp_path):
     )
     snapshot_root = tmp_path / "snapshots"
     builder = SnapshotBuilder(snapshot_root, DataAccessPolicy(), repo)
-    for snapshot_id in ("snap-cal", "snap-val"):
-        builder.build(
-            SnapshotContext(
-                task_id="task-1",
-                snapshot_id=snapshot_id,
-                basin_id=str(source.basin["basin_id"]),
-                phase="B",
-                forcing_mode="R",
-                capability="forecast",
-                issue_time=datetime(2020, 5, 1, tzinfo=timezone.utc),
-                history_days=4,
-            ),
-            forcing_rows=list(source.forcing_rows),
-            flow_rows=list(source.flow_rows),
-            basin=source.basin,
-        )
+    builder.build(
+        SnapshotContext(
+            task_id="task-1",
+            snapshot_id="snap-cal",
+            basin_id=str(source.basin["basin_id"]),
+            phase="B",
+            forcing_mode="R",
+            capability="forecast",
+            issue_time=datetime(2020, 5, 1, tzinfo=timezone.utc),
+            history_days=4,
+        ),
+        forcing_rows=list(source.forcing_rows),
+        flow_rows=list(source.flow_rows),
+        basin=source.basin,
+    )
     workspaces = MaterializingWorkspaceManager(tmp_path / "runs", repo, snapshot_root=snapshot_root)
     registry = RuntimeRegistry()
     registry.register(XajRuntimeAdapter())
@@ -90,7 +89,6 @@ def test_calibration_service_returns_payload_without_registering_candidate(calib
         task_id="task-1",
         base_scheme_id="scheme-base",
         calibration_snapshot_id="snap-cal",
-        validation_snapshot_id="snap-val",
         strategy_id="xaj-bounded-v1",
         policy=cpu_policy,
     )

@@ -17,9 +17,9 @@ class _ForecastService:
         raise AssertionError("pre-populated diagnostic forecasts should be reused")
 
 
-def test_diagnosis_uses_only_truth_before_validation_and_prioritizes_water_balance():
-    validation_start = date(2000, 5, 1)
-    latest_issue = validation_start - timedelta(days=4)
+def test_diagnosis_uses_only_truth_before_development_and_prioritizes_water_balance():
+    development_start = date(2000, 5, 1)
+    latest_issue = development_start - timedelta(days=4)
     first_issue = latest_issue - timedelta(days=9)
 
     flow_rows = []
@@ -55,7 +55,7 @@ def test_diagnosis_uses_only_truth_before_validation_and_prioritizes_water_balan
         policy=SimpleNamespace(),
         task_id="task-1",
         scheme_id="scheme-base",
-        validation_start=validation_start,
+        validation_start=development_start,
         nse_good_enough=0.5,
     )
 
@@ -63,5 +63,9 @@ def test_diagnosis_uses_only_truth_before_validation_and_prioritizes_water_balan
     assert result["recommended_param_groups"] == ["evap", "runoff"]
     assert result["recommended_objective"] == "composite"
     assert result["metrics"]["pbias_percent"] > 10.0
-    assert "diagnostic_truth_strictly_precedes_validation=true" in result["notes"]
-    assert f"diagnostic_target_end={(validation_start - timedelta(days=1)).isoformat()}" in result["notes"]
+    assert "diagnostic_truth_strictly_precedes_development=true" in result["notes"]
+    assert f"development_starts={development_start.isoformat()}" in result["notes"]
+    assert (
+        f"diagnostic_target_end={(development_start - timedelta(days=1)).isoformat()}"
+        in result["notes"]
+    )

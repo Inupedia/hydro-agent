@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import csv
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 from hydro_agent.evaluation.hydrograph import build_comparison, write_bundle
@@ -33,6 +33,7 @@ class EvaluationService:
         if snapshot.task_id != task_id:
             raise ValueError("cross-task references are forbidden")
         truth = self.observation_loader(observation_snapshot_id)
+        final_test_window = self._final_test_window_from_scheme(scheme)
         forecasts = [
             row
             for row in self.repository.list_forecasts(task_id)
@@ -48,6 +49,10 @@ class EvaluationService:
                 target = issue_date + timedelta(days=lead_i)
                 if target not in truth:
                     continue
+                if final_test_window is not None:
+                    final_start, final_end = final_test_window
+                    if target < final_start or target > final_end:
+                        continue
                 lead_obs[lead_i].append(float(truth[target]))
                 lead_sim[lead_i].append(float(value))
         lead_metrics: dict[str, dict[str, float]] = {}
@@ -66,11 +71,17 @@ class EvaluationService:
             }
         if not lead_metrics:
             raise ValueError("insufficient observation pairs for evaluation")
-        metrics = {
+
+        # Rolling replay skill answers: if the frozen scheme were issued every
+        # day in final_test, how good are +1/+2/+3 forecasts whose target truth
+        # also lies inside final_test? Keep it separate from one uninterrupted
+        # continuous simulation of the same frozen scheme.
+        rolling_metrics = {
             key: float(sum(item[key] for item in lead_metrics.values()) / len(lead_metrics))
             for key in ("NSE", "KGE", "MAE", "Bias")
         }
-        # Attach GB/T 22482 multi-metric report on concatenated leads.
+
+        # Attach GB/T 22482 multi-metric report on concatenated rolling leads.
         gbt_payload: dict = {}
         try:
             from hydro_agent.evaluation.gbt22482 import HydroSeries, build_gbt_accuracy_report
@@ -88,12 +99,21 @@ class EvaluationService:
                     cfg,
                 )
                 gbt_payload = report.model_dump()
-                metrics.update(report.as_metrics_dict())
+                rolling_metrics.update(report.as_metrics_dict())
         except Exception as exc:  # noqa: BLE001
             gbt_payload = {"error": str(exc)}
         provenance = dict((scheme.config_json or {}).get("provenance") or {})
         if gbt_payload:
             provenance = {**provenance, "gbt_22482": gbt_payload}
+        if final_test_window is not None:
+            final_start, final_end = final_test_window
+            provenance = {
+                **provenance,
+                "final_test_window": {
+                    "start": final_start.isoformat(),
+                    "end": final_end.isoformat(),
+                },
+            }
         gate_status = self._latest_gate_status(task_id)
         frozen_is_candidate = gate_status == "ACCEPT"
         hydrograph = self._try_test_hydrograph(
@@ -103,18 +123,72 @@ class EvaluationService:
             gate_status=gate_status,
             frozen_is_candidate=frozen_is_candidate,
         )
+        continuous_metrics = self._continuous_metrics_from_hydrograph(hydrograph)
+
+        # Keep the original unprefixed rolling aggregate for API compatibility,
+        # while emitting explicit namespaced evidence for all new consumers.
+        metrics = dict(rolling_metrics)
+        metrics.update({f"rolling_{key}": float(value) for key, value in rolling_metrics.items()})
+        metrics.update(
+            {f"continuous_{key}": float(value) for key, value in continuous_metrics.items()}
+        )
+
         return ReplayEvaluation(
             task_id=task_id,
             scheme_id=scheme.scheme_id,
             observation_snapshot_id=observation_snapshot_id,
             forecast_ids=tuple(row.forecast_id for row in forecasts),
             metrics=metrics,
+            rolling_metrics=rolling_metrics,
             lead_metrics=lead_metrics,
+            continuous_metrics=continuous_metrics,
             sample_counts=sample_counts,
             forcing_mode=task.forcing_mode,
             provenance=provenance,
             hydrograph=hydrograph,
         )
+
+    @staticmethod
+    def _final_test_window_from_scheme(scheme) -> tuple[date, date] | None:
+        config = dict(scheme.config_json or {})
+        workbench = dict(config.get("workbench") or {})
+        raw_start = workbench.get("final_test_start_date")
+        raw_end = workbench.get("final_test_end_date")
+        if not raw_start or not raw_end:
+            return None
+        try:
+            start = date.fromisoformat(str(raw_start)[:10])
+            end = date.fromisoformat(str(raw_end)[:10])
+        except ValueError:
+            return None
+        if end < start:
+            return None
+        return start, end
+
+    @staticmethod
+    def _continuous_metrics_from_hydrograph(hydrograph: dict | None) -> dict[str, float]:
+        if not hydrograph:
+            return {}
+        frozen = hydrograph.get("frozen_metrics")
+        if not isinstance(frozen, dict):
+            return {}
+        mapping = {
+            "NSE": "nse",
+            "KGE": "kge",
+            "PBIAS": "pbias_percent",
+            "RMSE": "rmse_m3s",
+            "MAE": "mae",
+            "HighFlowMAE": "high_flow_mae",
+            "PeakRatio": "peak_ratio",
+            "PeakTimingLagSteps": "peak_timing_lag_steps",
+            "SampleCount": "count",
+        }
+        out: dict[str, float] = {}
+        for output_key, source_key in mapping.items():
+            value = frozen.get(source_key)
+            if isinstance(value, (int, float)):
+                out[output_key] = float(value)
+        return out
 
     def _latest_gate_status(self, task_id: str) -> str | None:
         for row in reversed(self.repository.list_evidence(task_id)):
@@ -224,17 +298,40 @@ class EvaluationService:
             observed = self.observation_loader(observation_snapshot_id)
             if not isinstance(observed, dict):
                 return None
-            start = (
-                dates[xaj.warmup_days].isoformat()
-                if len(dates) > xaj.warmup_days
-                else dates[0].isoformat()
-            )
+
+            final_test_window = self._final_test_window_from_scheme(scheme)
+            if final_test_window is not None:
+                final_start, final_end = final_test_window
+                if final_start not in dates or final_end not in dates:
+                    return None
+                final_start_index = dates.index(final_start)
+                final_end_index = dates.index(final_end)
+                warmup_start_index = final_start_index - xaj.warmup_days
+                if warmup_start_index < 0 or final_end_index < final_start_index:
+                    return None
+                slice_end = final_end_index + 1
+                dates = dates[warmup_start_index:slice_end]
+                values = values[warmup_start_index:slice_end]
+                if baseline_values is not None:
+                    baseline_values = baseline_values[warmup_start_index:slice_end]
+                evaluated_start = final_start.isoformat()
+                evaluated_end = final_end.isoformat()
+                effective_warmup_days = xaj.warmup_days
+            else:
+                evaluated_start = (
+                    dates[xaj.warmup_days].isoformat()
+                    if len(dates) > xaj.warmup_days
+                    else dates[0].isoformat()
+                )
+                evaluated_end = dates[-1].isoformat()
+                effective_warmup_days = xaj.warmup_days
+
             comparison = build_comparison(
                 kind="independent_test",
                 dates=dates,
                 observed=observed,
-                warmup_days=xaj.warmup_days,
-                evaluated_window="test",
+                warmup_days=effective_warmup_days,
+                evaluated_window="final_test",
                 baseline=(
                     [float(v) for v in baseline_values]
                     if baseline_values is not None
@@ -244,8 +341,11 @@ class EvaluationService:
                 gate_status=gate_status,
                 frozen_is_candidate=frozen_is_candidate,
                 windows={
-                    "test": f"{start}..{dates[-1].isoformat()}",
-                    "warmup": f"{dates[0].isoformat()}..{dates[min(xaj.warmup_days, len(dates)) - 1].isoformat()}",
+                    "final_test": f"{evaluated_start}..{evaluated_end}",
+                    "warmup": (
+                        f"{dates[0].isoformat()}.."
+                        f"{dates[min(effective_warmup_days, len(dates)) - 1].isoformat()}"
+                    ),
                 },
             )
             if output_dir is not None:

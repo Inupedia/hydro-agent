@@ -86,7 +86,8 @@ class CalibrationScientistWorkbenchKernel(RealWorkbenchKernel):
 
     The base workbench remains the deterministic executor. This subclass only
     changes *what evidence the Agent is allowed to reason from*: diagnosis is
-    built entirely from truth preceding the held-out validation window.
+    built entirely from truth preceding the mutable development window. The
+    final-test window is not part of diagnosis or candidate selection.
     """
 
     def _diagnose(self, task_id: str) -> dict:
@@ -123,7 +124,7 @@ class CalibrationScientistWorkbenchKernel(RealWorkbenchKernel):
         notes.insert(0, f"scheme_id={scheme_id}")
         notes.insert(
             1,
-            f"held_out_validation_window={window.start.isoformat()}..{window.end.isoformat()}",
+            f"held_out_development_window={window.start.isoformat()}..{window.end.isoformat()}",
         )
         feedback = result.get("gate_feedback")
         if isinstance(feedback, dict):

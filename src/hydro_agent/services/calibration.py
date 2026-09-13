@@ -44,20 +44,27 @@ class CalibrationService:
         task_id: str,
         base_scheme_id: str,
         calibration_snapshot_id: str,
-        validation_snapshot_id: str,
         strategy_id: str,
         policy,
         param_groups: tuple[str, ...] | None = None,
         objective: str | None = None,
+        validation_snapshot_id: str | None = None,
     ) -> CalibrationOutcome:
+        """Search parameters using calibration data only.
+
+        ``validation_snapshot_id`` is accepted temporarily for source compatibility
+        with older handlers, but is intentionally ignored. Previous code validated
+        and serialized that id even though the sandbox never materialized or read
+        the snapshot. Candidate selection belongs exclusively to A08/development.
+        """
+
         task = self.repository.get_task(task_id)
         if task.phase in ("F", "E"):
             raise ValueError("optimization forbidden in F/E")
         strategy = self.strategies.get(strategy_id)
         base = self.repository.get_scheme(base_scheme_id)
         cal_snap = self.repository.get_snapshot(calibration_snapshot_id)
-        val_snap = self.repository.get_snapshot(validation_snapshot_id)
-        if base.task_id != task_id or cal_snap.task_id != task_id or val_snap.task_id != task_id:
+        if base.task_id != task_id or cal_snap.task_id != task_id:
             raise ValueError("cross-task references are forbidden")
         if base.model_id != self.model_id:
             raise ValueError("scheme model mismatch")
@@ -77,7 +84,6 @@ class CalibrationService:
             action_run_id,
             {
                 "strategy_id": strategy.strategy_id,
-                "validation_snapshot_id": validation_snapshot_id,
                 "param_groups": list(resolved_groups),
                 "objective": resolved_objective,
             },

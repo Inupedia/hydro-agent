@@ -91,7 +91,60 @@ def test_evaluation_reads_future_truth_only_in_e_phase(evaluation_service, repos
     before_scheme = repository.get_scheme("scheme-frozen-1").content_hash
     result = evaluation_service.evaluate("task-1", "snapshot-eval-truth")
     assert set(result.metrics) >= {"NSE", "KGE", "MAE", "Bias"}
+    assert set(result.rolling_metrics) >= {"NSE", "KGE", "MAE", "Bias"}
+    assert result.metrics["rolling_NSE"] == pytest.approx(result.rolling_metrics["NSE"])
     assert repository.get_scheme("scheme-frozen-1").content_hash == before_scheme
+
+
+def test_rolling_target_truth_is_clipped_to_final_test_dates(
+    evaluation_service, repository, monkeypatch
+):
+    repository.set_task_phase("task-1", "E")
+    monkeypatch.setattr(
+        evaluation_service,
+        "_final_test_window_from_scheme",
+        lambda _scheme: (date(2020, 5, 2), date(2020, 5, 4)),
+    )
+
+    result = evaluation_service.evaluate("task-1", "snapshot-eval-truth")
+
+    assert result.sample_counts == {"lead_1": 3, "lead_2": 2, "lead_3": 1}
+    assert set(result.lead_metrics) == {"lead_1", "lead_2"}
+    assert result.lead_metrics["lead_1"]["NSE"] == pytest.approx(1.0)
+    assert result.lead_metrics["lead_2"]["NSE"] == pytest.approx(1.0)
+
+
+def test_evaluation_separates_rolling_and_continuous_final_test_skill(
+    evaluation_service, repository, monkeypatch
+):
+    repository.set_task_phase("task-1", "E")
+    monkeypatch.setattr(
+        evaluation_service,
+        "_try_test_hydrograph",
+        lambda *_args, **_kwargs: {
+            "frozen_metrics": {
+                "nse": 0.25,
+                "kge": 0.35,
+                "pbias_percent": -4.0,
+                "rmse_m3s": 2.5,
+                "mae": 2.0,
+                "high_flow_mae": 3.0,
+                "peak_ratio": 0.95,
+                "peak_timing_lag_steps": 1,
+                "count": 30,
+            }
+        },
+    )
+
+    result = evaluation_service.evaluate("task-1", "snapshot-eval-truth")
+
+    assert result.continuous_metrics["NSE"] == pytest.approx(0.25)
+    assert result.continuous_metrics["PBIAS"] == pytest.approx(-4.0)
+    assert result.metrics["continuous_NSE"] == pytest.approx(0.25)
+    assert result.metrics["continuous_PeakTimingLagSteps"] == pytest.approx(1.0)
+    assert result.metrics["rolling_NSE"] == pytest.approx(result.rolling_metrics["NSE"])
+    assert result.metrics["NSE"] == pytest.approx(result.rolling_metrics["NSE"])
+    assert result.metrics["NSE"] != result.metrics["continuous_NSE"]
 
 
 def test_evaluation_refuses_truth_snapshot_outside_e_phase(evaluation_service, repository):
