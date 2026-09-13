@@ -19,9 +19,11 @@ class TaskCreateRequest(FrozenApiModel):
     base_scheme_id: str = Field(min_length=1)
     model_plan_id: str | None = None
     allow_optimization: bool
-    # start/end describe the complete research period. Long studies are split
-    # automatically so Gate/replay only use the final bounded holdout window.
+    # start/end describe the complete research period. ``validation_days`` is a
+    # backward-compatible API name for the mutable development Gate window;
+    # ``final_test_days`` is independently held out until the scheme is frozen.
     validation_days: int = Field(default=30, ge=3, le=90)
+    final_test_days: int = Field(default=30, ge=3, le=90)
     max_agent_decision_rounds: int = Field(default=20, ge=1, le=20)
     max_optimization_cycles: int = Field(default=4, ge=0, le=4)
 
