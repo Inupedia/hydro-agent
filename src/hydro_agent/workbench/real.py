@@ -235,7 +235,6 @@ class RealWorkbenchKernel:
                 "notes": ["no current scheme"],
             }
         window = self.validation_gate.window_for(task_id)
-        # Rolling diagnosis also obeys the same source-level quality contract.
         scoring_source = replace(
             self.source,
             flow_rows=tuple(row for row in self.source.flow_rows if row.eligible_for_scoring),
@@ -269,7 +268,6 @@ class RealWorkbenchKernel:
                     result,
                     full_evidence,
                     nse_good_enough=self.skills.nse_good_enough(),
-                    water_balance_threshold=self.skills.expert_config().water_balance_bias_percent,
                 )
             except (KeyError, ValueError) as exc:
                 notes = list(result.get("notes") or [])
