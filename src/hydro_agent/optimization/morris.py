@@ -180,19 +180,24 @@ def screen_morris(
         reverse=True,
     )
 
-    active_reliable = [
-        name
-        for name in ranked
-        if max_mu_star <= 0.0
-        or float(raw_stats[name][1] or 0.0) / max_mu_star >= min_relative_mu_star
-    ]
-    minimum = min(min_active_parameters, len(ranked))
-    for name in ranked[:minimum]:
-        if name not in active_reliable:
-            active_reliable.append(name)
-    active_reliable.sort(key=lambda name: ranked.index(name))
-    if active_parameter_limit is not None:
-        active_reliable = active_reliable[:active_parameter_limit]
+    if max_mu_star <= 1e-12:
+        # No discernible signal is not evidence that parameters are negligible.
+        # Keep the entire universe active instead of arbitrarily selecting the
+        # first N parameters from a zero-valued ranking.
+        active_reliable = list(ranked)
+    else:
+        active_reliable = [
+            name
+            for name in ranked
+            if float(raw_stats[name][1] or 0.0) / max_mu_star >= min_relative_mu_star
+        ]
+        minimum = min(min_active_parameters, len(ranked))
+        for name in ranked[:minimum]:
+            if name not in active_reliable:
+                active_reliable.append(name)
+        active_reliable.sort(key=lambda name: ranked.index(name))
+        if active_parameter_limit is not None:
+            active_reliable = active_reliable[:active_parameter_limit]
 
     # Conservative fail-open rule: insufficient evidence can never screen out a
     # parameter. This matters for constrained XAJ points rejected before model
