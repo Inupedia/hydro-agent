@@ -33,7 +33,7 @@ def test_real_workbench_binds_a06_to_predevelopment_diagnosis():
             "recommended_action": "A07_OPTIMIZE",
             "recommended_strategy_id": "xaj-water-balance-v1",
             "metrics": {},
-            "notes": ["diagnostic_truth_strictly_precedes_validation=true"],
+            "notes": ["diagnostic_truth_strictly_precedes_development=true"],
         },
     ) as diagnose:
         result = kernel._diagnose("task-1")
@@ -43,7 +43,7 @@ def test_real_workbench_binds_a06_to_predevelopment_diagnosis():
     assert kwargs["scheme_id"] == "scheme-base"
     assert kwargs["validation_start"] == date(2000, 5, 1)
     assert kwargs["nse_good_enough"] == 0.5
-    assert "diagnostic_truth_strictly_precedes_validation=true" in result["notes"]
+    assert "diagnostic_truth_strictly_precedes_development=true" in result["notes"]
     assert "held_out_development_window=2000-05-01..2000-05-10" in result["notes"]
 
 
