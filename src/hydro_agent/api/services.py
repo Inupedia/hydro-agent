@@ -36,12 +36,8 @@ def build_runtime_task_config(
     base: Mapping[str, Any] | None = None,
     model_plan_id: str | None = None,
 ) -> dict[str, Any]:
-    """Restore the mutable development window from persisted task provenance.
+    """Restore mutable development aliases without ever pointing at final_test."""
 
-    Legacy handlers consume ``start_date``/``end_date`` for forecast and Gate.
-    Those aliases must point to development, never to the independently held-out
-    final test. A11/A12 read explicit ``final_test_*`` keys instead.
-    """
     runtime = copy.deepcopy(dict(base or {}))
     runtime.update(copy.deepcopy(dict(workbench)))
     development_start = runtime.get("development_start_date") or runtime.get(
@@ -66,6 +62,7 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
         raise ValueError("only xaj is enabled in the XAJ-first workbench")
     if payload.forcing_mode not in ("R", "F"):
         raise ValueError("invalid forcing_mode")
+
     plan = None
     plan_config = None
     if payload.model_plan_id:
@@ -111,7 +108,6 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
         "workbench": {
             "template_scheme_id": payload.base_scheme_id,
             "allow_optimization": payload.allow_optimization,
-            # These remain the user-selected research period for provenance/UI.
             "start_date": payload.start_date.isoformat(),
             "end_date": payload.end_date.isoformat(),
             "max_agent_decision_rounds": payload.max_agent_decision_rounds,
@@ -138,12 +134,16 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
         warmup_days=int(config["warmup_days"]),
         validation_days=payload.validation_days,
         final_test_days=payload.final_test_days,
+        development_start_date=payload.development_start_date,
+        development_end_date=payload.development_end_date,
+        final_test_start_date=payload.final_test_start_date,
+        final_test_end_date=payload.final_test_end_date,
     )
     config["workbench"].update(timeline.as_dict())
-    # Hard cost guard: development evaluates base+candidate; final test replays
-    # only the frozen scheme. Long research periods therefore stay bounded.
-    if timeline.estimated_rolling_forecast_runs > 270:
-        raise ValueError("development/final-test windows would create too many rolling XAJ runs")
+    # Formal multi-year protocols are preregistered science, not an API error.
+    # Runtime/cost is visible in ``estimated_rolling_forecast_runs`` and callers
+    # may decide whether to run rolling replay; we no longer silently forbid a
+    # scientifically valid holdout simply because it exceeds the old smoke cap.
 
     content_hash = sha256_bytes(
         json.dumps(config, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -204,7 +204,12 @@ def build_task_summary(deps: AppDependencies, task_id: str) -> TaskSummary:
                 final_test_days = final_test_days or workbench.get("final_test_days")
                 if not model_id or model_id == "xaj":
                     model_id = str(scheme.model_id or model_id or "xaj")
-                if start_date and end_date and validation_days is not None and final_test_days is not None:
+                if (
+                    start_date
+                    and end_date
+                    and validation_days is not None
+                    and final_test_days is not None
+                ):
                     break
         except Exception:
             pass
