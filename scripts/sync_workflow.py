@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate derived workflow artifacts from workflow/hydro-agent.v*.json."""
+"""Regenerate frontend workflow metadata from workflow/hydro-agent.v*.json."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="Fail if generated Archify JSON or frontend metadata drifted",
+        help="Fail if generated frontend workflow metadata drifted",
     )
     args = parser.parse_args(argv)
     root = repo_root()
