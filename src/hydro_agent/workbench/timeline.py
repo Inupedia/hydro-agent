@@ -4,7 +4,7 @@ from typing import Literal
 
 DEFAULT_DEVELOPMENT_DAYS = 30
 DEFAULT_FINAL_TEST_DAYS = 30
-MAX_HOLDOUT_DAYS = 90
+MAX_HOLDOUT_DAYS = 3650
 MIN_WINDOW_DAYS = 3
 
 
@@ -27,17 +27,7 @@ class DateWindow:
 
 @dataclass(frozen=True)
 class ExperimentTimeline:
-    """Preregistered four-part calibration protocol.
-
-    ``research_start`` / ``research_end`` are the complete user-selected study
-    period. The model may use warmup forcing before ``research_start``. Model
-    parameters are searched only on ``calibration``. Candidate selection/Gate may
-    repeatedly inspect ``development``. ``final_test`` is reserved for the frozen
-    scheme and must not participate in calibration or candidate selection.
-
-    ``validation_*`` remains a compatibility alias for the development window so
-    older workbench code keeps functioning while the final-test path is migrated.
-    """
+    """Preregistered calibration → development → final-test protocol."""
 
     research_start: date
     research_end: date
@@ -78,14 +68,17 @@ class ExperimentTimeline:
         return self.development_days
 
     @property
+    def evaluation_history_days(self) -> int:
+        """Warmup plus the complete independently held-out final-test period."""
+
+        return self.warmup_days + self.final_test_days
+
+    @property
     def estimated_rolling_forecast_runs(self) -> int:
-        # Development Gate runs base + candidate. Final test replays only the
-        # frozen scheme, so the cost is 2*development + final_test rather than
-        # three executions across one reused holdout.
         return self.development_days * 2 + self.final_test_days
 
     def as_dict(self) -> dict[str, object]:
-        payload: dict[str, object] = {
+        return {
             "research_start_date": self.research_start.isoformat(),
             "research_end_date": self.research_end.isoformat(),
             "warmup_start_date": self.warmup_start.isoformat(),
@@ -103,31 +96,21 @@ class ExperimentTimeline:
             "final_test_start_date": self.final_test_start.isoformat(),
             "final_test_end_date": self.final_test_end.isoformat(),
             "final_test_days": self.final_test_days,
+            "evaluation_history_days": self.evaluation_history_days,
             "warmup_days": self.warmup_days,
             "research_days": self.research_days,
             "protocol_mode": self.protocol_mode,
             "estimated_rolling_forecast_runs": self.estimated_rolling_forecast_runs,
-            # Compatibility: old runtime code treats validation as the mutable
-            # candidate-selection window. It must never point at final_test.
+            # Legacy alias: validation always means mutable development, never final_test.
             "validation_start_date": self.development_start.isoformat(),
             "validation_end_date": self.development_end.isoformat(),
             "validation_days": self.development_days,
         }
-        return payload
 
 
 def _compressed_smoke_windows(
     *, start_date: date, end_date: date
 ) -> tuple[date | None, date | None, DateWindow, DateWindow]:
-    """Build deterministic non-overlapping windows for short CI/event tasks.
-
-    Formal research should use the requested holdout lengths. For short smoke
-    tasks we preserve independent development/final-test semantics with the
-    smallest useful three-day windows. If fewer than six research days are
-    supplied, calibration falls back to historical context and the research span
-    is split as evenly as possible between development and final test.
-    """
-
     total = (end_date - start_date).days + 1
     if total >= 9:
         final_days = MIN_WINDOW_DAYS
@@ -153,6 +136,45 @@ def _compressed_smoke_windows(
     )
 
 
+def _explicit_windows(
+    *,
+    research_start: date,
+    research_end: date,
+    development_start: date,
+    development_end: date,
+    final_test_start: date,
+    final_test_end: date,
+) -> tuple[date, date, DateWindow, DateWindow]:
+    for name, day in (
+        ("development_start", development_start),
+        ("development_end", development_end),
+        ("final_test_start", final_test_start),
+        ("final_test_end", final_test_end),
+    ):
+        if day < research_start or day > research_end:
+            raise ValueError(f"{name} lies outside research period")
+    if development_end < development_start:
+        raise ValueError("development_end before development_start")
+    if final_test_end < final_test_start:
+        raise ValueError("final_test_end before final_test_start")
+    if development_end >= final_test_start:
+        raise ValueError("development and final_test must not overlap")
+    calibration_start = research_start
+    calibration_end = development_start - timedelta(days=1)
+    if (calibration_end - calibration_start).days + 1 < MIN_WINDOW_DAYS:
+        raise ValueError("explicit research protocol requires at least three calibration days")
+    if (development_end - development_start).days + 1 < MIN_WINDOW_DAYS:
+        raise ValueError("explicit development window requires at least three days")
+    if (final_test_end - final_test_start).days + 1 < MIN_WINDOW_DAYS:
+        raise ValueError("explicit final_test window requires at least three days")
+    return (
+        calibration_start,
+        calibration_end,
+        DateWindow(development_start, development_end),
+        DateWindow(final_test_start, final_test_end),
+    )
+
+
 def build_experiment_timeline(
     *,
     start_date: date,
@@ -160,13 +182,11 @@ def build_experiment_timeline(
     warmup_days: int,
     validation_days: int = DEFAULT_DEVELOPMENT_DAYS,
     final_test_days: int = DEFAULT_FINAL_TEST_DAYS,
+    development_start_date: date | None = None,
+    development_end_date: date | None = None,
+    final_test_start_date: date | None = None,
+    final_test_end_date: date | None = None,
 ) -> ExperimentTimeline:
-    """Create a leakage-safe calibration/development/final-test protocol.
-
-    ``validation_days`` is kept as the public compatibility name for the
-    development window. New callers should think of it as development_days.
-    """
-
     if end_date < start_date:
         raise ValueError("end_date before start_date")
     research_days = (end_date - start_date).days + 1
@@ -183,35 +203,51 @@ def build_experiment_timeline(
             f"final_test_days must be between {MIN_WINDOW_DAYS} and {MAX_HOLDOUT_DAYS}"
         )
 
-    requested_holdout = validation_days + final_test_days
+    explicit = (
+        development_start_date,
+        development_end_date,
+        final_test_start_date,
+        final_test_end_date,
+    )
+    explicit_count = sum(value is not None for value in explicit)
+    if explicit_count not in {0, 4}:
+        raise ValueError("explicit research protocol requires all four holdout dates")
+
     warmup_start = start_date - timedelta(days=warmup_days)
     warmup_end = start_date - timedelta(days=1)
 
-    # Formal research requires at least three calibration days before the two
-    # independently held-out windows. Otherwise use the explicit smoke protocol.
-    if research_days >= requested_holdout + MIN_WINDOW_DAYS:
-        final_test_end = end_date
-        final_test_start = end_date - timedelta(days=final_test_days - 1)
-        development_end = final_test_start - timedelta(days=1)
-        development_start = development_end - timedelta(days=validation_days - 1)
-        calibration_start: date | None = start_date
-        calibration_end: date | None = development_start - timedelta(days=1)
-        development = DateWindow(development_start, development_end)
-        final_test = DateWindow(final_test_start, final_test_end)
+    if explicit_count == 4:
+        calibration_start, calibration_end, development, final_test = _explicit_windows(
+            research_start=start_date,
+            research_end=end_date,
+            development_start=development_start_date,  # type: ignore[arg-type]
+            development_end=development_end_date,  # type: ignore[arg-type]
+            final_test_start=final_test_start_date,  # type: ignore[arg-type]
+            final_test_end=final_test_end_date,  # type: ignore[arg-type]
+        )
         protocol_mode: Literal["research", "smoke"] = "research"
     else:
-        calibration_start, calibration_end, development, final_test = _compressed_smoke_windows(
-            start_date=start_date,
-            end_date=end_date,
-        )
-        protocol_mode = "smoke"
+        requested_holdout = validation_days + final_test_days
+        if research_days >= requested_holdout + MIN_WINDOW_DAYS:
+            final_test_end = end_date
+            final_test_start = end_date - timedelta(days=final_test_days - 1)
+            development_end = final_test_start - timedelta(days=1)
+            development_start = development_end - timedelta(days=validation_days - 1)
+            calibration_start = start_date
+            calibration_end = development_start - timedelta(days=1)
+            development = DateWindow(development_start, development_end)
+            final_test = DateWindow(final_test_start, final_test_end)
+            protocol_mode = "research"
+        else:
+            calibration_start, calibration_end, development, final_test = _compressed_smoke_windows(
+                start_date=start_date,
+                end_date=end_date,
+            )
+            protocol_mode = "smoke"
 
-    if calibration_end is not None:
-        # Calibration snapshot starts at warmup_start and ends on the final
-        # calibration day. Objective scoring can discard the first warmup_days.
-        calibration_history_days = (calibration_end - warmup_start).days + 1
-    else:
-        calibration_history_days = None
+    calibration_history_days = (
+        (calibration_end - warmup_start).days + 1 if calibration_end is not None else None
+    )
 
     return ExperimentTimeline(
         research_start=start_date,
