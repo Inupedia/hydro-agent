@@ -42,6 +42,14 @@ def _metrics(row: object) -> dict[str, Any]:
     return _dict(value)
 
 
+def _tokens(value: object) -> tuple[str, ...]:
+    if isinstance(value, str):
+        return tuple(item.strip() for item in value.split(",") if item.strip())
+    if isinstance(value, (tuple, list, set)):
+        return tuple(str(item).strip() for item in value if str(item).strip())
+    return ()
+
+
 def _stable_signature(gates: dict[str, Any]) -> str:
     payload = {
         "strategy_id": str(gates.get("strategy_id") or ""),
@@ -107,17 +115,29 @@ class TrialLedgerBuilder:
                 if key.endswith("delta") and isinstance(value, (int, float))
             }
 
-            signature = _stable_signature(gates)
             a07_id = _evidence_id(a07)
+            signature = str(gates.get("experiment_signature") or "") or _stable_signature(gates)
+            explicit_plan_id = str(gates.get("experiment_plan_id") or "")
+            plan_id = explicit_plan_id or _plan_id(a07_id, signature)
+            planned_refs = _tokens(gates.get("experiment_evidence_refs"))
             refs = tuple(
-                item
-                for item in (
-                    current.get("diagnosis_id"),
-                    a07_id,
-                    _evidence_id(gate_row) if gate_row is not None else None,
-                    _evidence_id(resolve_row) if resolve_row is not None else None,
+                dict.fromkeys(
+                    (
+                        *planned_refs,
+                        *((current.get("diagnosis_id"),) if current.get("diagnosis_id") else ()),
+                        *((a07_id,) if a07_id else ()),
+                        *(
+                            (_evidence_id(gate_row),)
+                            if gate_row is not None and _evidence_id(gate_row)
+                            else ()
+                        ),
+                        *(
+                            (_evidence_id(resolve_row),)
+                            if resolve_row is not None and _evidence_id(resolve_row)
+                            else ()
+                        ),
+                    )
                 )
-                if item
             )
             model_evaluations_raw = gates.get("model_evaluations") or _metrics(a07).get(
                 "model_evaluations", 0
@@ -127,10 +147,16 @@ class TrialLedgerBuilder:
             except (TypeError, ValueError):
                 model_evaluations = 0
 
+            reason_codes = list(_tokens(gates.get("experiment_reason_codes")))
+            if gate_row is not None:
+                reason_codes.append("development_gate_recorded")
+            if resolve_row is not None:
+                reason_codes.append("resolve_recorded")
+
             ledger.append(
                 TrialRecord(
                     trial_id=f"trial-{a07_id}" if a07_id else f"trial-{signature}",
-                    plan_id=_plan_id(a07_id, signature),
+                    plan_id=plan_id,
                     experiment_signature=signature,
                     strategy_id=str(gates.get("strategy_id") or "unknown"),
                     base_scheme_id=str(gates.get("base_scheme_id") or "") or None,
@@ -147,14 +173,7 @@ class TrialLedgerBuilder:
                         qualification_status=qualification,
                         primary_delta=primary_delta,
                     ),
-                    reason_codes=tuple(
-                        code
-                        for code in (
-                            "development_gate_recorded" if gate_row is not None else None,
-                            "resolve_recorded" if resolve_row is not None else None,
-                        )
-                        if code
-                    ),
+                    reason_codes=tuple(dict.fromkeys(reason_codes)),
                 )
             )
             current = None
