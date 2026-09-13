@@ -108,12 +108,16 @@ def _load_final_test_evidence(report_root: Path | None, task_id: str) -> dict[st
     if not dates:
         return None
     try:
-        return HydrologicEvidenceBuilder().build(
-            window="final_test",
-            dates=dates,
-            observed=observed,
-            simulated=simulated,
-        ).as_dict()
+        return (
+            HydrologicEvidenceBuilder()
+            .build(
+                window="final_test",
+                dates=dates,
+                observed=observed,
+                simulated=simulated,
+            )
+            .as_dict()
+        )
     except ValueError:
         return None
 
@@ -127,7 +131,9 @@ def _final_test_audit(evidence_rows) -> dict[str, Any]:
     return {
         "consumed": evaluation is not None,
         "read_only": "final_test_read_only=true" in observations,
-        "single_use": any(str(item).startswith("final_test_consumption=1/1") for item in observations),
+        "single_use": any(
+            str(item).startswith("final_test_consumption=1/1") for item in observations
+        ),
         "window": next(
             (
                 str(item).split("=", 1)[1]
