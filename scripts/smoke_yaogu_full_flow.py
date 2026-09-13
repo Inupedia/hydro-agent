@@ -3,8 +3,9 @@
 
 The smoke uses the user-supplied Yaogu academy materials, the vendored teacher
 XAJ kernel, leakage-safe diagnostics, structured calibration plans, a
-budget-aware numerical optimizer, independent GB/T Gate, reflection/rollback,
-case memory, replay and evaluation.
+budget-aware numerical optimizer, independent development Gate,
+reflection/rollback, frozen-scheme-only final test, case memory, replay and
+evaluation.
 
 For reproducibility this CI smoke uses the deterministic CalibrationScientist
 policy provider rather than an external LLM. The provider obeys the same
@@ -80,6 +81,10 @@ def _parse_delta(gates: dict) -> dict[str, float]:
     except json.JSONDecodeError:
         return {}
     return {str(k): float(v) for k, v in payload.items() if isinstance(v, (int, float))}
+
+
+def _has_observation(packet, expected: str) -> bool:
+    return expected in tuple(packet.observations)
 
 
 def write_case_memory(repository, task_id: str) -> list[CalibrationCase]:
@@ -222,10 +227,45 @@ def main() -> int:
             base_scheme_id="scheme-base",
             model_plan_id=plan_id,
             allow_optimization=True,
+            validation_days=30,
+            final_test_days=30,
             max_agent_decision_rounds=20,
             max_optimization_cycles=4,
         )
         task_id = create_workbench_task(deps, request)
+        task_config = deps.task_configs[task_id]
+        protocol = {
+            "mode": task_config.get("protocol_mode"),
+            "calibration": (
+                task_config.get("calibration_start_date"),
+                task_config.get("calibration_end_date"),
+            ),
+            "development": (
+                task_config.get("development_start_date"),
+                task_config.get("development_end_date"),
+            ),
+            "final_test": (
+                task_config.get("final_test_start_date"),
+                task_config.get("final_test_end_date"),
+            ),
+            "runtime_gate_alias": (task_config.get("start_date"), task_config.get("end_date")),
+            "calibration_history_days": task_config.get("calibration_history_days"),
+        }
+        expected_protocol = {
+            "mode": "smoke",
+            "calibration": ("2000-05-01", "2000-05-04"),
+            "development": ("2000-05-05", "2000-05-07"),
+            "final_test": ("2000-05-08", "2000-05-10"),
+            "runtime_gate_alias": ("2000-05-05", "2000-05-07"),
+            "calibration_history_days": 369,
+        }
+        protocol_ok = protocol == expected_protocol
+        print("PROTOCOL", json.dumps(protocol, ensure_ascii=False), flush=True)
+        if not protocol_ok:
+            raise RuntimeError(
+                f"unexpected Yaogu smoke protocol: actual={protocol!r} expected={expected_protocol!r}"
+            )
+
         kernel = CalibrationScientistWorkbenchKernel(
             repository=repository,
             work_root=WORK_ROOT,
@@ -276,6 +316,7 @@ def main() -> int:
         state = repository.ensure_task_state(task_id)
         evidence = repository.list_evidence(task_id)
         gate_packets = [packet for packet in packets if packet.action == ActionCode.A08_GATE]
+        replay_packet = next(packet for packet in packets if packet.action == ActionCode.A11_REPLAY)
         eval_packet = next(
             packet for packet in packets if packet.action == ActionCode.A12_EVALUATE_REPORT
         )
@@ -286,18 +327,33 @@ def main() -> int:
         area_km2 = float(plan["area_km2"]) if plan.get("area_km2") is not None else None
         diagnoses = [packet for packet in packets if packet.action == ActionCode.A06_DIAGNOSE]
         optimizations = [packet for packet in packets if packet.action == ActionCode.A07_OPTIMIZE]
-        strict_prevalidation = all(
+        strict_predevelopment = all(
             any(
-                "diagnostic_truth_strictly_precedes_validation=true" in obs
+                "diagnostic_truth_strictly_precedes_development=true" in obs
                 for obs in packet.observations
             )
             for packet in diagnoses
+        )
+        optimization_protocol_safe = bool(optimizations) and all(
+            _has_observation(packet, "development_window=2000-05-05..2000-05-07")
+            and _has_observation(packet, "development_evaluated_by=A08_GATE")
+            and _has_observation(packet, "final_test_accessed=false")
+            for packet in optimizations
+        )
+        final_test_protocol_safe = (
+            _has_observation(replay_packet, "final_test_window=2000-05-08..2000-05-10")
+            and _has_observation(eval_packet, "final_test_window=2000-05-08..2000-05-10")
+            and _has_observation(eval_packet, "final_test_read_only=true")
+            and _has_observation(eval_packet, "final_test_consumption=1/1")
         )
         summary = {
             "ok": (
                 task.phase == "E"
                 and eval_packet.status == "succeeded"
-                and strict_prevalidation
+                and strict_predevelopment
+                and protocol_ok
+                and optimization_protocol_safe
+                and final_test_protocol_safe
                 and bool(optimizations)
                 and bool(cases)
             ),
@@ -305,7 +361,11 @@ def main() -> int:
             "phase": task.phase,
             "current_scheme_id": state.current_scheme_id,
             "provider": "calibration-scientist-deterministic",
-            "diagnostic_truth_strictly_precedes_validation": strict_prevalidation,
+            "protocol": protocol,
+            "protocol_ok": protocol_ok,
+            "diagnostic_truth_strictly_precedes_development": strict_predevelopment,
+            "optimization_protocol_safe": optimization_protocol_safe,
+            "final_test_protocol_safe": final_test_protocol_safe,
             "model_plan": {
                 "plan_id": plan_id,
                 "area_km2": plan.get("area_km2"),
