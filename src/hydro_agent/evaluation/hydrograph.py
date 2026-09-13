@@ -109,6 +109,26 @@ def title_for(kind: ComparisonKind, *, calibrated: bool, gate_status: str | None
     return "观测与冻结方案 · 最终独立检验"
 
 
+def _png_title_for(comparison: dict[str, Any]) -> str:
+    """ASCII-safe export title so headless CI does not depend on CJK fonts.
+
+    API/Web payloads intentionally keep the Chinese hydrologist-facing title.
+    Only the static PNG title is normalized because Matplotlib's default CI font
+    does not ship the required Chinese glyphs.
+    """
+
+    if comparison.get("kind") == "calibration":
+        return "Observed vs Baseline / Candidate - Calibration Window"
+    if comparison.get("calibrated"):
+        return "Observed vs Frozen Scheme - Final Test"
+    gate_status = comparison.get("gate_status")
+    if gate_status == "KEEP":
+        return "Observed vs Frozen Scheme - Final Test (Baseline Kept)"
+    if gate_status == "ROLLBACK":
+        return "Observed vs Frozen Scheme - Final Test (Rolled Back)"
+    return "Observed vs Frozen Scheme - Final Test"
+
+
 def calibrated_flag(*, gate_status: str | None, frozen_is_candidate: bool) -> bool:
     return gate_status == "ACCEPT" and frozen_is_candidate
 
@@ -335,8 +355,8 @@ def maybe_write_png(path: Path, comparison: dict[str, Any]) -> Path | None:
             alpha=0.35,
             label="Warm-up",
         )
-    axes[0].set_ylabel("Discharge (m³/s)")
-    axes[0].set_title(comparison["title"])
+    axes[0].set_ylabel("Discharge (m3/s)")
+    axes[0].set_title(_png_title_for(comparison))
     axes[0].legend(loc="upper right", frameon=False)
     residual_src = "candidate_m3s" if comparison["kind"] == "calibration" else "frozen_m3s"
     residual = []
@@ -344,9 +364,9 @@ def maybe_write_png(path: Path, comparison: dict[str, Any]) -> Path | None:
         obs = row["observed_m3s"]
         sim = row[residual_src]
         residual.append(None if obs is None or sim is None else float(sim - obs))
-    axes[1].plot(times, residual, color="#b42318", linewidth=1.0, label="Sim − Observed")
+    axes[1].plot(times, residual, color="#b42318", linewidth=1.0, label="Sim - Observed")
     axes[1].axhline(0, color="#98a2ad", linewidth=0.8)
-    axes[1].set_ylabel("Δ m³/s")
+    axes[1].set_ylabel("Delta m3/s")
     axes[1].set_xlabel("Date")
     fig.autofmt_xdate()
     fig.tight_layout()
