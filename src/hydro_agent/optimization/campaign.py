@@ -152,8 +152,7 @@ def rebuild_campaign(
         plateau_strategies = tuple(record.strategy_id for record in resolved[-window:])
 
     restart_check_satisfied = bool(
-        plateau_candidate
-        and len(set(plateau_strategies)) >= policy.restart_distinct_strategies
+        plateau_candidate and len(set(plateau_strategies)) >= policy.restart_distinct_strategies
     )
 
     stop_reason: CampaignStopReason | None = None
