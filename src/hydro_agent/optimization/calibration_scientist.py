@@ -81,29 +81,13 @@ def _name_list(raw: object) -> tuple[str, ...]:
     return ()
 
 
-def _search_adjustment(
-    diagnosis: dict[str, Any], advisory_adjustment: str | None
-) -> SearchAdjustment:
-    """Resolve search-window behavior from protocol evidence before advice.
+def _search_adjustment(diagnosis: dict[str, Any]) -> SearchAdjustment:
+    """Resolve search-window behavior only from registered experiment evidence."""
 
-    Local-window and absolute-boundary hits are properties of the registered
-    numerical search, so they are deterministic protocol semantics rather than
-    expert knowledge. External priors may suggest an adjustment only when the
-    experiment itself has not already supplied boundary evidence.
-    """
-
-    absolute_boundary_hits = _name_list(diagnosis.get("absolute_boundary_hits"))
-    local_boundary_hits = _name_list(diagnosis.get("local_boundary_hits"))
-    if absolute_boundary_hits:
+    if _name_list(diagnosis.get("absolute_boundary_hits")):
         return "hold_absolute_bounds"
-    if local_boundary_hits:
+    if _name_list(diagnosis.get("local_boundary_hits")):
         return "broaden_within_absolute_bounds"
-    if advisory_adjustment in {
-        "keep",
-        "broaden_within_absolute_bounds",
-        "hold_absolute_bounds",
-    }:
-        return advisory_adjustment  # type: ignore[return-value]
     return "keep"
 
 
@@ -157,14 +141,13 @@ def plan_from_diagnosis(
 ) -> CalibrationPlan:
     """Translate a diagnosis into an auditable optimization experiment.
 
-    Evidence is primary. Expert priors may refine parameter groups and bounded
-    search scope, but remain advisory metadata and never alter validation Gate
-    rules, search-boundary safety, or the teacher/kernel absolute parameter
-    limits. Unverified expert priors are inactive unless a campaign supplies an
-    explicit governed query context that permits them. When the campaign
-    objective is supplied (directly or as ``diagnosis['campaign_objective']``),
-    it is immutable for this plan and expert/diagnosis objective suggestions are
-    ignored.
+    Evidence is primary. Expert priors may refine parameter groups and objective
+    suggestions, but remain advisory metadata and never alter validation Gate
+    rules, search-boundary safety, or teacher/kernel absolute parameter limits.
+    Unverified expert priors are inactive unless a campaign supplies an explicit
+    governed query context that permits them. When the campaign objective is
+    supplied (directly or as ``diagnosis['campaign_objective']``), it is immutable
+    for this plan and expert/diagnosis objective suggestions are ignored.
     """
 
     registry = strategies or CalibrationStrategyRegistry()
@@ -200,7 +183,7 @@ def plan_from_diagnosis(
     if locked_objective is not None:
         objective = locked_objective
 
-    adjustment = _search_adjustment(diagnosis, advice.search_adjustment)
+    adjustment = _search_adjustment(diagnosis)
     previous_raw = diagnosis.get("previous_strategy_id")
     previous_strategy_id = str(previous_raw) if previous_raw else None
     try:
