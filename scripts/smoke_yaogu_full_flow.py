@@ -3,9 +3,13 @@
 
 The smoke uses the user-supplied Yaogu academy materials, the vendored teacher
 XAJ kernel, leakage-safe diagnostics, structured calibration plans, a
-budget-aware numerical optimizer, independent development Gate,
-reflection/rollback, frozen-scheme-only final test, case memory, replay and
-evaluation.
+budget-aware numerical optimizer, independent development Gate and scientific
+closeout semantics.
+
+The short Yaogu smoke window is intentionally too small to establish formal
+qualification. Therefore a scientifically correct run ends in a guarded human
+handover without freezing the scheme or consuming final-test evidence. A
+qualified production run still follows freeze -> replay -> final evaluation.
 
 For reproducibility this CI smoke uses the deterministic CalibrationScientist
 policy provider rather than an external LLM. The provider obeys the same
@@ -289,6 +293,7 @@ def main() -> int:
         )
 
         packets = []
+        terminal_packet = None
         for _ in range(20):
             packet = runtime.run_round(task_id)
             packets.append(packet)
@@ -308,6 +313,14 @@ def main() -> int:
                 flush=True,
             )
             if packet.action == ActionCode.A12_EVALUATE_REPORT and packet.status == "succeeded":
+                terminal_packet = packet
+                break
+            if (
+                packet.action == ActionCode.A10_FREEZE
+                and packet.status == "blocked"
+                and _has_observation(packet, "calibration_handover_required")
+            ):
+                terminal_packet = packet
                 break
         else:
             raise RuntimeError("calibration scientist did not close out within 20 rounds")
@@ -316,10 +329,6 @@ def main() -> int:
         state = repository.ensure_task_state(task_id)
         evidence = repository.list_evidence(task_id)
         gate_packets = [packet for packet in packets if packet.action == ActionCode.A08_GATE]
-        replay_packet = next(packet for packet in packets if packet.action == ActionCode.A11_REPLAY)
-        eval_packet = next(
-            packet for packet in packets if packet.action == ActionCode.A12_EVALUATE_REPORT
-        )
         cases = write_case_memory(repository, task_id)
         knowledge = KnowledgeRepository()
         standard = knowledge.standard()
@@ -327,6 +336,8 @@ def main() -> int:
         area_km2 = float(plan["area_km2"]) if plan.get("area_km2") is not None else None
         diagnoses = [packet for packet in packets if packet.action == ActionCode.A06_DIAGNOSE]
         optimizations = [packet for packet in packets if packet.action == ActionCode.A07_OPTIMIZE]
+        replay_packets = [packet for packet in packets if packet.action == ActionCode.A11_REPLAY]
+        eval_packets = [packet for packet in packets if packet.action == ActionCode.A12_EVALUATE_REPORT]
         strict_predevelopment = all(
             any(
                 "diagnostic_truth_strictly_precedes_development=true" in obs
@@ -340,63 +351,63 @@ def main() -> int:
             and _has_observation(packet, "final_test_accessed=false")
             for packet in optimizations
         )
-        final_test_protocol_safe = (
-            _has_observation(replay_packet, "final_test_window=2000-05-08..2000-05-10")
-            and _has_observation(eval_packet, "final_test_window=2000-05-08..2000-05-10")
-            and _has_observation(eval_packet, "final_test_read_only=true")
-            and _has_observation(eval_packet, "final_test_consumption=1/1")
+
+        latest_gate_qualification = (
+            str(gate_packets[-1].gates.get("qualification_status") or "NOT_EVALUATED")
+            if gate_packets
+            else "NOT_EVALUATED"
+        )
+        handover_packet = (
+            terminal_packet
+            if terminal_packet is not None
+            and terminal_packet.action == ActionCode.A10_FREEZE
+            and terminal_packet.status == "blocked"
+            else None
+        )
+        handover_protocol_safe = bool(
+            handover_packet
+            and latest_gate_qualification != "QUALIFIED"
+            and state.paused
+            and task.phase == "B"
+            and not replay_packets
+            and not eval_packets
+            and _has_observation(handover_packet, "hydrologist_manual_required")
+            and _has_observation(handover_packet, "calibration_handover_required")
+            and _has_observation(handover_packet, "freeze_blocked_unqualified=true")
+            and _has_observation(handover_packet, "final_test_not_consumed=true")
+            and str(handover_packet.gates.get("final_test_consumed")) == "false"
         )
 
+        # This 10-day smoke is expected to end in handover because a 3-day
+        # development window cannot establish the formal scheme qualification.
+        # The assertion protects the untouched final-test set for a later,
+        # explicitly reviewed run rather than rewarding an unqualified closeout.
         research_evidence_path = REPORT_ROOT / task_id / "research-evidence.json"
-        if not research_evidence_path.is_file():
-            raise RuntimeError("A12 did not persist research-evidence.json")
-        research_evidence = json.loads(research_evidence_path.read_text(encoding="utf-8"))
-        overall = research_evidence.get("overall") or {}
-        fdc = research_evidence.get("fdc") or {}
-        annual_stability = research_evidence.get("annual_stability") or {}
-        research_evidence_ok = (
-            research_evidence.get("window") == "final_test"
-            and int(overall.get("sample_count") or 0) == 3
-            and overall.get("status") == "available"
-            and fdc.get("status") == "insufficient_data"
-            and annual_stability.get("status") == "insufficient_data"
-        )
-        if not research_evidence_ok:
-            raise RuntimeError(
-                "unexpected final-test research evidence: "
-                + json.dumps(research_evidence, ensure_ascii=False, allow_nan=False)
-            )
+        final_test_unconsumed = not research_evidence_path.exists() and not replay_packets and not eval_packets
 
         summary = {
             "ok": (
-                task.phase == "E"
-                and eval_packet.status == "succeeded"
+                handover_protocol_safe
+                and final_test_unconsumed
                 and strict_predevelopment
                 and protocol_ok
                 and optimization_protocol_safe
-                and final_test_protocol_safe
-                and research_evidence_ok
                 and bool(optimizations)
                 and bool(cases)
             ),
             "task_id": task_id,
             "phase": task.phase,
+            "paused": bool(state.paused),
             "current_scheme_id": state.current_scheme_id,
             "provider": "calibration-scientist-deterministic",
             "protocol": protocol,
             "protocol_ok": protocol_ok,
             "diagnostic_truth_strictly_precedes_development": strict_predevelopment,
             "optimization_protocol_safe": optimization_protocol_safe,
-            "final_test_protocol_safe": final_test_protocol_safe,
-            "research_evidence_ok": research_evidence_ok,
-            "research_evidence": {
-                "path": str(research_evidence_path.relative_to(OUT)),
-                "window": research_evidence.get("window"),
-                "overall_status": overall.get("status"),
-                "sample_count": overall.get("sample_count"),
-                "fdc_status": fdc.get("status"),
-                "annual_stability_status": annual_stability.get("status"),
-            },
+            "handover_protocol_safe": handover_protocol_safe,
+            "latest_gate_qualification": latest_gate_qualification,
+            "final_test_unconsumed": final_test_unconsumed,
+            "research_evidence_exists": research_evidence_path.exists(),
             "model_plan": {
                 "plan_id": plan_id,
                 "area_km2": plan.get("area_km2"),
@@ -424,11 +435,16 @@ def main() -> int:
                 for packet in gate_packets
             ],
             "calibration_cases": [case.model_dump(mode="json") for case in cases],
-            "evaluation": {
-                "status": eval_packet.status,
-                "metrics": dict(eval_packet.metrics),
-                "artifacts": list(eval_packet.artifact_ids),
-            },
+            "handover": (
+                {
+                    "status": handover_packet.status,
+                    "gates": dict(handover_packet.gates),
+                    "observations": list(handover_packet.observations),
+                }
+                if handover_packet is not None
+                else None
+            ),
+            "evaluation": None,
             "knowledge": {
                 "standard_id": standard["standard_id"],
                 "standard_status": standard["status"],
