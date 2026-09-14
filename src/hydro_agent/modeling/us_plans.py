@@ -49,6 +49,19 @@ DEFAULT_PARAMS = {
 }
 
 
+def _parse_csv_bool(value: object, *, default: bool = True) -> bool:
+    """Parse quality booleans emitted by ``_build_inputs`` without changing meaning."""
+
+    if value is None or str(value).strip() == "":
+        return default
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "y"}:
+        return True
+    if normalized in {"0", "false", "no", "n"}:
+        return False
+    raise ValueError(f"invalid boolean value in model-plan input: {value!r}")
+
+
 class UsPlanRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     basin_id: str = Field(default="usgs_02472000", min_length=3)
@@ -347,7 +360,18 @@ class UsModelPlanService:
             unit_cols = [f"unit_{u['unit_id']}" for u in units]
             rain_w = csv.DictWriter(rain_f, fieldnames=["time", *unit_cols])
             pet_w = csv.DictWriter(pet_f, fieldnames=["time", *unit_cols])
-            obs_w = csv.DictWriter(obs_f, fieldnames=["time", "discharge"])
+            obs_w = csv.DictWriter(
+                obs_f,
+                fieldnames=[
+                    "time",
+                    "discharge",
+                    "source",
+                    "available_at",
+                    "eligible_for_scoring",
+                    "quality_code",
+                    "quality_note",
+                ],
+            )
             rain_w.writeheader()
             pet_w.writeheader()
             obs_w.writeheader()
@@ -359,7 +383,20 @@ class UsModelPlanService:
                 pet_w.writerow({"time": day, **pet})
                 if day not in by_date:
                     raise ValueError(f"missing discharge for {day}")
-                obs_w.writerow({"time": day, "discharge": float(by_date[day]["discharge_m3s"])})
+                flow_row = by_date[day]
+                obs_w.writerow(
+                    {
+                        "time": day,
+                        "discharge": float(flow_row["discharge_m3s"]),
+                        "source": flow_row.get("source") or "",
+                        "available_at": flow_row.get("available_at") or "",
+                        "eligible_for_scoring": (
+                            "true" if bool(flow_row.get("eligible_for_scoring", True)) else "false"
+                        ),
+                        "quality_code": flow_row.get("quality_code") or "",
+                        "quality_note": flow_row.get("quality_note") or "",
+                    }
+                )
         params_dir = case / "parameters"
         params_dir.mkdir(exist_ok=True)
         # Teacher-native lowercase row for potential lab replay; product scheme uses DEFAULT_PARAMS.
@@ -446,8 +483,15 @@ class UsModelPlanService:
                     available = datetime.combine(dates[i] + timedelta(days=1), time(0), ZoneInfo("UTC"))
                     item = dict(
                         valid_date=str(dates[i]),
-                        available_at=available.isoformat(),
-                        source="open-gridmet-usgs" if cfg.basin_id.startswith("usgs_") else "us-camels-multimet",
+                        available_at=row.get("available_at") or available.isoformat(),
+                        source=(
+                            row.get("source")
+                            or (
+                                "open-gridmet-usgs"
+                                if cfg.basin_id.startswith("usgs_")
+                                else "us-camels-multimet"
+                            )
+                        ),
                     )
                     if name == "forcing":
                         item.update(
@@ -456,7 +500,14 @@ class UsModelPlanService:
                             source_kind="reanalysis",
                         )
                     else:
-                        item["discharge_m3s"] = float(row["discharge"])
+                        item.update(
+                            discharge_m3s=float(row["discharge"]),
+                            eligible_for_scoring=_parse_csv_bool(
+                                row.get("eligible_for_scoring"), default=True
+                            ),
+                            quality_code=row.get("quality_code") or None,
+                            quality_note=row.get("quality_note") or None,
+                        )
                     out.write(json.dumps(item, allow_nan=False) + "\n")
         area = sum(float(u["area_km2"]) for u in units)
         write_json(

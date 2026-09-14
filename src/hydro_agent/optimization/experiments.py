@@ -1,7 +1,7 @@
 """Structured experiment planning and trial ledger for calibration research.
 
 The planner stores decisions that are safe to audit: hypothesis identifiers,
-evidence references, registered strategy ids and budgets.  It intentionally does
+evidence references, registered strategy ids and budgets. It intentionally does
 not store private chain-of-thought or continuous parameter vectors.
 """
 
@@ -81,6 +81,14 @@ class TrialRecord(FrozenModel):
     candidate_scheme_id: str | None = None
     action_run_id: str | None = None
     model_evaluations: int = Field(default=0, ge=0)
+    # search_best uses the optimizer's fixed campaign objective; selected_best is
+    # reconstructed separately from independent development Gate evidence.
+    search_score: float | None = None
+    base_primary: float | None = None
+    candidate_primary: float | None = None
+    selected_primary: float | None = None
+    candidate_adopted: bool = False
+    resolve_recorded: bool = False
     development_gate: str = "NOT_EVALUATED"
     adoption_status: str = "NOT_EVALUATED"
     qualification_status: str = "NOT_EVALUATED"
@@ -120,7 +128,7 @@ class TrialLedger:
 class ExperimentPlanner:
     """Evidence-conditioned deterministic guardrail for selecting registered experiments.
 
-    This replaces "pick an unused strategy" rotation.  Repetition is allowed when
+    This replaces "pick an unused strategy" rotation. Repetition is allowed when
     fresh diagnosis still supports the same experiment; changes require an
     evidence reason (boundary hit, routing/peak diagnosis, or a refuted previous
     trial), not novelty for novelty's sake.

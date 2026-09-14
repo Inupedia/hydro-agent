@@ -3,7 +3,8 @@ from datetime import date
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from hydro_agent.workbench.calibration_scientist import _apply_latest_gate_feedback
+from hydro_agent.services.calibration_feedback import apply_latest_gate_feedback
+from hydro_agent.workbench.calibration_scientist import CalibrationScientistWorkbenchKernel
 from hydro_agent.workbench.real import RealWorkbenchKernel
 
 
@@ -11,6 +12,10 @@ class _Repo:
     @staticmethod
     def ensure_task_state(_task_id):
         return SimpleNamespace(current_scheme_id="scheme-base")
+
+    @staticmethod
+    def list_evidence(_task_id):
+        return []
 
 
 @dataclass(frozen=True)
@@ -61,6 +66,10 @@ def test_real_workbench_binds_a06_to_predevelopment_diagnosis():
     assert "held_out_development_window=2000-05-01..2000-05-10" in result["notes"]
 
 
+def test_smoke_kernel_does_not_override_product_diagnosis_evidence():
+    assert CalibrationScientistWorkbenchKernel._diagnose is RealWorkbenchKernel._diagnose
+
+
 def test_gate_failure_changes_the_next_diagnostic_experiment():
     result = {
         "hypothesis": "MODEL",
@@ -89,7 +98,7 @@ def test_gate_failure_changes_the_next_diagnostic_experiment():
         ),
     ]
 
-    updated = _apply_latest_gate_feedback(result, evidence)
+    updated = apply_latest_gate_feedback(result, evidence)
 
     assert updated["recommended_strategy_id"] == "xaj-hydro-composite-v1"
     assert updated["recommended_param_groups"] == ["evap", "runoff", "routing"]

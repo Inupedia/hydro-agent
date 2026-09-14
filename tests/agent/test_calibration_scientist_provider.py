@@ -10,6 +10,7 @@ from hydro_agent.agent.contracts import (
     WorldStateView,
 )
 from hydro_agent.agent.providers.calibration_scientist import CalibrationScientistDecisionProvider
+from hydro_agent.optimization.campaign import CampaignSnapshot
 
 
 def _view(
@@ -74,8 +75,7 @@ def test_provider_turns_diagnosis_into_group_level_dds_experiment():
             "metrics": {"pbias_percent": 18.0},
         }
     )
-    provider = CalibrationScientistDecisionProvider()
-    decision = provider.decide(
+    decision = CalibrationScientistDecisionProvider().decide(
         _view(latest_action=ActionCode.A06_DIAGNOSE, latest_status="succeeded", hydro=hydro)
     )
 
@@ -122,7 +122,11 @@ def test_provider_only_uses_unverified_seed_prior_when_campaign_opts_in():
     assert enabled.objective == "nse"
 
 
-def test_provider_reflects_rollback_into_rediagnosis_before_second_experiment():
+def _resolved_hydro(*, campaign: CampaignSnapshot | None = None) -> HydroContext:
+    return HydroContext(campaign=campaign or CampaignSnapshot(mode="convergence"))
+
+
+def test_provider_reflects_rollback_into_rediagnosis_while_campaign_running():
     view = _view(
         latest_action=ActionCode.A09_RESOLVE,
         latest_status="ROLLBACK",
@@ -133,13 +137,11 @@ def test_provider_reflects_rollback_into_rediagnosis_before_second_experiment():
             "qualification_status": "UNQUALIFIED",
             "candidate_adopted": "false",
         },
-        hydro=HydroContext(),
-        optimization_cycles_remaining=3,
+        hydro=_resolved_hydro(),
     )
-    provider = CalibrationScientistDecisionProvider(max_experiments=2)
-    decision = provider.decide(view)
+    decision = CalibrationScientistDecisionProvider().decide(view)
     assert decision.action == ActionCode.A06_DIAGNOSE
-    assert "新 Evidence" in decision.rationale_summary
+    assert "Campaign 尚无停止证据" in decision.rationale_summary
 
 
 def test_provider_continues_after_adoption_when_candidate_is_unqualified():
@@ -153,16 +155,14 @@ def test_provider_continues_after_adoption_when_candidate_is_unqualified():
             "qualification_status": "UNQUALIFIED",
             "candidate_adopted": "true",
         },
-        hydro=HydroContext(),
-        optimization_cycles_remaining=3,
+        hydro=_resolved_hydro(),
     )
-    provider = CalibrationScientistDecisionProvider(max_experiments=2)
-    decision = provider.decide(view)
+    decision = CalibrationScientistDecisionProvider().decide(view)
     assert decision.action == ActionCode.A06_DIAGNOSE
     assert "已采用改进候选" in decision.rationale_summary
 
 
-def test_provider_freezes_when_qualification_passes():
+def test_convergence_mode_keeps_searching_after_qualification_until_campaign_stops():
     view = _view(
         latest_action=ActionCode.A09_RESOLVE,
         latest_status="ACCEPT",
@@ -173,30 +173,42 @@ def test_provider_freezes_when_qualification_passes():
             "qualification_status": "QUALIFIED",
             "candidate_adopted": "true",
         },
-        hydro=HydroContext(),
-        optimization_cycles_remaining=3,
+        hydro=_resolved_hydro(
+            campaign=CampaignSnapshot(
+                mode="convergence",
+                release_candidate_scheme_id="scheme-base",
+                can_continue_search=True,
+            )
+        ),
     )
-    provider = CalibrationScientistDecisionProvider(max_experiments=2)
-    decision = provider.decide(view)
-    assert decision.action == ActionCode.A10_FREEZE
-    assert "资格评价" in decision.rationale_summary
+    decision = CalibrationScientistDecisionProvider().decide(view)
+    assert decision.action == ActionCode.A06_DIAGNOSE
+    assert "Campaign 尚无停止证据" in decision.rationale_summary
 
 
-def test_provider_freezes_after_experiment_budget_even_if_unqualified():
+def test_provider_closes_out_only_when_campaign_has_explicit_stop_reason():
     view = _view(
         latest_action=ActionCode.A09_RESOLVE,
-        latest_status="ROLLBACK",
+        latest_status="KEEP",
         latest_gates={
-            "status": "ROLLBACK",
-            "gate_status": "ROLLBACK",
-            "adoption_status": "REJECT",
+            "status": "KEEP",
+            "gate_status": "ACCEPT",
+            "adoption_status": "ADOPT",
             "qualification_status": "UNQUALIFIED",
-            "candidate_adopted": "false",
+            "candidate_adopted": "true",
         },
-        hydro=HydroContext(),
-        optimization_cycles_remaining=2,
+        hydro=_resolved_hydro(
+            campaign=CampaignSnapshot(
+                mode="convergence",
+                trial_count=4,
+                resolved_trial_count=4,
+                total_model_evaluations=2048,
+                stop_reason="BUDGET_EXHAUSTED",
+                can_continue_search=False,
+            )
+        ),
     )
-    provider = CalibrationScientistDecisionProvider(max_experiments=2)
-    decision = provider.decide(view)
+    decision = CalibrationScientistDecisionProvider().decide(view)
     assert decision.action == ActionCode.A10_FREEZE
-    assert "已完成 2 次" in decision.rationale_summary
+    assert "Campaign stop=BUDGET_EXHAUSTED" in decision.rationale_summary
+    assert "converged=false" in decision.rationale_summary

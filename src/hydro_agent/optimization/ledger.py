@@ -1,8 +1,8 @@
 """Rebuild calibration trials from the append-only Evidence table.
 
-No second database state is introduced.  A07/A08/A09 evidence rows remain the
+No second database state is introduced. A07/A08/A09 evidence rows remain the
 source of truth and the Trial Ledger is a deterministic research view over those
-facts.  This makes old tasks auditable without a schema migration.
+facts. This makes old tasks auditable and restartable without a schema migration.
 """
 
 from __future__ import annotations
@@ -50,6 +50,19 @@ def _tokens(value: object) -> tuple[str, ...]:
     return ()
 
 
+def _float(value: object) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes"}
+
+
 def _stable_signature(gates: dict[str, Any]) -> str:
     payload = {
         "strategy_id": str(gates.get("strategy_id") or ""),
@@ -81,6 +94,7 @@ class TrialLedgerBuilder:
                 return
             a07 = current["a07"]
             gates = _gates(a07)
+            a07_metrics = _metrics(a07)
             gate_row = current.get("a08")
             resolve_row = current.get("a09")
             gate_gates = _gates(gate_row) if gate_row is not None else {}
@@ -102,11 +116,13 @@ class TrialLedgerBuilder:
                 or gate_gates.get("status")
                 or getattr(gate_row, "status", "NOT_EVALUATED")
             )
-            primary_delta_raw = gate_metrics.get("primary_delta")
-            try:
-                primary_delta = float(primary_delta_raw) if primary_delta_raw is not None else None
-            except (TypeError, ValueError):
-                primary_delta = None
+            primary_delta = _float(gate_metrics.get("primary_delta"))
+            base_primary = _float(gate_metrics.get("base_primary"))
+            candidate_primary = _float(gate_metrics.get("candidate_primary"))
+            candidate_adopted = _bool(resolve_gates.get("candidate_adopted"))
+            selected_primary = (
+                candidate_primary if candidate_adopted else base_primary
+            ) if resolve_row is not None else None
             metric_deltas = {
                 str(key): float(value)
                 for key, value in gate_metrics.items()
@@ -124,20 +140,12 @@ class TrialLedgerBuilder:
                         *planned_refs,
                         *((current.get("diagnosis_id"),) if current.get("diagnosis_id") else ()),
                         *((a07_id,) if a07_id else ()),
-                        *(
-                            (_evidence_id(gate_row),)
-                            if gate_row is not None and _evidence_id(gate_row)
-                            else ()
-                        ),
-                        *(
-                            (_evidence_id(resolve_row),)
-                            if resolve_row is not None and _evidence_id(resolve_row)
-                            else ()
-                        ),
+                        *((_evidence_id(gate_row),) if gate_row is not None and _evidence_id(gate_row) else ()),
+                        *((_evidence_id(resolve_row),) if resolve_row is not None and _evidence_id(resolve_row) else ()),
                     )
                 )
             )
-            model_evaluations_raw = gates.get("model_evaluations") or _metrics(a07).get(
+            model_evaluations_raw = gates.get("model_evaluations") or a07_metrics.get(
                 "model_evaluations", 0
             )
             try:
@@ -161,6 +169,12 @@ class TrialLedgerBuilder:
                     candidate_scheme_id=str(gates.get("candidate_scheme_id") or "") or None,
                     action_run_id=str(getattr(a07, "action_run_id", "") or "") or None,
                     model_evaluations=model_evaluations,
+                    search_score=_float(a07_metrics.get("objective_value")),
+                    base_primary=base_primary,
+                    candidate_primary=candidate_primary,
+                    selected_primary=selected_primary,
+                    candidate_adopted=candidate_adopted,
+                    resolve_recorded=resolve_row is not None,
                     development_gate=gate_status,
                     adoption_status=adoption,
                     qualification_status=qualification,

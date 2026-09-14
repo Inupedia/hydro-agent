@@ -16,6 +16,7 @@ from hydro_agent.agent.contracts import (
 )
 from hydro_agent.agent.permissions import PermissionGate
 from hydro_agent.execution.hashing import sha256_bytes
+from hydro_agent.optimization.campaign import rebuild_campaign_from_evidence
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 from hydro_agent.skills import SkillRegistry
 from hydro_agent.workbench.validation_gate import latest_candidate_scheme_id
@@ -80,12 +81,9 @@ class WorldStateBuilder:
         for row in reversed(evidence_rows):
             if row.action == "A06_DIAGNOSE" and row.gates_json:
                 diagnosis = dict(row.gates_json)
-                # Surface NSE/MAE so the agent loop can stop when skill is good enough.
                 diagnosis["metrics"] = {
                     str(k): float(v) for k, v in dict(row.metrics_json or {}).items()
                 }
-                # Basin priors are emitted by the leakage-safe diagnosis as an
-                # audited observation rather than hidden provider state.
                 for observation in row.observations_json or ():
                     prefix = "basin_attributes_json="
                     if not str(observation).startswith(prefix):
@@ -109,6 +107,11 @@ class WorldStateBuilder:
             if raw_campaign_objective in {"nse", "peak", "composite"}
             else "nse"
         )
+        campaign = rebuild_campaign_from_evidence(
+            evidence_rows,
+            current_scheme_id=scheme.scheme_id,
+            workbench=workbench,
+        )
         raw_forbidden_datasets = workbench.get("forbidden_evidence_dataset_ids") or ()
         if isinstance(raw_forbidden_datasets, str):
             forbidden_evidence_dataset_ids = (raw_forbidden_datasets,)
@@ -128,7 +131,6 @@ class WorldStateBuilder:
                 else {}
             ),
             available_skills=self.skills.summaries_zh(),
-            # Auto agent path prefers bounded strategies; hydrologist manual is HITL-only.
             available_strategies=tuple(
                 sid
                 for sid in self.strategies.list_ids()
@@ -138,6 +140,7 @@ class WorldStateBuilder:
             available_param_groups=("evap", "runoff", "routing"),
             available_objectives=("nse", "peak", "composite"),
             campaign_objective=campaign_objective,
+            campaign=campaign,
             allow_unverified_expert_priors=bool(
                 workbench.get("allow_unverified_expert_priors", False)
             ),

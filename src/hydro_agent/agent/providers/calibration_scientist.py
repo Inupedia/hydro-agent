@@ -20,10 +20,15 @@ from hydro_agent.optimization.calibration_scientist import plan_from_diagnosis
 
 
 class CalibrationScientistDecisionProvider:
-    """Evidence-conditioned Observe→Diagnose→Plan→Gate→Reflect policy."""
+    """Evidence-conditioned Observe→Diagnose→Plan→Gate→Reflect policy.
 
-    def __init__(self, *, max_experiments: int = 2):
-        self.max_experiments = max(1, int(max_experiments))
+    Scientific stopping comes from the Campaign snapshot, never from a fixed
+    experiment count. ``max_experiments`` is accepted only as a deprecated
+    compatibility argument for old callers and has no effect on decisions.
+    """
+
+    def __init__(self, *, max_experiments: int | None = None) -> None:
+        _ = max_experiments
         self.seen_views: list[WorldStateView] = []
 
     @staticmethod
@@ -110,14 +115,28 @@ class CalibrationScientistDecisionProvider:
 
         if latest.action == ActionCode.A06_DIAGNOSE:
             diagnosis = self._diagnosis(view)
-            recommended_action = str(diagnosis.get("recommended_action") or "")
             hypothesis = self._hypothesis(diagnosis.get("hypothesis"))
-            if recommended_action == ActionCode.A10_FREEZE.value:
+            # A diagnostic stop suggestion is evidence, not a Campaign stop.
+            # Only a preregistered Campaign condition may end automatic search.
+            if view.hydro.campaign.stop_reason is not None:
                 action = self._fallback(view, ActionCode.A10_FREEZE)
                 return AgentDecision(
                     action=action,
                     hypothesis=hypothesis,
-                    rationale_summary="率定期证据已足够，不为追求指标继续无意义搜索。",
+                    rationale_summary=(
+                        f"Campaign stop={view.hydro.campaign.stop_reason}; "
+                        "按预注册停止证据请求研究收尾。"
+                    ),
+                )
+            if view.budget.optimization_cycles_remaining <= 0:
+                action = self._fallback(view, ActionCode.A10_FREEZE)
+                return AgentDecision(
+                    action=action,
+                    hypothesis=ProblemHypothesis.RESOURCE,
+                    rationale_summary=(
+                        "Campaign 尚未满足科学停止条件，但运行时优化循环安全预算已耗尽；"
+                        "转人工接管，不得宣称收敛。"
+                    ),
                 )
 
             plan = plan_from_diagnosis(
@@ -154,49 +173,55 @@ class CalibrationScientistDecisionProvider:
             )
 
         if latest.action == ActionCode.A09_RESOLVE:
-            completed = view.budget.max_optimization_cycles - view.budget.optimization_cycles_remaining
-            resolve_status = str(latest.gates.get("status") or latest.status)
-            gate_status = str(latest.gates.get("gate_status") or resolve_status)
+            campaign = view.hydro.campaign
+            gate_status = str(latest.gates.get("gate_status") or latest.status)
             qualification_status = str(latest.gates.get("qualification_status") or "")
-            candidate_adopted = str(latest.gates.get("candidate_adopted") or "").lower() == "true"
+            candidate_adopted = (
+                str(latest.gates.get("candidate_adopted") or "").lower() == "true"
+            )
 
-            # Adoption and qualification are independent. Only qualification can
-            # declare calibration complete; ACCEPT+UNQUALIFIED means "keep the
-            # improved working baseline and continue scientific diagnosis".
-            if qualification_status == "QUALIFIED":
+            if campaign.stop_reason is not None:
                 action = self._fallback(view, ActionCode.A10_FREEZE)
                 return AgentDecision(
                     action=action,
                     hypothesis=ProblemHypothesis.MODEL,
-                    rationale_summary="候选已通过独立资格评价，冻结解析后的工作方案。",
+                    rationale_summary=(
+                        f"Campaign stop={campaign.stop_reason}; trials={campaign.resolved_trial_count}, "
+                        f"model_evaluations={campaign.total_model_evaluations}, "
+                        f"converged={'true' if campaign.converged else 'false'}。"
+                    ),
                 )
-
-            if completed < self.max_experiments and view.budget.optimization_cycles_remaining > 0:
-                action = self._fallback(view, ActionCode.A06_DIAGNOSE)
-                adopted_note = "已采用改进候选" if candidate_adopted else "候选未采用"
+            if view.budget.optimization_cycles_remaining <= 0:
+                action = self._fallback(view, ActionCode.A10_FREEZE)
                 return AgentDecision(
                     action=action,
-                    hypothesis=ProblemHypothesis.UNKNOWN,
+                    hypothesis=ProblemHypothesis.RESOURCE,
                     rationale_summary=(
                         f"Gate={gate_status} / Qualification={qualification_status or 'UNKNOWN'}；"
-                        f"{adopted_note}。失败或未达标本身作为新 Evidence，重新诊断后再设计一次率定实验，"
-                        "而不是重复同一参数搜索。"
+                        "Campaign 尚无科学停止证据，但运行时优化循环安全预算已耗尽，"
+                        "转人工接管且不得宣称收敛。"
                     ),
                 )
 
-            action = self._fallback(view, ActionCode.A10_FREEZE)
+            action = self._fallback(view, ActionCode.A06_DIAGNOSE)
+            adopted_note = "已采用改进候选" if candidate_adopted else "候选未采用"
+            plateau_note = (
+                " 当前为 plateau candidate，但尚未满足预注册重启检查，继续搜索。"
+                if campaign.plateau_candidate and not campaign.restart_check_satisfied
+                else ""
+            )
             return AgentDecision(
                 action=action,
-                hypothesis=ProblemHypothesis.MODEL,
+                hypothesis=ProblemHypothesis.UNKNOWN,
                 rationale_summary=(
-                    f"已完成 {completed} 次受控率定实验，Qualification="
-                    f"{qualification_status or 'UNKNOWN'}；自动搜索预算已结束，"
-                    "请求收尾检查。未通过资格时必须转人工复核，不得冻结或消费 final-test。"
-                ),
+                    f"Gate={gate_status} / Qualification={qualification_status or 'UNKNOWN'}；"
+                    f"{adopted_note}。Campaign 尚无停止证据，吸收本轮 Evidence 后继续诊断。"
+                    f"{plateau_note}"
+                )[:600],
             )
 
-        # A10 changes phase synchronously only after qualification; if A10 is
-        # blocked for handover the runtime pauses before this provider is called again.
+        # A10 changes phase synchronously only after the closeout tool accepts it;
+        # a blocked handover pauses before this provider is called again.
         if latest.action == ActionCode.A10_FREEZE:
             action = self._fallback(view, ActionCode.A11_REPLAY)
             return AgentDecision(
