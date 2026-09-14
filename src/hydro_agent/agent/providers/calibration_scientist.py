@@ -142,9 +142,14 @@ class CalibrationScientistDecisionProvider:
                     ),
                 )
 
+            campaign_objective = (
+                view.hydro.campaign_objective
+                if view.hydro.search_objective_policy == "fixed"
+                else None
+            )
             plan = plan_from_diagnosis(
                 diagnosis,
-                campaign_objective=view.hydro.campaign_objective,
+                campaign_objective=campaign_objective,
                 knowledge_context=self._knowledge_context(view),
             )
             action = self._fallback(view, ActionCode.A07_OPTIMIZE)
