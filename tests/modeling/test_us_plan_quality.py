@@ -77,9 +77,7 @@ def test_us_model_plan_preserves_imputed_flow_quality_end_to_end(tmp_path):
         service._build_inputs(plan_id, cfg)
         service._normalize(plan_id, cfg)
 
-        with (plan_dir / "case" / "model_inputs" / "observed.csv").open(
-            encoding="utf-8"
-        ) as handle:
+        with (plan_dir / "case" / "model_inputs" / "observed.csv").open(encoding="utf-8") as handle:
             observed = {row["time"]: row for row in csv.DictReader(handle)}
         raw_product_row = observed[imputed_day.isoformat()]
         assert raw_product_row["eligible_for_scoring"] == "false"
