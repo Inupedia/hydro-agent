@@ -8,7 +8,11 @@ from hydro_agent.agent.contracts import (
     TaskSummary,
     WorldStateView,
 )
-from hydro_agent.agent.permissions import PermissionGate, closeout_pending, pending_calibration_action
+from hydro_agent.agent.permissions import (
+    PermissionGate,
+    closeout_pending,
+    pending_calibration_action,
+)
 
 
 def test_failed_a07_consumes_ledger_budget_without_requiring_gate():
