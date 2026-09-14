@@ -52,8 +52,21 @@ def _cache_digest(key: CacheKey) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _evaluation_directory(workspace: Path) -> Path:
+    return state_root(workspace) / "evaluations"
+
+
+def evaluation_count(workspace: Path) -> int:
+    """Count durable completed physical simulations without loading hydrographs."""
+
+    directory = _evaluation_directory(workspace)
+    if not directory.is_dir():
+        return 0
+    return sum(1 for path in directory.glob("*.json") if path.is_file())
+
+
 def load_evaluation_cache(workspace: Path) -> EvaluationCache:
-    directory = state_root(workspace) / "evaluations"
+    directory = _evaluation_directory(workspace)
     if not directory.is_dir():
         return {}
     cache: EvaluationCache = {}
@@ -86,7 +99,7 @@ def persist_evaluation(
     full_values: list[float],
     parameters: dict[str, float],
 ) -> None:
-    directory = state_root(workspace) / "evaluations"
+    directory = _evaluation_directory(workspace)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{_cache_digest(key)}.json"
     if path.exists():
@@ -146,7 +159,7 @@ def save_screening_result(workspace: Path, payload: dict[str, object]) -> None:
 
 def has_resumable_state(workspace: Path) -> bool:
     root = state_root(workspace)
-    return any(
+    return evaluation_count(workspace) > 0 or any(
         (root / name).is_file()
         for name in (_DDS_CHECKPOINT, _MORRIS_CHECKPOINT, _SCREENING_RESULT)
     )
