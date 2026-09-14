@@ -219,10 +219,10 @@ def plan_from_diagnosis(
 
     scope: SearchScope = "local" if strategy.local_scale is not None else "global"
     prior_text = ""
-    if advice.matched_rule_ids:
+    if advice.matched_prior_refs:
         prior_text = (
             f" 专家先验[{advice.status}/{advice.authority}]="
-            f"{','.join(advice.matched_rule_ids)}；"
+            f"{','.join(advice.matched_prior_refs)}；"
         )
     search_text = ""
     if adjustment == "broaden_within_absolute_bounds":
@@ -254,7 +254,7 @@ def plan_from_diagnosis(
         local_scale=strategy.local_scale,
         evaluation_budget=strategy.evaluation_budget,
         search_adjustment=adjustment,
-        knowledge_refs=advice.matched_rule_ids,
+        knowledge_refs=advice.matched_prior_refs,
         expert_notes=tuple(expert_notes),
         rationale=(
             f"基于 {primary_id} 假设，仅开放 {','.join(groups)} 参数组；"
