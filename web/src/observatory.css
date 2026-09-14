@@ -615,6 +615,23 @@
 .locked-basin small { font-weight: 500; color: var(--text-secondary); }
 
 .main-stage .live-workflow { min-height: 270px; flex: 1; }
+.main-stage.main-stage--focus {
+  /* Workflow owns the full pane; glass-pane padding would leave a dead frame. */
+  padding: 0;
+}
+.main-stage.main-stage--focus .live-workflow,
+.main-stage.main-stage--focus .live-workflow.is-expanded {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: inherit;
+  box-shadow: none;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
 .main-stage--results {
   overflow-x: hidden;
   overflow-y: auto;
@@ -712,6 +729,7 @@
   .task-pane { grid-row: 2; }
   .journal-pane { grid-row: 3; }
   .glass-pane { padding: 20px; border-radius: 22px; }
+  .main-stage.main-stage--focus { padding: 0; }
   .date-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .observatory-brand { font-size: 21px; }
   .observatory-brand small { font-size: 8px; }
