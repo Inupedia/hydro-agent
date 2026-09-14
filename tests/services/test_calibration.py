@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -7,7 +8,7 @@ from hydro_agent.data.contracts import SnapshotContext
 from hydro_agent.data.lowman import load_normalized_source
 from hydro_agent.data.policy import DataAccessPolicy
 from hydro_agent.data.snapshot import SnapshotBuilder
-from hydro_agent.execution.contracts import ExecutionPolicy
+from hydro_agent.execution.contracts import ExecutionPolicy, ExecutionResult
 from hydro_agent.execution.registry import RuntimeRegistry
 from hydro_agent.execution.runner import SandboxRunner
 from hydro_agent.models.xaj.adapter import XajRuntimeAdapter
@@ -96,3 +97,86 @@ def test_calibration_service_returns_payload_without_registering_candidate(calib
     assert outcome.strategy_id == "xaj-bounded-v1"
     assert outcome.candidate_parameters
     assert repository.list_schemes(status="candidate") == []
+
+
+class ResumeRunner:
+    def __init__(self, root: Path):
+        self.workspaces = SimpleNamespace(root=root)
+        self.calls: list[tuple[str, bool]] = []
+
+    def run(self, request, *, resume: bool = False):
+        self.calls.append((request.action_run_id, resume))
+        workspace = self.workspaces.root / request.task_id / request.action_run_id
+        for name in ("work/calibration-state", "output", "logs"):
+            (workspace / name).mkdir(parents=True, exist_ok=True)
+        stdout = workspace / "logs/stdout.log"
+        stderr = workspace / "logs/stderr.log"
+        stdout.write_text("attempt\n", encoding="utf-8")
+        stderr.write_text("", encoding="utf-8")
+
+        if not resume:
+            (workspace / "work/calibration-state/dds-checkpoint.json").write_text(
+                "{}", encoding="utf-8"
+            )
+            return ExecutionResult(
+                action_run_id=request.action_run_id,
+                status="timed_out",
+                exit_code=None,
+                wall_time_seconds=1.25,
+                peak_memory_bytes=10,
+                stdout_artifact="logs/stdout.log",
+                stderr_artifact="logs/stderr.log",
+                output_artifacts=(),
+                result_payload={},
+                error_code="timeout",
+            )
+
+        payload = {
+            "strategy_id": "xaj-bounded-v1",
+            "candidate_parameters": {**PARAMS, "K": 0.8},
+            "objective_value": 0.42,
+            "objective": "nse",
+            "param_groups": ["evap", "runoff", "routing"],
+            "model_evaluations": 123,
+        }
+        (workspace / "output/result.json").write_text("{}", encoding="utf-8")
+        return ExecutionResult(
+            action_run_id=request.action_run_id,
+            status="succeeded",
+            exit_code=0,
+            wall_time_seconds=2.0,
+            peak_memory_bytes=20,
+            stdout_artifact="logs/stdout.log",
+            stderr_artifact="logs/stderr.log",
+            output_artifacts=("output/result.json",),
+            result_payload=payload,
+            error_code=None,
+        )
+
+
+def test_calibration_service_resumes_same_action_and_records_one_terminal_ledger(
+    calibration_service, tmp_path
+):
+    repository, _ = calibration_service
+    runner = ResumeRunner(tmp_path / "resume-runs")
+    service = CalibrationService(repository, runner=runner, max_resume_attempts=2)
+
+    outcome = service.calibrate(
+        task_id="task-1",
+        base_scheme_id="scheme-base",
+        calibration_snapshot_id="snap-cal",
+        strategy_id="xaj-bounded-v1",
+        policy=cpu_policy,
+    )
+
+    assert len(runner.calls) == 2
+    assert runner.calls[0][0] == runner.calls[1][0] == outcome.action_run_id
+    assert runner.calls == [(outcome.action_run_id, False), (outcome.action_run_id, True)]
+    assert outcome.result_payload["execution_attempts"] == 2
+    assert outcome.result_payload["resume_attempts"] == 1
+
+    action = repository.get_action_run(outcome.action_run_id)
+    assert action.status == "succeeded"
+    cost = repository.get_cost(outcome.action_run_id)
+    assert cost.wall_time_seconds == pytest.approx(3.25)
+    assert cost.peak_memory_bytes == 20
