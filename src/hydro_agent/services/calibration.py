@@ -7,7 +7,7 @@ from pydantic import Field
 from hydro_agent.execution.contracts import ExecutionResult, FrozenModel, Identifier
 from hydro_agent.execution.hashing import sha256_file
 from hydro_agent.execution.runner import SandboxRunner
-from hydro_agent.models.xaj.calibration_state import has_resumable_state
+from hydro_agent.models.xaj.calibration_state import evaluation_count, has_resumable_state
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 from hydro_agent.services.snapshots import new_action_run_id
 
@@ -25,11 +25,23 @@ class CalibrationOutcome(FrozenModel):
 
 
 class CalibrationExecutionFailed(RuntimeError):
-    def __init__(self, action_run_id: str, status: str, error_code: str | None):
+    def __init__(
+        self,
+        action_run_id: str,
+        status: str,
+        error_code: str | None,
+        *,
+        model_evaluations: int = 0,
+        execution_attempts: int = 1,
+        resume_attempts: int = 0,
+    ):
         super().__init__(f"calibration failed: {status}/{error_code}")
         self.action_run_id = action_run_id
         self.status = status
         self.error_code = error_code
+        self.model_evaluations = max(0, int(model_evaluations))
+        self.execution_attempts = max(1, int(execution_attempts))
+        self.resume_attempts = max(0, int(resume_attempts))
 
 
 class CalibrationService:
@@ -98,9 +110,11 @@ class CalibrationService:
         cannot accidentally cross the optimizer boundary.
 
         DDS runs may resume the *same* action workspace after a worker failure.
-        Resume is attempted only when the runtime has already emitted durable
-        checkpoint state; completed model evaluations are restored from the
-        workspace rather than charged to the campaign twice.
+        Resume is attempted only when the runtime has emitted durable calibration
+        state; completed model evaluations are restored from the workspace rather
+        than charged to the campaign twice. If all attempts fail, the exception
+        carries the durable evaluation count so A07 can still enter the Trial
+        Ledger and consume the budget it actually spent.
         """
 
         task = self.repository.get_task(task_id)
@@ -136,6 +150,19 @@ class CalibrationService:
         )
         result = self._run_with_resume(request, strategy=strategy)
         workspace = self.runner.workspaces.root / request.task_id / request.action_run_id
+        payload = dict(result.result_payload or {})
+        parameters = payload.get("candidate_parameters")
+        if result.status == "succeeded" and (
+            not isinstance(parameters, dict) or payload.get("strategy_id") != strategy.strategy_id
+        ):
+            result = result.model_copy(
+                update={
+                    "status": "contract_error",
+                    "error_code": "invalid_calibration_payload",
+                    "output_artifacts": (),
+                }
+            )
+
         artifacts = []
         for index, relative in enumerate(
             (result.stdout_artifact, result.stderr_artifact, *result.output_artifacts)
@@ -154,13 +181,15 @@ class CalibrationService:
 
         self.repository.record_execution_result(result, artifacts)
         if result.status != "succeeded":
-            raise CalibrationExecutionFailed(action_run_id, result.status, result.error_code)
-        payload = result.result_payload
-        parameters = payload.get("candidate_parameters")
-        if not isinstance(parameters, dict) or payload.get("strategy_id") != strategy.strategy_id:
             raise CalibrationExecutionFailed(
-                action_run_id, "contract_error", "invalid_calibration_payload"
+                action_run_id,
+                result.status,
+                result.error_code,
+                model_evaluations=evaluation_count(workspace),
+                execution_attempts=int(payload.get("execution_attempts") or 1),
+                resume_attempts=int(payload.get("resume_attempts") or 0),
             )
+        assert isinstance(parameters, dict)
         return CalibrationOutcome(
             action_run_id=action_run_id,
             strategy_id=strategy.strategy_id,
@@ -170,5 +199,5 @@ class CalibrationService:
             objective=str(payload.get("objective") or resolved_objective),
             param_groups=tuple(payload.get("param_groups") or resolved_groups),
             artifact_ids=tuple(a["artifact_id"] for a in artifacts if a["promoted"]),
-            result_payload=dict(payload),
+            result_payload=payload,
         )
