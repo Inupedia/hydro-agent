@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ModelPreparation from '../components/ModelPreparation.vue'
 import { api } from '../api/client'
 
@@ -35,6 +35,10 @@ beforeEach(() => {
     materials: { hydro: true, dem: true, gis: true },
   } as never)
   vi.mocked(api.listModelPlans).mockResolvedValue([plan] as never)
+})
+
+afterEach(() => {
+  document.body.querySelectorAll('.glass-dialog-backdrop').forEach((node) => node.remove())
 })
 
 describe('ModelPreparation', () => {
@@ -110,6 +114,78 @@ describe('ModelPreparation', () => {
     expect(dialog?.parentElement).toBe(document.body)
     expect(dialog?.classList.contains('glass-dialog-backdrop')).toBe(true)
     expect(dialog?.textContent).toContain('批量管理')
+    wrapper.unmount()
+  })
+
+  it('opens the build dialog instead of appending the modeling flow', async () => {
+    const created = {
+      plan_id: 'plan-new',
+      basin_id: 'yaogu',
+      model_mode: 'lumped',
+      status: 'running',
+      stages: [
+        { code: 'M01_CHECK_MATERIALS', label: '检查并确认资料', status: 'completed', detail: '' },
+        { code: 'M02_DELINEATE', label: '划分计算单元', status: 'running', detail: '' },
+        { code: 'M03_REVIEW_BOUNDARY', label: '复核出口与流域边界', status: 'pending', detail: '' },
+        { code: 'M04_BUILD_INPUTS', label: '构建面雨量与模型输入', status: 'pending', detail: '' },
+        { code: 'M05_VALIDATE_PLAN', label: '校验并保存完整方案', status: 'pending', detail: '' },
+      ],
+    }
+    vi.mocked(api.createModelPlan).mockResolvedValue(created as never)
+    vi.mocked(api.listModelPlans).mockResolvedValue([created] as never)
+    vi.mocked(api.getModelPlan).mockResolvedValue(created as never)
+    const wrapper = mount(ModelPreparation, { props: { basinId: 'yaogu' } })
+    await flushPromises()
+    expect(portal('build-plan-dialog')).toBeNull()
+    await wrapper.get('[data-test="build-plan"]').trigger('click')
+    await flushPromises()
+    const dialog = portal('build-plan-dialog')
+    expect(dialog).not.toBeNull()
+    expect(dialog?.parentElement).toBe(document.body)
+    expect(dialog?.textContent).toContain('划分计算单元')
+    expect(dialog?.textContent).toContain('检查并确认资料')
+    expect(dialog?.textContent).not.toContain('构建面雨量与模型输入')
+    expect(dialog?.textContent).not.toContain('校验并保存完整方案')
+    expect(dialog?.querySelector('[data-active="true"]')).not.toBeNull()
+    expect(wrapper.find('[data-test="model-steps"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="gis-map"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="plan-summary"]').text()).toContain('建模中')
+    wrapper.unmount()
+  })
+
+  it('keeps boundary review and confirm actions inside the build dialog', async () => {
+    const review = {
+      plan_id: 'plan-review',
+      basin_id: 'yaogu',
+      model_mode: 'lumped',
+      status: 'awaiting_review',
+      boundary_hash: 'hash-1',
+      boundary: { dem_area_km2: 12.34, note: '核对出口' },
+      unit_count: 1,
+      stages: [
+        { code: 'M03_REVIEW_BOUNDARY', label: '复核出口与流域边界', status: 'awaiting_review', detail: '请确认' },
+      ],
+    }
+    vi.mocked(api.listModelPlans).mockResolvedValue([review] as never)
+    vi.mocked(api.getModelPlan).mockResolvedValue(review as never)
+    vi.mocked(api.confirmBoundary).mockResolvedValue({ ...review, status: 'running' } as never)
+    const wrapper = mount(ModelPreparation, { props: { basinId: 'yaogu', selectedId: review.plan_id } })
+    await flushPromises()
+    const dialog = portal('build-plan-dialog')
+    expect(dialog).not.toBeNull()
+    expect(dialog?.textContent).toContain('我已确认出口位置、面积与单元划分')
+    expect(dialog?.textContent).toContain('12.34')
+    const boundaryStep = dialog?.querySelector('[data-step="M03_REVIEW_BOUNDARY"]')
+    expect(boundaryStep?.querySelector('[data-test="boundary-step-body"]')).not.toBeNull()
+    expect(boundaryStep?.querySelector('[data-test="review-check"]')).not.toBeNull()
+    const confirm = dialog?.querySelector<HTMLButtonElement>('[data-test="confirm-boundary"]')
+    expect(confirm?.disabled).toBe(true)
+    dialog?.querySelector<HTMLInputElement>('[data-test="review-check"]')?.click()
+    await flushPromises()
+    expect(dialog?.querySelector<HTMLButtonElement>('[data-test="confirm-boundary"]')?.disabled).toBe(false)
+    dialog?.querySelector<HTMLButtonElement>('[data-test="confirm-boundary"]')?.click()
+    await flushPromises()
+    expect(api.confirmBoundary).toHaveBeenCalledWith('plan-review', 'hash-1')
     wrapper.unmount()
   })
 })

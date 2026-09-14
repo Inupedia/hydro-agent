@@ -2,7 +2,16 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import type { HydrographComparison } from '../types/api'
-import { axisCategory, axisValue, chartBase, CHART_COLORS, formatFlow } from '../chartTheme'
+import {
+  axisCategory,
+  axisValue,
+  chartBase,
+  chartMotion,
+  CHART_COLORS,
+  CHART_INK,
+  formatFlow,
+  hydrographTitleZh,
+} from '../chartTheme'
 
 const props = defineProps<{
   comparison: HydrographComparison | null
@@ -24,7 +33,7 @@ function metricLine(label: string, metrics?: Record<string, number | string | nu
       const value = metrics[key]
       if (typeof value !== 'number' || !Number.isFinite(value)) return null
       if (key === 'pbias_percent') return `相对偏差 ${value.toFixed(1)}%`
-      if (key === 'rmse_m3s') return `均方根误差 ${value.toFixed(2)}`
+      if (key === 'rmse_m3s') return `均方根误差 ${value.toFixed(2)} m³/s`
       if (key === 'nse') return `纳什效率 ${value.toFixed(3)}`
       return `克林-古普塔 ${value.toFixed(3)}`
     })
@@ -55,6 +64,36 @@ const captions = computed(() => {
   ].filter((line): line is string => Boolean(line))
 })
 
+const cardTitle = computed(() =>
+  props.comparison ? hydrographTitleZh(props.comparison) : '过程线对照',
+)
+
+const cardSub = computed(() => {
+  const item = props.comparison
+  if (!item) return ''
+  const parts = [
+    item.kind === 'independent_test' ? '独立检验' : '率定窗口',
+    '观测为实心点线',
+    '基准为发丝虚线',
+    '最终方案加浅面积',
+    '单位 m³/s',
+  ]
+  return parts.join(' · ')
+})
+
+const sourceLine = computed(() => {
+  const item = props.comparison
+  if (!item) return ''
+  const window = item.kind === 'independent_test' ? '独立检验窗口' : '率定窗口'
+  const days = [
+    item.evaluated_days ? `${item.evaluated_days} 天评价` : null,
+    item.warmup_days ? `${item.warmup_days} 天预热` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  return `流量过程线 · ${window}${days ? ` · ${days}` : ''} · 单位 m³/s`
+})
+
 async function render() {
   await nextTick()
   const rows = seriesRows.value
@@ -73,23 +112,35 @@ async function render() {
   const warmup = rows.filter((row) => row.is_warmup)
   const firstWarmup = warmup.at(0)
   const lastWarmup = warmup.at(-1)
+  const dense = rows.length > 80
+  const motion = chartMotion(720, dense)
   const has = (key: 'baseline_m3s' | 'candidate_m3s' | 'frozen_m3s') =>
     rows.some((row) => typeof row[key] === 'number' && Number.isFinite(row[key] as number))
+
+  // F2 Hairline Line: observation = primary ink stroke; baseline = hairline dashed; final = accent stroke.
   const series: echarts.LineSeriesOption[] = [
     {
       name: '观测',
       type: 'line',
-      showSymbol: false,
+      showSymbol: !dense && rows.length <= 48,
+      symbol: 'circle',
+      symbolSize: 5,
       connectNulls: false,
-      lineStyle: { width: 3, color: CHART_COLORS[0] },
-      itemStyle: { color: CHART_COLORS[0] },
+      z: 5,
+      lineStyle: { width: 2.5, color: CHART_COLORS[0], cap: 'round', join: 'round' },
+      itemStyle: { color: CHART_COLORS[0], borderColor: '#fff', borderWidth: 1.5 },
       data: rows.map((row) => row.observed_m3s ?? null),
       markArea:
         firstWarmup && lastWarmup
           ? {
               silent: true,
-              itemStyle: { color: 'rgba(231,235,241,0.48)' },
-              label: { color: '#62626A', fontSize: 11 },
+              itemStyle: { color: CHART_INK.warmup },
+              label: {
+                color: CHART_INK.tertiary,
+                fontSize: 10.5,
+                fontWeight: 600,
+                fontFamily: chartBase.textStyle.fontFamily,
+              },
               data: [[{ xAxis: firstWarmup.time, name: '预热期' }, { xAxis: lastWarmup.time }]],
             }
           : undefined,
@@ -101,7 +152,8 @@ async function render() {
       type: 'line',
       showSymbol: false,
       connectNulls: false,
-      lineStyle: { width: 2, color: CHART_COLORS[1], type: 'dashed' },
+      z: 2,
+      lineStyle: { width: 1.25, color: CHART_COLORS[1], type: 'dashed', cap: 'round' },
       itemStyle: { color: CHART_COLORS[1] },
       data: rows.map((row) => row.baseline_m3s ?? null),
     })
@@ -112,7 +164,8 @@ async function render() {
       type: 'line',
       showSymbol: false,
       connectNulls: false,
-      lineStyle: { width: 2, color: CHART_COLORS[2] },
+      z: 3,
+      lineStyle: { width: 1.75, color: CHART_COLORS[2], cap: 'round', join: 'round' },
       itemStyle: { color: CHART_COLORS[2] },
       data: rows.map((row) => row.candidate_m3s ?? null),
     })
@@ -123,11 +176,12 @@ async function render() {
       type: 'line',
       showSymbol: false,
       connectNulls: false,
-      lineStyle: { width: 3, color: CHART_COLORS[2] },
+      z: 4,
+      lineStyle: { width: 2.75, color: CHART_COLORS[2], cap: 'round', join: 'round' },
       itemStyle: { color: CHART_COLORS[2] },
       areaStyle: {
         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-          { offset: 0, color: 'rgba(142,139,212,0.18)' },
+          { offset: 0, color: 'rgba(142,139,212,0.22)' },
           { offset: 1, color: 'rgba(142,139,212,0)' },
         ]),
       },
@@ -137,25 +191,42 @@ async function render() {
   chart.setOption(
     {
       ...chartBase,
-      animationDuration: rows.length > 80 ? 0 : 280,
-      animationEasing: 'cubicOut',
+      animationDuration: motion.duration,
+      animationEasing: motion.easing,
       tooltip: {
         ...chartBase.tooltip,
         valueFormatter: (value: unknown) =>
           typeof value === 'number' && Number.isFinite(value) ? formatFlow(value) : '—',
       },
+      legend: {
+        ...chartBase.legend,
+        data: series.map((row) => String(row.name)),
+      },
       dataZoom: rows.length > 40 ? [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }] : undefined,
       xAxis: {
         ...axisCategory(),
         data: categories,
+        boundaryGap: false,
         axisLabel: {
-          color: '#62626A',
-          fontSize: 12,
+          color: CHART_INK.muted,
+          fontSize: 11,
+          fontWeight: 500,
           hideOverlap: true,
+          margin: 14,
           formatter: (value: string) => value.slice(5).replace('-', '/'),
         },
       },
-      yAxis: axisValue(),
+      yAxis: {
+        ...axisValue(),
+        splitLine: {
+          lineStyle: {
+            color: CHART_INK.grid,
+            type: 'solid',
+            width: 1,
+            opacity: 0.55,
+          },
+        },
+      },
       series,
     },
     { notMerge: true },
@@ -184,34 +255,100 @@ watch(() => props.comparison, render, { deep: true })
 <template>
   <div v-if="!seriesRows.length" class="empty" data-test="hydrograph-empty">暂无过程线</div>
   <div v-else class="wrap" data-test="final-comparison-chart-wrap">
+    <header class="card-head">
+      <h3>{{ cardTitle }}</h3>
+      <p>{{ cardSub }}</p>
+    </header>
     <div ref="el" data-test="hydrograph-chart" class="chart" />
-    <div v-if="captions.length" class="caption-stack">
-      <p v-for="line in captions" :key="line" class="caption">{{ line }}</p>
+    <div class="meta-foot">
+      <p v-if="sourceLine" class="src">{{ sourceLine }}</p>
+      <div v-if="captions.length" class="caption-stack">
+        <p v-for="line in captions" :key="line" class="caption">{{ line }}</p>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
 .wrap {
+  --ledger-line: rgba(105, 129, 151, 0.12);
+  position: relative;
   overflow: hidden;
   margin-top: 16px;
-  padding: 14px 14px 12px;
+  padding: 20px 20px 16px;
   border: 1px solid var(--separator, #e8e9ee);
-  border-radius: 20px;
-  background: var(--surface-secondary, #f8f9fb);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.96)),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 27px,
+      var(--ledger-line) 27px,
+      var(--ledger-line) 28px
+    );
+  background-color: var(--surface, #ffffff);
   box-shadow: 0 2px 8px rgba(25, 40, 65, 0.04);
 }
+.wrap::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, #1889ee 0%, #8e8bd4 100%);
+  border-radius: 24px 0 0 24px;
+}
+.card-head {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 0 4px 12px;
+  border-bottom: 1px solid var(--separator, #e8e9ee);
+}
+.card-head h3 {
+  margin: 0;
+  color: var(--text-primary, #1d1d1f);
+  font-size: 1.0625rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+}
+.card-head p {
+  margin: 0;
+  color: var(--text-secondary, #62626a);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
 .chart {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 400px;
-  min-height: 280px;
+  min-height: 300px;
+}
+.meta-foot {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 8px;
+  margin: 12px 4px 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--separator, #e8e9ee);
+}
+.src {
+  margin: 0;
+  color: var(--text-tertiary, #85858e);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1.45;
 }
 .caption-stack {
   display: grid;
-  gap: 4px;
-  margin: 8px 4px 0;
-  padding-top: 10px;
-  border-top: 1px solid var(--separator, #e8e9ee);
+  gap: 6px;
 }
 .empty,
 .caption {
@@ -221,15 +358,29 @@ watch(() => props.comparison, render, { deep: true })
 }
 .caption {
   margin: 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(248, 249, 251, 0.92);
+  border: 1px solid var(--separator, #e8e9ee);
 }
 
 @media (max-width: 720px) {
   .wrap {
-    padding: 10px 8px 10px;
-    border-radius: 16px;
+    padding: 14px 12px 12px;
+    border-radius: 18px;
   }
   .chart {
-    height: 340px;
+    height: 320px;
+    min-height: 260px;
+  }
+  .card-head h3 {
+    font-size: 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wrap {
+    transition: none;
   }
 }
 </style>

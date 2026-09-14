@@ -3,11 +3,14 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, type BasinInfo, type ModelPlan } from '../api/client'
 import GlassSelect from './GlassSelect.vue'
 import GlassDialog from './GlassDialog.vue'
+import { BorderBeam, NumberTicker, RippleButton } from './ui'
 
 const props = defineProps<{
   basinId?: string | null
   selectedId?: string | null
   locked?: boolean
+  /** Hide page chrome when nested inside SetupWizard (wizard owns the step title). */
+  embedded?: boolean
 }>()
 const emit = defineEmits<{ selected: [plan: ModelPlan | null] }>()
 
@@ -25,6 +28,7 @@ const warmup = ref(365)
 const basin = ref<BasinInfo | null>(null)
 const mapBroken = ref(false)
 const manageOpen = ref(false)
+const buildOpen = ref(false)
 const selectedPlanIds = ref<string[]>([])
 let timer: ReturnType<typeof setInterval> | undefined
 
@@ -77,6 +81,45 @@ const showMap = computed(
     ['awaiting_review', 'ready', 'running', 'queued'].includes(current.value.status) &&
     !!current.value.boundary_hash,
 )
+const needsBuildDialog = computed(() =>
+  ['queued', 'running', 'awaiting_review', 'failed'].includes(current.value?.status || ''),
+)
+const buildTitle = computed(() => {
+  const status = current.value?.status
+  if (status === 'awaiting_review') return '复核流域边界'
+  if (status === 'ready') return '方案已就绪'
+  if (status === 'failed') return '建模受阻'
+  if (status === 'queued' || status === 'running' || busy.value) return '正在建模'
+  return '新建流域模型'
+})
+const buildFooterHint = computed(() => {
+  const status = current.value?.status
+  if (status === 'awaiting_review') return reviewed.value ? '可以确认边界并继续构建' : '请先勾选确认出口、面积与单元划分'
+  if (status === 'ready') return '方案可用于右侧时段设定与计算'
+  if (status === 'failed') return '请关闭后检查资料或参数，再重新新建'
+  if (status === 'queued') return '方案已进入建模队列'
+  if (status === 'running' && !activeStep.value) return '前三步已完成，正在后台完成后处理'
+  if (status === 'running' || busy.value) return '正在执行划分与资料检查，请稍候'
+  return '正在创建方案'
+})
+const areaKm2Raw = computed(() => {
+  const boundary = current.value?.boundary
+  const raw = Number(boundary?.dem_area_km2 || boundary?.usgs_area_km2 || current.value?.area_km2 || 0)
+  return Number.isFinite(raw) && raw > 0 ? raw : null
+})
+const materialsList = computed(() => [
+  { key: 'hydro', ok: !!materials.value.hydro, label: '水文', detail: '日降水 / 蒸散发 / 流量' },
+  { key: 'gis', ok: !!materials.value.gis, label: 'GIS', detail: '站点与流域图层' },
+  { key: 'dem', ok: !!materials.value.dem, label: 'DEM', detail: '本地高程栅格与来源记录' },
+])
+const materialsReadyCount = computed(() => materialsList.value.filter((item) => item.ok).length)
+const HIDDEN_BUILD_STAGES = new Set(['M04_BUILD_INPUTS', 'M05_VALIDATE_PLAN'])
+const visibleStages = computed(() =>
+  (current.value?.stages || []).filter((step) => !HIDDEN_BUILD_STAGES.has(step.code)).slice(0, 3),
+)
+const activeStep = computed(() =>
+  visibleStages.value.find((step) => ['running', 'awaiting_review'].includes(step.status)),
+)
 const mapSrc = computed(() =>
   current.value
     ? `/api/model-plans/${encodeURIComponent(current.value.plan_id)}/map?v=${encodeURIComponent(current.value.boundary_hash || current.value.plan_id)}`
@@ -112,8 +155,9 @@ async function refreshPlans() {
         current.value = null
         emit('selected', null)
       } else {
-        current.value = await api.getModelPlan(activeId)
-        emit('selected', current.value.status === 'ready' ? current.value : null)
+        const latest = await api.getModelPlan(activeId)
+        current.value = latest || plans.value.find((plan) => plan.plan_id === activeId) || null
+        emit('selected', current.value?.status === 'ready' ? current.value : null)
       }
     }
     selectedPlanIds.value = selectedPlanIds.value.filter((id) =>
@@ -129,6 +173,17 @@ async function choosePlan(id: string) {
   mapBroken.value = false
   current.value = plans.value.find((p) => p.plan_id === id) || null
   emit('selected', current.value?.status === 'ready' ? current.value : null)
+  if (needsBuildDialog.value) openBuild()
+  else closeBuild()
+}
+
+function openBuild() {
+  manageOpen.value = false
+  buildOpen.value = true
+}
+
+function closeBuild() {
+  buildOpen.value = false
 }
 
 async function create() {
@@ -141,6 +196,7 @@ async function create() {
   reviewed.value = false
   mapBroken.value = false
   emit('selected', null)
+  openBuild()
   try {
     current.value = await api.createModelPlan({
       basin_id: props.basinId,
@@ -232,6 +288,7 @@ watch(
     mapBroken.value = false
     selectedPlanIds.value = []
     manageOpen.value = false
+    closeBuild()
     emit('selected', null)
     await refreshBasin()
     await refreshPlans()
@@ -250,6 +307,7 @@ onMounted(async () => {
   await refreshPlans()
   current.value = plans.value.find((p) => p.plan_id === props.selectedId) || null
   if (current.value) emit('selected', current.value.status === 'ready' ? current.value : null)
+  if (needsBuildDialog.value) openBuild()
   timer = setInterval(() => {
     if (current.value && ['queued', 'running'].includes(current.value.status)) void refreshPlans()
   }, 1500)
@@ -260,9 +318,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="model-preparation" data-test="model-preparation">
-    <header>
-      <span class="overline">01 / 数据准备</span>
+  <section class="model-preparation" :class="{ 'is-embedded': embedded }" data-test="model-preparation">
+    <header v-if="!embedded">
+      <span class="overline">数据准备</span>
       <h2>用本地流域资料建立计算单元</h2>
       <p>
         系统使用所选流域的日水文、GIS 与 DEM 资料建立模型方案。集总式使用全流域 1 套 XAJ；分布式方案会保留多个计算单元，具体划分说明以边界复核结果为准。
@@ -271,12 +329,25 @@ onUnmounted(() => {
 
     <p v-if="!basinId" class="basin-caption">请先选择研究流域。</p>
     <div v-else class="prep-body">
-      <div class="materials">
-        <strong>{{ basin?.label || basinId }}</strong>
+      <div class="materials" :data-ready="canBuild || undefined">
+        <div class="materials-head">
+          <div class="materials-title">
+            <strong>{{ basin?.label || basinId }}</strong>
+            <span class="materials-id">{{ basinId }}</span>
+          </div>
+          <span class="materials-count" :data-ok="canBuild || undefined">
+            {{ loadingBasin ? '核对中' : `${materialsReadyCount}/3 齐全` }}
+          </span>
+        </div>
         <ul>
-          <li :data-ok="materials.hydro">水文：日降水 / 蒸散发 / 流量</li>
-          <li :data-ok="materials.gis">GIS：站点与流域图层</li>
-          <li :data-ok="materials.dem">DEM：本地高程栅格与来源记录</li>
+          <li v-for="item in materialsList" :key="item.key" :data-ok="item.ok">
+            <span class="mat-mark" aria-hidden="true" />
+            <span class="mat-copy">
+              <b>{{ item.label }}</b>
+              <small>{{ item.detail }}</small>
+            </span>
+            <span class="mat-state">{{ item.ok ? '已就绪' : '缺失' }}</span>
+          </li>
         </ul>
         <p v-if="loadingBasin" class="basin-caption">正在核对本地流域资料。</p>
         <p v-else-if="canBuild" class="basin-caption">本地资料可用于建模。请建立方案并复核边界。</p>
@@ -332,7 +403,7 @@ onUnmounted(() => {
         </template>
       </GlassDialog>
 
-      <fieldset :disabled="locked || busy || loadingBasin || !canBuild">
+      <fieldset class="structure-block" :disabled="locked || busy || loadingBasin || !canBuild">
         <label>结构模式
           <GlassSelect
             :model-value="modelMode"
@@ -348,7 +419,7 @@ onUnmounted(() => {
               : '分布式：UNIT_AREA_KM2 控制 PyFlwDir subbasins_area；河网阈值只画河网，不决定出口。单元数由阈值算出。'
           }}
         </p>
-        <details open>
+        <details open class="param-details">
           <summary>划分与预热参数（与建模笔记第 2、3 节相同）</summary>
           <div class="model-settings">
             <label>DEM 分辨率 RESOLUTION（m）<input v-model.number="resolution" type="number" min="30" max="1000" /></label>
@@ -359,38 +430,17 @@ onUnmounted(() => {
         </details>
       </fieldset>
 
-      <p v-if="error || current?.error" role="alert" class="model-error">{{ error || current?.error }}</p>
-      <template v-if="current">
-        <div class="plan-status"><strong>{{ labels[current.status] }}</strong><span>{{ current.plan_id }} · {{ current.model_mode }}</span></div>
-        <ol class="model-steps">
-          <li v-for="step in current.stages" :key="step.code" :data-status="step.status">
-            <span>{{ step.label }}</span><b>{{ labels[step.status] || step.status }}</b>
-            <small v-if="step.detail">{{ step.detail }}</small>
-          </li>
-        </ol>
-
-        <figure v-if="showMap && !mapBroken" class="gis-map" data-test="gis-map">
-          <img :src="mapSrc" alt="流域边界、计算单元与河网" @error="mapBroken = true" />
-          <figcaption>流域划分结果：色块为计算单元，红点为流域出口。请核对面积与边界后再确认。</figcaption>
-        </figure>
-        <p v-else-if="showMap && mapBroken" class="basin-caption">边界图暂不可用，请重新新建方案后再复核。</p>
-
-        <div v-if="current.boundary" class="boundary-review">
-          <p>
-            面积 {{ Number(current.boundary.dem_area_km2 || current.boundary.usgs_area_km2 || current.area_km2 || 0).toFixed(2) }} km² ·
-            {{ current.unit_count || 1 }} 套 XAJ · {{ current.model_mode }}
-          </p>
-          <p v-if="current.boundary.note" class="basin-caption">{{ current.boundary.note }}</p>
-          <template v-if="current.status === 'awaiting_review'">
-            <label class="review-check"><input v-model="reviewed" type="checkbox" />我已确认出口位置、面积与单元划分</label>
-            <button type="button" class="primary-button" :disabled="!reviewed || busy || locked" @click="confirm">确认边界，构建模型输入</button>
-          </template>
-        </div>
-        <p v-if="current.status === 'ready'" class="model-ready">方案已就绪，可在右侧设定时段并开始运行。</p>
-      </template>
+      <p v-if="error && !buildOpen" role="alert" class="model-error">{{ error }}</p>
+      <div v-if="current" class="plan-summary" :data-status="current.status" data-test="plan-summary">
+        <span class="status-pill">{{ labels[current.status] }}</span>
+        <span class="plan-meta">{{ current.plan_id }} · {{ current.model_mode || 'lumped' }}</span>
+        <button type="button" class="text-button" data-test="open-build" @click="openBuild">
+          {{ current.status === 'awaiting_review' ? '继续复核' : current.status === 'ready' ? '查看结果' : current.status === 'failed' ? '查看原因' : '查看进度' }}
+        </button>
+      </div>
     </div>
     <div v-if="basinId" class="prep-actions">
-      <button
+      <RippleButton
         type="button"
         class="primary-button"
         data-test="build-plan"
@@ -398,8 +448,96 @@ onUnmounted(() => {
         @click="create"
       >
         {{ buildLabel }}
-      </button>
+      </RippleButton>
     </div>
+
+    <GlassDialog
+      :open="buildOpen"
+      test-id="build-plan-dialog"
+      overline="建模流程"
+      :title="buildTitle"
+      labelled-by="build-plan-title"
+      size="wide"
+      :close-on-backdrop="false"
+      @close="closeBuild"
+    >
+      <div class="build-flow">
+        <p v-if="error || current?.error" role="alert" class="model-error">{{ error || current?.error }}</p>
+        <div v-if="current" class="plan-status">
+          <strong>{{ labels[current.status] }}</strong>
+          <span>{{ current.plan_id }} · {{ current.model_mode }}</span>
+        </div>
+        <ol v-if="visibleStages.length" class="model-steps" data-test="model-steps">
+          <li
+            v-for="step in visibleStages"
+            :key="step.code"
+            :data-status="step.status"
+            :data-active="activeStep?.code === step.code"
+            :data-step="step.code"
+          >
+            <BorderBeam v-if="activeStep?.code === step.code" :size="56" :radius="12" />
+            <div class="step-head">
+              <span>{{ step.label }}</span>
+              <b>{{ labels[step.status] || step.status }}</b>
+              <small v-if="step.detail">{{ step.detail }}</small>
+            </div>
+            <div
+              v-if="step.code === 'M03_REVIEW_BOUNDARY' && (showMap || current?.boundary)"
+              class="step-body"
+              data-test="boundary-step-body"
+            >
+              <figure v-if="showMap && !mapBroken" class="gis-map" data-test="gis-map">
+                <img :src="mapSrc" alt="流域边界、计算单元与河网" @error="mapBroken = true" />
+                <figcaption>流域划分结果：色块为计算单元，红点为流域出口。请核对面积与边界后再确认。</figcaption>
+              </figure>
+              <p v-else-if="showMap && mapBroken" class="basin-caption">边界图暂不可用，请重新新建方案后再复核。</p>
+              <div v-if="current?.boundary" class="boundary-review">
+                <p class="boundary-metrics">
+                  面积
+                  <NumberTicker
+                    class="boundary-area"
+                    :value="areaKm2Raw"
+                    :decimal-places="2"
+                    :duration="700"
+                    empty="—"
+                  />
+                  km² ·
+                  {{ current.unit_count || 1 }} 套 XAJ · {{ current.model_mode }}
+                </p>
+                <p v-if="current.boundary.note" class="basin-caption">{{ String(current.boundary.note) }}</p>
+                <label v-if="current.status === 'awaiting_review'" class="review-check">
+                  <input v-model="reviewed" type="checkbox" data-test="review-check" />我已确认出口位置、面积与单元划分
+                </label>
+              </div>
+            </div>
+          </li>
+        </ol>
+        <p v-else-if="busy" class="basin-caption">正在创建方案并开始划分…</p>
+        <p v-if="current?.status === 'ready'" class="model-ready">方案已就绪，可在右侧设定时段并开始运行。</p>
+      </div>
+      <template #footer>
+        <span>{{ buildFooterHint }}</span>
+        <RippleButton
+          v-if="current?.status === 'awaiting_review'"
+          type="button"
+          class="primary-button"
+          data-test="confirm-boundary"
+          :disabled="!reviewed || busy || locked"
+          @click="confirm"
+        >
+          {{ busy ? '正在继续…' : '确认边界，构建模型输入' }}
+        </RippleButton>
+        <button
+          v-else-if="current?.status === 'ready' || current?.status === 'failed'"
+          type="button"
+          class="primary-button"
+          data-test="close-build"
+          @click="closeBuild"
+        >
+          {{ current.status === 'ready' ? '完成' : '关闭' }}
+        </button>
+      </template>
+    </GlassDialog>
   </section>
 </template>
 
@@ -417,6 +555,9 @@ onUnmounted(() => {
   box-shadow: none;
   padding: 0;
 }
+.model-preparation.is-embedded {
+  gap: 12px;
+}
 .model-preparation header { flex: 0 0 auto; }
 .prep-body {
   flex: 1 1 auto;
@@ -426,15 +567,19 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 16px;
   padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 .prep-actions {
   flex: 0 0 auto;
   display: flex;
   justify-content: flex-end;
   gap: 12px;
-  padding: 16px 0 calc(8px + env(safe-area-inset-bottom, 0px));
+  padding: 14px 0 calc(10px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--separator);
-  background: transparent;
+  background:
+    linear-gradient(180deg, rgba(250, 251, 253, 0.42), rgba(250, 251, 253, 0.78));
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
 }
 .prep-actions .primary-button { min-width: 168px; }
 .model-preparation h2 {
@@ -454,11 +599,57 @@ onUnmounted(() => {
   margin: 0;
 }
 .mode-hint { margin-top: -4px; }
-.model-preparation fieldset {
-  border: 0;
-  padding: 0;
+.plan-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+.plan-summary .plan-meta {
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.plan-summary .text-button { margin-left: auto; }
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--neutral-soft);
+  color: var(--text-primary);
+}
+.plan-summary[data-status='ready'] .status-pill {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.plan-summary[data-status='awaiting_review'] .status-pill,
+.plan-summary[data-status='running'] .status-pill,
+.plan-summary[data-status='queued'] .status-pill {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.plan-summary[data-status='failed'] .status-pill {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.structure-block {
+  margin: 0;
+  padding: 16px;
   display: grid;
-  gap: 16px;
+  gap: 14px;
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-md);
 }
 .model-preparation label {
   display: grid;
@@ -480,11 +671,30 @@ onUnmounted(() => {
   gap: 12px;
   margin-top: 12px;
 }
+.param-details {
+  border-top: 1px solid var(--separator);
+  padding-top: 12px;
+}
 .model-preparation summary {
   cursor: pointer;
   font-size: 13px;
   color: var(--text-secondary);
+  list-style: none;
 }
+.model-preparation summary::-webkit-details-marker { display: none; }
+.model-preparation summary::before {
+  content: '';
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-right: 8px;
+  border-style: solid;
+  border-width: 4px 0 4px 6px;
+  border-color: transparent transparent transparent var(--text-tertiary);
+  transform: rotate(0deg);
+  transition: transform 160ms var(--ease, cubic-bezier(0.2, 0.8, 0.2, 1));
+}
+.param-details[open] > summary::before { transform: rotate(90deg); }
 .primary-button,
 .danger-button,
 .manage-button {
@@ -495,6 +705,7 @@ onUnmounted(() => {
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+  transition: background 140ms var(--ease, cubic-bezier(0.2, 0.8, 0.2, 1)), transform 100ms ease;
 }
 .primary-button {
   background: var(--primary-button);
@@ -502,7 +713,10 @@ onUnmounted(() => {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 .primary-button:hover:not(:disabled) { background: var(--accent-hover); }
-.primary-button:active:not(:disabled) { background: var(--accent-pressed); }
+.primary-button:active:not(:disabled) {
+  background: var(--accent-pressed);
+  transform: scale(0.98);
+}
 .manage-button { background: var(--neutral-soft); color: var(--text-primary); white-space: nowrap; }
 .manage-button:hover:not(:disabled) { background: #e7e8ec; }
 .danger-button {
@@ -523,66 +737,191 @@ onUnmounted(() => {
 }
 .materials {
   display: grid;
-  gap: 10px;
-  padding: 20px;
+  gap: 12px;
+  padding: 18px 20px;
   background: var(--surface);
   border: 1px solid var(--separator);
   border-radius: var(--radius-md);
+}
+.materials[data-ready='true'] {
+  border-color: rgba(36, 138, 61, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+.materials-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.materials-title {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.materials-title strong {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.materials-id {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.materials-count {
+  flex: 0 0 auto;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--neutral-soft);
+}
+.materials-count[data-ok='true'] {
+  color: var(--success);
+  background: var(--success-soft);
 }
 .materials ul {
   list-style: none;
   padding: 0;
   margin: 0;
   display: grid;
-  gap: 6px;
+  gap: 8px;
+}
+.materials li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 40px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--surface-secondary);
   font-size: 13px;
 }
-.materials li::before { content: '○ '; color: var(--text-tertiary); }
-.materials li[data-ok='true']::before { content: '● '; color: var(--success); }
+.mat-mark {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--text-tertiary);
+  opacity: 0.45;
+}
+.materials li[data-ok='true'] .mat-mark {
+  background: var(--success);
+  opacity: 1;
+  box-shadow: 0 0 0 3px rgba(36, 138, 61, 0.14);
+}
+.mat-copy {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.mat-copy b {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.mat-copy small {
+  color: var(--text-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.mat-state {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+.materials li[data-ok='true'] .mat-state { color: var(--success); }
 .plan-status {
   display: flex;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
   font-size: 13px;
   color: var(--text-primary);
+}
+.plan-status span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+.build-flow {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  width: 100%;
+  overflow-x: hidden;
+  align-content: start;
+  grid-auto-rows: max-content;
 }
 .model-steps {
   padding: 0;
   list-style: none;
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 .model-steps li {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--separator);
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  overflow: hidden;
+}
+.step-head {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 8px;
-  padding: 14px 16px;
-  border-left: 3px solid var(--separator);
-  background: var(--surface);
-  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
-  font-size: 13px;
+  min-width: 0;
 }
-.model-steps li[data-status='completed'] { border-color: var(--success); }
+.step-head > span,
+.step-head > b {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.model-steps li[data-status='completed'] { border-color: #b7e0c2; }
 .model-steps li[data-status='running'],
-.model-steps li[data-status='awaiting_review'] { border-color: var(--accent); }
+.model-steps li[data-status='awaiting_review'] { border-color: rgba(0, 122, 255, 0.28); }
 .model-steps li[data-status='failed'] { border-color: var(--danger); }
-.model-steps small {
+.step-head small {
   width: 100%;
   overflow-wrap: anywhere;
   color: var(--text-secondary);
 }
+.step-body {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
 .gis-map {
   margin: 0;
   padding: 16px;
+  min-width: 0;
   background: var(--surface);
   border: 1px solid var(--separator);
   border-radius: var(--radius-md);
+  overflow-x: clip;
 }
 .gis-map img {
   display: block;
   width: 100%;
-  max-height: min(420px, 42vh);
+  max-width: 100%;
+  height: auto;
+  max-height: min(360px, 38vh);
   object-fit: contain;
   background: var(--background);
   border-radius: 10px;
@@ -591,6 +930,18 @@ onUnmounted(() => {
   margin-top: 8px;
   font-size: 12px;
   color: var(--text-secondary);
+}
+.boundary-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 6px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+.boundary-area {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 .boundary-review .review-check {
   display: flex;
@@ -608,7 +959,48 @@ onUnmounted(() => {
 .overline {
   font-size: 11px;
   font-weight: 650;
-  letter-spacing: 1.6px;
+  letter-spacing: 1.2px;
+  text-transform: none;
   color: var(--text-secondary);
+}
+
+@media (max-width: 720px) {
+  .reuse-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  .reuse-actions {
+    justify-content: stretch;
+  }
+  .reuse-actions > * {
+    flex: 1 1 auto;
+  }
+  .model-settings {
+    grid-template-columns: 1fr;
+  }
+  .prep-actions .primary-button {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .prep-actions {
+    background: var(--surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .primary-button,
+  .danger-button,
+  .manage-button,
+  .model-preparation summary::before {
+    transition: none;
+  }
+  .primary-button:active:not(:disabled) {
+    transform: none;
+  }
 }
 </style>

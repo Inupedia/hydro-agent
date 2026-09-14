@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { api } from '../api/client'
 import ReportSectionHead from './ReportSectionHead.vue'
+import NumberTicker from './ui/NumberTicker.vue'
 import type { EvidenceSlice, ResearchSummary } from '../types/research'
 
 const props = defineProps<{ taskId: string | null }>()
@@ -240,11 +241,11 @@ watch(() => props.taskId, load)
         </div>
         <template v-if="evidence">
           <div v-if="sliceState(evidence.overall) === 'available'" class="metric-grid">
-            <div><small>NSE</small><strong>{{ formatMetric(evidence.overall.metrics.nse) }}</strong></div>
-            <div><small>KGE</small><strong>{{ formatMetric(evidence.overall.metrics.kge) }}</strong></div>
-            <div><small>RMSE</small><strong>{{ formatMetric(evidence.overall.metrics.rmse) }}</strong></div>
-            <div><small>PBIAS %</small><strong>{{ formatMetric(evidence.overall.metrics.pbias_percent) }}</strong></div>
-            <div><small>样本</small><strong>{{ evidence.overall.sample_count }}</strong></div>
+            <div><small>NSE</small><strong><NumberTicker :value="evidence.overall.metrics.nse" :format="formatMetric" /></strong></div>
+            <div><small>KGE</small><strong><NumberTicker :value="evidence.overall.metrics.kge" :format="formatMetric" /></strong></div>
+            <div><small>RMSE</small><strong><NumberTicker :value="evidence.overall.metrics.rmse" :format="formatMetric" /></strong></div>
+            <div><small>PBIAS %</small><strong><NumberTicker :value="evidence.overall.metrics.pbias_percent" :format="formatMetric" /></strong></div>
+            <div><small>样本</small><strong><NumberTicker :value="evidence.overall.sample_count" :decimal-places="0" /></strong></div>
           </div>
           <div v-else class="insufficient-note">最终检验有效样本不足，不能形成稳定的总体统计结论。</div>
 

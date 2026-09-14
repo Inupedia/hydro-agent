@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ResultSummary, TimelineItem } from '../types/api'
+import NumberTicker from './ui/NumberTicker.vue'
 
 const props = defineProps<{
   result: ResultSummary | null
@@ -166,7 +167,12 @@ const modelPlain = computed(() => {
       <div class="metric-grid">
         <article v-for="card in metricCards" :key="card.key" class="metric-card">
           <p class="metric-name">{{ card.name }} <span class="metric-key">{{ card.key }}</span></p>
-          <p class="metric-value">{{ card.value ?? '—' }}</p>
+          <p class="metric-value">
+            <NumberTicker
+              :value="typeof card.value === 'number' ? card.value : null"
+              :format="(value) => String(value)"
+            />
+          </p>
           <p class="metric-hint">{{ card.hint }}</p>
         </article>
       </div>

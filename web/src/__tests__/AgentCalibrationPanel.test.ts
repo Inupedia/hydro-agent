@@ -72,7 +72,7 @@ describe('AgentCalibrationPanel', () => {
 
     expect(api.getResearch).toHaveBeenCalledWith('task-1')
     expect(wrapper.text()).toContain('智能体调参')
-    expect(wrapper.text()).toContain('率定窗过程线')
+    expect(wrapper.text()).toContain('率定窗里，观测与候选差在哪里')
     expect(wrapper.find('[data-test="agent-cal-hydrograph"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('xaj-water-balance-v1')
     expect(wrapper.text()).toContain('回退')

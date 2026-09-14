@@ -13,6 +13,7 @@ import ParamTuningPanel from '../components/ParamTuningPanel.vue'
 import ReportSectionHead from '../components/ReportSectionHead.vue'
 import ResearchEvidencePanel from '../components/ResearchEvidencePanel.vue'
 import GlassDialog from '../components/GlassDialog.vue'
+import { RippleButton } from '../components/ui'
 import { useDemoStore } from '../stores/demo'
 import { DEMO_PRESET } from '../demo/preset'
 import { api } from '../api/client'
@@ -78,12 +79,19 @@ const comparisonOverline = computed(() => {
   if (!finalComparison.value) return '过程线整理中'
   return finalComparison.value.kind === 'independent_test' ? '独立检验' : '率定窗口'
 })
+const comparisonTitle = computed(() => {
+  if (finalComparison.value?.kind === 'independent_test') {
+    return '最终方案是否贴住观测过程线'
+  }
+  if (finalComparison.value) return '率定窗里，观测与方案差在哪里'
+  return '最终方案对比'
+})
 const comparisonSubtitle = computed(() => {
   if (finalComparison.value?.kind === 'independent_test') {
-    return '主图保留最终判断所需的过程线：观测、原始基准和最终冻结方案。'
+    return '观测 · 基准方案 · 最终冻结方案 · 单位 m³/s'
   }
-  if (finalComparison.value) return '独立检验过程线尚未就绪，当前显示率定窗口对比。'
-  return '指标图先保留最终对比。若独立检验过程线稍后写入，这里会自动补上观测、基准与最终方案的时序曲线。'
+  if (finalComparison.value) return '独立检验尚未就绪 · 当前先看率定窗对比'
+  return '指标先对照；过程线写入后会自动补上观测、基准与最终方案。'
 })
 const comparisonMeta = computed(() => {
   if (finalComparison.value?.kind === 'independent_test') {
@@ -526,7 +534,7 @@ onUnmounted(() => {
           <section ref="forecastSurface" class="report-module">
             <ReportSectionHead
               :overline="comparisonOverline"
-              title="最终方案对比"
+              :title="comparisonTitle"
               :subtitle="comparisonSubtitle"
             >
               <template #aside>
@@ -609,11 +617,26 @@ onUnmounted(() => {
             </fieldset>
           </div>
           <div class="pane-actions">
-            <button v-if="!demo.run || demo.run.status === 'created'" class="start-button" :disabled="busy || !connected || (serviceMode === 'real' && !demo.draft.model_plan_id)" type="submit">{{ busy ? '正在启动…' : planReady ? '开始运行' : '请先完成建模' }}</button>
-            <button v-else-if="demo.run.paused && demo.mode !== 'replay'" type="button" class="start-button" :disabled="busy" @click="resume">继续计算</button>
+            <RippleButton
+              v-if="!demo.run || demo.run.status === 'created'"
+              class="start-button"
+              :disabled="busy || !connected || (serviceMode === 'real' && !demo.draft.model_plan_id)"
+              type="submit"
+            >
+              {{ busy ? '正在启动…' : planReady ? '开始运行' : '请先完成建模' }}
+            </RippleButton>
+            <RippleButton
+              v-else-if="demo.run.paused && demo.mode !== 'replay'"
+              type="button"
+              class="start-button"
+              :disabled="busy"
+              @click="resume"
+            >
+              继续计算
+            </RippleButton>
             <button v-else-if="demo.isQueued" type="button" class="start-button" disabled>排队等待计算席位{{ demo.run.queue_position ? `（第 ${demo.run.queue_position} 位）` : '' }}</button>
             <button v-else-if="demo.isRunning" type="button" class="start-button" disabled>正在计算<span class="activity-dot" /></button>
-            <button v-else type="button" class="start-button" @click="newTask">新建任务</button>
+            <RippleButton v-else type="button" class="start-button" @click="newTask">新建任务</RippleButton>
             <p class="source-note">{{ demo.draft.forcing_mode === 'R' ? `使用 ${selectedBasin?.label || demo.draft.basin_id} 本地日资料做历史率定与检验，不代表业务预报。` : '预报资料可用性将在运行时检查。' }}</p>
             <div class="case-picker-row">
               <label class="case-picker">已有案例

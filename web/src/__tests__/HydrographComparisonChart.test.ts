@@ -53,7 +53,8 @@ it('renders observed, baseline and final scheme in one comparison chart', async 
   expect(wrapper.text()).toContain('维持原方案')
   const option = mocks.setOption.mock.calls[0][0] as { series: Array<{ name: string; lineStyle?: { width?: number } }> }
   expect(option.series.map((row) => row.name)).toEqual(['观测', '基准方案', '最终方案'])
-  expect(option.series.map((row) => row.lineStyle?.width)).toEqual([3, 2, 3])
+  expect(option.series.map((row) => row.lineStyle?.width)).toEqual([2.5, 1.25, 2.75])
+  expect(wrapper.text()).toContain('维持原方案后，过程线仍与观测对照')
   expect(mocks.linearGradient).toHaveBeenCalledTimes(1)
   resize()
   wrapper.unmount()

@@ -24,15 +24,15 @@ on_gpu_host() {
 
 compose_files_for_this_host() {
   if on_gpu_host; then
-    echo "-f ${ROOT}/docker-compose.prod.yml"
+    echo "${ROOT}/docker-compose.prod.yml"
   else
-    echo "-f ${ROOT}/docker-compose.yml"
+    echo "${ROOT}/docker-compose.yml"
   fi
 }
 
 compose() {
-  # shellcheck disable=SC2086
-  docker compose ${COMPOSE_FILES:-$(compose_files_for_this_host)} "$@"
+  local file="${COMPOSE_FILE:-$(compose_files_for_this_host)}"
+  docker compose -f "${file}" "$@"
 }
 
 require_env() {
@@ -68,10 +68,10 @@ wait_http() {
 cmd_up() {
   require_env
   cd "${ROOT}"
-  COMPOSE_FILES="${COMPOSE_FILES:-$(compose_files_for_this_host)}"
-  echo "compose ${COMPOSE_FILES}"
+  COMPOSE_FILE="${COMPOSE_FILE:-$(compose_files_for_this_host)}"
+  echo "compose -f ${COMPOSE_FILE}"
   compose up --build -d
-  if [[ "${COMPOSE_FILES}" == *docker-compose.prod.yml* ]]; then
+  if [[ "${COMPOSE_FILE}" == *docker-compose.prod.yml* ]]; then
     echo "waiting on loopback then ${PUBLIC_URL}"
     wait_http "http://127.0.0.1:8000${HEALTH_PATH}" >/dev/null
     wait_http "${PUBLIC_URL}${HEALTH_PATH}"
@@ -84,12 +84,12 @@ cmd_up() {
 }
 
 cmd_logs() {
-  COMPOSE_FILES="$(compose_files_for_this_host)"
+  COMPOSE_FILE="$(compose_files_for_this_host)"
   compose logs -f --tail=200 workbench
 }
 
 cmd_status() {
-  COMPOSE_FILES="$(compose_files_for_this_host)"
+  COMPOSE_FILE="$(compose_files_for_this_host)"
   compose ps
   echo
   if on_gpu_host; then
@@ -102,12 +102,12 @@ cmd_status() {
 }
 
 cmd_down() {
-  COMPOSE_FILES="$(compose_files_for_this_host)"
+  COMPOSE_FILE="$(compose_files_for_this_host)"
   compose down
 }
 
 cmd_local() {
-  COMPOSE_FILES="-f ${ROOT}/docker-compose.yml"
+  COMPOSE_FILE="${ROOT}/docker-compose.yml"
   cmd_up
 }
 

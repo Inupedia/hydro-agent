@@ -11,6 +11,7 @@
   display: flex;
   flex-direction: column;
   gap: clamp(20px, 3vh, 36px);
+  overflow-x: clip;
 }
 .observatory * { min-width: 0; }
 
@@ -573,6 +574,12 @@
   height: min(280px, 34vh);
   max-height: 320px;
 }
+.report-module [data-test="final-comparison-chart-wrap"] .chart,
+.report-module [data-test="hydrograph-chart"] {
+  height: 400px;
+  min-height: 300px;
+  max-height: none;
+}
 
 .blue-dot { display: inline-flex; align-items: center; gap: 6px; }
 .blue-dot:before {
@@ -763,6 +770,12 @@
     height: min(240px, 28vh);
     max-height: 280px;
   }
+  .report-module [data-test="final-comparison-chart-wrap"] .chart,
+  .report-module [data-test="hydrograph-chart"] {
+    height: 320px;
+    min-height: 260px;
+    max-height: none;
+  }
   .source-note { margin: 12px 0 18px; }
   .case-picker { padding-top: 14px; }
   .main-stage .live-workflow { min-height: 0; max-height: none; }
@@ -770,6 +783,12 @@
   .main-stage--results .chart {
     height: min(380px, 42vh) !important;
     min-height: 260px !important;
+    max-height: none !important;
+  }
+  .main-stage--results .report-module [data-test="final-comparison-chart-wrap"] .chart,
+  .main-stage--results .report-module [data-test="hydrograph-chart"] {
+    height: 400px !important;
+    min-height: 300px !important;
     max-height: none !important;
   }
 }

@@ -28,7 +28,8 @@ it('compares baseline and final NSE/KGE when hydrograph metrics exist', async ()
   const wrapper = mount(SchemeComparisonMetricsChart, { props: { comparison } })
   await flushPromises()
   expect(wrapper.find('[data-test="scheme-metric-comparison"]').exists()).toBe(true)
-  expect(wrapper.text()).toContain('独立检验指标对比')
+  expect(wrapper.text()).toContain('独立检验 · NSE / KGE · 越高越好')
+  expect(wrapper.text()).toContain('最终方案在可比指标上抬升')
   expect(mocks.setOption).toHaveBeenCalledTimes(1)
   const option = mocks.setOption.mock.calls[0][0] as {
     xAxis: { data: string[] }

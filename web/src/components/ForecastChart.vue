@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
-import { axisCategory, axisValue, chartBase, CHART_COLORS, formatFlow } from '../chartTheme'
+import {
+  axisCategory,
+  axisValue,
+  chartBase,
+  chartMotion,
+  CHART_COLORS,
+  CHART_INK,
+  formatFlow,
+} from '../chartTheme'
 
 const props = defineProps<{
   forecasts: Array<{ issue_time: string; lead_values: Record<number, number> }>
@@ -16,7 +24,9 @@ function leadValue(
   lead: number,
 ): number | null {
   if (!leads) return null
-  const raw = (leads as Record<string | number, number>)[lead] ?? (leads as Record<string, number>)[String(lead)]
+  const raw =
+    (leads as Record<string | number, number>)[lead] ??
+    (leads as Record<string, number>)[String(lead)]
   return typeof raw === 'number' && Number.isFinite(raw) ? raw : null
 }
 
@@ -35,12 +45,13 @@ async function render() {
   if (!chart) chart = echarts.init(el.value)
   const categories = props.forecasts.map((f) => String(f.issue_time).slice(0, 10))
   const dense = props.forecasts.length > 40
+  const motion = chartMotion(520, dense)
   const names = ['提前 1 天', '提前 2 天', '提前 3 天']
   chart.setOption(
     {
       ...chartBase,
-      animationDuration: dense ? 0 : 400,
-      animation: !dense,
+      animationDuration: motion.duration,
+      animationEasing: motion.easing,
       tooltip: {
         ...chartBase.tooltip,
         valueFormatter: formatFlow,
@@ -53,10 +64,11 @@ async function render() {
       xAxis: {
         ...axisCategory(),
         data: categories,
-        boundaryGap: true,
+        boundaryGap: false,
         axisLabel: {
-          color: '#698197',
-          fontSize: 12,
+          color: CHART_INK.muted,
+          fontSize: 11,
+          fontWeight: 500,
           margin: 14,
           hideOverlap: true,
           formatter: (value: string) => value.slice(5).replace('-', '/'),
@@ -65,32 +77,42 @@ async function render() {
       yAxis: axisValue(),
       series: [1, 2, 3].map((lead, index) => ({
         name: names[index],
-        type: 'line',
+        type: 'line' as const,
         smooth: false,
         connectNulls: false,
         symbol: 'circle',
-        symbolSize: dense ? 3 : 6,
+        symbolSize: dense ? 3 : 5.5,
         showSymbol: props.forecasts.length < 8,
-        itemStyle: { color: CHART_COLORS[index], borderColor: '#fff', borderWidth: dense ? 0 : 2 },
-        lineStyle: { width: index === 0 ? 3 : 2, type: index === 2 ? 'dashed' : 'solid' },
+        z: 3 - index,
+        itemStyle: {
+          color: CHART_COLORS[index],
+          borderColor: '#fff',
+          borderWidth: dense ? 0 : 1.5,
+        },
+        lineStyle: {
+          width: index === 0 ? 3 : 2,
+          type: index === 2 ? ('dashed' as const) : ('solid' as const),
+          cap: 'round' as const,
+          join: 'round' as const,
+        },
         areaStyle:
           index === 0
             ? {
                 color: {
-                  type: 'linear',
+                  type: 'linear' as const,
                   x: 0,
                   y: 0,
                   x2: 0,
                   y2: 1,
                   colorStops: [
-                    { offset: 0, color: 'rgba(24,137,238,0.18)' },
+                    { offset: 0, color: CHART_INK.areaPrimary },
                     { offset: 1, color: 'rgba(24,137,238,0)' },
                   ],
                 },
               }
             : undefined,
-        emphasis: { focus: 'series', scale: 1.5 },
-        animationDelay: dense ? 0 : index * 80,
+        emphasis: { focus: 'series' as const, scale: 1.35 },
+        animationDelay: motion.duration ? index * 90 : 0,
         data: props.forecasts.map((f) => leadValue(f.lead_values, lead)),
       })),
     },
@@ -134,6 +156,7 @@ watch(() => props.forecasts, render, { deep: true })
 }
 .empty {
   padding: 2rem 0;
-  color: var(--secondary);
+  color: var(--text-secondary, #62626a);
+  font-size: 0.875rem;
 }
 </style>

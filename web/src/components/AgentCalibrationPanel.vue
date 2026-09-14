@@ -113,8 +113,8 @@ watch(() => props.taskId, load)
 
     <template v-if="comparison?.series?.length">
       <div class="chart-title">
-        <h3>率定窗过程线</h3>
-        <span>观测 / 基准 / 候选 · {{ comparison.windows?.calibration || `${comparison.evaluated_days} 天` }}</span>
+        <h3>率定窗里，观测与候选差在哪里</h3>
+        <span>观测 / 基准 / 候选 · {{ comparison.windows?.calibration || `${comparison.evaluated_days} 天` }} · m³/s</span>
       </div>
       <HydrographComparisonChart :comparison="comparison" />
     </template>
