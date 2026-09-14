@@ -65,6 +65,24 @@ def _imputation_metadata(root: Path) -> dict[str, dict]:
     return rows
 
 
+def _flow_observation_from_json(line: str) -> FlowObservation:
+    """Load one flow row without turning absent legacy metadata into invalid nulls.
+
+    Product builders preserve explicit quality/source fields when the upstream
+    source provides them. Older normalized packages may have no quality code at
+    all (or an intermediate CSV may serialize that absence as JSON null). In
+    that case the FlowObservation contract's historical default applies. An
+    explicit non-empty quality value is never rewritten here.
+    """
+
+    payload = json.loads(line)
+    if payload.get("quality_code") is None:
+        payload.pop("quality_code", None)
+    if payload.get("quality_note") is None:
+        payload.pop("quality_note", None)
+    return FlowObservation.model_validate(payload)
+
+
 def load_normalized_source(path: Path) -> NormalizedSource:
     root = path.resolve()
     forcing = tuple(
@@ -77,7 +95,7 @@ def load_normalized_source(path: Path) -> NormalizedSource:
     for line in (root / "flow.jsonl").read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
-        observation = FlowObservation.model_validate_json(line)
+        observation = _flow_observation_from_json(line)
         quality = imputed.get(observation.valid_date.isoformat())
         if quality is not None:
             observation = observation.model_copy(
