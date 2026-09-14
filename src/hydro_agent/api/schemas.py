@@ -87,9 +87,7 @@ class TaskCreateRequest(FrozenApiModel):
                 # Three forecast leads must remain inside the declared window and
                 # at least two issue dates are required for a sampled comparison.
                 if (end - start).days + 1 < 5:
-                    raise ValueError(
-                        f"{label} rolling sampling requires at least five window days"
-                    )
+                    raise ValueError(f"{label} rolling sampling requires at least five window days")
 
         if self.campaign_mode == "convergence":
             required = {
