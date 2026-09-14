@@ -39,9 +39,11 @@ class TaskCreateRequest(FrozenApiModel):
     campaign_plateau_abs_epsilon: float | None = Field(default=None, ge=0.0)
     campaign_restart_distinct_strategies: int = Field(default=2, ge=2, le=8)
     campaign_max_no_gain_gates: int | None = Field(default=None, ge=1, le=50)
-    # The scoring ruler is preregistered with the campaign and is immutable
-    # across A07 experiments. Diagnosis/expert advice cannot swap it mid-run.
+    # The independent development Gate remains the comparable scientific ruler.
+    # This policy controls only whether A07 search objectives stay fixed or may
+    # follow the persisted hydrologic diagnosis between experiments.
     calibration_objective: Literal["nse", "peak", "composite"] = "nse"
+    search_objective_policy: Literal["fixed", "adaptive"] = "fixed"
     # External/seed expert priors are disabled unless the campaign explicitly
     # opts in. Dataset ids provide a second guard against indirect same-data leakage.
     allow_unverified_expert_priors: bool = False
@@ -80,7 +82,9 @@ class TaskCreateRequest(FrozenApiModel):
             and self.campaign_max_model_evaluations is not None
             and self.campaign_min_model_evaluations > self.campaign_max_model_evaluations
         ):
-            raise ValueError("campaign_min_model_evaluations exceeds campaign_max_model_evaluations")
+            raise ValueError(
+                "campaign_min_model_evaluations exceeds campaign_max_model_evaluations"
+            )
         return self
 
 
