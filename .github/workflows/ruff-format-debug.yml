@@ -1,0 +1,17 @@
+name: Ruff format debug
+on:
+  push:
+    branches: [feat/formal-agent-calibration-benchmark]
+    paths: ['.github/workflows/ruff-format-debug.yml', 'src/hydro_agent/agent/providers/calibration_scientist.py']
+permissions:
+  contents: read
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+      - run: uv sync --frozen --extra dev
+      - run: uv run --frozen ruff format --diff src/hydro_agent/agent/providers/calibration_scientist.py
