@@ -52,10 +52,18 @@ COPY data/academy ./data/academy
 COPY tests/fixtures/lowman_reanalysis_source ./tests/fixtures/lowman_reanalysis_source
 COPY tests/fixtures/xaj/lowman_scheme.json ./tests/fixtures/xaj/lowman_scheme.json
 
-RUN uv sync --frozen --extra api --extra data --extra xaj --extra xaj-dem --no-dev \
+# Isolated builds re-fetch hatchling from the default index on every src change.
+# Tsinghua HTTPS often drops that TLS handshake, so install the backend from Aliyun
+# and build hydro-agent in the already-synced environment.
+RUN (uv pip install --python .venv --index-url https://mirrors.aliyun.com/pypi/simple hatchling editables \
+        || uv pip install --python .venv --index-url https://pypi.org/simple hatchling editables) \
+    && uv sync --frozen --extra api --extra data --extra xaj --extra xaj-dem --no-dev \
+        --no-build-isolation-package hydro-agent \
     && mkdir -p /data/reports /data/runtime
 
 COPY --from=web /web/dist /app/web/dist
+
+ENV UV_NO_SYNC=1
 
 EXPOSE 8000
 VOLUME ["/data"]
@@ -63,4 +71,4 @@ VOLUME ["/data"]
 HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=5 \
   CMD curl -fsS "http://127.0.0.1:${HYDRO_AGENT_PORT}/api/health" || exit 1
 
-CMD ["uv", "run", "python", "scripts/run_workbench_api.py"]
+CMD [".venv/bin/python", "scripts/run_workbench_api.py"]
