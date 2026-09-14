@@ -4,9 +4,10 @@ from typing import Any
 
 from pydantic import Field
 
-from hydro_agent.execution.contracts import FrozenModel, Identifier
+from hydro_agent.execution.contracts import ExecutionResult, FrozenModel, Identifier
 from hydro_agent.execution.hashing import sha256_file
 from hydro_agent.execution.runner import SandboxRunner
+from hydro_agent.models.xaj.calibration_state import has_resumable_state
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 from hydro_agent.services.snapshots import new_action_run_id
 
@@ -32,11 +33,52 @@ class CalibrationExecutionFailed(RuntimeError):
 
 
 class CalibrationService:
-    def __init__(self, repository, *, runner: SandboxRunner, model_id: str = "xaj"):
+    def __init__(
+        self,
+        repository,
+        *,
+        runner: SandboxRunner,
+        model_id: str = "xaj",
+        max_resume_attempts: int = 3,
+    ):
+        if max_resume_attempts < 0:
+            raise ValueError("max_resume_attempts must be >= 0")
         self.repository = repository
         self.runner = runner
         self.model_id = model_id
+        self.max_resume_attempts = max_resume_attempts
         self.strategies = CalibrationStrategyRegistry()
+
+    def _run_with_resume(self, request, *, strategy) -> ExecutionResult:
+        attempts = 0
+        total_wall_time = 0.0
+        peak_memory = 0
+        while True:
+            result = self.runner.run(request, resume=attempts > 0)
+            total_wall_time += float(result.wall_time_seconds)
+            peak_memory = max(peak_memory, int(result.peak_memory_bytes or 0))
+            workspace = self.runner.workspaces.root / request.task_id / request.action_run_id
+
+            if result.status == "succeeded":
+                break
+            if result.status == "contract_error":
+                break
+            if strategy.optimizer != "dds" or not has_resumable_state(workspace):
+                break
+            if attempts >= self.max_resume_attempts:
+                break
+            attempts += 1
+
+        payload = dict(result.result_payload or {})
+        payload["execution_attempts"] = attempts + 1
+        payload["resume_attempts"] = attempts
+        return result.model_copy(
+            update={
+                "wall_time_seconds": total_wall_time,
+                "peak_memory_bytes": peak_memory or None,
+                "result_payload": payload,
+            }
+        )
 
     def calibrate(
         self,
@@ -54,6 +96,11 @@ class CalibrationService:
         Candidate selection belongs exclusively to A08/development. A07 accepts
         only the calibration snapshot, so a development/final-test snapshot
         cannot accidentally cross the optimizer boundary.
+
+        DDS runs may resume the *same* action workspace after a worker failure.
+        Resume is attempted only when the runtime has already emitted durable
+        checkpoint state; completed model evaluations are restored from the
+        workspace rather than charged to the campaign twice.
         """
 
         task = self.repository.get_task(task_id)
@@ -87,7 +134,7 @@ class CalibrationService:
             },
             policy,
         )
-        result = self.runner.run(request)
+        result = self._run_with_resume(request, strategy=strategy)
         workspace = self.runner.workspaces.root / request.task_id / request.action_run_id
         artifacts = []
         for index, relative in enumerate(
