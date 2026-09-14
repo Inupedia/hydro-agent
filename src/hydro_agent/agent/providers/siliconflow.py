@@ -36,6 +36,7 @@ A07_OPTIMIZE -> A08_GATE -> A09_RESOLVE -> either re-diagnose or A10_FREEZE,
 then (F) A11_REPLAY -> (E) A12_EVALUATE_REPORT.
 Adoption and qualification are separate: an adopted candidate may still be unqualified.
 Only qualification evidence may declare an optimized candidate complete.
+A10 is a closeout request: the tool layer freezes only QUALIFIED schemes and otherwise pauses for human handover without consuming final-test evidence.
 
 Return ONLY one JSON object with keys:
 - action: ActionCode string
@@ -299,8 +300,8 @@ def _nse_calibration_progress(
             ),
         }
 
-    # Opt budget or round reserve exhausted after a resolved but unqualified
-    # cycle: close out the current working scheme without claiming qualification.
+    # Budget exhaustion requests A10 closeout. The Freeze tool is authoritative:
+    # QUALIFIED schemes freeze; unqualified schemes pause for human handover.
     if (
         resolved_outcome in {"KEEP", "ROLLBACK"}
         and ActionCode.A10_FREEZE.value in safe_actions
@@ -319,7 +320,7 @@ def _nse_calibration_progress(
             "objective": None,
             "rationale_summary": (
                 f"Resolve={resolved_outcome} / Qualification={qualification_status or 'UNKNOWN'}，"
-                "优化或收尾预算已耗尽；冻结当前工作方案进入回放，但不宣称率定达标。"
+                "优化或收尾预算已耗尽；请求收尾检查。未通过资格时转人工复核，不冻结或消费 final-test。"
             ),
         }
 
@@ -417,7 +418,7 @@ def _fallback_payload(view: WorldStateView, *, raw_text: str) -> dict:
     elif rediagnosis_required(view) and ActionCode.A06_DIAGNOSE.value in safe:
         preferred = ActionCode.A06_DIAGNOSE.value
     elif "A09_RESOLVE" in actions and "A10_FREEZE" not in actions:
-        # Allow continue-or-freeze; default freeze to finish the smoke path.
+        # Request A10 closeout; the Freeze tool decides freeze vs handover from qualification.
         preferred = ActionCode.A10_FREEZE.value
     elif "A10_FREEZE" in actions and "A11_REPLAY" in safe:
         preferred = ActionCode.A11_REPLAY.value
