@@ -13,6 +13,7 @@ CREATE_BODY = {
     "allow_optimization": True,
     "validation_days": 3,
     "final_test_days": 3,
+    "calibration_objective": "composite",
 }
 
 
@@ -20,6 +21,9 @@ def test_research_summary_rebuilds_protocol_trials_and_short_final_test(
     client, repository, app_dependencies
 ):
     task_id = client.post("/api/tasks", json=CREATE_BODY).json()["task_id"]
+    state = repository.ensure_task_state(task_id)
+    scheme = repository.get_scheme(state.current_scheme_id)
+    assert scheme.config_json["workbench"]["calibration_objective"] == "composite"
 
     repository.add_evidence(
         EvidencePacket(
