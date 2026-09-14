@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+from collections.abc import Mapping
 
 from hydro_agent.agent.contracts import MAX_AGENT_ROUNDS, MAX_OPTIMIZATION_CYCLES
 from hydro_agent.execution.hashing import sha256_bytes
@@ -34,6 +35,7 @@ class FreezeService:
         task_id: str,
         source_scheme_id: str,
         gate_decision_id: str | None = None,
+        research_closeout: Mapping[str, object] | None = None,
     ) -> str:
         task = self.repository.get_task(task_id)
         source = self.repository.get_scheme(source_scheme_id)
@@ -60,6 +62,8 @@ class FreezeService:
             "gate_policy": dict(self.gate_policy),
             "budget_summary": dict(self.budget_summary),
         }
+        if research_closeout:
+            freeze_contract["research_closeout"] = copy.deepcopy(dict(research_closeout))
         config["freeze_contract"] = freeze_contract
         config["provenance"] = {
             "source_scheme_id": source_scheme_id,
