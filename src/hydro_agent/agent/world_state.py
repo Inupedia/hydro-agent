@@ -109,6 +109,15 @@ class WorldStateBuilder:
             if raw_campaign_objective in {"nse", "peak", "composite"}
             else "nse"
         )
+        raw_forbidden_datasets = workbench.get("forbidden_evidence_dataset_ids") or ()
+        if isinstance(raw_forbidden_datasets, str):
+            forbidden_evidence_dataset_ids = (raw_forbidden_datasets,)
+        elif isinstance(raw_forbidden_datasets, (list, tuple)):
+            forbidden_evidence_dataset_ids = tuple(
+                str(item).strip() for item in raw_forbidden_datasets if str(item).strip()
+            )
+        else:
+            forbidden_evidence_dataset_ids = ()
         hydro = HydroContext(
             current_parameters={k: float(v) for k, v in current_params.items()},
             candidate_parameters=candidate_params,
@@ -129,6 +138,10 @@ class WorldStateBuilder:
             available_param_groups=("evap", "runoff", "routing"),
             available_objectives=("nse", "peak", "composite"),
             campaign_objective=campaign_objective,
+            allow_unverified_expert_priors=bool(
+                workbench.get("allow_unverified_expert_priors", False)
+            ),
+            forbidden_evidence_dataset_ids=forbidden_evidence_dataset_ids,
             diagnosis=diagnosis,
             experiment_history=history,
             skill_cards=tuple(self.skills.cards_for_prompt()),
