@@ -154,7 +154,14 @@ def test_results_are_read_from_persisted_scheme_forecast_gate_report(
                         "is_warmup": False,
                     },
                 ],
-                "frozen_metrics": {"nse": 0.4, "count": 2},
+                "frozen_metrics": {
+                    "nse": 0.4,
+                    "count": 2,
+                    "peak_timing_lag_steps": -2,
+                    "window": "final_test",
+                    "start_date": "2020-05-01",
+                    "end_date": "2020-05-02",
+                },
             }
         ),
         encoding="utf-8",
@@ -173,3 +180,5 @@ def test_results_are_read_from_persisted_scheme_forecast_gate_report(
     assert payload["test_hydrograph"]["calibrated"] is False
     assert "独立检验" in payload["test_hydrograph"]["title"]
     assert payload["test_hydrograph"]["gate_status"] == "KEEP"
+    assert payload["test_hydrograph"]["frozen_metrics"]["window"] == "final_test"
+    assert payload["test_hydrograph"]["frozen_metrics"]["start_date"] == "2020-05-01"

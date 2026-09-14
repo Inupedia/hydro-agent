@@ -109,9 +109,9 @@ export type HydrographComparison = {
   warmup_days: number
   evaluated_days: number
   series: HydrographPoint[]
-  baseline_metrics?: Record<string, number | null> | null
-  candidate_metrics?: Record<string, number | null> | null
-  frozen_metrics?: Record<string, number | null> | null
+  baseline_metrics?: Record<string, number | string | null> | null
+  candidate_metrics?: Record<string, number | string | null> | null
+  frozen_metrics?: Record<string, number | string | null> | null
   change?: Record<string, number | null> | null
   parameter_delta?: Record<string, number>
   windows?: Record<string, string>

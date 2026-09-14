@@ -21,7 +21,7 @@ type MetricDataset = {
   subtitle: string
 }
 
-function finite(metrics: Record<string, number | null> | null | undefined, key: string) {
+function finite(metrics: Record<string, number | string | null> | null | undefined, key: string) {
   const value = metrics?.[key]
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }

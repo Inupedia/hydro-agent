@@ -176,9 +176,9 @@ class HydrographComparisonResult(FrozenApiModel):
     warmup_days: int = 0
     evaluated_days: int = 0
     series: tuple[HydrographPoint, ...] = ()
-    baseline_metrics: dict[str, float | int | None] | None = None
-    candidate_metrics: dict[str, float | int | None] | None = None
-    frozen_metrics: dict[str, float | int | None] | None = None
+    baseline_metrics: dict[str, float | int | str | None] | None = None
+    candidate_metrics: dict[str, float | int | str | None] | None = None
+    frozen_metrics: dict[str, float | int | str | None] | None = None
     change: dict[str, float | None] | None = None
     parameter_delta: dict[str, float] = Field(default_factory=dict)
     windows: dict[str, str] = Field(default_factory=dict)

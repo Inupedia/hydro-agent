@@ -2,6 +2,7 @@ from datetime import date
 
 import pytest
 
+from hydro_agent.api.schemas import HydrographComparisonResult
 from hydro_agent.evaluation.hydrograph import build_comparison, write_bundle
 from hydro_agent.evaluation.metrics import pbias_percent, rmse
 
@@ -49,6 +50,10 @@ def test_independent_test_title_does_not_say_calibrated_on_keep(tmp_path):
     csv_text = (tmp_path / artifacts["csv"]).read_text(encoding="utf-8")
     assert csv_text.splitlines()[0].startswith("time,observed_m3s")
     assert "frozen_m3s" in csv_text
+    validated = HydrographComparisonResult.model_validate(comparison)
+    assert validated.frozen_metrics is not None
+    assert validated.frozen_metrics["window"] == "test"
+    assert validated.frozen_metrics["start_date"] == "2020-06-02"
 
 
 def test_rmse_and_pbias_match_hand_calculation():
