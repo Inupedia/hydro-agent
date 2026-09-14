@@ -48,7 +48,16 @@ def test_smoke_policy_defaults_to_model_evaluation_budget_not_trial_count():
     policy = policy_from_workbench({"campaign_mode": "smoke", "max_optimization_cycles": 2})
 
     assert policy.max_model_evaluations == DEFAULT_SMOKE_MAX_MODEL_EVALUATIONS
+    assert policy.search_objective_policy == "fixed"
     assert not hasattr(policy, "smoke_max_trials")
+
+
+def test_policy_surfaces_adaptive_search_objective():
+    policy = policy_from_workbench(
+        {"campaign_mode": "convergence", "search_objective_policy": "adaptive"}
+    )
+
+    assert policy.search_objective_policy == "adaptive"
 
 
 def test_campaign_separates_search_selected_and_release_best():
@@ -82,6 +91,41 @@ def test_campaign_separates_search_selected_and_release_best():
     assert snapshot.total_model_evaluations == 1007
     assert snapshot.stop_reason == "BUDGET_EXHAUSTED"
     assert snapshot.converged is False
+
+
+def test_adaptive_campaign_never_ranks_cross_objective_search_scores():
+    records = (
+        _trial(1, search_score=100.0, base_primary=0.5, selected_primary=0.6000),
+        _trial(2, search_score=-50.0, base_primary=0.6000, selected_primary=0.6005),
+        _trial(
+            3,
+            strategy="xaj-broadened-refine-v1",
+            search_score=0.9,
+            base_primary=0.6005,
+            selected_primary=0.6010,
+        ),
+    )
+    snapshot = rebuild_campaign(
+        records,
+        current_scheme_id="scheme-3",
+        policy=CampaignPolicy(
+            mode="convergence",
+            search_objective_policy="adaptive",
+            max_model_evaluations=5000,
+            min_model_evaluations=1000,
+            plateau_window=2,
+            plateau_abs_epsilon=0.001,
+            restart_distinct_strategies=2,
+        ),
+    )
+
+    assert snapshot.search_best_scheme_id is None
+    assert snapshot.search_best_score is None
+    assert snapshot.selected_primary_score == 0.6010
+    assert snapshot.plateau_candidate is True
+    assert snapshot.restart_check_satisfied is True
+    assert snapshot.stop_reason == "CONVERGED"
+    assert "not cross-comparable" in " ".join(snapshot.notes)
 
 
 def test_convergence_mode_does_not_stop_only_because_candidate_is_qualified():
