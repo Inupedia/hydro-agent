@@ -20,9 +20,15 @@ from hydro_agent.optimization.calibration_scientist import plan_from_diagnosis
 
 
 class CalibrationScientistDecisionProvider:
-    """Evidence-conditioned Observe→Diagnose→Plan→Gate→Reflect policy."""
+    """Evidence-conditioned Observe→Diagnose→Plan→Gate→Reflect policy.
 
-    def __init__(self) -> None:
+    Scientific stopping comes from the Campaign snapshot, never from a fixed
+    experiment count. ``max_experiments`` is accepted only as a deprecated
+    compatibility argument for old callers and has no effect on decisions.
+    """
+
+    def __init__(self, *, max_experiments: int | None = None) -> None:
+        _ = max_experiments
         self.seen_views: list[WorldStateView] = []
 
     @staticmethod
@@ -122,6 +128,16 @@ class CalibrationScientistDecisionProvider:
                         "按预注册停止证据请求研究收尾。"
                     ),
                 )
+            if view.budget.optimization_cycles_remaining <= 0:
+                action = self._fallback(view, ActionCode.A10_FREEZE)
+                return AgentDecision(
+                    action=action,
+                    hypothesis=ProblemHypothesis.RESOURCE,
+                    rationale_summary=(
+                        "Campaign 尚未满足科学停止条件，但运行时优化循环安全预算已耗尽；"
+                        "转人工接管，不得宣称收敛。"
+                    ),
+                )
 
             plan = plan_from_diagnosis(
                 diagnosis,
@@ -160,7 +176,9 @@ class CalibrationScientistDecisionProvider:
             campaign = view.hydro.campaign
             gate_status = str(latest.gates.get("gate_status") or latest.status)
             qualification_status = str(latest.gates.get("qualification_status") or "")
-            candidate_adopted = str(latest.gates.get("candidate_adopted") or "").lower() == "true"
+            candidate_adopted = (
+                str(latest.gates.get("candidate_adopted") or "").lower() == "true"
+            )
 
             if campaign.stop_reason is not None:
                 action = self._fallback(view, ActionCode.A10_FREEZE)
@@ -171,6 +189,17 @@ class CalibrationScientistDecisionProvider:
                         f"Campaign stop={campaign.stop_reason}; trials={campaign.resolved_trial_count}, "
                         f"model_evaluations={campaign.total_model_evaluations}, "
                         f"converged={'true' if campaign.converged else 'false'}。"
+                    ),
+                )
+            if view.budget.optimization_cycles_remaining <= 0:
+                action = self._fallback(view, ActionCode.A10_FREEZE)
+                return AgentDecision(
+                    action=action,
+                    hypothesis=ProblemHypothesis.RESOURCE,
+                    rationale_summary=(
+                        f"Gate={gate_status} / Qualification={qualification_status or 'UNKNOWN'}；"
+                        "Campaign 尚无科学停止证据，但运行时优化循环安全预算已耗尽，"
+                        "转人工接管且不得宣称收敛。"
                     ),
                 )
 
