@@ -15,6 +15,7 @@ from hydro_agent.agent.contracts import (
     ProblemHypothesis,
     WorldStateView,
 )
+from hydro_agent.knowledge.governance import KnowledgeQueryContext
 from hydro_agent.optimization.calibration_scientist import plan_from_diagnosis
 
 
@@ -42,6 +43,15 @@ class CalibrationScientistDecisionProvider:
             except json.JSONDecodeError:
                 diagnosis["hypotheses"] = []
         return diagnosis
+
+    @staticmethod
+    def _knowledge_context(view: WorldStateView) -> KnowledgeQueryContext:
+        return KnowledgeQueryContext(
+            model_id=str(view.model.model_id),
+            basin_id=view.task.basin_id,
+            allow_unverified_expert_priors=view.hydro.allow_unverified_expert_priors,
+            forbidden_evidence_dataset_ids=view.hydro.forbidden_evidence_dataset_ids,
+        )
 
     @staticmethod
     def _latest(view: WorldStateView):
@@ -110,7 +120,11 @@ class CalibrationScientistDecisionProvider:
                     rationale_summary="率定期证据已足够，不为追求指标继续无意义搜索。",
                 )
 
-            plan = plan_from_diagnosis(diagnosis)
+            plan = plan_from_diagnosis(
+                diagnosis,
+                campaign_objective=view.hydro.campaign_objective,
+                knowledge_context=self._knowledge_context(view),
+            )
             action = self._fallback(view, ActionCode.A07_OPTIMIZE)
             return AgentDecision(
                 action=action,
