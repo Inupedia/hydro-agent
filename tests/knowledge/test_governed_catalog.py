@@ -92,6 +92,4 @@ def test_constraint_and_benchmark_claims_cannot_enter_agent_planning():
     )
     assert "verification_disputed" in reasons["constraint.xaj.kg-ki-boundary.external-v3"]
     assert "authority_not_planning:provenance_only" in reasons["case.yaogu.xaj.v3-benchmarks"]
-    assert "authority_not_planning:runtime_prohibited" in reasons[
-        "policy.xaj.v3-objective-weights"
-    ]
+    assert "authority_not_planning:runtime_prohibited" in reasons["policy.xaj.v3-objective-weights"]
