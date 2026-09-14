@@ -30,6 +30,10 @@ class TaskCreateRequest(FrozenApiModel):
     final_test_end_date: date | None = None
     max_agent_decision_rounds: int = Field(default=20, ge=1, le=100)
     max_optimization_cycles: int = Field(default=4, ge=0, le=20)
+    # External/seed expert priors are disabled unless the campaign explicitly
+    # opts in. Dataset ids provide a second guard against indirect same-data leakage.
+    allow_unverified_expert_priors: bool = False
+    forbidden_evidence_dataset_ids: tuple[str, ...] = ()
 
     @model_validator(mode="after")
     def explicit_protocol_is_complete(self):
