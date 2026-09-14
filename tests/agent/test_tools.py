@@ -59,6 +59,15 @@ class FakeCalibrationService:
         )
 
 
+class RecordingBudgetCalibrationService(FakeCalibrationService):
+    def __init__(self):
+        self.kwargs = None
+
+    def calibrate(self, **kwargs):
+        self.kwargs = kwargs
+        return super().calibrate(**kwargs)
+
+
 class FailedCalibrationService:
     def calibrate(self, **kwargs):
         raise CalibrationExecutionFailed(
@@ -208,3 +217,30 @@ def test_failed_optimize_records_spent_budget_without_registering_candidate(
     assert packet.gates["candidate_scheme_id"] == ""
     assert packet.gates["reason"] == "calibration_execution_failed"
     assert candidates.payload is None
+
+
+def test_optimize_caps_second_trial_to_remaining_campaign_budget(
+    repository, optimize_decision, monkeypatch
+):
+    monkeypatch.setattr(
+        "hydro_agent.agent.tools.policy_from_workbench",
+        lambda workbench: SimpleNamespace(max_model_evaluations=800),
+    )
+    monkeypatch.setattr(
+        "hydro_agent.agent.tools.rebuild_campaign_from_evidence",
+        lambda *args, **kwargs: SimpleNamespace(total_model_evaluations=384),
+    )
+    calibration = RecordingBudgetCalibrationService()
+    handler = OptimizeHandler(
+        repository,
+        calibration_service=calibration,
+        candidate_service=FakeCandidateService(),
+        calibration_snapshot_id="snap-cal",
+        validation_snapshot_id=None,
+        policy=object(),
+    )
+
+    handler.execute("task-1", optimize_decision)
+
+    assert calibration.kwargs is not None
+    assert calibration.kwargs["evaluation_budget"] == 416

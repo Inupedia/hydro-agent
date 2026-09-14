@@ -104,6 +104,7 @@ class CalibrationService:
         policy,
         param_groups: tuple[str, ...] | None = None,
         objective: str | None = None,
+        evaluation_budget: int | None = None,
     ) -> CalibrationOutcome:
         """Search parameters using calibration data only.
 
@@ -131,6 +132,12 @@ class CalibrationService:
             raise ValueError("scheme model mismatch")
         resolved_groups = tuple(param_groups) if param_groups else tuple(strategy.param_groups)
         resolved_objective = objective or strategy.objective
+        if evaluation_budget is not None and int(evaluation_budget) < 1:
+            raise ValueError("evaluation_budget must be >= 1")
+        effective_evaluation_budget = min(
+            strategy.evaluation_budget,
+            int(evaluation_budget) if evaluation_budget is not None else strategy.evaluation_budget,
+        )
         action_run_id = new_action_run_id()
         self.repository.create_action_run(
             task_id=task_id,
@@ -147,6 +154,7 @@ class CalibrationService:
                 "strategy_id": strategy.strategy_id,
                 "param_groups": list(resolved_groups),
                 "objective": resolved_objective,
+                "evaluation_budget": effective_evaluation_budget,
             },
             policy,
         )
@@ -188,7 +196,7 @@ class CalibrationService:
                 result.status,
                 result.error_code,
                 model_evaluations=evaluation_count(workspace),
-                evaluation_budget=strategy.evaluation_budget,
+                evaluation_budget=effective_evaluation_budget,
                 execution_attempts=int(payload.get("execution_attempts") or 1),
                 resume_attempts=int(payload.get("resume_attempts") or 0),
             )

@@ -7,6 +7,7 @@ from typing import Protocol
 
 from hydro_agent.agent.contracts import ActionCode, AgentDecision, EvidencePacket
 from hydro_agent.execution.hashing import sha256_bytes
+from hydro_agent.optimization.campaign import policy_from_workbench, rebuild_campaign_from_evidence
 from hydro_agent.optimization.ledger import agent_calibration_document
 from hydro_agent.services.calibration import CalibrationExecutionFailed
 
@@ -296,6 +297,22 @@ class OptimizeHandler:
                 ),
             )
         state = self.repository.ensure_task_state(task_id)
+        current_scheme = self.repository.get_scheme(state.current_scheme_id)
+        workbench = dict((current_scheme.config_json or {}).get("workbench") or {})
+        campaign_policy = policy_from_workbench(workbench)
+        evaluation_budget = None
+        if campaign_policy.max_model_evaluations is not None:
+            campaign = rebuild_campaign_from_evidence(
+                self.repository.list_evidence(task_id),
+                current_scheme_id=state.current_scheme_id,
+                workbench=workbench,
+            )
+            evaluation_budget = (
+                int(campaign_policy.max_model_evaluations)
+                - int(campaign.total_model_evaluations)
+            )
+            if evaluation_budget <= 0:
+                raise RuntimeError("campaign model-evaluation budget exhausted before A07")
         try:
             outcome = self.calibration_service.calibrate(
                 task_id=task_id,
@@ -305,6 +322,7 @@ class OptimizeHandler:
                 policy=self.policy,
                 param_groups=decision.param_groups,
                 objective=decision.objective,
+                evaluation_budget=evaluation_budget,
             )
         except CalibrationExecutionFailed as exc:
             groups_text = ",".join(decision.param_groups or ())

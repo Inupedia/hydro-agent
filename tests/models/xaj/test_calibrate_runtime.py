@@ -115,3 +115,31 @@ def test_dds_calibration_is_deterministic(calibration_workspace):
         (calibration_workspace.parent / "a" / "output" / "calibration-metrics.json").read_text()
     )
     assert metrics["kind"] == "calibration"
+
+
+def test_runtime_honors_smaller_evaluation_budget_override(calibration_workspace):
+    pytest.importorskip("numpy")
+    target = calibration_workspace.parent / "budget-override"
+    shutil.copytree(calibration_workspace, target)
+    manifest_path = target / "execution-manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["parameters"]["evaluation_budget"] = 17
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "hydro_agent.models.xaj.calibrate_runtime",
+            "--workspace",
+            str(target),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    result = json.loads((target / "output/calibration-result.json").read_text())
+    assert result["evaluation_budget"] == 17
+    assert result["requested_candidates"] == 17
+    assert result["model_evaluations"] <= 17

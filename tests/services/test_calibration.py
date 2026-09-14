@@ -180,3 +180,58 @@ def test_calibration_service_resumes_same_action_and_records_one_terminal_ledger
     cost = repository.get_cost(outcome.action_run_id)
     assert cost.wall_time_seconds == pytest.approx(3.25)
     assert cost.peak_memory_bytes == 20
+
+
+class BudgetCaptureRunner:
+    def __init__(self, root: Path):
+        self.workspaces = SimpleNamespace(root=root)
+        self.request = None
+
+    def run(self, request, *, resume: bool = False):
+        self.request = request
+        workspace = self.workspaces.root / request.task_id / request.action_run_id
+        (workspace / "output").mkdir(parents=True, exist_ok=True)
+        (workspace / "logs").mkdir(parents=True, exist_ok=True)
+        (workspace / "logs/stdout.log").write_text("ok\n", encoding="utf-8")
+        (workspace / "logs/stderr.log").write_text("", encoding="utf-8")
+        (workspace / "output/result.json").write_text("{}", encoding="utf-8")
+        budget = int(request.parameters["evaluation_budget"])
+        return ExecutionResult(
+            action_run_id=request.action_run_id,
+            status="succeeded",
+            exit_code=0,
+            wall_time_seconds=0.1,
+            peak_memory_bytes=1,
+            stdout_artifact="logs/stdout.log",
+            stderr_artifact="logs/stderr.log",
+            output_artifacts=("output/result.json",),
+            result_payload={
+                "strategy_id": "xaj-bounded-v1",
+                "candidate_parameters": {**PARAMS, "K": 0.8},
+                "objective_value": 0.42,
+                "objective": "nse",
+                "param_groups": ["evap", "runoff", "routing"],
+                "evaluation_budget": budget,
+                "model_evaluations": budget,
+            },
+            error_code=None,
+        )
+
+
+def test_calibration_service_caps_registered_strategy_budget(calibration_service, tmp_path):
+    repository, _ = calibration_service
+    runner = BudgetCaptureRunner(tmp_path / "budget-runs")
+    service = CalibrationService(repository, runner=runner)
+
+    outcome = service.calibrate(
+        task_id="task-1",
+        base_scheme_id="scheme-base",
+        calibration_snapshot_id="snap-cal",
+        strategy_id="xaj-bounded-v1",
+        policy=cpu_policy,
+        evaluation_budget=17,
+    )
+
+    assert runner.request is not None
+    assert runner.request.parameters["evaluation_budget"] == 17
+    assert outcome.result_payload["evaluation_budget"] == 17
