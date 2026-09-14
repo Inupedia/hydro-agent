@@ -12,6 +12,7 @@ from hydro_agent.knowledge.cases import (
     CalibrationCaseMemory,
     lesson_from_gate,
 )
+from hydro_agent.knowledge.catalog import GovernedKnowledgeRepository
 from hydro_agent.knowledge.expert import (
     BasinHydroProfile,
     ExpertAdvice,
@@ -20,6 +21,7 @@ from hydro_agent.knowledge.expert import (
 )
 from hydro_agent.knowledge.governance import (
     KnowledgeApplicability,
+    KnowledgeAuthority,
     KnowledgeEntry,
     KnowledgeEvidenceBundle,
     KnowledgeFilterDecision,
@@ -35,7 +37,9 @@ __all__ = [
     "ExpertAdvice",
     "ExpertKnowledgeRepository",
     "ExpertRule",
+    "GovernedKnowledgeRepository",
     "KnowledgeApplicability",
+    "KnowledgeAuthority",
     "KnowledgeEntry",
     "KnowledgeEvidenceBundle",
     "KnowledgeFilterDecision",
