@@ -73,6 +73,40 @@ def _normalize_groups(raw_groups: object, fallback: tuple[str, ...]) -> tuple[st
     return groups
 
 
+def _name_list(raw: object) -> tuple[str, ...]:
+    if isinstance(raw, str):
+        return tuple(item.strip() for item in raw.split(",") if item.strip())
+    if isinstance(raw, (list, tuple)):
+        return tuple(str(item).strip() for item in raw if str(item).strip())
+    return ()
+
+
+def _search_adjustment(
+    diagnosis: dict[str, Any], advisory_adjustment: str | None
+) -> SearchAdjustment:
+    """Resolve search-window behavior from protocol evidence before advice.
+
+    Local-window and absolute-boundary hits are properties of the registered
+    numerical search, so they are deterministic protocol semantics rather than
+    expert knowledge. External priors may suggest an adjustment only when the
+    experiment itself has not already supplied boundary evidence.
+    """
+
+    absolute_boundary_hits = _name_list(diagnosis.get("absolute_boundary_hits"))
+    local_boundary_hits = _name_list(diagnosis.get("local_boundary_hits"))
+    if absolute_boundary_hits:
+        return "hold_absolute_bounds"
+    if local_boundary_hits:
+        return "broaden_within_absolute_bounds"
+    if advisory_adjustment in {
+        "keep",
+        "broaden_within_absolute_bounds",
+        "hold_absolute_bounds",
+    }:
+        return advisory_adjustment  # type: ignore[return-value]
+    return "keep"
+
+
 def _progressive_strategy(
     *,
     recommended_strategy_id: str,
@@ -80,12 +114,12 @@ def _progressive_strategy(
     adjustment: str | None,
     registry: CalibrationStrategyRegistry,
 ) -> str:
-    """Translate expert search advice into bounded strategy progression.
+    """Translate bounded search evidence into deterministic progression.
 
-    A fresh diagnosis owns the scientific strategy unless the latest search
-    evidence explicitly asks for progressive broadening. Only then do we inspect
-    the previous strategy to widen its numerical window toward the existing
-    teacher/kernel absolute bounds.
+    A fresh diagnosis owns the scientific strategy unless the latest numerical
+    experiment explicitly shows a local-window boundary hit. Only then do we
+    inspect the previous strategy and widen toward the existing teacher/kernel
+    absolute bounds. Absolute bounds themselves are never widened here.
     """
 
     if adjustment != "broaden_within_absolute_bounds":
@@ -125,11 +159,12 @@ def plan_from_diagnosis(
 
     Evidence is primary. Expert priors may refine parameter groups and bounded
     search scope, but remain advisory metadata and never alter validation Gate
-    rules or the teacher/kernel absolute parameter limits. Unverified expert
-    priors are inactive unless a campaign supplies an explicit governed query
-    context that permits them. When the campaign objective is supplied (directly
-    or as ``diagnosis['campaign_objective']``), it is immutable for this plan and
-    expert/diagnosis objective suggestions are ignored.
+    rules, search-boundary safety, or the teacher/kernel absolute parameter
+    limits. Unverified expert priors are inactive unless a campaign supplies an
+    explicit governed query context that permits them. When the campaign
+    objective is supplied (directly or as ``diagnosis['campaign_objective']``),
+    it is immutable for this plan and expert/diagnosis objective suggestions are
+    ignored.
     """
 
     registry = strategies or CalibrationStrategyRegistry()
@@ -165,13 +200,7 @@ def plan_from_diagnosis(
     if locked_objective is not None:
         objective = locked_objective
 
-    adjustment = str(advice.search_adjustment or "keep")
-    if adjustment not in {
-        "keep",
-        "broaden_within_absolute_bounds",
-        "hold_absolute_bounds",
-    }:
-        adjustment = "keep"
+    adjustment = _search_adjustment(diagnosis, advice.search_adjustment)
     previous_raw = diagnosis.get("previous_strategy_id")
     previous_strategy_id = str(previous_raw) if previous_raw else None
     try:
@@ -214,7 +243,7 @@ def plan_from_diagnosis(
         )
     search_text = ""
     if adjustment == "broaden_within_absolute_bounds":
-        search_text = " 搜索窗口按专家先验逐级放宽，但不越过老师/内核绝对边界；"
+        search_text = " 局部搜索触边界，按协议逐级放宽但不越过老师/内核绝对边界；"
     elif adjustment == "hold_absolute_bounds":
         search_text = " 已触及绝对参数边界，本轮禁止继续外扩并保留为诊断证据；"
     objective_text = ""
@@ -241,7 +270,7 @@ def plan_from_diagnosis(
         search_scope=scope,
         local_scale=strategy.local_scale,
         evaluation_budget=strategy.evaluation_budget,
-        search_adjustment=adjustment,  # type: ignore[arg-type]
+        search_adjustment=adjustment,
         knowledge_refs=advice.matched_rule_ids,
         expert_notes=tuple(expert_notes),
         rationale=(
