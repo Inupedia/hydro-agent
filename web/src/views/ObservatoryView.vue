@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import ExecutionJournal from '../components/ExecutionJournal.vue'
 import HydrographComparisonChart from '../components/HydrographComparisonChart.vue'
+import SchemeComparisonMetricsChart from '../components/SchemeComparisonMetricsChart.vue'
 import LiveWorkflow from '../components/LiveWorkflow.vue'
 import ModelPreparation from '../components/ModelPreparation.vue'
 import type { ModelPlan } from '../types/api'
@@ -401,16 +402,18 @@ onUnmounted(() => {
         <LiveWorkflow v-if="showWorkflow" :action="action" :status="demo.run?.paused ? 'paused' : demo.run?.status" :completed-actions="completedActions" :gate-status="gateStatus" :expanded="focusStage" :workflow-version="demo.taskMeta?.workflow_version" />
         <ModelPreparation v-else-if="modelingAvailable && !demo.taskId" :basin-id="demo.draft.basin_id" :selected-id="demo.draft.model_plan_id" :locked="busy" @selected="selectPlan" />
         <div v-else-if="showResultsStage" ref="forecastSurface" class="forecast-surface" data-test="forecast-surface">
+          <div class="chart-title">
+            <h2>最终方案对比</h2>
+            <span v-if="finalComparison?.kind === 'independent_test'">独立检验 · {{ finalComparison.evaluated_days }} 天 · 观测 / 基准 / 最终方案</span>
+            <span v-else-if="finalComparison">率定窗口 · 观测 / 基准 / 候选方案</span>
+            <span v-else>方案指标已就绪 · 过程线继续整理</span>
+          </div>
           <template v-if="finalComparison">
-            <div class="chart-title">
-              <h2>最终方案对比</h2>
-              <span v-if="finalComparison.kind === 'independent_test'">独立检验 · {{ finalComparison.evaluated_days }} 天 · 观测 / 基准 / 最终方案</span>
-              <span v-else>率定窗口 · 观测 / 基准 / 候选方案</span>
-            </div>
             <HydrographComparisonChart :comparison="finalComparison" />
-            <p class="chart-note">{{ finalComparison.kind === 'independent_test' ? '主图只保留最终判断所需的过程线：观测、原始基准和最终冻结方案。' : '该历史案例缺少独立检验过程线，当前显示率定窗口对比。' }}</p>
+            <p class="chart-note">{{ finalComparison.kind === 'independent_test' ? '主图保留最终判断所需的过程线：观测、原始基准和最终冻结方案。' : '独立检验过程线尚未就绪，当前显示率定窗口对比。' }}</p>
           </template>
-          <div v-else class="results-pending"><span class="overline">结果整理中</span><h2>正在整理最终方案对比</h2><p>运行已结束。观测、基准与最终方案过程线写入后会显示在这里，无需刷新页面。</p></div>
+          <SchemeComparisonMetricsChart :comparison="finalComparison" :gate="demo.results?.gate" />
+          <div v-if="!finalComparison" class="results-pending"><span class="overline">过程线整理中</span><h2>指标图先保留最终对比</h2><p>运行已结束。若独立检验过程线稍后写入，这里会自动补上观测、基准与最终方案的时序曲线。</p></div>
           <ResearchEvidencePanel v-if="demo.taskId" :task-id="demo.taskId" />
         </div>
         <div v-else class="prep-placeholder"><span class="overline">数据准备</span><h2>等待建模服务</h2><p>建模服务就绪后，将在此完成资料检查、单元划分与边界复核。</p></div>
