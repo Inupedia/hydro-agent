@@ -1,7 +1,8 @@
 """Knowledge platform boundaries for Hydro-Agent.
 
-Normative standards, governed advisory claims and audited calibration cases stay
-separate so expert material cannot silently become execution authority.
+Normative standards, governed advisory claims, executable expert priors and
+audited calibration cases stay separate so stored text cannot silently acquire
+execution authority.
 """
 
 from hydro_agent.knowledge.basin_priors import derive_basin_hydro_profile
@@ -13,8 +14,8 @@ from hydro_agent.knowledge.cases import (
 from hydro_agent.knowledge.catalog import GovernedKnowledgeRepository
 from hydro_agent.knowledge.expert import (
     BasinHydroProfile,
-    ExpertAdvice,
-    ExpertKnowledgeRepository,
+    ExpertPriorAdvice,
+    ExpertPriorEngine,
 )
 from hydro_agent.knowledge.governance import (
     KnowledgeApplicability,
@@ -31,8 +32,8 @@ __all__ = [
     "BasinHydroProfile",
     "CalibrationCase",
     "CalibrationCaseMemory",
-    "ExpertAdvice",
-    "ExpertKnowledgeRepository",
+    "ExpertPriorAdvice",
+    "ExpertPriorEngine",
     "GovernedKnowledgeRepository",
     "KnowledgeApplicability",
     "KnowledgeAuthority",
