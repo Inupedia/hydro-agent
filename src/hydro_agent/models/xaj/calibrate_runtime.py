@@ -18,6 +18,16 @@ from hydro_agent.optimization.sceua import optimize_sceua
 from hydro_agent.optimization.search_evidence import analyze_search_boundaries
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 
+from .calibration_state import (
+    load_dds_checkpoint,
+    load_evaluation_cache,
+    load_morris_checkpoint,
+    load_screening_result,
+    persist_evaluation,
+    save_dds_checkpoint,
+    save_morris_checkpoint,
+    save_screening_result,
+)
 from .contracts import XajScheme
 from .conversion import load_xaj_inputs
 from .upstream import MODEL_SHA256, MODEL_VERSION, load_param_ranges, simulate
@@ -126,6 +136,18 @@ def _screening_trajectories(*, requested: int, dimension: int, evaluation_budget
     return max(0, min(requested, by_budget))
 
 
+def _screening_active_names(
+    payload: dict[str, object], tunable_names: tuple[str, ...]
+) -> tuple[str, ...]:
+    universe = tuple(str(name) for name in payload.get("parameter_universe") or ())
+    if universe != tunable_names:
+        raise ValueError("persisted Morris result parameter universe mismatch")
+    active = tuple(str(name) for name in payload.get("active_parameters") or ())
+    if not active or any(name not in set(tunable_names) for name in active):
+        raise ValueError("persisted Morris result active-parameter mismatch")
+    return active
+
+
 def run(workspace: Path) -> dict:
     import numpy as np
 
@@ -170,12 +192,12 @@ def run(workspace: Path) -> dict:
         local_scale=strategy.local_scale,
     )
 
-    # Cache simulator outputs because screening and optimizers may revisit the
-    # same canonical point, especially when the integer routing lag L is active.
-    cache: dict[
-        tuple[tuple[str, float], ...], tuple[float, list[float], dict[str, float]]
-    ] = {}
-    model_evaluations = 0
+    # Each successful physical model execution is content-addressed in the
+    # workspace. After a worker restart, score_fn can therefore replay the exact
+    # optimizer state without re-running an already evaluated XAJ parameter set.
+    cache = load_evaluation_cache(workspace)
+    restored_model_evaluations = len(cache)
+    model_evaluations = len(cache)
 
     def evaluate(values: dict[str, float]) -> float | None:
         nonlocal model_evaluations
@@ -205,7 +227,6 @@ def run(workspace: Path) -> dict:
             full_values = simulate(candidate_scheme, basin, inputs, include_warmup=True)
         except ValueError:
             return None
-        model_evaluations += 1
 
         values_after_warmup = full_values[scheme.warmup_days :]
         sim_dates = dates[scheme.warmup_days :]
@@ -222,12 +243,23 @@ def run(workspace: Path) -> dict:
             score = _objective_score(obs, sim, objective)
         except ValueError:
             return None
-        cache[key] = (
-            float(score),
+
+        persisted_score = float(score) if np.isfinite(score) else None
+        entry = (
+            persisted_score,
             [float(v) for v in full_values],
             {name: float(value) for name, value in candidate_scheme.parameters.items()},
         )
-        return float(score)
+        persist_evaluation(
+            workspace,
+            key=key,
+            score=persisted_score,
+            full_values=entry[1],
+            parameters=entry[2],
+        )
+        cache[key] = entry
+        model_evaluations = len(cache)
+        return persisted_score
 
     initial_tunable = {name: base_parameters[name] for name in tunable_names}
     active_names = tunable_names
@@ -241,6 +273,8 @@ def run(workspace: Path) -> dict:
     }
     screening_model_evaluations = 0
     screening_score_calls = 0
+    morris_resume = False
+    screening_result_restored = False
 
     if strategy.sensitivity_method == "morris":
         trajectories = _screening_trajectories(
@@ -249,48 +283,67 @@ def run(workspace: Path) -> dict:
             evaluation_budget=strategy.evaluation_budget,
         )
         if trajectories > 0:
-            before_screening = model_evaluations
-            screening = screen_morris(
-                bounds=bounds,
-                score_fn=evaluate,
-                trajectories=trajectories,
-                levels=strategy.sensitivity_levels,
-                random_seed=strategy.random_seed + 101,
-                min_relative_mu_star=strategy.sensitivity_min_relative_mu_star,
-                min_effects_per_parameter=strategy.sensitivity_min_effects,
-                min_active_parameters=strategy.min_active_parameters,
-                active_parameter_limit=strategy.active_parameter_limit,
-            )
-            screening_model_evaluations = model_evaluations - before_screening
-            screening_score_calls = screening.score_calls
-            active_names = screening.active_parameters or tunable_names
-            sensitivity_evidence = screening.as_dict()
-            sensitivity_evidence.update(
-                {
-                    "status": "completed",
-                    "parameter_universe": list(tunable_names),
-                    "model_evaluations": screening_model_evaluations,
-                }
-            )
+            persisted_screening = load_screening_result(workspace)
+            if persisted_screening is not None:
+                active_names = _screening_active_names(persisted_screening, tunable_names)
+                sensitivity_evidence = dict(persisted_screening)
+                screening_model_evaluations = int(
+                    sensitivity_evidence.get("model_evaluations") or 0
+                )
+                screening_score_calls = int(sensitivity_evidence.get("score_calls") or 0)
+                screening_result_restored = True
+            else:
+                morris_checkpoint = load_morris_checkpoint(workspace)
+                morris_resume = morris_checkpoint is not None
+                screening = screen_morris(
+                    bounds=bounds,
+                    score_fn=evaluate,
+                    trajectories=trajectories,
+                    levels=strategy.sensitivity_levels,
+                    random_seed=strategy.random_seed + 101,
+                    min_relative_mu_star=strategy.sensitivity_min_relative_mu_star,
+                    min_effects_per_parameter=strategy.sensitivity_min_effects,
+                    min_active_parameters=strategy.min_active_parameters,
+                    active_parameter_limit=strategy.active_parameter_limit,
+                    resume_from=morris_checkpoint,
+                    checkpoint_fn=lambda state: save_morris_checkpoint(workspace, state),
+                )
+                screening_model_evaluations = len(cache)
+                screening_score_calls = screening.score_calls
+                active_names = screening.active_parameters or tunable_names
+                sensitivity_evidence = screening.as_dict()
+                sensitivity_evidence.update(
+                    {
+                        "status": "completed",
+                        "parameter_universe": list(tunable_names),
+                        "model_evaluations": screening_model_evaluations,
+                    }
+                )
+                save_screening_result(workspace, sensitivity_evidence)
         else:
             sensitivity_evidence["status"] = "skipped_budget_or_low_dimension"
 
     active_bounds = {name: bounds[name] for name in active_names}
     initial_active = {name: base_parameters[name] for name in active_names}
-    optimizer_budget = strategy.evaluation_budget - model_evaluations
+    optimizer_budget = strategy.evaluation_budget - screening_model_evaluations
     if optimizer_budget < 1:
         raise ValueError("sensitivity screening exhausted calibration evaluation budget")
 
     trace: list[dict[str, float | int]] = []
     selected_source = strategy.optimizer
+    dds_resume = False
 
     if strategy.optimizer == "dds":
+        dds_checkpoint = load_dds_checkpoint(workspace)
+        dds_resume = dds_checkpoint is not None
         opt = optimize_dds(
             bounds=active_bounds,
             score_fn=evaluate,
             evaluation_budget=optimizer_budget,
             random_seed=strategy.random_seed,
             initial_parameters=initial_active,
+            resume_from=dds_checkpoint,
+            checkpoint_fn=lambda state: save_dds_checkpoint(workspace, state),
         )
         best_tunable = _canonical_tunable(opt.best_parameters, active_bounds)
         best_score = float(opt.best_score)
@@ -342,7 +395,10 @@ def run(workspace: Path) -> dict:
         if raw is None:
             raise ValueError("best calibration candidate became unevaluable")
         best_cached = cache[best_key]
-    best_score, best_full, best_parameters = best_cached
+    cached_best_score, best_full, best_parameters = best_cached
+    if cached_best_score is None:
+        raise ValueError("best calibration candidate has non-finite objective")
+    best_score = float(cached_best_score)
 
     baseline_tunable = _canonical_tunable(initial_tunable, bounds)
     baseline_merged = dict(base_parameters)
@@ -356,6 +412,7 @@ def run(workspace: Path) -> dict:
         baseline_cached = cache[baseline_key]
     _, baseline_full, _ = baseline_cached
 
+    model_evaluations = len(cache)
     if model_evaluations > strategy.evaluation_budget:
         raise RuntimeError(
             f"calibration exceeded hard evaluation budget: {model_evaluations}>{strategy.evaluation_budget}"
@@ -377,6 +434,9 @@ def run(workspace: Path) -> dict:
     calibrated = bool(delta)
     objective_metric = "kge" if objective == "composite" else objective
     screened_out = tuple(name for name in tunable_names if name not in set(active_names))
+    resumed_from_workspace = bool(
+        restored_model_evaluations or morris_resume or screening_result_restored or dds_resume
+    )
 
     candidate_payload = {
         "model_id": "xaj",
@@ -399,6 +459,7 @@ def run(workspace: Path) -> dict:
         "screening_model_evaluations": screening_model_evaluations,
         "optimizer_budget": optimizer_budget,
         "search_boundary_evidence": boundary_evidence.as_dict(),
+        "resumed_from_workspace": resumed_from_workspace,
     }
     result = {
         "model_id": "xaj",
@@ -412,6 +473,10 @@ def run(workspace: Path) -> dict:
         "screening_score_calls": screening_score_calls,
         "screening_model_evaluations": screening_model_evaluations,
         "model_evaluations": model_evaluations,
+        "restored_model_evaluations": restored_model_evaluations,
+        "resumed_from_workspace": resumed_from_workspace,
+        "morris_resumed": morris_resume,
+        "dds_resumed": dds_resume,
         # Backward-compatible aliases used by existing reports/tests.
         "evaluated_candidates": model_evaluations,
         "requested_candidates": strategy.evaluation_budget,
