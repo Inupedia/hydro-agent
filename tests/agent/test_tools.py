@@ -7,6 +7,7 @@ from hydro_agent.agent.contracts import ActionCode, AgentDecision, ProblemHypoth
 from hydro_agent.agent.tools import ForecastHandler, OptimizeHandler, ToolRouter, ToolUnavailable
 from hydro_agent.persistence.database import Database
 from hydro_agent.persistence.repository import HydroRepository
+from hydro_agent.services.calibration import CalibrationExecutionFailed
 
 
 @dataclass
@@ -58,6 +59,19 @@ class FakeCalibrationService:
         )
 
 
+class FailedCalibrationService:
+    def calibrate(self, **kwargs):
+        raise CalibrationExecutionFailed(
+            "run-cal-failed",
+            "timed_out",
+            "timeout",
+            model_evaluations=53,
+            evaluation_budget=64,
+            execution_attempts=4,
+            resume_attempts=3,
+        )
+
+
 class FakeCandidateService:
     def __init__(self):
         self.payload = None
@@ -100,6 +114,18 @@ def forecast_decision():
 
 
 @pytest.fixture
+def optimize_decision():
+    return AgentDecision(
+        action=ActionCode.A07_OPTIMIZE,
+        hypothesis=ProblemHypothesis.MODEL,
+        strategy_id="xaj-bounded-v1",
+        param_groups=("evap",),
+        objective="nse",
+        rationale_summary="Run the preregistered calibration experiment.",
+    )
+
+
+@pytest.fixture
 def tool_router(repository, spy_forecast_service):
     router = ToolRouter()
     router.register(
@@ -133,7 +159,7 @@ def test_unregistered_action_raises_tool_unavailable(tool_router):
         tool_router.execute("task-1", decision)
 
 
-def test_optimize_evidence_exposes_resume_audit_fields(repository):
+def test_optimize_evidence_exposes_resume_audit_fields(repository, optimize_decision):
     candidates = FakeCandidateService()
     handler = OptimizeHandler(
         repository,
@@ -143,16 +169,8 @@ def test_optimize_evidence_exposes_resume_audit_fields(repository):
         validation_snapshot_id=None,
         policy=object(),
     )
-    decision = AgentDecision(
-        action=ActionCode.A07_OPTIMIZE,
-        hypothesis=ProblemHypothesis.MODEL,
-        strategy_id="xaj-bounded-v1",
-        param_groups=("evap",),
-        objective="nse",
-        rationale_summary="Run the preregistered calibration experiment.",
-    )
 
-    packet = handler.execute("task-1", decision)
+    packet = handler.execute("task-1", optimize_decision)
 
     assert packet.status == "succeeded"
     assert packet.gates["execution_attempts"] == "2"
@@ -163,3 +181,30 @@ def test_optimize_evidence_exposes_resume_audit_fields(repository):
     assert "resumed_from_workspace=true" in packet.observations
     assert candidates.payload["resume_attempts"] == 1
     assert candidates.payload["resumed_from_workspace"] is True
+
+
+def test_failed_optimize_records_spent_budget_without_registering_candidate(
+    repository, optimize_decision
+):
+    candidates = FakeCandidateService()
+    handler = OptimizeHandler(
+        repository,
+        calibration_service=FailedCalibrationService(),
+        candidate_service=candidates,
+        calibration_snapshot_id="snap-cal",
+        validation_snapshot_id=None,
+        policy=object(),
+    )
+
+    packet = handler.execute("task-1", optimize_decision)
+
+    assert packet.status == "failed"
+    assert packet.action_run_id == "run-cal-failed"
+    assert packet.metrics["model_evaluations"] == 53.0
+    assert packet.gates["evaluation_budget"] == "64"
+    assert packet.gates["execution_attempts"] == "4"
+    assert packet.gates["resume_attempts"] == "3"
+    assert packet.gates["resumed_from_workspace"] == "true"
+    assert packet.gates["candidate_scheme_id"] == ""
+    assert packet.gates["reason"] == "calibration_execution_failed"
+    assert candidates.payload is None
