@@ -122,7 +122,7 @@ def test_campaign_objective_can_be_carried_in_diagnosis_contract():
     assert plan.objective == "composite"
 
 
-def test_negative_nse_is_warning_not_gate_override():
+def test_negative_nse_prior_is_audit_advice_not_gate_override():
     repo = ExpertKnowledgeRepository()
     advice = repo.advise(
         {"metrics": {"nse": -0.2, "pbias_percent": 2.0}},
@@ -130,8 +130,8 @@ def test_negative_nse_is_warning_not_gate_override():
     )
 
     assert "expert.negative_skill_check_data_first" in advice.matched_rule_ids
-    assert advice.prefer_recheck is True
     assert advice.recommended_param_groups is None
+    assert any("优先复核时间对齐" in note for note in advice.notes)
     assert advice.is_normative is False
 
 
