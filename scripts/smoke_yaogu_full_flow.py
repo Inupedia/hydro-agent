@@ -7,9 +7,10 @@ budget-aware numerical optimizer, independent development Gate and scientific
 closeout semantics.
 
 The short Yaogu smoke window is intentionally too small to establish formal
-qualification or convergence. It uses a small trial budget only to validate
-wiring; budget exhaustion must be reported as not-converged and must not consume
-final-test evidence.
+qualification or convergence. It uses a small model-execution budget only to
+validate wiring. Budget exhaustion must be reported as not-converged; only after
+that preregistered stop may the selected research result consume final-test once.
+An unqualified research result must remain explicitly not approved for release.
 """
 
 from __future__ import annotations
@@ -309,11 +310,7 @@ def main() -> int:
             if packet.action == ActionCode.A12_EVALUATE_REPORT and packet.status == "succeeded":
                 terminal_packet = packet
                 break
-            if (
-                packet.action == ActionCode.A10_FREEZE
-                and packet.status == "blocked"
-                and _has_observation(packet, "calibration_handover_required")
-            ):
+            if packet.action == ActionCode.A10_FREEZE and packet.status == "blocked":
                 terminal_packet = packet
                 break
         else:
@@ -331,6 +328,7 @@ def main() -> int:
         area_km2 = float(plan["area_km2"]) if plan.get("area_km2") is not None else None
         diagnoses = [packet for packet in packets if packet.action == ActionCode.A06_DIAGNOSE]
         optimizations = [packet for packet in packets if packet.action == ActionCode.A07_OPTIMIZE]
+        freeze_packets = [packet for packet in packets if packet.action == ActionCode.A10_FREEZE]
         replay_packets = [packet for packet in packets if packet.action == ActionCode.A11_REPLAY]
         eval_packets = [packet for packet in packets if packet.action == ActionCode.A12_EVALUATE_REPORT]
         strict_predevelopment = all(
@@ -358,25 +356,18 @@ def main() -> int:
             if gate_packets
             else "NOT_EVALUATED"
         )
-        handover_packet = (
-            terminal_packet
-            if terminal_packet is not None
-            and terminal_packet.action == ActionCode.A10_FREEZE
-            and terminal_packet.status == "blocked"
+        freeze_packet = freeze_packets[-1] if freeze_packets else None
+        frozen_scheme = (
+            repository.get_scheme(state.current_scheme_id)
+            if state.current_scheme_id and task.phase in {"F", "E"}
             else None
         )
-        handover_protocol_safe = bool(
-            handover_packet
-            and latest_gate_qualification != "QUALIFIED"
-            and state.paused
-            and task.phase == "B"
-            and not replay_packets
-            and not eval_packets
-            and _has_observation(handover_packet, "hydrologist_manual_required")
-            and _has_observation(handover_packet, "calibration_handover_required")
-            and _has_observation(handover_packet, "freeze_blocked_unqualified=true")
-            and _has_observation(handover_packet, "final_test_not_consumed=true")
-            and str(handover_packet.gates.get("final_test_consumed")) == "false"
+        frozen_closeout = (
+            dict((frozen_scheme.config_json or {}).get("freeze_contract", {})).get(
+                "research_closeout", {}
+            )
+            if frozen_scheme is not None
+            else {}
         )
         smoke_budget_honest = (
             campaign.mode == "smoke"
@@ -384,16 +375,37 @@ def main() -> int:
             and campaign.converged is False
             and campaign.trial_count == 2
         )
+        research_closeout_safe = bool(
+            freeze_packet
+            and freeze_packet.status == "succeeded"
+            and latest_gate_qualification != "QUALIFIED"
+            and str(freeze_packet.gates.get("campaign_stop_reason")) == "BUDGET_EXHAUSTED"
+            and str(freeze_packet.gates.get("release_approved")) == "false"
+            and _has_observation(freeze_packet, "research_final_evaluation_enabled=true")
+            and _has_observation(freeze_packet, "release_approved=false")
+            and frozen_closeout.get("purpose") == "research_final_evaluation"
+            and frozen_closeout.get("campaign_stop_reason") == "BUDGET_EXHAUSTED"
+            and frozen_closeout.get("qualification_status") == "UNQUALIFIED"
+            and frozen_closeout.get("release_approved") is False
+            and frozen_closeout.get("final_test_access") == "read_only_after_freeze"
+        )
 
         research_evidence_path = REPORT_ROOT / task_id / "research-evidence.json"
-        final_test_unconsumed = (
-            not research_evidence_path.exists() and not replay_packets and not eval_packets
+        final_test_consumed_once = bool(
+            task.phase == "E"
+            and len(replay_packets) == 1
+            and len(eval_packets) == 1
+            and research_evidence_path.exists()
+            and _has_observation(replay_packets[0], "final_test_window=2000-05-08..2000-05-10")
+            and _has_observation(eval_packets[0], "final_test_window=2000-05-08..2000-05-10")
+            and _has_observation(eval_packets[0], "final_test_read_only=true")
+            and _has_observation(eval_packets[0], "final_test_consumption=1/1")
         )
 
         summary = {
             "ok": (
-                handover_protocol_safe
-                and final_test_unconsumed
+                research_closeout_safe
+                and final_test_consumed_once
                 and strict_predevelopment
                 and full_calibration_diagnosis
                 and protocol_ok
@@ -414,9 +426,10 @@ def main() -> int:
             "optimization_protocol_safe": optimization_protocol_safe,
             "campaign": campaign.model_dump(mode="json"),
             "smoke_budget_honest": smoke_budget_honest,
-            "handover_protocol_safe": handover_protocol_safe,
+            "research_closeout_safe": research_closeout_safe,
             "latest_gate_qualification": latest_gate_qualification,
-            "final_test_unconsumed": final_test_unconsumed,
+            "release_approved": bool(frozen_closeout.get("release_approved", False)),
+            "final_test_consumed_once": final_test_consumed_once,
             "research_evidence_exists": research_evidence_path.exists(),
             "model_plan": {
                 "plan_id": plan_id,
@@ -445,16 +458,21 @@ def main() -> int:
                 for packet in gate_packets
             ],
             "calibration_cases": [case.model_dump(mode="json") for case in cases],
-            "handover": (
+            "research_closeout": {
+                "status": freeze_packet.status if freeze_packet is not None else None,
+                "gates": dict(freeze_packet.gates) if freeze_packet is not None else {},
+                "observations": list(freeze_packet.observations) if freeze_packet is not None else [],
+                "frozen_contract": frozen_closeout,
+            },
+            "evaluation": (
                 {
-                    "status": handover_packet.status,
-                    "gates": dict(handover_packet.gates),
-                    "observations": list(handover_packet.observations),
+                    "status": eval_packets[-1].status,
+                    "metrics": dict(eval_packets[-1].metrics),
+                    "observations": list(eval_packets[-1].observations),
                 }
-                if handover_packet is not None
+                if eval_packets
                 else None
             ),
-            "evaluation": None,
             "knowledge": {
                 "standard_id": standard["standard_id"],
                 "standard_status": standard["status"],
