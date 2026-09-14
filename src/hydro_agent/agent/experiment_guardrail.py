@@ -89,7 +89,9 @@ def apply_experiment_plan_guardrail(
         prior_trials=prior_trials,
         planner="agent",
     )
-    policy_reason = "campaign_objective_locked" if objective_is_locked else "adaptive_search_objective"
+    policy_reason = (
+        "campaign_objective_locked" if objective_is_locked else "adaptive_search_objective"
+    )
     plan = plan.model_copy(
         update={"reason_codes": tuple(dict.fromkeys((*plan.reason_codes, policy_reason)))}
     )
@@ -106,11 +108,7 @@ def apply_experiment_plan_guardrail(
         and diagnostic_objective != view.hydro.campaign_objective
     ):
         audit_suffix += f" [diagnostic_objective_ignored={diagnostic_objective}]"
-    if (
-        not objective_is_locked
-        and decision.objective
-        and decision.objective != effective_objective
-    ):
+    if not objective_is_locked and decision.objective and decision.objective != effective_objective:
         audit_suffix += f" [proposed_objective_overridden={decision.objective}]"
     if audit_suffix not in rationale:
         rationale = (rationale + audit_suffix)[:600]
