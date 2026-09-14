@@ -85,27 +85,35 @@ async function render() {
   if (!chart) chart = echarts.init(el.value)
   chart.setOption({
     ...chartBase,
-    animationDuration: 350,
+    animationDuration: 220,
+    animationEasing: 'cubicOut',
     tooltip: {
       ...chartBase.tooltip,
       valueFormatter: (value: unknown) =>
         typeof value === 'number' && Number.isFinite(value) ? value.toFixed(3) : '—',
     },
-    xAxis: { ...axisCategory(), data: data.categories },
+    grid: { left: 10, right: 12, top: 24, bottom: 48, containLabel: true },
+    xAxis: {
+      ...axisCategory(),
+      data: data.categories,
+      axisLabel: { color: '#62626A', fontSize: 12 },
+    },
     yAxis: axisValue('指标值'),
     series: [
       {
         name: '基准方案',
         type: 'bar',
-        barMaxWidth: 44,
-        itemStyle: { color: CHART_COLORS[0], borderRadius: [8, 8, 0, 0] },
+        barMaxWidth: 42,
+        itemStyle: { color: CHART_COLORS[1], borderRadius: [10, 10, 2, 2] },
+        emphasis: { focus: 'series' },
         data: data.baseline,
       },
       {
         name: data.comparedLabel,
         type: 'bar',
-        barMaxWidth: 44,
-        itemStyle: { color: CHART_COLORS[1], borderRadius: [8, 8, 0, 0] },
+        barMaxWidth: 42,
+        itemStyle: { color: CHART_COLORS[2], borderRadius: [10, 10, 2, 2] },
+        emphasis: { focus: 'series' },
         data: data.compared,
       },
     ],
@@ -136,8 +144,11 @@ watch(dataset, render, { deep: true })
 <template>
   <section v-if="dataset" class="metric-comparison" data-test="scheme-metric-comparison">
     <div class="metric-heading">
-      <strong>方案指标对比</strong>
-      <span>{{ dataset.subtitle }}</span>
+      <div>
+        <span class="metric-overline">方案指标</span>
+        <strong>基准与结果对照</strong>
+      </div>
+      <span class="metric-subtitle">{{ dataset.subtitle }}</span>
     </div>
     <div ref="el" class="metric-chart" data-test="scheme-metric-chart" />
   </section>
@@ -145,24 +156,42 @@ watch(dataset, render, { deep: true })
 
 <style scoped>
 .metric-comparison {
-  margin-top: 18px;
-  padding-top: 18px;
-  border-top: 1px solid rgba(104, 129, 151, 0.14);
+  margin-top: 16px;
+  padding: 18px 18px 12px;
+  border: 1px solid var(--separator, #e8e9ee);
+  border-radius: 20px;
+  background: var(--surface-secondary, #f8f9fb);
+  box-shadow: 0 2px 8px rgba(25, 40, 65, 0.04);
 }
 .metric-heading {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 4px;
+  padding: 0 4px 2px;
+}
+.metric-heading > div {
+  display: grid;
+  gap: 2px;
+}
+.metric-overline {
+  color: var(--text-tertiary, #85858e);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
 }
 .metric-heading strong {
-  color: var(--primary, #1d1d1f);
-  font-size: 0.95rem;
+  color: var(--text-primary, #1d1d1f);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
 }
-.metric-heading span {
-  color: var(--secondary, #698197);
-  font-size: 0.8rem;
+.metric-subtitle {
+  max-width: 50%;
+  color: var(--text-secondary, #62626a);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  text-align: right;
 }
 .metric-chart {
   width: 100%;
@@ -171,10 +200,19 @@ watch(dataset, render, { deep: true })
 }
 
 @media (max-width: 720px) {
+  .metric-comparison {
+    padding: 16px 10px 10px;
+    border-radius: 16px;
+  }
   .metric-heading {
     align-items: flex-start;
     flex-direction: column;
     gap: 4px;
+    padding-inline: 6px;
+  }
+  .metric-subtitle {
+    max-width: none;
+    text-align: left;
   }
   .metric-chart {
     height: 240px;
