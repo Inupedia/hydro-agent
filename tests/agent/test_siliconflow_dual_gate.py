@@ -12,7 +12,11 @@ from hydro_agent.agent.contracts import (
 from hydro_agent.agent.providers.siliconflow import _nse_calibration_progress
 
 
-def _resolved_view(qualification_status: str) -> WorldStateView:
+def _resolved_view(
+    qualification_status: str,
+    *,
+    optimization_cycles_remaining: int = 2,
+) -> WorldStateView:
     evidence = (
         EvidenceSummary(
             evidence_id="ev-opt",
@@ -67,7 +71,7 @@ def _resolved_view(qualification_status: str) -> WorldStateView:
         ),
         budget=BudgetSummary(
             agent_rounds_remaining=10,
-            optimization_cycles_remaining=2,
+            optimization_cycles_remaining=optimization_cycles_remaining,
             max_agent_rounds=20,
             max_optimization_cycles=4,
         ),
@@ -134,3 +138,23 @@ def test_qualified_gate_freezes_even_if_llm_requests_more_search():
     )
     assert result["action"] == "A10_FREEZE"
     assert "资格评价" in result["rationale_summary"]
+
+
+def test_unqualified_budget_exhaustion_requests_handover_safe_closeout():
+    view = _resolved_view("UNQUALIFIED", optimization_cycles_remaining=0)
+    result = _nse_calibration_progress(
+        view,
+        {
+            "action": "A10_FREEZE",
+            "hypothesis": "MODEL",
+            "strategy_id": None,
+            "rationale_summary": "close out",
+        },
+        safe_actions={"A10_FREEZE"},
+        nse_good_enough=0.7,
+    )
+
+    assert result["action"] == "A10_FREEZE"
+    assert "请求收尾检查" in result["rationale_summary"]
+    assert "不冻结或消费 final-test" in result["rationale_summary"]
+    assert "冻结当前工作方案进入回放" not in result["rationale_summary"]
