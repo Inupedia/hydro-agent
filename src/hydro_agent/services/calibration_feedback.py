@@ -23,11 +23,7 @@ def apply_latest_gate_feedback(result: dict, evidence_rows: list) -> dict:
         return result
 
     latest_gate = next(
-        (
-            row
-            for row in reversed(evidence_rows[:resolve_index])
-            if row.action == "A08_GATE"
-        ),
+        (row for row in reversed(evidence_rows[:resolve_index]) if row.action == "A08_GATE"),
         None,
     )
     if latest_gate is None:
@@ -39,8 +35,7 @@ def apply_latest_gate_feedback(result: dict, evidence_rows: list) -> dict:
     high_flow_failure = any("high_flow_guardrail" in item for item in reasons)
     lead_failure = any("lead_guardrail" in item for item in reasons)
     absolute_failure = any(
-        item in {"insufficient_absolute_skill", "insufficient_gbt_scheme_grade"}
-        for item in reasons
+        item in {"insufficient_absolute_skill", "insufficient_gbt_scheme_grade"} for item in reasons
     )
 
     if high_flow_failure or lead_failure:
