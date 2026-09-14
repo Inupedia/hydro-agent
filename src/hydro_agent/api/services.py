@@ -112,6 +112,13 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
             "end_date": payload.end_date.isoformat(),
             "max_agent_decision_rounds": payload.max_agent_decision_rounds,
             "max_optimization_cycles": payload.max_optimization_cycles,
+            "campaign_mode": payload.campaign_mode,
+            "campaign_max_model_evaluations": payload.campaign_max_model_evaluations,
+            "campaign_min_model_evaluations": payload.campaign_min_model_evaluations,
+            "campaign_plateau_window": payload.campaign_plateau_window,
+            "campaign_plateau_abs_epsilon": payload.campaign_plateau_abs_epsilon,
+            "campaign_restart_distinct_strategies": payload.campaign_restart_distinct_strategies,
+            "campaign_max_no_gain_gates": payload.campaign_max_no_gain_gates,
             "calibration_objective": payload.calibration_objective,
             "allow_unverified_expert_priors": payload.allow_unverified_expert_priors,
             "forbidden_evidence_dataset_ids": list(payload.forbidden_evidence_dataset_ids),
@@ -143,10 +150,6 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
         final_test_end_date=payload.final_test_end_date,
     )
     config["workbench"].update(timeline.as_dict())
-    # Formal multi-year protocols are preregistered science, not an API error.
-    # Runtime/cost is visible in ``estimated_rolling_forecast_runs`` and callers
-    # may decide whether to run rolling replay; we no longer silently forbid a
-    # scientifically valid holdout simply because it exceeds the old smoke cap.
 
     content_hash = sha256_bytes(
         json.dumps(config, sort_keys=True, separators=(",", ":")).encode("utf-8")
