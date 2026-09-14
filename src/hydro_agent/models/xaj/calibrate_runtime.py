@@ -192,9 +192,10 @@ def run(workspace: Path) -> dict:
         local_scale=strategy.local_scale,
     )
 
-    # Each successful physical model execution is content-addressed in the
-    # workspace. After a worker restart, score_fn can therefore replay the exact
-    # optimizer state without re-running an already evaluated XAJ parameter set.
+    # Each completed physical model execution is content-addressed in the
+    # workspace, including runs that cannot produce a finite objective. After a
+    # worker restart, score_fn can therefore replay optimizer state without
+    # re-running or under-counting an already evaluated XAJ parameter set.
     cache = load_evaluation_cache(workspace)
     restored_model_evaluations = len(cache)
     model_evaluations = len(cache)
@@ -237,14 +238,16 @@ def run(workspace: Path) -> dict:
                 continue
             obs.append(float(streamflow[day]))
             sim.append(float(runoff))
-        if len(obs) < 2:
-            return None
-        try:
-            score = _objective_score(obs, sim, objective)
-        except ValueError:
-            return None
 
-        persisted_score = float(score) if np.isfinite(score) else None
+        persisted_score: float | None = None
+        if len(obs) >= 2:
+            try:
+                score = _objective_score(obs, sim, objective)
+            except ValueError:
+                score = float("nan")
+            if np.isfinite(score):
+                persisted_score = float(score)
+
         entry = (
             persisted_score,
             [float(v) for v in full_values],
