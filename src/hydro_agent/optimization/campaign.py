@@ -26,8 +26,9 @@ CampaignStopReason = Literal[
 
 # Smoke validates wiring, not scientific convergence. Its default lifetime is
 # expressed in actual model executions so trial shape/optimizer budget changes
-# cannot silently redefine what "two experiments" means.
-DEFAULT_SMOKE_MAX_MODEL_EVALUATIONS = 1000
+# cannot silently redefine what "two experiments" means. Keep the default above
+# one first-stage search but below two full refinement searches.
+DEFAULT_SMOKE_MAX_MODEL_EVALUATIONS = 800
 
 
 class CampaignPolicy(FrozenModel):
