@@ -74,15 +74,16 @@ async function render() {
       name: '观测',
       type: 'line',
       showSymbol: false,
-      lineStyle: { width: 3, color: '#1d1d1f' },
-      itemStyle: { color: '#1d1d1f' },
+      connectNulls: false,
+      lineStyle: { width: 3, color: CHART_COLORS[0] },
+      itemStyle: { color: CHART_COLORS[0] },
       data: rows.map((row) => row.observed_m3s ?? null),
       markArea:
         firstWarmup && lastWarmup
           ? {
               silent: true,
-              itemStyle: { color: 'rgba(215,221,227,0.38)' },
-              label: { color: '#698197', fontSize: 11 },
+              itemStyle: { color: 'rgba(231,235,241,0.48)' },
+              label: { color: '#62626A', fontSize: 11 },
               data: [[{ xAxis: firstWarmup.time, name: '预热期' }, { xAxis: lastWarmup.time }]],
             }
           : undefined,
@@ -93,8 +94,9 @@ async function render() {
       name: '基准方案',
       type: 'line',
       showSymbol: false,
-      lineStyle: { width: 2, color: CHART_COLORS[0], type: 'dashed' },
-      itemStyle: { color: CHART_COLORS[0] },
+      connectNulls: false,
+      lineStyle: { width: 2, color: CHART_COLORS[1], type: 'dashed' },
+      itemStyle: { color: CHART_COLORS[1] },
       data: rows.map((row) => row.baseline_m3s ?? null),
     })
   }
@@ -103,8 +105,9 @@ async function render() {
       name: '候选方案',
       type: 'line',
       showSymbol: false,
-      lineStyle: { width: 3, color: CHART_COLORS[1] },
-      itemStyle: { color: CHART_COLORS[1] },
+      connectNulls: false,
+      lineStyle: { width: 2, color: CHART_COLORS[2] },
+      itemStyle: { color: CHART_COLORS[2] },
       data: rows.map((row) => row.candidate_m3s ?? null),
     })
   }
@@ -113,15 +116,23 @@ async function render() {
       name: finalLabel.value,
       type: 'line',
       showSymbol: false,
+      connectNulls: false,
       lineStyle: { width: 3, color: CHART_COLORS[2] },
       itemStyle: { color: CHART_COLORS[2] },
+      areaStyle: {
+        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+          { offset: 0, color: 'rgba(142,139,212,0.18)' },
+          { offset: 1, color: 'rgba(142,139,212,0)' },
+        ]),
+      },
       data: rows.map((row) => row.frozen_m3s ?? null),
     })
   }
   chart.setOption(
     {
       ...chartBase,
-      animationDuration: rows.length > 80 ? 0 : 400,
+      animationDuration: rows.length > 80 ? 0 : 280,
+      animationEasing: 'cubicOut',
       tooltip: {
         ...chartBase.tooltip,
         valueFormatter: (value: unknown) =>
@@ -132,7 +143,7 @@ async function render() {
         ...axisCategory(),
         data: categories,
         axisLabel: {
-          color: '#698197',
+          color: '#62626A',
           fontSize: 12,
           hideOverlap: true,
           formatter: (value: string) => value.slice(5).replace('-', '/'),
@@ -168,26 +179,49 @@ watch(() => props.comparison, render, { deep: true })
   <div v-if="!seriesRows.length" class="empty" data-test="hydrograph-empty">暂无过程线</div>
   <div v-else class="wrap" data-test="final-comparison-chart-wrap">
     <div ref="el" data-test="hydrograph-chart" class="chart" />
-    <p v-for="line in captions" :key="line" class="caption">{{ line }}</p>
+    <div v-if="captions.length" class="caption-stack">
+      <p v-for="line in captions" :key="line" class="caption">{{ line }}</p>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.wrap {
+  overflow: hidden;
+  margin-top: 16px;
+  padding: 14px 14px 12px;
+  border: 1px solid var(--separator, #e8e9ee);
+  border-radius: 20px;
+  background: var(--surface-secondary, #f8f9fb);
+  box-shadow: 0 2px 8px rgba(25, 40, 65, 0.04);
+}
 .chart {
   width: 100%;
   height: 400px;
   min-height: 280px;
 }
+.caption-stack {
+  display: grid;
+  gap: 4px;
+  margin: 8px 4px 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--separator, #e8e9ee);
+}
 .empty,
 .caption {
-  color: var(--secondary, #698197);
-  font-size: 0.88rem;
+  color: var(--text-secondary, #62626a);
+  font-size: 0.8125rem;
+  line-height: 1.5;
 }
 .caption {
-  margin: 0.35rem 0 0;
+  margin: 0;
 }
 
 @media (max-width: 720px) {
+  .wrap {
+    padding: 10px 8px 10px;
+    border-radius: 16px;
+  }
   .chart {
     height: 340px;
   }
