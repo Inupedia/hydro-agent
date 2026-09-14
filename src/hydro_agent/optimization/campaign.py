@@ -24,17 +24,21 @@ CampaignStopReason = Literal[
     "HUMAN_HANDOVER",
 ]
 
+# Smoke validates wiring, not scientific convergence. Its default lifetime is
+# expressed in actual model executions so trial shape/optimizer budget changes
+# cannot silently redefine what "two experiments" means.
+DEFAULT_SMOKE_MAX_MODEL_EVALUATIONS = 1000
+
 
 class CampaignPolicy(FrozenModel):
     """Pre-registered campaign stopping policy.
 
-    ``smoke`` may use a small trial cap to validate wiring, but that cap can only
-    produce BUDGET_EXHAUSTED/not-converged. Formal modes use model-execution and
-    convergence evidence rather than the legacy experiment-count lifetime.
+    ``smoke`` may use only a small resource budget to validate wiring and never
+    claims convergence. ``convergence`` requires an explicit minimum exploration
+    amount and plateau policy before a CONVERGED result is possible.
     """
 
     mode: CampaignMode = "smoke"
-    smoke_max_trials: int | None = Field(default=None, ge=1)
     max_model_evaluations: int | None = Field(default=None, ge=1)
     min_model_evaluations: int | None = Field(default=None, ge=1)
     plateau_window: int | None = Field(default=None, ge=2)
@@ -75,12 +79,12 @@ class CampaignSnapshot(FrozenModel):
 def policy_from_workbench(workbench: Mapping[str, object] | None) -> CampaignPolicy:
     raw = dict(workbench or {})
     mode = str(raw.get("campaign_mode") or "smoke")
+    max_evaluations = _optional_int(raw.get("campaign_max_model_evaluations"))
+    if mode == "smoke" and max_evaluations is None:
+        max_evaluations = DEFAULT_SMOKE_MAX_MODEL_EVALUATIONS
     return CampaignPolicy(
         mode=mode,  # type: ignore[arg-type]
-        smoke_max_trials=(
-            _optional_int(raw.get("max_optimization_cycles")) if mode == "smoke" else None
-        ),
-        max_model_evaluations=_optional_int(raw.get("campaign_max_model_evaluations")),
+        max_model_evaluations=max_evaluations,
         min_model_evaluations=_optional_int(raw.get("campaign_min_model_evaluations")),
         plateau_window=_optional_int(raw.get("campaign_plateau_window")),
         plateau_abs_epsilon=_optional_float(raw.get("campaign_plateau_abs_epsilon")),
@@ -167,13 +171,6 @@ def rebuild_campaign(
         stop_reason = "UNSATISFIABLE"
         notes.append("repeated development Gate checks produced no selected-best improvement")
     elif (
-        policy.mode == "smoke"
-        and policy.smoke_max_trials is not None
-        and len(records) >= policy.smoke_max_trials
-    ):
-        stop_reason = "BUDGET_EXHAUSTED"
-        notes.append("smoke wiring trial budget exhausted; convergence was not evaluated")
-    elif (
         policy.max_model_evaluations is not None
         and total_evaluations >= policy.max_model_evaluations
     ):
@@ -182,6 +179,8 @@ def rebuild_campaign(
             notes.append("budget exhausted before preregistered restart check was satisfied")
         elif policy.mode == "convergence":
             notes.append("budget exhausted without operational convergence")
+        elif policy.mode == "smoke":
+            notes.append("smoke model-evaluation budget exhausted; convergence was not evaluated")
 
     if policy.mode == "convergence" and not policy.convergence_registered:
         notes.append("convergence policy incomplete; CONVERGED cannot be reported")
