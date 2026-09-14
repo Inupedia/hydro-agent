@@ -81,6 +81,7 @@ async function render() {
     chart = null
     return
   }
+  if (typeof ResizeObserver === 'undefined') return
   if (!chart) chart = echarts.init(el.value)
   chart.setOption({
     ...chartBase,
@@ -119,8 +120,10 @@ function onResize() {
 onMounted(() => {
   void render()
   window.addEventListener('resize', onResize)
-  observer = new ResizeObserver(onResize)
-  if (el.value) observer.observe(el.value)
+  if (typeof ResizeObserver !== 'undefined') {
+    observer = new ResizeObserver(onResize)
+    if (el.value) observer.observe(el.value)
+  }
 })
 onUnmounted(() => {
   window.removeEventListener('resize', onResize)
