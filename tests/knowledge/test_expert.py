@@ -46,7 +46,7 @@ def test_external_expert_prior_is_advisory_not_normative():
 
     advice = engine.advise({"metrics": {"nse": 0.4}})
     assert advice.is_normative is False
-    assert advice.matched_rule_ids == ()
+    assert advice.matched_prior_refs == ()
 
 
 def test_seed_prior_requires_explicit_campaign_opt_in():
@@ -63,9 +63,9 @@ def test_seed_prior_requires_explicit_campaign_opt_in():
         governance_context=_seed_context(model_id="openhydronet"),
     )
 
-    assert disabled.matched_rule_ids == ()
-    assert "expert.water_balance_first" in enabled.matched_rule_ids
-    assert wrong_model.matched_rule_ids == ()
+    assert disabled.matched_prior_refs == ()
+    assert "expert.water_balance_first@1" in enabled.matched_prior_refs
+    assert wrong_model.matched_prior_refs == ()
 
 
 def test_water_balance_prior_refines_broad_plan_before_dds():
@@ -83,7 +83,7 @@ def test_water_balance_prior_refines_broad_plan_before_dds():
 
     assert plan.parameter_groups == ("evap", "runoff")
     assert plan.objective == "composite"
-    assert "expert.water_balance_first" in plan.knowledge_refs
+    assert "expert.water_balance_first@1" in plan.knowledge_refs
     assert plan.optimizer == "dds"
     assert plan.tunes_raw_parameter_vector is False
 
@@ -129,7 +129,7 @@ def test_negative_nse_prior_is_audit_advice_not_gate_override():
         governance_context=_seed_context(),
     )
 
-    assert "expert.negative_skill_check_data_first" in advice.matched_rule_ids
+    assert "expert.negative_skill_check_data_first@1" in advice.matched_prior_refs
     assert advice.recommended_param_groups is None
     assert any("优先复核时间对齐" in note for note in advice.notes)
     assert advice.is_normative is False
@@ -149,7 +149,7 @@ def test_basin_attributes_are_profiled_as_advisory_context():
         governance_context=_seed_context(),
     )
 
-    assert "expert.basin_attributes_are_priors" in advice.matched_rule_ids
+    assert "expert.basin_attributes_are_priors@1" in advice.matched_prior_refs
     assert any("aridity=0.62" in note for note in advice.notes)
 
 
