@@ -15,6 +15,22 @@ if mode == "child":
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
     (workspace / "work/child.pid").write_text(str(child.pid), encoding="utf-8")
     time.sleep(10)
+if mode == "resume":
+    marker = workspace / "work/resume.marker"
+    if not marker.exists():
+        marker.write_text("durable-state", encoding="utf-8")
+        result.write_text(json.dumps({"stale": True}), encoding="utf-8")
+        print("fixture-runtime-first-attempt")
+        time.sleep(10)
+    result.write_text(
+        json.dumps(
+            {
+                "resumed": True,
+                "state_preserved": marker.read_text(encoding="utf-8") == "durable-state",
+            }
+        ),
+        encoding="utf-8",
+    )
 if mode == "large":
     result.write_text("x" * 2048, encoding="utf-8")
 elif mode == "log":
