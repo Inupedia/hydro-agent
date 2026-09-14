@@ -120,9 +120,11 @@ class HydroContext(FrozenModel):
     available_strategies: tuple[str, ...] = ()
     available_param_groups: tuple[str, ...] = ("evap", "runoff", "routing")
     available_objectives: tuple[str, ...] = ("nse", "peak", "composite")
-    # Pre-registered objective for the campaign. Diagnosis/expert advice may
-    # choose where/how to search but cannot change the scoring ruler mid-run.
+    # The campaign objective remains the preregistered comparison ruler. Search
+    # experiments may either keep it fixed or adapt their numerical objective
+    # from diagnosis while the independent Gate stays unchanged.
     campaign_objective: Literal["nse", "peak", "composite"] = "nse"
+    search_objective_policy: Literal["fixed", "adaptive"] = "fixed"
     campaign: CampaignSnapshot = Field(default_factory=lambda: CampaignSnapshot(mode="smoke"))
     # Unverified expert priors are opt-in campaign inputs, never implicit
     # runtime defaults. Dataset ids can additionally block indirect leakage.
