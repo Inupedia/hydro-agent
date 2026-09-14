@@ -26,9 +26,7 @@ class GovernedKnowledgeRepository:
 
     def __init__(self, root: Path | None = None):
         self.root = (
-            Path(root)
-            if root is not None
-            else Path(__file__).with_name("data") / "governed"
+            Path(root) if root is not None else Path(__file__).with_name("data") / "governed"
         )
         self._entries: dict[tuple[str, int], KnowledgeEntry] = {}
         self._load()
