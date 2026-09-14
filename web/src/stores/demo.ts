@@ -23,6 +23,7 @@ export type DraftConfig = {
 export type ConditionState = 'unchecked' | 'ok' | 'warn' | 'fail'
 
 const SESSION_KEY = 'hydro-demo-session'
+const RESULT_VISUAL_SETTLE_TICKS = 75
 
 type SessionSnapshot = {
   taskId: string
@@ -276,7 +277,9 @@ export const useDemoStore = defineStore('demo', () => {
         const visuals =
           Boolean(results.value?.test_hydrograph?.series?.length) ||
           Boolean(results.value?.calibration_hydrograph?.series?.length)
-        if (visuals || isFailed.value || ++completeSettleTicks >= 8) stopPolling()
+        // Report/hydrograph files are finalized after the run state can already read completed.
+        // Keep checking long enough for the final comparison to upgrade from metric bars to process lines.
+        if (visuals || isFailed.value || ++completeSettleTicks >= RESULT_VISUAL_SETTLE_TICKS) stopPolling()
       } else {
         completeSettleTicks = 0
       }

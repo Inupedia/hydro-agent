@@ -148,6 +148,7 @@ describe('single page observatory', () => {
     }
     await flushPromises()
     expect(wrapper.findAll('[data-test="hydrograph"]')).toHaveLength(1)
+    expect(wrapper.find('[data-test="scheme-metric-comparison"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="research-evidence-panel"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('最终方案对比')
     expect(wrapper.text()).toContain('观测 / 基准 / 最终方案')
@@ -202,7 +203,8 @@ describe('single page observatory', () => {
     expect(wrapper.find('[data-test="live-workflow"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="forecast-surface"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="research-evidence-panel"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('正在整理最终方案对比')
+    expect(wrapper.text()).toContain('过程线整理中')
+    expect(wrapper.text()).toContain('指标图先保留最终对比')
     expect(wrapper.find('.observatory').classes()).toContain('is-results')
     expect(wrapper.find('[data-test="header-new-task"]').exists()).toBe(true)
     wrapper.unmount()
