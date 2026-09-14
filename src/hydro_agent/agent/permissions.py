@@ -96,13 +96,17 @@ def latest_action_index(view: WorldStateView, action: ActionCode) -> int:
 
 
 def pending_calibration_action(view: WorldStateView) -> ActionCode | None:
-    """Return the mandatory closeout action for the latest calibration cycle."""
+    """Return the mandatory transaction action for a successful calibration cycle."""
 
     optimize_index = latest_action_index(view, ActionCode.A07_OPTIMIZE)
     gate_index = latest_action_index(view, ActionCode.A08_GATE)
     resolve_index = latest_action_index(view, ActionCode.A09_RESOLVE)
     if optimize_index > gate_index:
-        return ActionCode.A08_GATE
+        # A failed/blocked A07 has no candidate to evaluate. It still remains in
+        # the Trial Ledger for budget accounting, but must never manufacture A08.
+        if view.evidence_summary[optimize_index].status == "succeeded":
+            return ActionCode.A08_GATE
+        return None
     if gate_index > resolve_index:
         return ActionCode.A09_RESOLVE
     return None
@@ -172,7 +176,7 @@ class PermissionGate:
 
         pending = pending_calibration_action(view)
         if view.task.phase == "B" and pending is not None:
-            # An A07 transaction must always finish Gate/Resolve before any stop.
+            # A successful A07 transaction must finish Gate/Resolve before any stop.
             allowed = {pending} if pending in _implemented() else set()
         elif view.task.phase == "B" and campaign_stopped:
             allowed = {ActionCode.A10_FREEZE} & _implemented()
