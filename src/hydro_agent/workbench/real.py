@@ -7,12 +7,12 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from hydro_agent.agent.contracts import ActionCode, AgentDecision, EvidencePacket
+from hydro_agent.agent.research_closeout import ResearchFreezeToolHandler
 from hydro_agent.agent.tools import (
     CheckDataHandler,
     DiagnoseHandler,
     EvaluateReportToolHandler,
     ForecastHandler,
-    FreezeToolHandler,
     GateHandler,
     OptimizeHandler,
     ReplayToolHandler,
@@ -208,7 +208,7 @@ class RealWorkbenchKernel:
         tools.register(ActionCode.A09_RESOLVE, ResolveHandler(self.repository))
         tools.register(
             ActionCode.A10_FREEZE,
-            FreezeToolHandler(self.repository, freeze_service=self.freeze_service),
+            ResearchFreezeToolHandler(self.repository, freeze_service=self.freeze_service),
         )
         tools.register(
             ActionCode.A11_REPLAY,
