@@ -192,7 +192,7 @@ def diagnose_prevalidation_window(
             "id": "MODEL",
             "strength": 0.75,
             "phenomenon": (
-                f"率定期观测诊断 NSE={overall_nse:.3f} 已达到当前研究停止阈值 "
+                f"率定结束前滚动预报诊断 NSE={overall_nse:.3f} 已达到当前研究停止阈值 "
                 f"{nse_good_enough:g}，不继续无意义调参"
             ),
             "suggested_action": "A10_FREEZE",
@@ -206,7 +206,7 @@ def diagnose_prevalidation_window(
             "id": "MODEL",
             "strength": 0.62,
             "phenomenon": (
-                f"率定期观测诊断 NSE={nse_text}, PBIAS={metrics['pbias_percent']:.1f}%, "
+                f"率定结束前滚动预报诊断 NSE={nse_text}, PBIAS={metrics['pbias_percent']:.1f}%, "
                 f"洪峰比={peak_ratio:.2f}, 峰时差={peak_lag} 天；先保留完整参数组，"
                 "由治理后的知识与实验计划决定是否缩小搜索范围"
             ),

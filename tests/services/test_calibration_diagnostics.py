@@ -66,6 +66,7 @@ def test_diagnosis_uses_only_truth_before_development_and_stays_policy_neutral()
     assert result["recommended_param_groups"] == ["evap", "runoff", "routing"]
     assert result["recommended_objective"] == "composite"
     assert result["metrics"]["pbias_percent"] > 10.0
+    assert "率定结束前滚动预报诊断" in result["phenomenon"]
     assert "diagnosis_scope=measurement_only_no_expert_thresholds=true" in result["notes"]
     assert "diagnostic_truth_strictly_precedes_development=true" in result["notes"]
     assert f"development_starts={development_start.isoformat()}" in result["notes"]

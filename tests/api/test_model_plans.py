@@ -86,3 +86,35 @@ def test_list_basins_endpoint(client, app_dependencies, tmp_path):
     body = response.json()
     assert any(row['basin_id'] == 'yaogu' and row['ready_for_build'] for row in body)
     assert any(row['basin_id'] == 'usgs_02472000' and not row['ready_for_build'] for row in body)
+
+
+def test_formal_sampled_replay_can_use_complete_data_end(
+    client, app_dependencies, tmp_path
+):
+    service, plan_id = setup_plan(app_dependencies, tmp_path)
+    body = {
+        **payload(plan_id),
+        "start_date": "1991-06-01",
+        "end_date": "2003-12-31",
+        "development_start_date": "1999-01-01",
+        "development_end_date": "2001-12-31",
+        "final_test_start_date": "2002-01-01",
+        "final_test_end_date": "2003-12-31",
+        "development_rolling_issue_limit": 12,
+        "final_test_rolling_issue_limit": 12,
+    }
+
+    created = client.post("/api/tasks", json=body)
+
+    assert created.status_code == 201, created.text
+    service.pool.shutdown()
+
+
+def test_dense_replay_still_requires_future_lead_forcing(client, app_dependencies, tmp_path):
+    service, plan_id = setup_plan(app_dependencies, tmp_path)
+    body = {**payload(plan_id), "end_date": "2003-12-31"}
+
+    response = client.post("/api/tasks", json=body)
+
+    assert response.status_code == 400
+    service.pool.shutdown()

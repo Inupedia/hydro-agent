@@ -99,9 +99,17 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
             raise ValueError("任务流域与模型方案不一致")
         if payload.forcing_mode != "R":
             raise ValueError("老师历史资料仅支持 R 回算；不可当作未来气象预报")
-        if payload.start_date < date.fromisoformat(
-            plan["suggested_start"]
-        ) or payload.end_date + timedelta(days=3) > date.fromisoformat(plan["data_end"]):
+        plan_start = date.fromisoformat(plan["suggested_start"])
+        plan_end = date.fromisoformat(plan["data_end"])
+        # A preregistered formal replay samples only full-lead-safe issue days,
+        # so the continuous evaluation window may legitimately end on data_end.
+        # Legacy/dense replay still treats end_date as an issue day and therefore
+        # requires three future forcing days for leads +1/+2/+3.
+        future_lead_days = 0 if payload.final_test_rolling_issue_limit is not None else 3
+        if (
+            payload.start_date < plan_start
+            or payload.end_date + timedelta(days=future_lead_days) > plan_end
+        ):
             raise ValueError("任务时段超出方案资料范围或预热长度不足")
         plan_config = json.loads(
             (deps.model_plans.directory(payload.model_plan_id) / "scheme.json").read_text(
