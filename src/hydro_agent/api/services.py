@@ -190,7 +190,9 @@ def build_task_summary(deps: AppDependencies, task_id: str) -> TaskSummary:
                     or workbench.get("research_start_date")
                     or workbench.get("start_date")
                 )
-                end_date = end_date or workbench.get("research_end_date") or workbench.get("end_date")
+                end_date = (
+                    end_date or workbench.get("research_end_date") or workbench.get("end_date")
+                )
                 validation_days = (
                     validation_days
                     or workbench.get("validation_days")
