@@ -29,7 +29,16 @@ class TaskCreateRequest(FrozenApiModel):
     final_test_start_date: date | None = None
     final_test_end_date: date | None = None
     max_agent_decision_rounds: int = Field(default=20, ge=1, le=100)
+    # Legacy cycle count remains a smoke wiring cap only. Formal campaign lifetime
+    # is governed by model-evaluation and convergence policy below.
     max_optimization_cycles: int = Field(default=4, ge=0, le=20)
+    campaign_mode: Literal["smoke", "target_quality", "convergence"] = "smoke"
+    campaign_max_model_evaluations: int | None = Field(default=None, ge=1)
+    campaign_min_model_evaluations: int | None = Field(default=None, ge=1)
+    campaign_plateau_window: int | None = Field(default=None, ge=2, le=50)
+    campaign_plateau_abs_epsilon: float | None = Field(default=None, ge=0.0)
+    campaign_restart_distinct_strategies: int = Field(default=2, ge=2, le=8)
+    campaign_max_no_gain_gates: int | None = Field(default=None, ge=1, le=50)
     # The scoring ruler is preregistered with the campaign and is immutable
     # across A07 experiments. Diagnosis/expert advice cannot swap it mid-run.
     calibration_objective: Literal["nse", "peak", "composite"] = "nse"
@@ -51,6 +60,27 @@ class TaskCreateRequest(FrozenApiModel):
             raise ValueError(
                 "explicit protocol requires development_start/end and final_test_start/end together"
             )
+
+        if self.campaign_mode == "convergence":
+            required = {
+                "campaign_max_model_evaluations": self.campaign_max_model_evaluations,
+                "campaign_min_model_evaluations": self.campaign_min_model_evaluations,
+                "campaign_plateau_window": self.campaign_plateau_window,
+                "campaign_plateau_abs_epsilon": self.campaign_plateau_abs_epsilon,
+            }
+            missing = [name for name, value in required.items() if value is None]
+            if missing:
+                raise ValueError(
+                    "convergence campaign requires preregistered policy: " + ", ".join(missing)
+                )
+        if self.campaign_mode == "target_quality" and self.campaign_max_model_evaluations is None:
+            raise ValueError("target_quality campaign requires campaign_max_model_evaluations")
+        if (
+            self.campaign_min_model_evaluations is not None
+            and self.campaign_max_model_evaluations is not None
+            and self.campaign_min_model_evaluations > self.campaign_max_model_evaluations
+        ):
+            raise ValueError("campaign_min_model_evaluations exceeds campaign_max_model_evaluations")
         return self
 
 
