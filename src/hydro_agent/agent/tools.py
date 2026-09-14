@@ -7,6 +7,7 @@ from typing import Protocol
 
 from hydro_agent.agent.contracts import ActionCode, AgentDecision, EvidencePacket
 from hydro_agent.execution.hashing import sha256_bytes
+from hydro_agent.services.calibration import CalibrationExecutionFailed
 
 
 class ToolUnavailable(LookupError):
@@ -294,15 +295,69 @@ class OptimizeHandler:
                 ),
             )
         state = self.repository.ensure_task_state(task_id)
-        outcome = self.calibration_service.calibrate(
-            task_id=task_id,
-            base_scheme_id=state.current_scheme_id,
-            calibration_snapshot_id=self.calibration_snapshot_id,
-            strategy_id=decision.strategy_id,
-            policy=self.policy,
-            param_groups=decision.param_groups,
-            objective=decision.objective,
-        )
+        try:
+            outcome = self.calibration_service.calibrate(
+                task_id=task_id,
+                base_scheme_id=state.current_scheme_id,
+                calibration_snapshot_id=self.calibration_snapshot_id,
+                strategy_id=decision.strategy_id,
+                policy=self.policy,
+                param_groups=decision.param_groups,
+                objective=decision.objective,
+            )
+        except CalibrationExecutionFailed as exc:
+            groups_text = ",".join(decision.param_groups or ())
+            resumed = exc.resume_attempts > 0
+            observations = (
+                f"base_scheme_id={state.current_scheme_id}",
+                f"strategy_id={decision.strategy_id or 'unknown'}",
+                f"evaluation_budget={exc.evaluation_budget}",
+                f"model_evaluations={exc.model_evaluations}",
+                f"execution_attempts={exc.execution_attempts}",
+                f"resume_attempts={exc.resume_attempts}",
+                f"resumed_from_workspace={'true' if resumed else 'false'}",
+                f"error_code={exc.error_code or '-'}",
+                "candidate_registered=false",
+            )
+            metrics = {
+                "evaluation_budget": float(exc.evaluation_budget),
+                "model_evaluations": float(exc.model_evaluations),
+                "execution_attempts": float(exc.execution_attempts),
+                "resume_attempts": float(exc.resume_attempts),
+            }
+            gates = {
+                "base_scheme_id": str(state.current_scheme_id or ""),
+                "candidate_scheme_id": "",
+                "strategy_id": str(decision.strategy_id or "unknown"),
+                "evaluation_budget": str(exc.evaluation_budget),
+                "model_evaluations": str(exc.model_evaluations),
+                "execution_attempts": str(exc.execution_attempts),
+                "resume_attempts": str(exc.resume_attempts),
+                "resumed_from_workspace": "true" if resumed else "false",
+                "objective": str(decision.objective or ""),
+                "objective_metric": str(decision.objective or ""),
+                "param_groups": groups_text,
+                "reason": "calibration_execution_failed",
+                "error_code": str(exc.error_code or ""),
+            }
+            return EvidencePacket(
+                evidence_id=_evidence_id(),
+                task_id=task_id,
+                action_run_id=exc.action_run_id,
+                action=ActionCode.A07_OPTIMIZE,
+                status="failed",
+                observations=observations,
+                metrics=metrics,
+                gates=gates,
+                artifact_ids=(),
+                new_information_hash=information_hash(
+                    action=ActionCode.A07_OPTIMIZE,
+                    status="failed",
+                    observations=observations,
+                    metrics=metrics,
+                ),
+            )
+
         base_params = dict(
             (self.repository.get_scheme(outcome.base_scheme_id).config_json or {}).get("parameters")
             or {}
