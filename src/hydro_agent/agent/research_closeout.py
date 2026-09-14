@@ -32,9 +32,7 @@ class ResearchFreezeToolHandler:
             None,
         )
         resolve_gates = dict(latest_resolve.gates_json or {}) if latest_resolve else {}
-        qualification_status = str(
-            resolve_gates.get("qualification_status") or "NOT_EVALUATED"
-        )
+        qualification_status = str(resolve_gates.get("qualification_status") or "NOT_EVALUATED")
         release_approved = bool(
             qualification_status == "QUALIFIED"
             and campaign.release_candidate_scheme_id == state.current_scheme_id
