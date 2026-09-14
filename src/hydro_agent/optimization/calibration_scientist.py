@@ -13,6 +13,7 @@ from pydantic import Field
 
 from hydro_agent.execution.contracts import FrozenModel
 from hydro_agent.knowledge.expert import ExpertKnowledgeRepository
+from hydro_agent.knowledge.governance import KnowledgeQueryContext
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 
 ParameterGroup = Literal["evap", "runoff", "routing"]
@@ -118,15 +119,17 @@ def plan_from_diagnosis(
     strategies: CalibrationStrategyRegistry | None = None,
     expert_knowledge: ExpertKnowledgeRepository | None = None,
     campaign_objective: ObjectiveName | None = None,
+    knowledge_context: KnowledgeQueryContext | None = None,
 ) -> CalibrationPlan:
     """Translate a diagnosis into an auditable optimization experiment.
 
     Evidence is primary. Expert priors may refine parameter groups and bounded
     search scope, but remain advisory metadata and never alter validation Gate
-    rules or the teacher/kernel absolute parameter limits. When the campaign
-    objective is supplied (directly or as ``diagnosis['campaign_objective']``),
-    it is immutable for this plan and expert/diagnosis objective suggestions are
-    ignored.
+    rules or the teacher/kernel absolute parameter limits. Unverified expert
+    priors are inactive unless a campaign supplies an explicit governed query
+    context that permits them. When the campaign objective is supplied (directly
+    or as ``diagnosis['campaign_objective']``), it is immutable for this plan and
+    expert/diagnosis objective suggestions are ignored.
     """
 
     registry = strategies or CalibrationStrategyRegistry()
@@ -153,6 +156,7 @@ def plan_from_diagnosis(
     advice = expert.advise(
         diagnosis,
         basin_attributes=basin_attributes if isinstance(basin_attributes, dict) else None,
+        governance_context=knowledge_context,
     )
     if advice.recommended_param_groups:
         groups = _normalize_groups(advice.recommended_param_groups, groups)
