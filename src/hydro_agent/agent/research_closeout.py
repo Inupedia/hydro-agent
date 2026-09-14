@@ -10,7 +10,7 @@ class ResearchFreezeToolHandler:
 
     Research final-test eligibility and release approval are deliberately separate:
     any selected result may enter read-only final evaluation after the Campaign
-    stops, while only a QUALIFIED result is marked release-approved.
+    stops, while only the selected QUALIFIED release candidate is release-approved.
     """
 
     def __init__(self, repository, *, freeze_service):
@@ -35,7 +35,10 @@ class ResearchFreezeToolHandler:
         qualification_status = str(
             resolve_gates.get("qualification_status") or "NOT_EVALUATED"
         )
-        release_approved = qualification_status == "QUALIFIED"
+        release_approved = bool(
+            qualification_status == "QUALIFIED"
+            and campaign.release_candidate_scheme_id == state.current_scheme_id
+        )
 
         if campaign.stop_reason is None:
             observations = (
