@@ -43,6 +43,7 @@ from hydro_agent.services.calibration_evidence import (
     apply_calibration_evidence_to_diagnosis,
     build_calibration_evidence,
 )
+from hydro_agent.services.calibration_feedback import apply_latest_gate_feedback
 from hydro_agent.services.forecast import ForecastService
 from hydro_agent.services.snapshots import SnapshotResolver
 from hydro_agent.services.workspace import MaterializingWorkspaceManager
@@ -274,12 +275,25 @@ class RealWorkbenchKernel:
                 notes.append(f"continuous_calibration_evidence_unavailable={exc}")
                 result["notes"] = notes
 
+        result = apply_latest_gate_feedback(
+            result,
+            self.repository.list_evidence(task_id),
+        )
         notes = list(result.get("notes") or [])
         notes.insert(0, f"scheme_id={scheme_id}")
         notes.insert(
             1,
             f"held_out_development_window={window.start.isoformat()}..{window.end.isoformat()}",
         )
+        feedback = result.get("gate_feedback")
+        if isinstance(feedback, dict):
+            notes.insert(
+                2,
+                "gate_feedback="
+                + str(feedback.get("status") or "unknown")
+                + ":"
+                + ",".join(str(item) for item in feedback.get("reasons") or []),
+            )
         result["notes"] = notes
         return result
 
