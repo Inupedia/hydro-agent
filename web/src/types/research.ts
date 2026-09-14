@@ -43,6 +43,13 @@ export type ResearchTrial = {
   adoption_status: string
   qualification_status: string
   metric_deltas: Record<string, number>
+  parameter_delta?: Record<string, number>
+  baseline_nse?: number | null
+  candidate_nse?: number | null
+  base_primary?: number | null
+  candidate_primary?: number | null
+  search_score?: number | null
+  gate_reasons?: string[]
   evidence_refs: string[]
   hypothesis_outcome: 'supported' | 'refuted' | 'inconclusive'
   reason_codes: string[]

@@ -10,10 +10,18 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from hydro_agent.agent.contracts import ActionCode
 from hydro_agent.optimization.experiments import TrialLedger, TrialRecord, infer_trial_outcome
+
+CALIBRATION_CHART_ARTIFACTS = (
+    "calibration-comparison.png",
+    "calibration-comparison.json",
+    "calibration-comparison.csv",
+    "calibration-metrics.json",
+)
 
 
 def _dict(value: object) -> dict[str, Any]:
@@ -63,6 +71,24 @@ def _bool(value: object) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes"}
 
 
+def _parameter_delta(gates: dict[str, Any]) -> dict[str, float]:
+    raw = gates.get("parameter_delta_json") or gates.get("parameter_delta")
+    if isinstance(raw, str) and raw.strip():
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            raw = {}
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, float] = {}
+    for key, value in raw.items():
+        parsed = _float(value)
+        if parsed is None:
+            continue
+        out[str(key)] = parsed
+    return out
+
+
 def _stable_signature(gates: dict[str, Any]) -> str:
     payload = {
         "strategy_id": str(gates.get("strategy_id") or ""),
@@ -78,6 +104,24 @@ def _stable_signature(gates: dict[str, Any]) -> str:
 def _plan_id(a07_id: str, signature: str) -> str:
     digest = hashlib.sha256(f"{a07_id}|{signature}".encode()).hexdigest()[:16]
     return f"plan-{digest}"
+
+
+def agent_calibration_document(
+    rows: Sequence[object], output_dir: Path | str | None = None
+) -> dict[str, object]:
+    """Serialize the trial ledger plus rate-window chart files for reports."""
+
+    ledger = TrialLedgerBuilder().build(rows)
+    root = Path(output_dir) if output_dir else None
+    artifacts = [
+        name
+        for name in CALIBRATION_CHART_ARTIFACTS
+        if root is not None and (root / name).is_file()
+    ]
+    return {
+        "trials": [record.model_dump(mode="json") for record in ledger.records],
+        "artifacts": artifacts,
+    }
 
 
 class TrialLedgerBuilder:
@@ -158,6 +202,14 @@ class TrialLedgerBuilder:
                 reason_codes.append("development_gate_recorded")
             if resolve_row is not None:
                 reason_codes.append("resolve_recorded")
+            gate_reasons = tuple(
+                dict.fromkeys(
+                    (
+                        *_tokens(gate_gates.get("reasons") or gate_gates.get("reason_codes")),
+                        *_tokens(gate_gates.get("qualification_reasons")),
+                    )
+                )
+            )
 
             ledger.append(
                 TrialRecord(
@@ -179,6 +231,10 @@ class TrialLedgerBuilder:
                     adoption_status=adoption,
                     qualification_status=qualification,
                     metric_deltas=metric_deltas,
+                    parameter_delta=_parameter_delta(gates),
+                    baseline_nse=_float(a07_metrics.get("baseline_nse")),
+                    candidate_nse=_float(a07_metrics.get("candidate_nse")),
+                    gate_reasons=gate_reasons,
                     evidence_refs=refs,
                     hypothesis_outcome=infer_trial_outcome(
                         adoption_status=adoption,

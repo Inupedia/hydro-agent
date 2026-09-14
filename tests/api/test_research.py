@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from hydro_agent.agent.contracts import ActionCode, EvidencePacket
 
 CREATE_BODY = {
@@ -59,6 +61,7 @@ def test_research_summary_rebuilds_protocol_trials_and_short_final_test(
                 "sensitivity_method": "morris",
                 "base_scheme_id": "base",
                 "candidate_scheme_id": "candidate",
+                "parameter_delta_json": "{\"K\": -0.2, \"SM\": 8.5}",
             },
             new_information_hash="hash-07",
         )
@@ -70,12 +73,13 @@ def test_research_summary_rebuilds_protocol_trials_and_short_final_test(
             action=ActionCode.A08_GATE,
             status="ROLLBACK",
             observations=("development rejected candidate",),
-            metrics={"primary_delta": -0.1},
+            metrics={"primary_delta": -0.1, "base_primary": -1.3, "candidate_primary": -3.8},
             gates={
                 "status": "ROLLBACK",
                 "adoption_status": "REJECT",
                 "qualification_status": "UNQUALIFIED",
                 "candidate_scheme_id": "candidate",
+                "reasons": "lead_1_guardrail,insufficient_absolute_skill",
             },
             new_information_hash="hash-08",
         )
@@ -162,6 +166,12 @@ def test_research_summary_rebuilds_protocol_trials_and_short_final_test(
     assert len(payload["trials"]) == 1
     assert payload["trials"][0]["hypothesis_outcome"] == "refuted"
     assert payload["trials"][0]["model_evaluations"] == 120
+    assert payload["trials"][0]["parameter_delta"]["K"] == pytest.approx(-0.2)
+    assert payload["trials"][0]["parameter_delta"]["SM"] == pytest.approx(8.5)
+    assert payload["trials"][0]["gate_reasons"] == [
+        "lead_1_guardrail",
+        "insufficient_absolute_skill",
+    ]
 
     final = payload["final_test_evidence"]
     assert final["quality"]["valid_count"] == 3

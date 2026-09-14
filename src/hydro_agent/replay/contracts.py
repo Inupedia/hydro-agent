@@ -38,3 +38,5 @@ class ReplayEvaluation(FrozenModel):
     forcing_mode: Literal["R", "F"]
     provenance: dict[str, object] = {}
     hydrograph: dict[str, object] | None = None
+    # Search process kept even when Gate ROLLBACK keeps the baseline scheme.
+    agent_calibration: dict[str, object] = {}

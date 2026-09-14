@@ -7,6 +7,7 @@ from typing import Protocol
 
 from hydro_agent.agent.contracts import ActionCode, AgentDecision, EvidencePacket
 from hydro_agent.execution.hashing import sha256_bytes
+from hydro_agent.optimization.ledger import agent_calibration_document
 from hydro_agent.services.calibration import CalibrationExecutionFailed
 
 
@@ -697,6 +698,15 @@ class EvaluateReportToolHandler:
         evaluation = self.evaluation_service.evaluate(
             task_id, self.observation_snapshot_id, output_dir=self.output_dir
         )
+        agent_calibration = agent_calibration_document(
+            self.repository.list_evidence(task_id), self.output_dir
+        )
+        calibration_path = Path(self.output_dir) / "agent-calibration.json"
+        calibration_path.write_text(
+            json.dumps(agent_calibration, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        evaluation = evaluation.model_copy(update={"agent_calibration": agent_calibration})
         json_path, md_path = self.report_builder.build(evaluation, self.output_dir)
         artifacts = [json_path.name, md_path.name]
         for name in (
@@ -705,6 +715,11 @@ class EvaluateReportToolHandler:
             "test-hydrograph.png",
             "test-metrics.json",
             "research-evidence.json",
+            "calibration-comparison.csv",
+            "calibration-comparison.json",
+            "calibration-comparison.png",
+            "calibration-metrics.json",
+            "agent-calibration.json",
         ):
             if (Path(self.output_dir) / name).is_file():
                 artifacts.append(name)

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { api } from '../api/client'
+import ReportSectionHead from './ReportSectionHead.vue'
 import type { EvidenceSlice, ResearchSummary } from '../types/research'
 
 const props = defineProps<{ taskId: string | null }>()
@@ -67,6 +68,44 @@ function statusTone(value: string) {
   return 'neutral'
 }
 
+function optimizerLabel(value?: string | null) {
+  const labels: Record<string, string> = {
+    dds: '动态维搜索',
+    'sce-ua': '复合进化',
+    'random-search': '随机搜索',
+    manual: '手工',
+  }
+  return labels[value || ''] || value || '—'
+}
+
+function objectiveLabel(value?: string | null) {
+  const labels: Record<string, string> = {
+    nse: 'NSE',
+    kge: 'KGE',
+    peak: '洪峰',
+    composite: 'KGE',
+  }
+  return labels[value || ''] || (value ? value.toUpperCase() : '—')
+}
+
+function paramGroupLabel(value: string) {
+  const labels: Record<string, string> = {
+    evap: '蒸发',
+    runoff: '产流',
+    routing: '汇流',
+  }
+  return labels[value] || value
+}
+
+function sourceLabel(value?: string | null) {
+  const labels: Record<string, string> = {
+    persisted_evidence: '已落库证据',
+    composite_to_kge: '综合目标记为 KGE',
+    'composite->kge': '综合目标记为 KGE',
+  }
+  return labels[value || ''] || value || '—'
+}
+
 function sliceState(slice: EvidenceSlice | undefined) {
   if (!slice) return 'unavailable'
   return slice.status
@@ -94,14 +133,16 @@ watch(() => props.taskId, load)
 
 <template>
   <section class="research-panel" data-test="research-evidence-panel" aria-labelledby="research-evidence-title">
-    <header class="research-head">
-      <div>
-        <span class="research-overline">RESEARCH AUDIT</span>
-        <h2 id="research-evidence-title">研究证据</h2>
-        <p>把实验协议、每轮试验与最终独立检验放在同一条可审计链路里。</p>
-      </div>
-      <span v-if="summary" class="protocol-badge">{{ protocolModeLabel }}</span>
-    </header>
+    <ReportSectionHead
+      overline="研究审计"
+      title="研究证据"
+      subtitle="把实验协议、每轮试验与最终独立检验放在同一条可审计链路里。"
+      title-id="research-evidence-title"
+    >
+      <template v-if="summary" #aside>
+        <span class="protocol-badge">{{ protocolModeLabel }}</span>
+      </template>
+    </ReportSectionHead>
 
     <div v-if="loading" class="research-state" aria-live="polite">正在读取研究证据…</div>
     <div v-else-if="error" class="research-state is-error" role="alert">
@@ -119,46 +160,46 @@ watch(() => props.taskId, load)
         </div>
         <div class="protocol-grid">
           <article>
-            <small>率定 Calibration</small>
+            <small>率定窗</small>
             <strong>{{ range(protocol.calibration_start_date, protocol.calibration_end_date) }}</strong>
             <span>用于参数搜索与实验生成</span>
           </article>
           <article>
-            <small>开发验证 Development</small>
+            <small>开发验证窗</small>
             <strong>{{ range(protocol.development_start_date, protocol.development_end_date) }}</strong>
-            <span>候选方案 Gate，可反复比较</span>
+            <span>候选方案门控，可反复比较</span>
           </article>
           <article class="final-test-card">
-            <small>最终独立检验 Final Test</small>
+            <small>最终独立检验</small>
             <strong>{{ range(protocol.final_test_start_date, protocol.final_test_end_date) }}</strong>
             <span>冻结后只读，绝不参与参数选择</span>
           </article>
         </div>
         <p class="contract-note">
-          Rolling forecast skill 与 continuous simulation skill 分开报告，不做混合平均。
+          滚动预报技巧与连续模拟技巧分开报告，不做混合平均。
         </p>
       </section>
 
       <section class="research-section plan-section">
         <div class="section-title-row">
-          <div><span>02</span><h3>最新 ExperimentPlan</h3></div>
-          <span v-if="plan?.sensitivity_method" class="audit-chip neutral">{{ plan.sensitivity_method === 'morris' ? 'Morris 筛选' : plan.sensitivity_method }}</span>
+          <div><span>02</span><h3>最新实验计划</h3></div>
+          <span v-if="plan?.sensitivity_method" class="audit-chip neutral">{{ plan.sensitivity_method === 'morris' ? '全局敏感性筛选' : plan.sensitivity_method }}</span>
         </div>
         <div v-if="plan" class="plan-grid">
           <div><small>策略</small><strong>{{ plan.strategy_id || '—' }}</strong></div>
-          <div><small>优化器</small><strong>{{ (plan.optimizer || '—').toUpperCase() }}</strong></div>
-          <div><small>目标</small><strong>{{ (plan.objective || '—').toUpperCase() }}</strong></div>
+          <div><small>优化器</small><strong>{{ optimizerLabel(plan.optimizer) }}</strong></div>
+          <div><small>目标</small><strong>{{ objectiveLabel(plan.objective) }}</strong></div>
           <div><small>模型评估预算</small><strong>{{ plan.evaluation_budget ?? '—' }}</strong></div>
-          <div class="plan-wide"><small>参数组</small><strong>{{ plan.param_groups.length ? plan.param_groups.join(' · ') : '—' }}</strong></div>
+          <div class="plan-wide"><small>参数组</small><strong>{{ plan.param_groups.length ? plan.param_groups.map(paramGroupLabel).join(' · ') : '—' }}</strong></div>
           <div class="plan-wide"><small>本轮依据</small><span>{{ plan.reason_codes.length ? plan.reason_codes.join(' · ') : '由当前诊断证据生成' }}</span></div>
-          <div v-if="plan.active_parameters.length" class="plan-wide"><small>Active Parameter Set</small><span>{{ plan.active_parameters.join(' · ') }}</span></div>
+          <div v-if="plan.active_parameters.length" class="plan-wide"><small>活动参数</small><span>{{ plan.active_parameters.join(' · ') }}</span></div>
         </div>
-        <p v-else class="empty-copy">本任务没有执行参数优化，因此没有 ExperimentPlan。</p>
+        <p v-else class="empty-copy">本任务没有执行参数优化，因此没有实验计划。</p>
       </section>
 
       <section class="research-section ledger-section">
         <div class="section-title-row">
-          <div><span>03</span><h3>Trial Ledger</h3></div>
+          <div><span>03</span><h3>试验账本</h3></div>
           <span class="audit-chip neutral">{{ trials.length }} 次受控实验</span>
         </div>
         <div v-if="trials.length" class="ledger-scroll" tabindex="0" aria-label="试验账本，可横向滚动">
@@ -168,7 +209,7 @@ watch(() => props.taskId, load)
                 <th>轮次</th>
                 <th>策略</th>
                 <th class="numeric">模型评估</th>
-                <th>开发 Gate</th>
+                <th>开发门控</th>
                 <th>采用</th>
                 <th>资格</th>
                 <th>假设结果</th>
@@ -213,7 +254,7 @@ watch(() => props.taskId, load)
               <strong>{{ annualStabilityStatus === 'available' ? '有可用证据' : '样本不足' }}</strong>
             </div>
             <div>
-              <small>FDC</small>
+              <small>流量历时曲线</small>
               <strong>{{ evidence.fdc.status === 'available' ? '有可用证据' : '样本不足' }}</strong>
             </div>
             <div>
@@ -222,7 +263,7 @@ watch(() => props.taskId, load)
             </div>
           </div>
           <p v-if="evidence.fdc.status !== 'available' || annualStabilityStatus !== 'available'" class="insufficient-note">
-            “样本不足”不是零分：当前窗口不支持年度稳定性/FDC等结论，系统不会用短样本伪造稳定性证据。
+            “样本不足”不是零分：当前窗口不支持年度稳定性或流量历时曲线等结论，系统不会用短样本伪造稳定性证据。
           </p>
         </template>
         <p v-else class="empty-copy">最终检验过程线尚未形成，当前不展示推断性证据。</p>
@@ -231,11 +272,11 @@ watch(() => props.taskId, load)
       <details class="research-technical">
         <summary>审计字段</summary>
         <dl>
-          <div><dt>Final test</dt><dd>{{ audit?.window || range(protocol.final_test_start_date, protocol.final_test_end_date) }}</dd></div>
-          <div><dt>Trial source</dt><dd>{{ summary.contracts.trial_ledger_source }}</dd></div>
-          <div v-if="summary.contracts.evidence_source_priority"><dt>Evidence source</dt><dd>{{ summary.contracts.evidence_source_priority }}</dd></div>
-          <div><dt>Objective alias</dt><dd>{{ summary.contracts.objective_alias }}</dd></div>
-          <div v-if="plan?.experiment_signature"><dt>Experiment signature</dt><dd>{{ plan.experiment_signature }}</dd></div>
+          <div><dt>最终检验窗</dt><dd>{{ audit?.window || range(protocol.final_test_start_date, protocol.final_test_end_date) }}</dd></div>
+          <div><dt>试验来源</dt><dd>{{ sourceLabel(summary.contracts.trial_ledger_source) }}</dd></div>
+          <div v-if="summary.contracts.evidence_source_priority"><dt>证据来源</dt><dd>{{ sourceLabel(summary.contracts.evidence_source_priority) }}</dd></div>
+          <div><dt>目标别名</dt><dd>{{ sourceLabel(summary.contracts.objective_alias) }}</dd></div>
+          <div v-if="plan?.experiment_signature"><dt>实验签名</dt><dd>{{ plan.experiment_signature }}</dd></div>
         </dl>
       </details>
     </template>
@@ -244,7 +285,7 @@ watch(() => props.taskId, load)
 
 <style scoped>
 .research-panel {
-  margin-top: 24px;
+  margin: 0;
   padding: 24px;
   color: var(--text-primary);
   background: var(--surface);
@@ -253,7 +294,6 @@ watch(() => props.taskId, load)
   box-shadow: var(--shadow);
 }
 
-.research-head,
 .section-title-row {
   display: flex;
   align-items: flex-start;
@@ -261,14 +301,11 @@ watch(() => props.taskId, load)
   gap: 16px;
 }
 
-.research-head h2,
 .section-title-row h3 {
   margin: 0;
 }
 
-.research-head h2 { font-size: 22px; line-height: 1.35; }
-.research-head p { margin: 4px 0 0; color: var(--text-secondary); }
-.research-overline { color: var(--text-tertiary); font-size: 11px; font-weight: 600; letter-spacing: .12em; }
+.section-title-row h3 { font-size: 16px; }
 
 .protocol-badge,
 .audit-chip,
@@ -394,7 +431,6 @@ watch(() => props.taskId, load)
 
 @media (max-width: 640px) {
   .research-panel { padding: 16px; }
-  .research-head,
   .section-title-row { align-items: stretch; flex-direction: column; }
   .protocol-grid,
   .plan-grid,

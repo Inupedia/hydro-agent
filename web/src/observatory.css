@@ -92,11 +92,8 @@
   display: flex;
   align-items: center;
 }
-.header-case-picker select {
+.header-case-picker .glass-select {
   width: min(240px, 32vw);
-  min-height: 36px;
-  padding: 0 32px 0 12px;
-  font-size: 13px;
 }
 .header-new-task {
   min-height: 36px;
@@ -534,32 +531,29 @@
 }
 .footer-divider { padding: 0 12px; color: var(--separator); }
 
-.forecast-surface {
+.forecast-surface,
+.results-stack {
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  margin: 0 0 12px;
+  gap: 16px;
+  margin: 0;
+}
+.report-module {
+  padding: 24px;
   background: var(--surface);
   border: 1px solid var(--separator);
   border-radius: var(--radius-lg);
-  padding: 22px 16px 12px;
-  overflow: visible;
+  box-shadow: var(--shadow);
 }
-.chart-title {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: center;
-  padding: 0 8px;
-}
-.chart-title h2 { font-size: 18px; }
-.chart-title span,
-.chart-note {
-  font-size: 12px;
+.module-meta {
+  max-width: 28ch;
   color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: right;
 }
-.chart-note { padding: 0 8px; }
-.forecast-surface .chart {
+.report-module .chart {
   flex: none;
   min-height: 200px;
   height: min(280px, 34vh);
@@ -607,16 +601,11 @@
   padding-bottom: 8px;
   overscroll-behavior: contain;
 }
-.main-stage--results .forecast-surface,
-.main-stage--results .hydrologist-mount,
+.main-stage--results .results-stack,
 .main-stage--results .tuning-mount {
   flex: 0 0 auto;
 }
-.main-stage--results .forecast-surface { margin: 0 0 12px; overflow: visible; }
-.main-stage--results .hydrologist-mount {
-  max-height: none;
-  overflow: visible;
-}
+.main-stage--results .results-stack { margin: 0; overflow: visible; }
 .results-pending {
   display: flex;
   flex-direction: column;
@@ -632,13 +621,6 @@
   line-height: 1.6;
 }
 .tuning-mount .param-tuning { margin-top: 0; }
-.hydrologist-mount {
-  flex: 0 0 auto;
-  margin: 0 0 10px;
-  max-height: min(42vh, 420px);
-  overflow: auto;
-  scrollbar-gutter: stable;
-}
 
 .observatory.is-focus .observatory-grid,
 .observatory.is-results .observatory-grid {
@@ -714,7 +696,7 @@
   .observatory-brand small { font-size: 8px; }
   .connection { font-size: 10px; padding: 8px 10px; }
   .observatory-footer { flex-wrap: wrap; font-size: 9px; }
-  .forecast-surface { padding: 18px 6px; }
+  .report-module { padding: 16px; }
   .main-stage .live-workflow { min-height: 240px; }
   .observatory.is-focus .observatory-grid,
   .observatory.is-results .observatory-grid { grid-template-columns: minmax(0, 1fr); }
@@ -726,7 +708,7 @@
   .observatory.is-results .journal-pane { grid-column: auto; grid-row: 2; }
   .header-end { flex-wrap: wrap; justify-content: flex-end; }
   .header-case-picker { font-size: 0; gap: 0; }
-  .header-case-picker select { width: min(168px, 46vw); font-size: 12px; }
+  .header-case-picker .glass-select { width: min(168px, 46vw); font-size: 12px; }
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -762,7 +744,7 @@
   .muted { margin-bottom: 20px; }
   .task-pane { padding: 22px 18px; }
   .journal-list { min-height: 100px; }
-  .forecast-surface .chart {
+  .report-module .chart {
     min-height: 180px;
     height: min(240px, 28vh);
     max-height: 280px;
@@ -770,7 +752,7 @@
   .source-note { margin: 12px 0 18px; }
   .case-picker { padding-top: 14px; }
   .main-stage .live-workflow { min-height: 0; max-height: none; }
-  .main-stage--results .forecast-surface .chart,
+  .main-stage--results .report-module .chart,
   .main-stage--results .chart {
     height: min(380px, 42vh) !important;
     min-height: 260px !important;

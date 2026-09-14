@@ -99,6 +99,7 @@ class ReplayReportBuilder:
         else:
             lines.append("- continuous evidence unavailable for this evaluation snapshot")
 
+        lines.extend(["", *self._agent_calibration_section(evaluation)])
         lines.extend(["", *self._research_evidence_section(evaluation)])
         lines.extend(
             [
@@ -154,6 +155,90 @@ class ReplayReportBuilder:
             "",
         ]
         return lines
+
+    def _agent_calibration_section(self, evaluation: ReplayEvaluation) -> list[str]:
+        from hydro_agent.api.i18n_zh import gate_reason_zh, status_zh
+
+        payload = evaluation.agent_calibration if isinstance(evaluation.agent_calibration, dict) else {}
+        trials = payload.get("trials") if isinstance(payload.get("trials"), list) else []
+        artifacts = payload.get("artifacts") if isinstance(payload.get("artifacts"), list) else []
+        if not trials and not artifacts:
+            return []
+
+        lines = [
+            "## 智能体调参",
+            "ROLLBACK 只决定最终是否采用候选，不删除搜索过程。本节保留每一轮与观测的率定窗对比、逐项参数变化，以及未采用原因。",
+            "",
+        ]
+        png = next((str(name) for name in artifacts if str(name).endswith(".png")), None)
+        json_name = next((str(name) for name in artifacts if str(name).endswith(".json")), None)
+        if png or json_name:
+            lines.append("率定窗过程线（观测 / 基准 / 候选，即使候选被回退也保留）：")
+            if png:
+                lines.append(f"- ![{png}]({png})")
+            if json_name:
+                lines.append(f"- `{json_name}`")
+            lines.append("")
+
+        if not trials:
+            lines.append("- 本任务没有产生参数试验。")
+            lines.append("")
+            return lines
+
+        for index, raw in enumerate(trials, start=1):
+            if not isinstance(raw, dict):
+                continue
+            gate = str(raw.get("development_gate") or "NOT_EVALUATED")
+            strategy = str(raw.get("strategy_id") or "unknown")
+            lines.append(f"### 第 {index} 轮 · `{strategy}` · {status_zh(gate)}")
+            base_nse = raw.get("baseline_nse")
+            cand_nse = raw.get("candidate_nse")
+            if isinstance(base_nse, (int, float)) or isinstance(cand_nse, (int, float)):
+                lines.append(
+                    f"- 率定窗 NSE：基准 {self._fmt(base_nse)} → 候选 {self._fmt(cand_nse)}"
+                )
+            base_primary = raw.get("base_primary")
+            cand_primary = raw.get("candidate_primary")
+            if isinstance(base_primary, (int, float)) or isinstance(cand_primary, (int, float)):
+                lines.append(
+                    f"- 开发窗滚动预报主指标：基准 {self._fmt(base_primary)} → 候选 {self._fmt(cand_primary)}"
+                )
+            reasons = raw.get("gate_reasons") if isinstance(raw.get("gate_reasons"), list) else []
+            if gate in {"ROLLBACK", "KEEP"} or reasons:
+                lines.append("- 未采用 / 回退原因：")
+                if reasons:
+                    for reason in reasons:
+                        code = str(reason)
+                        lines.append(f"  - {gate_reason_zh(code)} (`{code}`)")
+                else:
+                    lines.append(f"  - {status_zh(gate)}")
+            delta = raw.get("parameter_delta") if isinstance(raw.get("parameter_delta"), dict) else {}
+            changed = {
+                str(key): float(value)
+                for key, value in sorted(delta.items())
+                if isinstance(value, (int, float)) and abs(float(value)) > 1e-12
+            }
+            if changed:
+                lines.extend(
+                    [
+                        "- 参数变化（候选相对基准）：",
+                        "",
+                        "| 参数 | 变化量 |",
+                        "| --- | ---: |",
+                    ]
+                )
+                for key, value in changed.items():
+                    lines.append(f"| `{key}` | {value:+.6g} |")
+            else:
+                lines.append("- 参数变化：本轮没有记录到有效参数增量。")
+            lines.append("")
+        return lines
+
+    @staticmethod
+    def _fmt(value: object) -> str:
+        if isinstance(value, (int, float)):
+            return f"{float(value):.4f}"
+        return "—"
 
     def _hydrograph_section(self, evaluation: ReplayEvaluation) -> list[str]:
         hydro = evaluation.hydrograph

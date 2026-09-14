@@ -22,6 +22,20 @@ vi.mock('../api/client', () => ({
     getRun: vi.fn(async () => ({ status: 'running', worker_active: true })),
     getTimeline: vi.fn(async () => []),
     getAgentLog: vi.fn(async () => ({ task_id: 'test-task', rounds: [] })),
+    getResearch: vi.fn(async () => ({
+      task_id: 'test-task',
+      protocol: {},
+      latest_experiment_plan: null,
+      trials: [],
+      final_test_evidence: null,
+      final_test_audit: { consumed: false, read_only: false, single_use: false },
+      contracts: {
+        rolling_continuous_separated: true,
+        final_test_used_for_selection: false,
+        trial_ledger_source: 'persisted_evidence',
+        objective_alias: 'composite->kge',
+      },
+    })),
     getTask: vi.fn(async () => ({ basin_id: 'basin-restored', start_date: '2021-01-01', end_date: '2021-01-03', forcing_mode: 'R' })),
   },
 }))
@@ -74,8 +88,13 @@ describe('single page observatory', () => {
   it('lists Leaf River and keeps the selected basin', async () => {
     const { wrapper, store } = await setup()
     const selector = wrapper.find('[data-test="basin-selector"]')
-    expect(selector.text()).toContain('Leaf River near Collins')
-    await selector.setValue('usgs_02472000')
+    expect(selector.text()).toContain('腰古')
+    await selector.trigger('click')
+    await flushPromises()
+    const option = document.body.querySelector('[data-value="usgs_02472000"]') as HTMLElement | null
+    expect(option).not.toBeNull()
+    option?.click()
+    await flushPromises()
     expect(store.draft.basin_id).toBe('usgs_02472000')
     expect(wrapper.text()).toContain('使用 Leaf River near Collins (MS) 本地日资料')
     wrapper.unmount()
@@ -160,6 +179,7 @@ describe('single page observatory', () => {
     expect(wrapper.find('[data-test="header-case-picker"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="header-delete-case"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="param-tuning"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="hydrologist-tune"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('新安江参数如何被调整')
     expect(wrapper.text()).toContain('优化器提出的候选参数（变化 2 项，未必采用）')
     expect(wrapper.text()).toContain('最终采用参数（正式变化 0 项）')
@@ -218,6 +238,80 @@ describe('single page observatory', () => {
     expect(store.draft.validation_days).toBe(30)
     expect(store.draft.final_test_days).toBe(30)
     expect(api.startRun).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('keeps a dedicated agent-calibration section after rollback', async () => {
+    vi.mocked(api.getResearch).mockResolvedValueOnce({
+      task_id: 'test-task',
+      protocol: {},
+      latest_experiment_plan: null,
+      trials: [
+        {
+          trial_id: 'trial-1',
+          plan_id: 'plan-1',
+          experiment_signature: 'sig',
+          strategy_id: 'xaj-broadened-refine-v1',
+          model_evaluations: 494,
+          development_gate: 'ROLLBACK',
+          adoption_status: 'REJECT',
+          qualification_status: 'UNQUALIFIED',
+          metric_deltas: {},
+          parameter_delta: { K: -0.12, SM: 6.5 },
+          baseline_nse: -6.315,
+          candidate_nse: 0.819,
+          gate_reasons: ['lead_1_guardrail'],
+          evidence_refs: [],
+          hypothesis_outcome: 'refuted',
+          reason_codes: [],
+        },
+      ],
+      final_test_evidence: null,
+      final_test_audit: { consumed: true, read_only: true, single_use: true },
+      contracts: {
+        rolling_continuous_separated: true,
+        final_test_used_for_selection: false,
+        trial_ledger_source: 'persisted_evidence',
+        objective_alias: 'composite->kge',
+      },
+    } as never)
+    const { wrapper, store } = await setup()
+    store.taskId = 'test-task'
+    store.run = { status: 'completed', worker_active: false, phase: 'E', needs_follow_up: false } as typeof store.run
+    store.results = {
+      task_id: 'test-task',
+      phase: 'E',
+      scheme: { scheme_id: 's', status: 'frozen', content_hash: 'h', model_id: 'xaj', provenance: {} },
+      forecasts: [],
+      metrics: {},
+      gate: { status: 'ROLLBACK' },
+      calibration_hydrograph: {
+        kind: 'calibration',
+        title: '率定',
+        calibrated: false,
+        gate_status: 'ROLLBACK',
+        warmup_days: 1,
+        evaluated_days: 9,
+        series: [{ time: '1990-03-20', observed_m3s: 10, baseline_m3s: 4, candidate_m3s: 9, window: 'calibration', is_warmup: false }],
+      },
+      test_hydrograph: {
+        kind: 'independent_test',
+        title: '检验',
+        calibrated: false,
+        gate_status: 'ROLLBACK',
+        warmup_days: 0,
+        evaluated_days: 3,
+        series: [{ time: '1990-03-26', observed_m3s: 12, baseline_m3s: 8, frozen_m3s: 8, window: 'test', is_warmup: false }],
+      },
+      report_artifacts: ['report.md'],
+      costs: {},
+    }
+    await flushPromises()
+    expect(wrapper.find('[data-test="agent-calibration-panel"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('智能体调参')
+    expect(wrapper.text()).toContain('xaj-broadened-refine-v1')
+    expect(wrapper.text()).toContain('第 1 日预见期 NSE 下降超过允许值')
+    expect(wrapper.findAll('[data-test="hydrograph"]')).toHaveLength(2)
     wrapper.unmount()
   })
 })

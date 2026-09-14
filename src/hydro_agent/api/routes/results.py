@@ -32,6 +32,7 @@ REPORT_ARTIFACT_NAMES = {
     "calibration-comparison.json",
     "calibration-comparison.png",
     "calibration-metrics.json",
+    "agent-calibration.json",
     "test-hydrograph.csv",
     "test-hydrograph.json",
     "test-hydrograph.png",

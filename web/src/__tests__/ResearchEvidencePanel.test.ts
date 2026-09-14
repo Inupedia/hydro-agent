@@ -96,10 +96,12 @@ describe('ResearchEvidencePanel', () => {
 
     expect(api.getResearch).toHaveBeenCalledWith('task-1')
     expect(wrapper.text()).toContain('研究证据')
-    expect(wrapper.text()).toContain('率定 Calibration')
-    expect(wrapper.text()).toContain('开发验证 Development')
-    expect(wrapper.text()).toContain('最终独立检验 Final Test')
+    expect(wrapper.text()).toContain('率定窗')
+    expect(wrapper.text()).toContain('开发验证窗')
+    expect(wrapper.text()).toContain('最终独立检验')
     expect(wrapper.text()).toContain('只读 · 单次消费完成')
+    expect(wrapper.text()).toContain('最新实验计划')
+    expect(wrapper.text()).toContain('试验账本')
     expect(wrapper.text()).toContain('xaj-water-balance-v1')
     expect(wrapper.text()).toContain('KGE')
     expect(wrapper.text()).toContain('384')
@@ -112,10 +114,10 @@ describe('ResearchEvidencePanel', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('年度稳定性')
-    expect(wrapper.text()).toContain('FDC')
+    expect(wrapper.text()).toContain('流量历时曲线')
     expect(wrapper.text()).toContain('样本不足')
     expect(wrapper.text()).toContain('不会用短样本伪造稳定性证据')
-    expect(wrapper.text()).toContain('Rolling forecast skill 与 continuous simulation skill 分开报告，不做混合平均')
+    expect(wrapper.text()).toContain('滚动预报技巧与连续模拟技巧分开报告，不做混合平均')
   })
 
   it('keeps research fetch errors visible in the owning panel', async () => {

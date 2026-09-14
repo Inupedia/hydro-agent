@@ -93,6 +93,10 @@ class TrialRecord(FrozenModel):
     adoption_status: str = "NOT_EVALUATED"
     qualification_status: str = "NOT_EVALUATED"
     metric_deltas: dict[str, float] = Field(default_factory=dict)
+    parameter_delta: dict[str, float] = Field(default_factory=dict)
+    baseline_nse: float | None = None
+    candidate_nse: float | None = None
+    gate_reasons: tuple[str, ...] = ()
     evidence_refs: tuple[str, ...] = ()
     hypothesis_outcome: TrialOutcome = "inconclusive"
     reason_codes: tuple[str, ...] = ()

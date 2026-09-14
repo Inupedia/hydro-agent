@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, type BasinInfo, type ModelPlan } from '../api/client'
+import GlassSelect from './GlassSelect.vue'
 
 const props = defineProps<{
   basinId?: string | null
@@ -38,6 +39,21 @@ const labels: Record<string, string> = {
 
 const canBuild = computed(() => !!basin.value?.ready_for_build)
 const materials = computed(() => basin.value?.materials || { hydro: false, dem: false, gis: false })
+const reusePlanOptions = computed(() => [
+  { value: '', label: '新建一份模型方案' },
+  ...reusablePlans.value.map((plan) => ({
+    value: plan.plan_id,
+    label: `${plan.plan_id} · ${plan.model_mode === 'distributed' ? '分布式' : '集总式'} · ${labels[plan.status] || plan.status}`,
+  })),
+])
+const selectedReusePlanId = computed({
+  get: () => current.value?.plan_id || '',
+  set: (id: string) => choosePlan(id),
+})
+const structureOptions = [
+  { value: 'lumped', label: '集总式 · 先切割再合并为 1 套新安江参数' },
+  { value: 'distributed', label: '分布式 · 按面积阈值保留全部子流域，每单元一套参数' },
+]
 const buildLabel = computed(() => {
   if (loadingBasin.value) return '正在检查资料…'
   if (!basin.value && error.value) return '无法读取流域资料'
@@ -107,8 +123,7 @@ async function refreshPlans() {
   }
 }
 
-async function choose(event: Event) {
-  const id = (event.target as HTMLSelectElement).value
+async function choosePlan(id: string) {
   reviewed.value = false
   mapBroken.value = false
   current.value = plans.value.find((p) => p.plan_id === id) || null
@@ -268,12 +283,12 @@ onUnmounted(() => {
 
       <div class="reuse-row">
         <label>复用模型方案
-          <select aria-label="复用模型方案" :disabled="locked || busy" :value="current?.plan_id || ''" @change="choose">
-            <option value="">新建一份模型方案</option>
-            <option v-for="p in reusablePlans" :key="p.plan_id" :value="p.plan_id">
-              {{ p.plan_id }} · {{ p.model_mode || 'lumped' }} · {{ labels[p.status] }}
-            </option>
-          </select>
+          <GlassSelect
+            v-model="selectedReusePlanId"
+            aria-label="复用模型方案"
+            :disabled="locked || busy"
+            :options="reusePlanOptions"
+          />
         </label>
         <div class="reuse-actions">
           <button type="button" class="manage-button" data-test="manage-plans" :disabled="locked || busy || !reusablePlans.length" @click="toggleManage">
@@ -309,10 +324,12 @@ onUnmounted(() => {
 
       <fieldset :disabled="locked || busy || loadingBasin || !canBuild">
         <label>结构模式
-          <select v-model="modelMode" aria-label="结构模式">
-            <option value="lumped">集总式 · 先切割再合并为 1 套 XAJ</option>
-            <option value="distributed">分布式 · 按面积阈值保留全部子流域，每单元一套 XAJ</option>
-          </select>
+          <GlassSelect
+            :model-value="modelMode"
+            aria-label="结构模式"
+            :options="structureOptions"
+            @update:model-value="(value) => { if (value === 'lumped' || value === 'distributed') modelMode = value }"
+          />
         </label>
         <p class="mode-hint">
           {{
@@ -322,7 +339,7 @@ onUnmounted(() => {
           }}
         </p>
         <details open>
-          <summary>划分与预热参数（与 notebook 第 2、3 节相同）</summary>
+          <summary>划分与预热参数（与建模笔记第 2、3 节相同）</summary>
           <div class="model-settings">
             <label>DEM 分辨率 RESOLUTION（m）<input v-model.number="resolution" type="number" min="30" max="1000" /></label>
             <label>河网阈值 STREAM_AREA_KM2（km²）<input v-model.number="streamArea" type="number" min="1" /></label>

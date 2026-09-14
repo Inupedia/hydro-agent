@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import ReportSectionHead from './ReportSectionHead.vue'
 
 const props = defineProps<{
   diagnosis?: Record<string, unknown> | null
@@ -169,14 +170,15 @@ function fmtDelta(value: number | null) {
 
 <template>
   <section v-if="showPanel" class="param-tuning" data-test="param-tuning">
-    <header class="param-tuning-head">
-      <div>
-        <span class="overline">调参与判断</span>
-        <h2>新安江参数如何被调整</h2>
-        <p>诊断假设 → 水文员手工改参对比（优先）或有界搜索 → 与基础方案对照 → Gate。</p>
-      </div>
-      <span v-if="scheme?.status" class="status-pill">{{ scheme.status === 'frozen' ? '已冻结' : scheme.status }}</span>
-    </header>
+    <ReportSectionHead
+      overline="参数变化"
+      title="新安江参数如何被调整"
+      subtitle="诊断假设 → 有界搜索 → 与基础方案对照 → 质量门控。"
+    >
+      <template v-if="scheme?.status" #aside>
+        <span class="status-pill">{{ scheme.status === 'frozen' ? '已冻结' : scheme.status }}</span>
+      </template>
+    </ReportSectionHead>
 
     <div v-if="hypotheses.length" class="tuning-block">
       <h3>诊断假设</h3>
@@ -270,7 +272,7 @@ function fmtDelta(value: number | null) {
         </table>
       </div>
       <p v-if="!changedRows.length" class="hint">
-        正式采纳变化为 0 项；若上方存在候选变化，表示候选已搜索但未通过 Gate，并非优化器没有工作。
+        正式采纳变化为 0 项；若上方存在候选变化，表示候选已搜索但未通过质量门控，并非优化器没有工作。
       </p>
     </div>
   </section>
@@ -278,31 +280,12 @@ function fmtDelta(value: number | null) {
 
 <style scoped>
 .param-tuning {
-  margin: 8px 0 18px;
-  padding: 20px;
+  margin: 0;
+  padding: 24px;
   border: 1px solid var(--separator);
   border-radius: var(--radius-lg);
   background: var(--surface);
   box-shadow: var(--shadow);
-}
-.param-tuning-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
-  margin-bottom: 16px;
-}
-.param-tuning-head h2 {
-  margin: 6px 0 6px;
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: -0.3px;
-}
-.param-tuning-head p {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--text-secondary);
 }
 .status-pill {
   flex-shrink: 0;
@@ -311,6 +294,9 @@ function fmtDelta(value: number | null) {
   border-radius: 999px;
   background: var(--info-soft);
   color: var(--info);
+}
+.tuning-block {
+  margin-top: 16px;
 }
 .tuning-block + .tuning-block {
   margin-top: 16px;

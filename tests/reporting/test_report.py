@@ -82,6 +82,25 @@ def test_report_contains_traceable_scheme_snapshot_forecasts_metrics_and_researc
         sample_counts={"lead_1": 3},
         forcing_mode="R",
         provenance={"source_scheme_id": "scheme-base"},
+        agent_calibration={
+            "artifacts": ["calibration-comparison.png", "calibration-comparison.json"],
+            "trials": [
+                {
+                    "strategy_id": "xaj-water-balance-v1",
+                    "development_gate": "ROLLBACK",
+                    "baseline_nse": -6.315,
+                    "candidate_nse": 0.782,
+                    "base_primary": -1.317,
+                    "candidate_primary": -11.411,
+                    "gate_reasons": [
+                        "lead_1_guardrail",
+                        "lead_1_high_flow_guardrail",
+                        "insufficient_absolute_skill",
+                    ],
+                    "parameter_delta": {"K": -0.25, "SM": 10.0},
+                }
+            ],
+        },
     )
     report_builder = ReplayReportBuilder()
     json_path, md_path = report_builder.build(evaluation, tmp_path)
@@ -107,6 +126,14 @@ def test_report_contains_traceable_scheme_snapshot_forecasts_metrics_and_researc
     assert "Hydrologic Evidence · final_test" in text
     assert "research-evidence.json" in text
     assert "intentionally not averaged together" in text
+    assert "智能体调参" in text
+    assert "ROLLBACK 只决定最终是否采用候选" in text
+    assert "calibration-comparison.png" in text
+    assert "xaj-water-balance-v1" in text
+    assert "率定窗 NSE" in text
+    assert "`K`" in text
+    assert "第 1 日预见期 NSE 下降超过允许值" in text
+    assert "lead_1_guardrail" in text
 
     again_json, again_md = report_builder.build(evaluation, tmp_path / "again")
     assert again_json.read_bytes() == json_path.read_bytes()

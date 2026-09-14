@@ -62,7 +62,7 @@ const dataset = computed<MetricDataset | null>(() => {
     const after = raw.candidate_primary
     if (typeof before === 'number' && Number.isFinite(before) && typeof after === 'number' && Number.isFinite(after)) {
       return {
-        categories: ['开发 Gate 主指标'],
+        categories: ['开发门控主指标'],
         baseline: [before],
         compared: [after],
         comparedLabel: '候选方案',

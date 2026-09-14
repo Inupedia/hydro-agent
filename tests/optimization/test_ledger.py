@@ -30,7 +30,9 @@ def test_ledger_reconstructs_complete_calibration_cycle():
                 "model_evaluations": "384",
                 "base_scheme_id": "base",
                 "candidate_scheme_id": "cand",
+                "parameter_delta_json": "{\"K\": -0.25, \"SM\": 10.0}",
             },
+            metrics={"objective_value": 0.78, "baseline_nse": -6.3, "candidate_nse": 0.78},
         ),
         row(
             "ev-08",
@@ -41,6 +43,8 @@ def test_ledger_reconstructs_complete_calibration_cycle():
                 "adoption_status": "REJECT",
                 "qualification_status": "UNQUALIFIED",
                 "candidate_scheme_id": "cand",
+                "reasons": "lead_1_guardrail,lead_1_high_flow_guardrail,insufficient_absolute_skill",
+                "qualification_reasons": "insufficient_absolute_skill",
             },
             metrics={"primary_delta": -0.2, "candidate_delta": -0.2},
         ),
@@ -69,6 +73,14 @@ def test_ledger_reconstructs_complete_calibration_cycle():
     assert trial.hypothesis_outcome == "refuted"
     assert trial.evidence_refs == ("ev-06", "ev-07", "ev-08", "ev-09")
     assert trial.metric_deltas["primary_delta"] == -0.2
+    assert trial.parameter_delta == {"K": -0.25, "SM": 10.0}
+    assert trial.baseline_nse == -6.3
+    assert trial.candidate_nse == 0.78
+    assert trial.gate_reasons == (
+        "lead_1_guardrail",
+        "lead_1_high_flow_guardrail",
+        "insufficient_absolute_skill",
+    )
 
 
 def test_ledger_prefers_persisted_plan_metadata_when_available():
@@ -144,3 +156,25 @@ def test_new_a07_flushes_previous_open_trial_without_cross_cycle_gate_leakage():
     assert first.hypothesis_outcome == "inconclusive"
     assert second.evidence_refs == ("diag-2", "opt-2", "gate-2", "resolve-2")
     assert second.hypothesis_outcome == "supported"
+
+
+def test_agent_calibration_document_lists_existing_chart_artifacts(tmp_path):
+    from hydro_agent.optimization.ledger import agent_calibration_document
+
+    (tmp_path / "calibration-comparison.png").write_bytes(b"png")
+    payload = agent_calibration_document(
+        [
+            row(
+                "ev-07",
+                "A07_OPTIMIZE",
+                gates={"strategy_id": "xaj-water-balance-v1", "parameter_delta_json": '{"K": -0.2}'},
+                metrics={"baseline_nse": -1.0, "candidate_nse": 0.5},
+            )
+        ],
+        tmp_path,
+    )
+    assert payload["artifacts"] == ["calibration-comparison.png"]
+    trials = payload["trials"]
+    assert len(trials) == 1
+    assert trials[0]["parameter_delta"] == {"K": -0.2}
+    assert trials[0]["baseline_nse"] == -1.0

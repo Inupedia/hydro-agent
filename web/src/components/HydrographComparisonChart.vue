@@ -39,13 +39,19 @@ const captions = computed(() => {
     metricLine('基准方案', item.baseline_metrics),
     metricLine('候选方案', item.candidate_metrics),
     metricLine(finalLabel.value, item.frozen_metrics),
-    item.calibrated
-      ? '质量把关通过，候选方案已作为最终方案。'
-      : item.gate_status === 'KEEP'
-        ? '质量把关后维持原方案，最终方案与基准方案可能重合。'
-        : item.gate_status === 'ROLLBACK'
-          ? '候选方案已撤销，最终方案回到安全方案。'
-          : null,
+    item.kind === 'calibration'
+      ? item.gate_status === 'ROLLBACK'
+        ? '候选未过质量把关；本图仍展示智能体提出的率定窗对比。'
+        : item.gate_status === 'KEEP'
+          ? '质量把关后维持原方案；本图仍展示智能体提出的率定窗对比。'
+          : '率定窗口：观测、基准与智能体候选。'
+      : item.calibrated
+        ? '质量把关通过，候选方案已作为最终方案。'
+        : item.gate_status === 'KEEP'
+          ? '质量把关后维持原方案，最终方案与基准方案可能重合。'
+          : item.gate_status === 'ROLLBACK'
+            ? '候选方案已撤销，最终方案回到安全方案。'
+            : null,
   ].filter((line): line is string => Boolean(line))
 })
 

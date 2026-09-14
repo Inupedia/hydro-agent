@@ -7,8 +7,10 @@ import SchemeComparisonMetricsChart from '../components/SchemeComparisonMetricsC
 import LiveWorkflow from '../components/LiveWorkflow.vue'
 import ModelPreparation from '../components/ModelPreparation.vue'
 import type { ModelPlan } from '../types/api'
-import HydrologistTune from '../components/HydrologistTune.vue'
+import AgentCalibrationPanel from '../components/AgentCalibrationPanel.vue'
+import GlassSelect from '../components/GlassSelect.vue'
 import ParamTuningPanel from '../components/ParamTuningPanel.vue'
+import ReportSectionHead from '../components/ReportSectionHead.vue'
 import ResearchEvidencePanel from '../components/ResearchEvidencePanel.vue'
 import { useDemoStore } from '../stores/demo'
 import { api } from '../api/client'
@@ -21,7 +23,6 @@ const busy = ref(false)
 const serviceMode = ref<string | null>(null)
 const connected = ref(false)
 const modelingAvailable = ref(false)
-const hydrologistAvailable = ref(false)
 const basins = ref<import('../types/api').BasinInfo[]>([])
 const basinOptions = computed(() =>
   basins.value.length
@@ -31,6 +32,52 @@ const basinOptions = computed(() =>
 const selectedBasin = computed(() =>
   basinOptions.value.find((basin) => basin.basin_id === demo.draft.basin_id),
 )
+const basinSelectOptions = computed(() =>
+  basinOptions.value.map((basin) => ({
+    value: basin.basin_id,
+    label: `${basin.label} · ${basin.basin_id}${basin.ready_for_build === false ? '（资料不完整）' : ''}`,
+    disabled: basin.ready_for_build === false,
+  })),
+)
+const modelSelectOptions = [
+  { value: 'xaj', label: '新安江' },
+  { value: 'openhydronet', label: 'OpenHydroNet · 尚未启用', disabled: true },
+]
+const forcingSelectOptions = [
+  { value: 'R', label: '实测日资料 · 历史率定' },
+  { value: 'F', label: '预报资料 · 当前未开放', disabled: true },
+]
+const caseSelectOptions = computed(() => [
+  { value: '', label: demo.caseLibrary.length ? '选择一份已完成记录' : '暂无已完成记录' },
+  ...demo.caseLibrary.map((task) => ({
+    value: task.task_id,
+    label: `${task.start_date || task.task_id} · ${basinLabel(task.basin_id)}`,
+  })),
+])
+const selectedCaseId = computed({
+  get: () => (demo.mode === 'replay' ? demo.taskId || '' : ''),
+  set: (id: string) => {
+    void openCase(id)
+  },
+})
+const comparisonOverline = computed(() => {
+  if (!finalComparison.value) return '过程线整理中'
+  return finalComparison.value.kind === 'independent_test' ? '独立检验' : '率定窗口'
+})
+const comparisonSubtitle = computed(() => {
+  if (finalComparison.value?.kind === 'independent_test') {
+    return '主图保留最终判断所需的过程线：观测、原始基准和最终冻结方案。'
+  }
+  if (finalComparison.value) return '独立检验过程线尚未就绪，当前显示率定窗口对比。'
+  return '指标图先保留最终对比。若独立检验过程线稍后写入，这里会自动补上观测、基准与最终方案的时序曲线。'
+})
+const comparisonMeta = computed(() => {
+  if (finalComparison.value?.kind === 'independent_test') {
+    return `${finalComparison.value.evaluated_days} 天 · 观测 / 基准 / 最终方案`
+  }
+  if (finalComparison.value) return '观测 / 基准 / 候选方案'
+  return '方案指标已就绪 · 过程线继续整理'
+})
 const planReady = computed(() => !!demo.draft.model_plan_id)
 let syncingPlanBasin = false
 function selectPlan(plan: ModelPlan | null) {
@@ -107,19 +154,6 @@ const showTuning = computed(
       !!(demo.results.scheme?.parameter_delta && Object.keys(demo.results.scheme.parameter_delta).length) ||
       !!(demo.results.scheme?.parameters && Object.keys(demo.results.scheme.parameters).length)),
 )
-const showHydrologist = computed(
-  () =>
-    hydrologistAvailable.value &&
-    !focusStage.value &&
-    !!demo.taskId &&
-    !!demo.draft.model_plan_id &&
-    (showTuning.value ||
-      demo.run?.paused ||
-      demo.run?.status === 'idle' ||
-      !!demo.results?.optimize ||
-      completedActions.value.includes('A06_DIAGNOSE') ||
-      completedActions.value.includes('A07_OPTIMIZE')),
-)
 const mode = computed(() =>
   demo.mode === 'replay' ? '历史记录' : serviceMode.value === 'real' ? '真实计算' : serviceMode.value ? '模拟演示' : '连接待确认',
 )
@@ -154,8 +188,7 @@ async function resume() {
     busy.value = false
   }
 }
-async function openCase(event: Event) {
-  const id = (event.target as HTMLSelectElement).value
+async function openCase(id: string) {
   const task = demo.caseLibrary.find((t) => t.task_id === id)
   if (task) await demo.openCaseReplay(task)
 }
@@ -313,7 +346,6 @@ onMounted(async () => {
     const health = await api.health()
     connected.value = health.status === 'ok'
     modelingAvailable.value = !!health.model_preparation
-    hydrologistAvailable.value = !!health.hydrologist_tune
     serviceMode.value = health.mode || null
     if (health.basin_catalog) {
       try {
@@ -362,10 +394,14 @@ onUnmounted(() => {
       <div class="header-end">
         <div v-if="showResultsStage" class="header-actions">
           <label class="header-case-picker">已有案例
-            <select data-test="header-case-picker" aria-label="已有案例" :disabled="demo.isRunning || busy" :value="demo.mode === 'replay' ? demo.taskId : ''" @change="openCase">
-              <option value="">{{ demo.caseLibrary.length ? '选择一份已完成记录' : '暂无已完成记录' }}</option>
-              <option v-for="task in demo.caseLibrary" :key="task.task_id" :value="task.task_id">{{ task.start_date || task.task_id }} · {{ basinLabel(task.basin_id) }}</option>
-            </select>
+            <GlassSelect
+              v-model="selectedCaseId"
+              data-test="header-case-picker"
+              aria-label="已有案例"
+              compact
+              :disabled="demo.isRunning || busy"
+              :options="caseSelectOptions"
+            />
           </label>
           <button data-test="header-delete-case" type="button" class="case-delete" :disabled="demo.isRunning || busy || !demo.caseLibrary.length" @click="openCaseManager">管理</button>
           <button data-test="header-new-task" type="button" class="header-new-task" @click="newTask">新建任务</button>
@@ -401,24 +437,29 @@ onUnmounted(() => {
       <section ref="mainStage" class="main-stage glass-pane" :class="{ 'main-stage--focus': focusStage, 'main-stage--results': showResultsStage }">
         <LiveWorkflow v-if="showWorkflow" :action="action" :status="demo.run?.paused ? 'paused' : demo.run?.status" :completed-actions="completedActions" :gate-status="gateStatus" :expanded="focusStage" :workflow-version="demo.taskMeta?.workflow_version" />
         <ModelPreparation v-else-if="modelingAvailable && !demo.taskId" :basin-id="demo.draft.basin_id" :selected-id="demo.draft.model_plan_id" :locked="busy" @selected="selectPlan" />
-        <div v-else-if="showResultsStage" ref="forecastSurface" class="forecast-surface" data-test="forecast-surface">
-          <div class="chart-title">
-            <h2>最终方案对比</h2>
-            <span v-if="finalComparison?.kind === 'independent_test'">独立检验 · {{ finalComparison.evaluated_days }} 天 · 观测 / 基准 / 最终方案</span>
-            <span v-else-if="finalComparison">率定窗口 · 观测 / 基准 / 候选方案</span>
-            <span v-else>方案指标已就绪 · 过程线继续整理</span>
-          </div>
-          <template v-if="finalComparison">
-            <HydrographComparisonChart :comparison="finalComparison" />
-            <p class="chart-note">{{ finalComparison.kind === 'independent_test' ? '主图保留最终判断所需的过程线：观测、原始基准和最终冻结方案。' : '独立检验过程线尚未就绪，当前显示率定窗口对比。' }}</p>
-          </template>
-          <SchemeComparisonMetricsChart :comparison="finalComparison" :gate="demo.results?.gate" />
-          <div v-if="!finalComparison" class="results-pending"><span class="overline">过程线整理中</span><h2>指标图先保留最终对比</h2><p>运行已结束。若独立检验过程线稍后写入，这里会自动补上观测、基准与最终方案的时序曲线。</p></div>
+        <div v-else-if="showResultsStage" class="results-stack" data-test="forecast-surface">
+          <section ref="forecastSurface" class="report-module">
+            <ReportSectionHead
+              :overline="comparisonOverline"
+              title="最终方案对比"
+              :subtitle="comparisonSubtitle"
+            >
+              <template #aside>
+                <span class="module-meta">{{ comparisonMeta }}</span>
+              </template>
+            </ReportSectionHead>
+            <template v-if="finalComparison">
+              <HydrographComparisonChart :comparison="finalComparison" />
+            </template>
+            <SchemeComparisonMetricsChart :comparison="finalComparison" :gate="demo.results?.gate" />
+          </section>
+          <AgentCalibrationPanel v-if="demo.taskId" :task-id="demo.taskId" :comparison="demo.results?.calibration_hydrograph" />
           <ResearchEvidencePanel v-if="demo.taskId" :task-id="demo.taskId" />
+          <div v-if="showTuning" ref="tuningMount" class="tuning-mount">
+            <ParamTuningPanel :diagnosis="demo.results?.diagnosis" :optimize="demo.results?.optimize" :scheme="demo.results?.scheme" />
+          </div>
         </div>
         <div v-else class="prep-placeholder"><span class="overline">数据准备</span><h2>等待建模服务</h2><p>建模服务就绪后，将在此完成资料检查、单元划分与边界复核。</p></div>
-        <div v-if="showHydrologist" class="hydrologist-mount"><HydrologistTune :plan-id="demo.draft.model_plan_id" :task-id="demo.taskId" :locked="busy || demo.isRunning" /></div>
-        <div v-if="showTuning" ref="tuningMount" class="tuning-mount"><ParamTuningPanel :diagnosis="demo.results?.diagnosis" :optimize="demo.results?.optimize" :scheme="demo.results?.scheme" /></div>
       </section>
 
       <aside ref="taskPane" class="task-pane glass-pane">
@@ -431,9 +472,13 @@ onUnmounted(() => {
           <div class="pane-body">
             <fieldset :disabled="locked">
               <label>研究流域
-                <select v-model="demo.draft.basin_id" data-test="basin-selector" aria-label="研究流域">
-                  <option v-for="basin in basinOptions" :key="basin.basin_id" :value="basin.basin_id" :disabled="basin.ready_for_build === false">{{ basin.label }} · {{ basin.basin_id }}{{ basin.ready_for_build === false ? '（资料不完整）' : '' }}</option>
-                </select>
+                <GlassSelect
+                  v-model="demo.draft.basin_id"
+                  data-test="basin-selector"
+                  aria-label="研究流域"
+                  :disabled="locked"
+                  :options="basinSelectOptions"
+                />
               </label>
               <p v-if="demo.draft.model_plan_id" class="basin-caption">已绑定方案：{{ demo.draft.model_plan_id }}</p>
               <p v-else-if="serviceMode === 'real'" class="basin-caption">请先在左侧完成数据准备</p>
@@ -441,8 +486,12 @@ onUnmounted(() => {
               <div :class="{ 'is-locked': serviceMode === 'real' && !planReady }">
                 <fieldset :disabled="locked || (serviceMode === 'real' && !planReady)">
                   <div class="date-fields"><label>开始日期<input v-model="demo.draft.start_date" type="date" required /></label><label>结束日期<input v-model="demo.draft.end_date" type="date" :min="demo.draft.start_date" required /></label></div>
-                  <label>计算模型<select v-model="demo.draft.model_id"><option value="xaj">新安江 · XAJ</option><option value="openhydronet" disabled>OpenHydroNet · 尚未启用</option></select></label>
-                  <label>气象资料<select v-model="demo.draft.forcing_mode"><option value="R">实测日资料 · 历史率定</option><option value="F" disabled>预报资料 · 当前未开放</option></select></label>
+                  <label>计算模型
+                    <GlassSelect v-model="demo.draft.model_id" aria-label="计算模型" :options="modelSelectOptions" />
+                  </label>
+                  <label>气象资料
+                    <GlassSelect v-model="demo.draft.forcing_mode" aria-label="气象资料" :options="forcingSelectOptions" />
+                  </label>
                   <label class="toggle-row"><span>允许尝试改进方案</span><input v-model="demo.draft.allow_optimization" type="checkbox" role="switch" /></label>
                   <button class="text-button" type="button" :aria-expanded="advanced" @click="advanced = !advanced">{{ advanced ? '收起运行设置 −' : '运行设置 +' }}</button>
                   <div v-if="advanced" class="advanced-fields">
@@ -462,7 +511,17 @@ onUnmounted(() => {
             <button v-else-if="demo.isRunning" type="button" class="start-button" disabled>正在计算<span class="activity-dot" /></button>
             <button v-else type="button" class="start-button" @click="newTask">新建任务</button>
             <p class="source-note">{{ demo.draft.forcing_mode === 'R' ? `使用 ${selectedBasin?.label || demo.draft.basin_id} 本地日资料做历史率定与检验，不代表业务预报。` : '预报资料可用性将在运行时检查。' }}</p>
-            <div class="case-picker-row"><label class="case-picker">已有案例<select aria-label="已有案例" :disabled="demo.isRunning || busy" :value="demo.mode === 'replay' ? demo.taskId : ''" @change="openCase"><option value="">{{ demo.caseLibrary.length ? '选择一份已完成记录' : '暂无已完成记录' }}</option><option v-for="task in demo.caseLibrary" :key="task.task_id" :value="task.task_id">{{ task.start_date || task.task_id }} · {{ basinLabel(task.basin_id) }}</option></select></label><button data-test="delete-case" type="button" class="case-delete" :disabled="demo.isRunning || busy || !demo.caseLibrary.length" @click="openCaseManager">管理</button></div>
+            <div class="case-picker-row">
+              <label class="case-picker">已有案例
+                <GlassSelect
+                  v-model="selectedCaseId"
+                  aria-label="已有案例"
+                  :disabled="demo.isRunning || busy"
+                  :options="caseSelectOptions"
+                />
+              </label>
+              <button data-test="delete-case" type="button" class="case-delete" :disabled="demo.isRunning || busy || !demo.caseLibrary.length" @click="openCaseManager">管理</button>
+            </div>
           </div>
         </form>
       </aside>
@@ -481,7 +540,7 @@ onUnmounted(() => {
         />
       </aside>
     </main>
-    <footer class="observatory-footer"><span>HYDRO-AGENT <span class="footer-divider">/</span> 课题工作台</span><span>新安江模型 · 可追溯执行</span></footer>
+    <footer class="observatory-footer"><span>水文智能体 <span class="footer-divider">/</span> 课题工作台</span><span>新安江模型 · 可追溯执行</span></footer>
   </div>
 </template>
 

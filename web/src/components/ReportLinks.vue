@@ -10,6 +10,8 @@ function label(name: string) {
   if (name === 'report.json') return '下载指标数据（JSON）'
   if (name === 'test-hydrograph.csv') return '独立检验过程线（CSV）'
   if (name === 'calibration-comparison.csv') return '率定对比过程线（CSV）'
+  if (name === 'calibration-comparison.png') return '率定窗过程线（PNG）'
+  if (name === 'agent-calibration.json') return '智能体调参记录（JSON）'
   return name
 }
 </script>
