@@ -1,6 +1,8 @@
+import json
+
 import pytest
 
-from hydro_agent.optimization.morris import screen_morris
+from hydro_agent.optimization.morris import MorrisCheckpoint, screen_morris
 
 
 def test_morris_ranks_normalized_elementary_effects_and_builds_active_set():
@@ -68,3 +70,100 @@ def test_morris_keeps_parameters_with_insufficient_valid_effects():
     assert result.active_parameters == ("a", "b")
     assert set(result.insufficient_evidence_parameters) == {"a", "b"}
     assert all(item.status == "insufficient_evidence" for item in result.sensitivities)
+
+
+def test_morris_resume_matches_uninterrupted_without_replaying_score_calls():
+    bounds = {"a": (0.0, 2.0), "b": (-1.0, 1.0), "c": (0.0, 3.0)}
+
+    def objective(params):
+        return 2.0 * params["a"] - params["b"] ** 2 + 0.25 * params["c"]
+
+    uninterrupted_calls = 0
+
+    def uninterrupted_score(params):
+        nonlocal uninterrupted_calls
+        uninterrupted_calls += 1
+        return objective(params)
+
+    uninterrupted = screen_morris(
+        bounds=bounds,
+        score_fn=uninterrupted_score,
+        trajectories=6,
+        levels=6,
+        random_seed=42,
+        min_active_parameters=1,
+    )
+
+    class SimulatedInterruption(RuntimeError):
+        pass
+
+    first_calls = 0
+    captured: MorrisCheckpoint | None = None
+
+    def interrupted_score(params):
+        nonlocal first_calls
+        first_calls += 1
+        return objective(params)
+
+    def checkpoint(state: MorrisCheckpoint):
+        nonlocal captured
+        captured = MorrisCheckpoint.from_dict(json.loads(json.dumps(state.as_dict())))
+        if state.score_calls == 9:
+            raise SimulatedInterruption("worker stopped after durable Morris checkpoint")
+
+    with pytest.raises(SimulatedInterruption):
+        screen_morris(
+            bounds=bounds,
+            score_fn=interrupted_score,
+            trajectories=6,
+            levels=6,
+            random_seed=42,
+            min_active_parameters=1,
+            checkpoint_fn=checkpoint,
+        )
+
+    assert captured is not None
+    assert captured.score_calls == 9
+
+    resumed_calls = 0
+
+    def resumed_score(params):
+        nonlocal resumed_calls
+        resumed_calls += 1
+        return objective(params)
+
+    resumed = screen_morris(
+        bounds=bounds,
+        score_fn=resumed_score,
+        trajectories=6,
+        levels=6,
+        random_seed=42,
+        min_active_parameters=1,
+        resume_from=captured,
+    )
+
+    assert resumed.as_dict() == uninterrupted.as_dict()
+    assert first_calls + resumed_calls == uninterrupted_calls
+
+
+def test_morris_rejects_checkpoint_from_different_screening_contract():
+    checkpoint = screen_morris(
+        bounds={"x": (0.0, 1.0), "y": (0.0, 1.0)},
+        score_fn=lambda p: p["x"] + p["y"],
+        trajectories=3,
+        levels=6,
+        random_seed=3,
+        min_active_parameters=1,
+    ).checkpoint
+    assert checkpoint is not None
+
+    with pytest.raises(ValueError, match="parameter/bounds contract mismatch"):
+        screen_morris(
+            bounds={"x": (0.0, 2.0), "y": (0.0, 1.0)},
+            score_fn=lambda p: p["x"] + p["y"],
+            trajectories=3,
+            levels=6,
+            random_seed=3,
+            min_active_parameters=1,
+            resume_from=checkpoint,
+        )
