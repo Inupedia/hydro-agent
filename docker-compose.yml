@@ -16,7 +16,16 @@ services:
       - ./src:/app/src
       - ./workflow:/app/workflow:ro
       - ./scripts/run_workbench_api.py:/app/scripts/run_workbench_api.py:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
+      # Host Clash/proxy is 127.0.0.1:7897; that loopback is the container itself.
+      HTTP_PROXY: ${DOCKER_HTTP_PROXY:-http://host.docker.internal:7897}
+      HTTPS_PROXY: ${DOCKER_HTTPS_PROXY:-http://host.docker.internal:7897}
+      http_proxy: ${DOCKER_HTTP_PROXY:-http://host.docker.internal:7897}
+      https_proxy: ${DOCKER_HTTPS_PROXY:-http://host.docker.internal:7897}
+      NO_PROXY: localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+      no_proxy: localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
       HYDRO_AGENT_HOST: "0.0.0.0"
       HYDRO_AGENT_PORT: "8000"
       HYDRO_AGENT_DB: "/data/hydro.db"
