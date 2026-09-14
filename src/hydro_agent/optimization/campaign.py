@@ -16,6 +16,7 @@ from hydro_agent.execution.contracts import FrozenModel
 from hydro_agent.optimization.experiments import TrialRecord
 
 CampaignMode = Literal["smoke", "target_quality", "convergence"]
+SearchObjectivePolicy = Literal["fixed", "adaptive"]
 CampaignStopReason = Literal[
     "TARGET_QUALITY_REACHED",
     "CONVERGED",
@@ -41,6 +42,7 @@ class CampaignPolicy(FrozenModel):
     """
 
     mode: CampaignMode = "smoke"
+    search_objective_policy: SearchObjectivePolicy = "fixed"
     max_model_evaluations: int | None = Field(default=None, ge=1)
     min_model_evaluations: int | None = Field(default=None, ge=1)
     plateau_window: int | None = Field(default=None, ge=2)
@@ -81,11 +83,15 @@ class CampaignSnapshot(FrozenModel):
 def policy_from_workbench(workbench: Mapping[str, object] | None) -> CampaignPolicy:
     raw = dict(workbench or {})
     mode = str(raw.get("campaign_mode") or "smoke")
+    search_objective_policy = str(raw.get("search_objective_policy") or "fixed").strip().lower()
+    if search_objective_policy not in {"fixed", "adaptive"}:
+        search_objective_policy = "fixed"
     max_evaluations = _optional_int(raw.get("campaign_max_model_evaluations"))
     if mode == "smoke" and max_evaluations is None:
         max_evaluations = DEFAULT_SMOKE_MAX_MODEL_EVALUATIONS
     return CampaignPolicy(
         mode=mode,  # type: ignore[arg-type]
+        search_objective_policy=search_objective_policy,  # type: ignore[arg-type]
         max_model_evaluations=max_evaluations,
         min_model_evaluations=_optional_int(raw.get("campaign_min_model_evaluations")),
         plateau_window=_optional_int(raw.get("campaign_plateau_window")),
@@ -104,16 +110,24 @@ def rebuild_campaign(
     """Reconstruct the campaign deterministically from persisted trial records."""
 
     total_evaluations = sum(record.model_evaluations for record in records)
+    notes: list[str] = []
     search_candidates = [
         record
         for record in records
         if record.search_score is not None and record.candidate_scheme_id is not None
     ]
-    search_best = (
-        max(search_candidates, key=lambda record: float(record.search_score))
-        if search_candidates
-        else None
-    )
+    if policy.search_objective_policy == "fixed":
+        search_best = (
+            max(search_candidates, key=lambda record: float(record.search_score))
+            if search_candidates
+            else None
+        )
+    else:
+        search_best = None
+        if search_candidates:
+            notes.append(
+                "adaptive search objectives are not cross-comparable; campaign search_best is disabled"
+            )
 
     resolved = [record for record in records if record.resolve_recorded]
     selected_scores: list[float] = []
@@ -151,28 +165,33 @@ def rebuild_campaign(
         window = int(policy.plateau_window or 0)
         epsilon = float(policy.plateau_abs_epsilon or 0.0)
         # A KEEP leaves the selected development score unchanged even while the
-        # calibration search is improving. Require both trajectories to plateau;
-        # missing/failed search evidence must never manufacture convergence.
+        # calibration search is improving. Under a fixed search objective we
+        # therefore require both search and development trajectories to plateau.
+        # Adaptive search objectives are not numerically cross-comparable, so
+        # convergence may only use the independent development trajectory.
         recent = resolved[-(window + 1) :]
         complete = all(
-            record.search_score is not None
-            and isfinite(record.search_score)
-            and record.selected_primary is not None
+            record.selected_primary is not None
             and isfinite(record.selected_primary)
             and record.model_evaluations > 0
+            and (
+                policy.search_objective_policy == "adaptive"
+                or (record.search_score is not None and isfinite(record.search_score))
+            )
             for record in recent
         )
         if complete:
-            running_best = float("-inf")
-            search_scores = []
-            for record in resolved:
-                if record.search_score is not None and isfinite(record.search_score):
-                    running_best = max(running_best, record.search_score)
-                search_scores.append(running_best)
-            trajectories = (
-                search_scores[-(window + 1) :],
-                [float(record.selected_primary) for record in recent],
-            )
+            trajectories: list[list[float]] = [
+                [float(record.selected_primary) for record in recent]
+            ]
+            if policy.search_objective_policy == "fixed":
+                running_best = float("-inf")
+                search_scores = []
+                for record in resolved:
+                    if record.search_score is not None and isfinite(record.search_score):
+                        running_best = max(running_best, record.search_score)
+                    search_scores.append(running_best)
+                trajectories.insert(0, search_scores[-(window + 1) :])
             plateau_candidate = all(
                 current - previous <= epsilon
                 or isclose(current - previous, epsilon, rel_tol=1e-9, abs_tol=1e-12)
@@ -187,7 +206,6 @@ def rebuild_campaign(
 
     stop_reason: CampaignStopReason | None = None
     converged = False
-    notes: list[str] = []
     if policy.mode == "target_quality" and release_candidate is not None:
         stop_reason = "TARGET_QUALITY_REACHED"
     elif policy.mode == "convergence" and plateau_candidate and restart_check_satisfied:

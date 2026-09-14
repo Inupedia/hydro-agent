@@ -16,7 +16,7 @@ from hydro_agent.agent.contracts import (
 )
 from hydro_agent.agent.permissions import PermissionGate
 from hydro_agent.execution.hashing import sha256_bytes
-from hydro_agent.optimization.campaign import rebuild_campaign_from_evidence
+from hydro_agent.optimization.campaign import policy_from_workbench, rebuild_campaign_from_evidence
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 from hydro_agent.skills import SkillRegistry
 from hydro_agent.workbench.validation_gate import latest_candidate_scheme_id
@@ -107,6 +107,7 @@ class WorldStateBuilder:
             if raw_campaign_objective in {"nse", "peak", "composite"}
             else "nse"
         )
+        campaign_policy = policy_from_workbench(workbench)
         campaign = rebuild_campaign_from_evidence(
             evidence_rows,
             current_scheme_id=scheme.scheme_id,
@@ -132,14 +133,13 @@ class WorldStateBuilder:
             ),
             available_skills=self.skills.summaries_zh(),
             available_strategies=tuple(
-                sid
-                for sid in self.strategies.list_ids()
-                if sid != "xaj-hydrologist-manual-v1"
+                sid for sid in self.strategies.list_ids() if sid != "xaj-hydrologist-manual-v1"
             )
             or self.strategies.list_ids(),
             available_param_groups=("evap", "runoff", "routing"),
             available_objectives=("nse", "peak", "composite"),
             campaign_objective=campaign_objective,
+            search_objective_policy=campaign_policy.search_objective_policy,
             campaign=campaign,
             allow_unverified_expert_priors=bool(
                 workbench.get("allow_unverified_expert_priors", False)

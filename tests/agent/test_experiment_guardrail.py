@@ -14,7 +14,13 @@ from hydro_agent.agent.contracts import (
 from hydro_agent.agent.experiment_guardrail import apply_experiment_plan_guardrail
 
 
-def view(*, diagnosis, evidence=(), campaign_objective="nse"):
+def view(
+    *,
+    diagnosis,
+    evidence=(),
+    campaign_objective="nse",
+    search_objective_policy="fixed",
+):
     return WorldStateView(
         task=TaskSummary(
             task_id="task-1",
@@ -41,6 +47,7 @@ def view(*, diagnosis, evidence=(), campaign_objective="nse"):
                 "xaj-broadened-refine-v1",
             ),
             campaign_objective=campaign_objective,
+            search_objective_policy=search_objective_policy,
             diagnosis=diagnosis,
         ),
     )
@@ -90,7 +97,35 @@ def test_guardrail_obeys_fresh_diagnosis_but_keeps_campaign_objective_locked():
     assert planned.experiment_evidence_refs == ("ev-diag",)
     assert "diagnosis_recommendation" in planned.experiment_reason_codes
     assert "campaign_objective_locked" in planned.experiment_reason_codes
+    assert "policy=fixed" in planned.rationale_summary
     assert "diagnostic_objective_ignored=composite" in planned.rationale_summary
+
+
+def test_guardrail_uses_diagnosis_objective_in_adaptive_mode():
+    state = view(
+        diagnosis={
+            "phenomenon": "水量偏差显著，优先处理蒸散发和产流",
+            "recommended_strategy_id": "xaj-water-balance-v1",
+            "recommended_param_groups": ["evap", "runoff"],
+            "recommended_objective": "composite",
+            "metrics": {"nse": 0.1, "pbias_percent": 25.0},
+        },
+        evidence=(diagnosis_row(),),
+        campaign_objective="nse",
+        search_objective_policy="adaptive",
+    )
+
+    planned = apply_experiment_plan_guardrail(state, optimize_decision("xaj-local-refine-v1"))
+
+    assert planned.strategy_id == "xaj-water-balance-v1"
+    assert planned.param_groups == ("evap", "runoff")
+    assert planned.objective == "composite"
+    assert "adaptive_search_objective" in planned.experiment_reason_codes
+    assert "campaign_objective_locked" not in planned.experiment_reason_codes
+    assert "objective=composite" in planned.rationale_summary
+    assert "policy=adaptive" in planned.rationale_summary
+    assert "diagnostic_objective_ignored" not in planned.rationale_summary
+    assert "proposed_objective_overridden=nse" in planned.rationale_summary
 
 
 def test_guardrail_can_lock_kge_profile_via_runtime_composite_alias():

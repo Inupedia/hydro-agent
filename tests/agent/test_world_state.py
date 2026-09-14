@@ -32,6 +32,7 @@ def seeded_repository(database):
             "parameters": {"K": 0.7},
             "workbench": {
                 "calibration_objective": "composite",
+                "search_objective_policy": "adaptive",
                 "allow_unverified_expert_priors": True,
                 "forbidden_evidence_dataset_ids": ["same-campaign-observations"],
             },
@@ -55,6 +56,7 @@ def test_world_state_contains_only_decision_relevant_projection(seeded_repositor
     assert view.model.model_id == "xaj"
     assert view.scheme.scheme_id == "scheme-base"
     assert view.hydro.campaign_objective == "composite"
+    assert view.hydro.search_objective_policy == "adaptive"
     assert view.hydro.allow_unverified_expert_priors is True
     assert view.hydro.forbidden_evidence_dataset_ids == ("same-campaign-observations",)
     assert view.permissions.safe_actions
@@ -70,9 +72,7 @@ def test_world_state_surfaces_audited_basin_prior_from_diagnosis(seeded_reposito
             task_id="task-1",
             action=ActionCode.A06_DIAGNOSE,
             status="succeeded",
-            observations=(
-                'basin_attributes_json={"aridity": 0.62, "runoff_ratio": 0.41}',
-            ),
+            observations=('basin_attributes_json={"aridity": 0.62, "runoff_ratio": 0.41}',),
             metrics={"nse": 0.2},
             gates={
                 "hypothesis": "MODEL",

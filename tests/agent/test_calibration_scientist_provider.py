@@ -65,18 +65,20 @@ def _view(
     )
 
 
+def _composite_diagnosis() -> dict[str, object]:
+    return {
+        "hypothesis": "MODEL",
+        "phenomenon": "PBIAS=18%",
+        "recommended_action": "A07_OPTIMIZE",
+        "recommended_strategy_id": "xaj-water-balance-v1",
+        "recommended_param_groups": "evap,runoff",
+        "recommended_objective": "composite",
+        "metrics": {"pbias_percent": 18.0},
+    }
+
+
 def test_provider_turns_diagnosis_into_group_level_dds_experiment():
-    hydro = HydroContext(
-        diagnosis={
-            "hypothesis": "MODEL",
-            "phenomenon": "PBIAS=18%",
-            "recommended_action": "A07_OPTIMIZE",
-            "recommended_strategy_id": "xaj-water-balance-v1",
-            "recommended_param_groups": "evap,runoff",
-            "recommended_objective": "composite",
-            "metrics": {"pbias_percent": 18.0},
-        }
-    )
+    hydro = HydroContext(diagnosis=_composite_diagnosis())
     decision = CalibrationScientistDecisionProvider().decide(
         _view(latest_action=ActionCode.A06_DIAGNOSE, latest_status="succeeded", hydro=hydro)
     )
@@ -85,6 +87,22 @@ def test_provider_turns_diagnosis_into_group_level_dds_experiment():
     assert decision.strategy_id == "xaj-water-balance-v1"
     assert decision.param_groups == ("evap", "runoff")
     assert decision.objective == "nse"
+
+
+def test_provider_allows_diagnosis_objective_only_in_adaptive_mode():
+    hydro = HydroContext(
+        diagnosis=_composite_diagnosis(),
+        campaign_objective="nse",
+        search_objective_policy="adaptive",
+    )
+    decision = CalibrationScientistDecisionProvider().decide(
+        _view(latest_action=ActionCode.A06_DIAGNOSE, latest_status="succeeded", hydro=hydro)
+    )
+
+    assert decision.action == ActionCode.A07_OPTIMIZE
+    assert decision.strategy_id == "xaj-water-balance-v1"
+    assert decision.param_groups == ("evap", "runoff")
+    assert decision.objective == "composite"
 
 
 def test_provider_only_uses_unverified_seed_prior_when_campaign_opts_in():

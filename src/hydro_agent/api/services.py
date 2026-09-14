@@ -43,9 +43,7 @@ def build_runtime_task_config(
     development_start = runtime.get("development_start_date") or runtime.get(
         "validation_start_date"
     )
-    development_end = runtime.get("development_end_date") or runtime.get(
-        "validation_end_date"
-    )
+    development_end = runtime.get("development_end_date") or runtime.get("validation_end_date")
     if development_start:
         runtime["start_date"] = development_start
     if development_end:
@@ -80,10 +78,9 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
             raise ValueError("老师历史资料仅支持 R 回算；不可当作未来气象预报")
         from datetime import date, timedelta
 
-        if (
-            payload.start_date < date.fromisoformat(plan["suggested_start"])
-            or payload.end_date + timedelta(days=3) > date.fromisoformat(plan["data_end"])
-        ):
+        if payload.start_date < date.fromisoformat(
+            plan["suggested_start"]
+        ) or payload.end_date + timedelta(days=3) > date.fromisoformat(plan["data_end"]):
             raise ValueError("任务时段超出方案资料范围或预热长度不足")
         plan_config = json.loads(
             (deps.model_plans.directory(payload.model_plan_id) / "scheme.json").read_text(
@@ -120,6 +117,7 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
             "campaign_restart_distinct_strategies": payload.campaign_restart_distinct_strategies,
             "campaign_max_no_gain_gates": payload.campaign_max_no_gain_gates,
             "calibration_objective": payload.calibration_objective,
+            "search_objective_policy": payload.search_objective_policy,
             "allow_unverified_expert_priors": payload.allow_unverified_expert_priors,
             "forbidden_evidence_dataset_ids": list(payload.forbidden_evidence_dataset_ids),
         },
@@ -182,12 +180,7 @@ def build_task_summary(deps: AppDependencies, task_id: str) -> TaskSummary:
     end_date = config.get("research_end_date") or config.get("end_date")
     validation_days = config.get("validation_days") or config.get("development_days")
     final_test_days = config.get("final_test_days")
-    if (
-        start_date is None
-        or end_date is None
-        or validation_days is None
-        or final_test_days is None
-    ):
+    if start_date is None or end_date is None or validation_days is None or final_test_days is None:
         try:
             schemes = deps.repository.list_schemes(task_id=task_id)
             for scheme in schemes:
@@ -197,11 +190,7 @@ def build_task_summary(deps: AppDependencies, task_id: str) -> TaskSummary:
                     or workbench.get("research_start_date")
                     or workbench.get("start_date")
                 )
-                end_date = (
-                    end_date
-                    or workbench.get("research_end_date")
-                    or workbench.get("end_date")
-                )
+                end_date = end_date or workbench.get("research_end_date") or workbench.get("end_date")
                 validation_days = (
                     validation_days
                     or workbench.get("validation_days")

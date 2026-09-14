@@ -24,13 +24,13 @@ def apply_experiment_plan_guardrail(
     *,
     planner: ExperimentPlanner | None = None,
 ) -> AgentDecision:
-    """Replace novelty-based A07 choices with an evidence-conditioned registered plan.
+    """Replace free-form A07 choices with an evidence-conditioned registered plan.
 
     The LLM still decides whether optimization is warranted. Once A07 is chosen,
-    however, strategy/groups are selected from persisted diagnosis and prior trial
-    outcomes while the objective is fixed by the campaign workbench contract. If
-    planning context is unavailable, the original legal decision is retained rather
-    than inventing evidence.
+    strategy/groups are selected from persisted diagnosis and prior trial outcomes.
+    A fixed search policy keeps the preregistered campaign objective immutable;
+    adaptive search lets the persisted hydrologic diagnosis choose the numerical
+    objective while the independent development Gate remains the comparison ruler.
     """
 
     if decision.action != ActionCode.A07_OPTIMIZE:
@@ -41,10 +41,11 @@ def apply_experiment_plan_guardrail(
 
     diagnosis = dict(view.hydro.diagnosis or {})
     diagnostic_objective = str(diagnosis.get("recommended_objective") or "").strip()
-    # A diagnosis/expert prior may say which error pattern deserves attention,
-    # but cannot swap the scoring ruler between experiments. The workbench value
-    # is pre-registered in WorldStateBuilder and defaults to the historical NSE.
-    diagnosis["recommended_objective"] = view.hydro.campaign_objective
+    objective_is_locked = view.hydro.search_objective_policy == "fixed"
+    if objective_is_locked:
+        # Diagnosis may identify an error pattern, but a fixed campaign keeps the
+        # numerical scoring ruler identical across every optimization experiment.
+        diagnosis["recommended_objective"] = view.hydro.campaign_objective
 
     diagnosis_row = _latest_diagnosis(view)
     evidence_refs = (diagnosis_row.evidence_id,) if diagnosis_row is not None else ()
@@ -88,21 +89,27 @@ def apply_experiment_plan_guardrail(
         prior_trials=prior_trials,
         planner="agent",
     )
-    plan = plan.model_copy(
-        update={
-            "reason_codes": tuple(
-                dict.fromkeys((*plan.reason_codes, "campaign_objective_locked"))
-            )
-        }
+    policy_reason = (
+        "campaign_objective_locked" if objective_is_locked else "adaptive_search_objective"
     )
+    plan = plan.model_copy(
+        update={"reason_codes": tuple(dict.fromkeys((*plan.reason_codes, policy_reason)))}
+    )
+    effective_objective = runtime_objective(plan.objective)
     reason_text = ",".join(plan.reason_codes) or "registered_plan"
     rationale = decision.rationale_summary
     audit_suffix = (
-        f" [plan={plan.plan_id}; objective={view.hydro.campaign_objective}; "
-        f"reasons={reason_text}]"
+        f" [plan={plan.plan_id}; objective={effective_objective}; "
+        f"policy={view.hydro.search_objective_policy}; reasons={reason_text}]"
     )
-    if diagnostic_objective and diagnostic_objective != view.hydro.campaign_objective:
+    if (
+        objective_is_locked
+        and diagnostic_objective
+        and diagnostic_objective != view.hydro.campaign_objective
+    ):
         audit_suffix += f" [diagnostic_objective_ignored={diagnostic_objective}]"
+    if not objective_is_locked and decision.objective and decision.objective != effective_objective:
+        audit_suffix += f" [proposed_objective_overridden={decision.objective}]"
     if audit_suffix not in rationale:
         rationale = (rationale + audit_suffix)[:600]
 
@@ -110,7 +117,7 @@ def apply_experiment_plan_guardrail(
         update={
             "strategy_id": plan.strategy_id,
             "param_groups": plan.param_groups,
-            "objective": runtime_objective(plan.objective),
+            "objective": effective_objective,
             "rationale_summary": rationale,
             "experiment_plan_id": plan.plan_id,
             "experiment_signature": plan.experiment_signature,
