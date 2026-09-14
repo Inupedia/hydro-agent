@@ -4,6 +4,18 @@
   "status": "seed_prior",
   "authority": "advisory_only",
   "description": "面向 XAJ 率定智能体的专家先验种子。用于约束诊断和实验设计，不是规范条文，也不能绕过独立验证 Gate。",
+  "governance": {
+    "revision": 1,
+    "category": "expert_diagnostic_prior",
+    "review_status": "approved",
+    "verification_status": "unverified",
+    "applicability": {
+      "model_ids": ["xaj"]
+    },
+    "exposure_tags": [],
+    "evidence_dataset_ids": [],
+    "evidence_refs": ["source.hydrologist_calibration_priors.v1"]
+  },
   "provenance": {
     "inspiration": "zhuanglaihong/HydroAgent Expert Hydrologist skill and LLM calibration workflow",
     "source_url": "https://github.com/zhuanglaihong/HydroAgent",
