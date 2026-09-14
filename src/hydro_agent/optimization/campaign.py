@@ -24,6 +24,10 @@ CampaignStopReason = Literal[
     "HUMAN_HANDOVER",
 ]
 
+# Smoke validates wiring, not scientific convergence. The deterministic default
+# is intentionally expressed in model evaluations rather than experiment count.
+DEFAULT_SMOKE_MAX_MODEL_EVALUATIONS = 1000
+
 
 class CampaignPolicy(FrozenModel):
     """Pre-registered campaign stopping policy.
@@ -73,9 +77,13 @@ class CampaignSnapshot(FrozenModel):
 
 def policy_from_workbench(workbench: Mapping[str, object] | None) -> CampaignPolicy:
     raw = dict(workbench or {})
+    mode = str(raw.get("campaign_mode") or "smoke")
+    max_evaluations = _optional_int(raw.get("campaign_max_model_evaluations"))
+    if mode == "smoke" and max_evaluations is None:
+        max_evaluations = DEFAULT_SMOKE_MAX_MODEL_EVALUATIONS
     return CampaignPolicy(
-        mode=str(raw.get("campaign_mode") or "smoke"),  # type: ignore[arg-type]
-        max_model_evaluations=_optional_int(raw.get("campaign_max_model_evaluations")),
+        mode=mode,  # type: ignore[arg-type]
+        max_model_evaluations=max_evaluations,
         min_model_evaluations=_optional_int(raw.get("campaign_min_model_evaluations")),
         plateau_window=_optional_int(raw.get("campaign_plateau_window")),
         plateau_abs_epsilon=_optional_float(raw.get("campaign_plateau_abs_epsilon")),
