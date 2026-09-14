@@ -43,9 +43,7 @@ def _trial(
 
 
 def test_smoke_policy_defaults_to_model_evaluation_budget_not_trial_count():
-    policy = policy_from_workbench(
-        {"campaign_mode": "smoke", "max_optimization_cycles": 2}
-    )
+    policy = policy_from_workbench({"campaign_mode": "smoke", "max_optimization_cycles": 2})
 
     assert policy.max_model_evaluations == DEFAULT_SMOKE_MAX_MODEL_EVALUATIONS
     assert not hasattr(policy, "smoke_max_trials")
