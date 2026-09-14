@@ -141,7 +141,7 @@ def test_research_summary_rebuilds_protocol_trials_and_short_final_test(
     assert response.status_code == 200
     payload = response.json()
 
-    assert payload["protocol"]["protocol_mode"] == "smoke"
+    assert payload["protocol"]["protocol_mode"] == "research"
     assert payload["protocol"]["calibration_start_date"] == "2025-05-01"
     assert payload["protocol"]["calibration_end_date"] == "2025-05-04"
     assert payload["protocol"]["development_start_date"] == "2025-05-05"
