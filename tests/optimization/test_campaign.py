@@ -1,6 +1,11 @@
 from types import SimpleNamespace
 
-from hydro_agent.optimization.campaign import CampaignPolicy, rebuild_campaign
+from hydro_agent.optimization.campaign import (
+    DEFAULT_SMOKE_MAX_MODEL_EVALUATIONS,
+    CampaignPolicy,
+    policy_from_workbench,
+    rebuild_campaign,
+)
 from hydro_agent.optimization.experiments import TrialRecord
 from hydro_agent.optimization.ledger import TrialLedgerBuilder
 
@@ -37,10 +42,31 @@ def _trial(
     )
 
 
+def test_smoke_policy_defaults_to_model_evaluation_budget_not_trial_count():
+    policy = policy_from_workbench(
+        {"campaign_mode": "smoke", "max_optimization_cycles": 2}
+    )
+
+    assert policy.max_model_evaluations == DEFAULT_SMOKE_MAX_MODEL_EVALUATIONS
+    assert not hasattr(policy, "smoke_max_trials")
+
+
 def test_campaign_separates_search_selected_and_release_best():
     records = (
-        _trial(1, search_score=0.4, base_primary=-154.392, selected_primary=-0.891, evaluations=495),
-        _trial(2, search_score=0.6, base_primary=-0.891, selected_primary=-0.762, evaluations=512),
+        _trial(
+            1,
+            search_score=0.4,
+            base_primary=-154.392,
+            selected_primary=-0.891,
+            evaluations=495,
+        ),
+        _trial(
+            2,
+            search_score=0.6,
+            base_primary=-0.891,
+            selected_primary=-0.762,
+            evaluations=512,
+        ),
     )
     snapshot = rebuild_campaign(
         records,
@@ -172,7 +198,11 @@ def test_campaign_resume_rebuilds_identical_state_from_persisted_evidence():
                 "adoption_status": "ADOPT",
                 "qualification_status": "UNQUALIFIED",
             },
-            metrics_json={"base_primary": 0.2, "candidate_primary": 0.4, "primary_delta": 0.2},
+            metrics_json={
+                "base_primary": 0.2,
+                "candidate_primary": 0.4,
+                "primary_delta": 0.2,
+            },
         ),
         SimpleNamespace(
             action="A09_RESOLVE",
