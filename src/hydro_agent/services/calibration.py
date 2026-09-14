@@ -32,6 +32,7 @@ class CalibrationExecutionFailed(RuntimeError):
         error_code: str | None,
         *,
         model_evaluations: int = 0,
+        evaluation_budget: int = 0,
         execution_attempts: int = 1,
         resume_attempts: int = 0,
     ):
@@ -40,6 +41,7 @@ class CalibrationExecutionFailed(RuntimeError):
         self.status = status
         self.error_code = error_code
         self.model_evaluations = max(0, int(model_evaluations))
+        self.evaluation_budget = max(0, int(evaluation_budget))
         self.execution_attempts = max(1, int(execution_attempts))
         self.resume_attempts = max(0, int(resume_attempts))
 
@@ -186,6 +188,7 @@ class CalibrationService:
                 result.status,
                 result.error_code,
                 model_evaluations=evaluation_count(workspace),
+                evaluation_budget=strategy.evaluation_budget,
                 execution_attempts=int(payload.get("execution_attempts") or 1),
                 resume_attempts=int(payload.get("resume_attempts") or 0),
             )
