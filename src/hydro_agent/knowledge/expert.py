@@ -36,7 +36,7 @@ class ExpertPriorAdvice(FrozenModel):
     source_id: str
     status: str
     authority: str
-    matched_rule_ids: tuple[str, ...] = ()
+    matched_prior_refs: tuple[str, ...] = ()
     recommended_param_groups: tuple[str, ...] | None = None
     recommended_objective: str | None = None
     notes: tuple[str, ...] = ()
@@ -237,7 +237,9 @@ class ExpertPriorEngine:
             source_id=source_id,
             status=str(source.get("status") or "seed_prior"),
             authority=str(source.get("authority") or "advisory_only"),
-            matched_rule_ids=tuple(rule.rule_id for rule in matches),
+            matched_prior_refs=tuple(
+                f"{rule.rule_id}@{self._entries[rule.rule_id].revision}" for rule in matches
+            ),
             recommended_param_groups=groups,
             recommended_objective=objective,
             notes=tuple(notes),
