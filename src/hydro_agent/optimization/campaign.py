@@ -208,6 +208,26 @@ def rebuild_campaign(
     )
 
 
+def rebuild_campaign_from_evidence(
+    rows: Sequence[object],
+    *,
+    current_scheme_id: str | None,
+    workbench: Mapping[str, object] | None,
+) -> CampaignSnapshot:
+    """Build the canonical Campaign view directly from persisted Evidence rows."""
+
+    # Local import keeps the Trial Ledger dependent on experiment contracts, not
+    # on Campaign policy, while all consumers share one reconstruction entrypoint.
+    from hydro_agent.optimization.ledger import TrialLedgerBuilder
+
+    ledger = TrialLedgerBuilder().build(rows)
+    return rebuild_campaign(
+        ledger.records,
+        current_scheme_id=current_scheme_id,
+        policy=policy_from_workbench(workbench),
+    )
+
+
 def _optional_int(value: object) -> int | None:
     if value is None or value == "":
         return None
