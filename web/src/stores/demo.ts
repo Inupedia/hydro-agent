@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { api } from '../api/client'
+import { DEMO_PRESET } from '../demo/preset'
 import type { ResultSummary, RunSummary, TaskCreateRequest, TaskSummary, TimelineItem } from '../types/api'
 
 export type RunMode = 'live' | 'replay' | 'simulated'
@@ -18,6 +19,8 @@ export type DraftConfig = {
   final_test_days: number
   max_agent_decision_rounds: number
   max_optimization_cycles: number
+  campaign_mode: 'smoke' | 'target_quality' | 'convergence'
+  campaign_max_model_evaluations: number
 }
 
 export type ConditionState = 'unchecked' | 'ok' | 'warn' | 'fail'
@@ -44,24 +47,29 @@ function loadSession(): SessionSnapshot | null {
 
 function defaultDraft(): DraftConfig {
   return {
-    basin_id: 'yaogu',
-    model_id: 'xaj',
-    start_date: '1991-01-01',
-    end_date: '1991-01-31',
-    forcing_mode: 'R',
-    base_scheme_id: 'scheme-base',
-    allow_optimization: true,
-    validation_days: 30,
-    final_test_days: 30,
-    max_agent_decision_rounds: 20,
-    max_optimization_cycles: 4,
+    ...DEMO_PRESET,
     model_plan_id: null,
   }
 }
 
+function hydrateDraft(saved?: Partial<DraftConfig> | null): DraftConfig {
+  const merged = { ...defaultDraft(), ...(saved || {}) }
+  if (
+    merged.campaign_mode !== 'smoke'
+    && merged.campaign_mode !== 'target_quality'
+    && merged.campaign_mode !== 'convergence'
+  ) {
+    merged.campaign_mode = DEMO_PRESET.campaign_mode
+  }
+  if (!Number.isFinite(merged.campaign_max_model_evaluations) || merged.campaign_max_model_evaluations < 1) {
+    merged.campaign_max_model_evaluations = DEMO_PRESET.campaign_max_model_evaluations
+  }
+  return merged
+}
+
 export const useDemoStore = defineStore('demo', () => {
   const saved = loadSession()
-  const draft = ref<DraftConfig>({ ...defaultDraft(), ...(saved?.draft || {}) })
+  const draft = ref<DraftConfig>(hydrateDraft(saved?.draft))
 
   const taskId = ref<string | null>(saved?.taskId || null)
   const mode = ref<RunMode>(saved?.mode || 'live')
@@ -365,6 +373,13 @@ export const useDemoStore = defineStore('demo', () => {
     sessionStorage.removeItem(SESSION_KEY)
   }
 
+  function applyDemoPreset() {
+    if (taskId.value || isRunning.value) return
+    const plan = draft.value.basin_id === DEMO_PRESET.basin_id ? draft.value.model_plan_id : null
+    draft.value = { ...defaultDraft(), model_plan_id: plan }
+    persistSession()
+  }
+
   return {
     draft,
     taskId,
@@ -400,5 +415,6 @@ export const useDemoStore = defineStore('demo', () => {
     openSettings,
     closeSettings,
     resetSession,
+    applyDemoPreset,
   }
 })

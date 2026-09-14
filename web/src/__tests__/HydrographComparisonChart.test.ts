@@ -38,7 +38,7 @@ it('renders observed, baseline and final scheme in one comparison chart', async 
       { time: '2020-05-01', observed_m3s: 10, baseline_m3s: 9, frozen_m3s: 9, window: 'warmup', is_warmup: true },
       { time: '2020-05-02', observed_m3s: 11, baseline_m3s: 10.5, frozen_m3s: 10.5, window: 'test', is_warmup: false },
     ],
-    baseline_metrics: { nse: 0.4, rmse_m3s: 1.2 },
+    baseline_metrics: { nse: 0.4, rmse_m3s: 1.2, start_date: '2020-05-02' },
     frozen_metrics: { nse: 0.4, rmse_m3s: 1.2 },
   }
   const wrapper = mount(HydrographComparisonChart, { props: { comparison: null } })

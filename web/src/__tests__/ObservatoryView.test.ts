@@ -3,10 +3,13 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ObservatoryView from '../views/ObservatoryView.vue'
+import ModelPreparation from '../components/ModelPreparation.vue'
 import { useDemoStore } from '../stores/demo'
 import { api } from '../api/client'
+import { DEMO_PRESET } from '../demo/preset'
 
 vi.mock('../components/HydrographComparisonChart.vue', () => ({ default: { template: '<div data-test="hydrograph" />' } }))
+vi.mock('../components/ModelPreparation.vue', () => ({ default: { name: 'ModelPreparation', emits: ['selected'], template: '<div />' } }))
 vi.mock('../components/ResearchEvidencePanel.vue', () => ({ default: { props: ['taskId'], template: '<div data-test="research-evidence-panel">research</div>' } }))
 vi.mock('../api/client', () => ({
   api: {
@@ -97,12 +100,74 @@ describe('single page observatory', () => {
     await flushPromises()
     expect(store.draft.basin_id).toBe('usgs_02472000')
     expect(wrapper.text()).toContain('使用 Leaf River near Collins (MS) 本地日资料')
+    expect(wrapper.find('[data-test="demo-preset"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('preserves valid demo dates when a ready plan is bound', async () => {
+    vi.mocked(api.health).mockResolvedValueOnce({ status: 'ok', mode: 'real', model_preparation: true, basin_catalog: true })
+    const { wrapper, store } = await setup()
+    store.draft.start_date = '2000-04-01'
+    store.draft.end_date = '2000-08-31'
+    wrapper.findComponent(ModelPreparation).vm.$emit('selected', {
+      plan_id: 'plan-ready', basin_id: 'yaogu', status: 'ready', stages: [],
+      suggested_start: '1990-03-14', suggested_end: '1990-03-28', data_start: '1990-01-01', data_end: '2005-12-31',
+    })
+    await flushPromises()
+    expect(store.draft.model_plan_id).toBe('plan-ready')
+    expect(store.draft.start_date).toBe('2000-04-01')
+    expect(store.draft.end_date).toBe('2000-08-31')
+    expect(wrapper.find('[data-test="start-date"]').attributes('min')).toBe('1990-01-01')
+    expect(wrapper.find('[data-test="end-date"]').attributes('max')).toBe('2005-12-31')
+    wrapper.unmount()
+  })
+
+  it('repairs dates that fall outside the bound plan range', async () => {
+    vi.mocked(api.health).mockResolvedValueOnce({ status: 'ok', mode: 'real', model_preparation: true, basin_catalog: true })
+    const { wrapper, store } = await setup()
+    const plan = {
+      plan_id: 'plan-ready', basin_id: 'yaogu', status: 'ready', stages: [] as [],
+      suggested_start: '1990-03-14', suggested_end: '1990-03-28', data_start: '1990-01-01', data_end: '2005-12-31',
+    }
+    store.draft.start_date = '1989-01-01'
+    store.draft.end_date = '1989-06-01'
+    wrapper.findComponent(ModelPreparation).vm.$emit('selected', plan)
+    await flushPromises()
+    expect(store.draft.start_date).toBe('1990-03-14')
+    expect(store.draft.end_date).toBe('1990-03-28')
+    store.draft.start_date = '2006-01-01'
+    store.draft.end_date = '2006-06-01'
+    wrapper.findComponent(ModelPreparation).vm.$emit('selected', plan)
+    await flushPromises()
+    expect(store.draft.start_date).toBe('1990-03-14')
+    expect(store.draft.end_date).toBe('1990-03-28')
+    wrapper.unmount()
+  })
+
+  it('loads the verified preset without discarding a prepared Yaogu plan', async () => {
+    const { wrapper, store } = await setup()
+    expect(store.draft).toMatchObject(DEMO_PRESET)
+    expect((wrapper.find('[data-test="start-date"]').element as HTMLInputElement).value).toBe('2000-04-01')
+    expect((wrapper.find('[data-test="end-date"]').element as HTMLInputElement).value).toBe('2000-08-31')
+    expect(wrapper.text()).toContain('2000-04-01')
+    expect(wrapper.find('[data-test="demo-preset"]').text()).toBe('重新载入演示默认值')
+    store.draft.model_plan_id = 'plan-ready'
+    store.draft.start_date = '1991-01-01'
+    await flushPromises()
+    expect(wrapper.find('[data-test="demo-preset"]').text()).toBe('载入演示默认值')
+    await wrapper.find('[data-test="demo-preset"]').trigger('click')
+    expect(store.draft).toMatchObject(DEMO_PRESET)
+    expect(store.draft.model_plan_id).toBe('plan-ready')
+    store.taskId = 'running-task'
+    store.draft.start_date = '1992-01-01'
+    store.applyDemoPreset()
+    expect(store.draft.start_date).toBe('1992-01-01')
     wrapper.unmount()
   })
 
   it('submits development and final-test windows with backend budget limits', async () => {
     const { wrapper } = await setup()
-    await wrapper.find('.text-button').trigger('click')
+    await wrapper.find('[data-test="runtime-settings"]').trigger('click')
     const development = wrapper.find('[data-test="development-days"]')
     const finalTest = wrapper.find('[data-test="final-test-days"]')
     expect(development.exists()).toBe(true)
@@ -112,12 +177,15 @@ describe('single page observatory', () => {
     expect(finalTest.attributes('min')).toBe('3')
     expect(finalTest.attributes('max')).toBe('90')
     expect(wrapper.find('input[v-model="demo.draft.max_agent_decision_rounds"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="campaign-budget"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="campaign-mode"]').text()).toContain('连通验证')
     await development.setValue(21)
     await finalTest.setValue(14)
+    await wrapper.find('[data-test="campaign-budget"]').setValue(600)
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(api.createTask).toHaveBeenCalledWith(
-      expect.objectContaining({ validation_days: 21, final_test_days: 14, max_agent_decision_rounds: 20, max_optimization_cycles: 4 }),
+      expect.objectContaining({ validation_days: 21, final_test_days: 14, max_agent_decision_rounds: 30, max_optimization_cycles: 4, campaign_mode: 'smoke', campaign_max_model_evaluations: 600 }),
     )
     wrapper.unmount()
   })
@@ -237,6 +305,9 @@ describe('single page observatory', () => {
     expect(store.draft.basin_id).toBe('basin-restored')
     expect(store.draft.validation_days).toBe(30)
     expect(store.draft.final_test_days).toBe(30)
+    expect(store.draft.campaign_mode).toBe('smoke')
+    expect(store.draft.campaign_max_model_evaluations).toBe(800)
+    expect(store.draft.max_agent_decision_rounds).toBe(20)
     expect(api.startRun).not.toHaveBeenCalled()
     wrapper.unmount()
   })

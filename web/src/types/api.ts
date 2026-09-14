@@ -35,6 +35,8 @@ export type TaskCreateRequest = {
   final_test_days?: number
   max_agent_decision_rounds: number
   max_optimization_cycles: number
+  campaign_mode?: 'smoke' | 'target_quality' | 'convergence'
+  campaign_max_model_evaluations?: number
 }
 
 export type RunSummary = {

@@ -13,6 +13,7 @@ import ParamTuningPanel from '../components/ParamTuningPanel.vue'
 import ReportSectionHead from '../components/ReportSectionHead.vue'
 import ResearchEvidencePanel from '../components/ResearchEvidencePanel.vue'
 import { useDemoStore } from '../stores/demo'
+import { DEMO_PRESET } from '../demo/preset'
 import { api } from '../api/client'
 import { gsap, motionDuration, prefersReducedMotion } from '../motion/gsap'
 import { basinLabel } from '../demo/stages'
@@ -47,6 +48,18 @@ const forcingSelectOptions = [
   { value: 'R', label: '实测日资料 · 历史率定' },
   { value: 'F', label: '预报资料 · 当前未开放', disabled: true },
 ]
+const campaignSelectOptions = [
+  { value: 'smoke', label: '连通验证' },
+  { value: 'target_quality', label: '目标质量' },
+]
+const campaignMode = computed({
+  get: () => demo.draft.campaign_mode,
+  set: (value: string) => {
+    if (value === 'smoke' || value === 'target_quality' || value === 'convergence') {
+      demo.draft.campaign_mode = value
+    }
+  },
+})
 const caseSelectOptions = computed(() => [
   { value: '', label: demo.caseLibrary.length ? '选择一份已完成记录' : '暂无已完成记录' },
   ...demo.caseLibrary.map((task) => ({
@@ -79,21 +92,39 @@ const comparisonMeta = computed(() => {
   return '方案指标已就绪 · 过程线继续整理'
 })
 const planReady = computed(() => !!demo.draft.model_plan_id)
+const boundPlan = ref<ModelPlan | null>(null)
+const planDateMin = computed(() => boundPlan.value?.data_start || boundPlan.value?.suggested_start || undefined)
+const planDateMax = computed(() => boundPlan.value?.data_end || undefined)
+const demoPresetLoaded = computed(
+  () =>
+    demo.draft.basin_id === DEMO_PRESET.basin_id &&
+    demo.draft.start_date === DEMO_PRESET.start_date &&
+    demo.draft.end_date === DEMO_PRESET.end_date &&
+    demo.draft.validation_days === DEMO_PRESET.validation_days &&
+    demo.draft.final_test_days === DEMO_PRESET.final_test_days &&
+    demo.draft.max_agent_decision_rounds === DEMO_PRESET.max_agent_decision_rounds &&
+    demo.draft.max_optimization_cycles === DEMO_PRESET.max_optimization_cycles &&
+    demo.draft.campaign_mode === DEMO_PRESET.campaign_mode &&
+    demo.draft.campaign_max_model_evaluations === DEMO_PRESET.campaign_max_model_evaluations,
+)
 let syncingPlanBasin = false
 function selectPlan(plan: ModelPlan | null) {
   if (demo.taskId) return
   if (!plan) {
     demo.draft.model_plan_id = null
+    boundPlan.value = null
     return
   }
-  const previous = demo.draft.model_plan_id
+  const basinChanged = demo.draft.basin_id !== plan.basin_id
   syncingPlanBasin = true
   if (demo.draft.basin_id !== plan.basin_id) {
     demo.draft.basin_id = plan.basin_id
   }
   demo.draft.model_plan_id = plan.plan_id
-  const datesNeedRepair = !!plan.suggested_start && demo.draft.start_date < plan.suggested_start
-  if (previous !== plan.plan_id || datesNeedRepair) {
+  boundPlan.value = plan
+  const datesNeedRepair = (!!plan.suggested_start && demo.draft.start_date < plan.suggested_start)
+    || (!!plan.data_end && (demo.draft.end_date > plan.data_end || demo.draft.start_date > plan.data_end))
+  if (basinChanged || datesNeedRepair) {
     demo.draft.forcing_mode = 'R'
     if (plan.suggested_start) demo.draft.start_date = plan.suggested_start
     if (plan.suggested_end) demo.draft.end_date = plan.suggested_end
@@ -324,6 +355,7 @@ watch(
     if (syncingPlanBasin) return
     if (prev && id !== prev && !demo.taskId) {
       demo.draft.model_plan_id = null
+      boundPlan.value = null
     }
   },
 )
@@ -482,10 +514,23 @@ onUnmounted(() => {
               </label>
               <p v-if="demo.draft.model_plan_id" class="basin-caption">已绑定方案：{{ demo.draft.model_plan_id }}</p>
               <p v-else-if="serviceMode === 'real'" class="basin-caption">请先在左侧完成数据准备</p>
-              <div class="section-heading subsection"><span class="overline">预报任务</span></div>
+              <div class="section-heading subsection">
+                <span class="overline">预报任务</span>
+                <button
+                  v-if="demo.draft.basin_id === 'yaogu'"
+                  class="text-button"
+                  data-test="demo-preset"
+                  type="button"
+                  @click="demo.applyDemoPreset()"
+                >{{ demoPresetLoaded ? '重新载入演示默认值' : '载入演示默认值' }}</button>
+              </div>
+              <p v-if="demo.draft.basin_id === 'yaogu'" class="basin-caption">演示窗口 {{ DEMO_PRESET.start_date }} 至 {{ DEMO_PRESET.end_date }}，按开发期筛选，不代表正式研究结论。复现请使用 365 天预热、单元集总方案。</p>
               <div :class="{ 'is-locked': serviceMode === 'real' && !planReady }">
                 <fieldset :disabled="locked || (serviceMode === 'real' && !planReady)">
-                  <div class="date-fields"><label>开始日期<input v-model="demo.draft.start_date" type="date" required /></label><label>结束日期<input v-model="demo.draft.end_date" type="date" :min="demo.draft.start_date" required /></label></div>
+                  <div class="date-fields">
+                    <label>开始日期<input v-model="demo.draft.start_date" data-test="start-date" type="date" :min="planDateMin" :max="planDateMax" required /></label>
+                    <label>结束日期<input v-model="demo.draft.end_date" data-test="end-date" type="date" :min="demo.draft.start_date" :max="planDateMax" required /></label>
+                  </div>
                   <label>计算模型
                     <GlassSelect v-model="demo.draft.model_id" aria-label="计算模型" :options="modelSelectOptions" />
                   </label>
@@ -493,13 +538,18 @@ onUnmounted(() => {
                     <GlassSelect v-model="demo.draft.forcing_mode" aria-label="气象资料" :options="forcingSelectOptions" />
                   </label>
                   <label class="toggle-row"><span>允许尝试改进方案</span><input v-model="demo.draft.allow_optimization" type="checkbox" role="switch" /></label>
-                  <button class="text-button" type="button" :aria-expanded="advanced" @click="advanced = !advanced">{{ advanced ? '收起运行设置 −' : '运行设置 +' }}</button>
+                  <button class="text-button" data-test="runtime-settings" type="button" :aria-expanded="advanced" @click="advanced = !advanced">{{ advanced ? '收起运行设置 −' : '运行设置 +' }}</button>
                   <div v-if="advanced" class="advanced-fields">
                     <label>基础方案<input v-model="demo.draft.base_scheme_id" required /></label>
                     <label>开发验证窗（天）<input v-model.number="demo.draft.validation_days" data-test="development-days" type="number" min="3" max="90" required /><small>候选方案在此做 Gate；最终测试不会参与选择。</small></label>
                     <label>最终测试窗（天）<input v-model.number="demo.draft.final_test_days" data-test="final-test-days" type="number" min="3" max="90" required /><small>方案冻结后只读、单次消费。</small></label>
-                    <label>最多决策轮次<input v-model.number="demo.draft.max_agent_decision_rounds" type="number" min="1" max="20" required /></label>
+                    <label>最多决策轮次<input v-model.number="demo.draft.max_agent_decision_rounds" type="number" min="1" max="100" required /></label>
                     <label>最多改进次数<input v-model.number="demo.draft.max_optimization_cycles" type="number" min="0" max="4" required /></label>
+                    <label>停止策略
+                      <GlassSelect v-model="campaignMode" data-test="campaign-mode" aria-label="停止策略" :options="campaignSelectOptions" />
+                      <small>连通验证只按模型评估预算停止，不宣称收敛或发布合格。</small>
+                    </label>
+                    <label>模型评估预算<input v-model.number="demo.draft.campaign_max_model_evaluations" data-test="campaign-budget" type="number" min="1" required /><small>实验之间的停止阈值，不会中途截断单次优化器。</small></label>
                   </div>
                 </fieldset>
               </div>

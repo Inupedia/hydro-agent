@@ -17,7 +17,7 @@ const finalLabel = computed(() =>
   props.comparison?.calibrated ? '最终方案（率定后）' : '最终方案',
 )
 
-function metricLine(label: string, metrics?: Record<string, number | null> | null) {
+function metricLine(label: string, metrics?: Record<string, number | string | null> | null) {
   if (!metrics) return null
   const bits = ['nse', 'kge', 'pbias_percent', 'rmse_m3s']
     .map((key) => {
