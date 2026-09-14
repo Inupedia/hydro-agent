@@ -16,8 +16,7 @@ from hydro_agent.agent.contracts import (
 )
 from hydro_agent.agent.permissions import PermissionGate
 from hydro_agent.execution.hashing import sha256_bytes
-from hydro_agent.optimization.campaign import policy_from_workbench, rebuild_campaign
-from hydro_agent.optimization.ledger import TrialLedgerBuilder
+from hydro_agent.optimization.campaign import rebuild_campaign_from_evidence
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 from hydro_agent.skills import SkillRegistry
 from hydro_agent.workbench.validation_gate import latest_candidate_scheme_id
@@ -108,10 +107,10 @@ class WorldStateBuilder:
             if raw_campaign_objective in {"nse", "peak", "composite"}
             else "nse"
         )
-        campaign = rebuild_campaign(
-            TrialLedgerBuilder().build(evidence_rows).records,
+        campaign = rebuild_campaign_from_evidence(
+            evidence_rows,
             current_scheme_id=scheme.scheme_id,
-            policy=policy_from_workbench(workbench),
+            workbench=workbench,
         )
         raw_forbidden_datasets = workbench.get("forbidden_evidence_dataset_ids") or ()
         if isinstance(raw_forbidden_datasets, str):
