@@ -7,6 +7,7 @@ from typing import Protocol
 
 from hydro_agent.agent.contracts import ActionCode, AgentDecision, EvidencePacket
 from hydro_agent.execution.hashing import sha256_bytes
+from hydro_agent.services.calibration import CalibrationExecutionFailed
 
 
 class ToolUnavailable(LookupError):
@@ -294,15 +295,69 @@ class OptimizeHandler:
                 ),
             )
         state = self.repository.ensure_task_state(task_id)
-        outcome = self.calibration_service.calibrate(
-            task_id=task_id,
-            base_scheme_id=state.current_scheme_id,
-            calibration_snapshot_id=self.calibration_snapshot_id,
-            strategy_id=decision.strategy_id,
-            policy=self.policy,
-            param_groups=decision.param_groups,
-            objective=decision.objective,
-        )
+        try:
+            outcome = self.calibration_service.calibrate(
+                task_id=task_id,
+                base_scheme_id=state.current_scheme_id,
+                calibration_snapshot_id=self.calibration_snapshot_id,
+                strategy_id=decision.strategy_id,
+                policy=self.policy,
+                param_groups=decision.param_groups,
+                objective=decision.objective,
+            )
+        except CalibrationExecutionFailed as exc:
+            groups_text = ",".join(decision.param_groups or ())
+            resumed = exc.resume_attempts > 0
+            observations = (
+                f"base_scheme_id={state.current_scheme_id}",
+                f"strategy_id={decision.strategy_id or 'unknown'}",
+                f"evaluation_budget={exc.evaluation_budget}",
+                f"model_evaluations={exc.model_evaluations}",
+                f"execution_attempts={exc.execution_attempts}",
+                f"resume_attempts={exc.resume_attempts}",
+                f"resumed_from_workspace={'true' if resumed else 'false'}",
+                f"error_code={exc.error_code or '-'}",
+                "candidate_registered=false",
+            )
+            metrics = {
+                "evaluation_budget": float(exc.evaluation_budget),
+                "model_evaluations": float(exc.model_evaluations),
+                "execution_attempts": float(exc.execution_attempts),
+                "resume_attempts": float(exc.resume_attempts),
+            }
+            gates = {
+                "base_scheme_id": str(state.current_scheme_id or ""),
+                "candidate_scheme_id": "",
+                "strategy_id": str(decision.strategy_id or "unknown"),
+                "evaluation_budget": str(exc.evaluation_budget),
+                "model_evaluations": str(exc.model_evaluations),
+                "execution_attempts": str(exc.execution_attempts),
+                "resume_attempts": str(exc.resume_attempts),
+                "resumed_from_workspace": "true" if resumed else "false",
+                "objective": str(decision.objective or ""),
+                "objective_metric": str(decision.objective or ""),
+                "param_groups": groups_text,
+                "reason": "calibration_execution_failed",
+                "error_code": str(exc.error_code or ""),
+            }
+            return EvidencePacket(
+                evidence_id=_evidence_id(),
+                task_id=task_id,
+                action_run_id=exc.action_run_id,
+                action=ActionCode.A07_OPTIMIZE,
+                status="failed",
+                observations=observations,
+                metrics=metrics,
+                gates=gates,
+                artifact_ids=(),
+                new_information_hash=information_hash(
+                    action=ActionCode.A07_OPTIMIZE,
+                    status="failed",
+                    observations=observations,
+                    metrics=metrics,
+                ),
+            )
+
         base_params = dict(
             (self.repository.get_scheme(outcome.base_scheme_id).config_json or {}).get("parameters")
             or {}
@@ -325,6 +380,12 @@ class OptimizeHandler:
         optimizer = str(payload.get("optimizer") or "")
         evaluation_budget = int(payload.get("evaluation_budget") or 0)
         model_evaluations = int(payload.get("model_evaluations") or 0)
+        execution_attempts = int(payload.get("execution_attempts") or 1)
+        resume_attempts = int(payload.get("resume_attempts") or 0)
+        restored_model_evaluations = int(payload.get("restored_model_evaluations") or 0)
+        resumed_from_workspace = bool(
+            payload.get("resumed_from_workspace") or resume_attempts > 0
+        )
         objective_metric = str(payload.get("objective_metric") or outcome.objective)
 
         candidate_id = self.candidate_service.register_candidate(
@@ -337,6 +398,9 @@ class OptimizeHandler:
                 "objective_metric": objective_metric,
                 "optimizer": optimizer,
                 "evaluation_budget": evaluation_budget,
+                "execution_attempts": execution_attempts,
+                "resume_attempts": resume_attempts,
+                "resumed_from_workspace": resumed_from_workspace,
                 "param_groups": list(outcome.param_groups),
                 "search_boundary_evidence": boundary,
             },
@@ -348,6 +412,10 @@ class OptimizeHandler:
             f"optimizer={optimizer or '-'}",
             f"evaluation_budget={evaluation_budget}",
             f"model_evaluations={model_evaluations}",
+            f"execution_attempts={execution_attempts}",
+            f"resume_attempts={resume_attempts}",
+            f"restored_model_evaluations={restored_model_evaluations}",
+            f"resumed_from_workspace={'true' if resumed_from_workspace else 'false'}",
             f"objective={outcome.objective}",
             f"objective_metric={objective_metric}",
             f"param_groups={groups_text}",
@@ -360,6 +428,9 @@ class OptimizeHandler:
             "objective_value": float(outcome.objective_value),
             "evaluation_budget": float(evaluation_budget),
             "model_evaluations": float(model_evaluations),
+            "execution_attempts": float(execution_attempts),
+            "resume_attempts": float(resume_attempts),
+            "restored_model_evaluations": float(restored_model_evaluations),
         }
         for prefix, blob in (
             ("baseline", payload.get("baseline_metrics")),
@@ -377,6 +448,10 @@ class OptimizeHandler:
             "optimizer": optimizer,
             "evaluation_budget": str(evaluation_budget),
             "model_evaluations": str(model_evaluations),
+            "execution_attempts": str(execution_attempts),
+            "resume_attempts": str(resume_attempts),
+            "restored_model_evaluations": str(restored_model_evaluations),
+            "resumed_from_workspace": "true" if resumed_from_workspace else "false",
             "objective": outcome.objective,
             "objective_metric": objective_metric,
             "param_groups": groups_text,
@@ -519,10 +594,8 @@ class ResolveHandler:
                     task_id, current_scheme_id=state.current_scheme_id
                 )
 
-        # Workflow compatibility: only a qualified adopted candidate returns
-        # ACCEPT from A09 and therefore freezes. An improving but unqualified
-        # candidate is still adopted above, then returns KEEP so the Agent absorbs
-        # the new baseline and performs another diagnosis/experiment.
+        # A09 records the Gate transaction only. Qualification can produce ACCEPT,
+        # but A10 research closeout is separately governed by Campaign stop state.
         if candidate_adopted and qualification_status == "QUALIFIED":
             resolve_status = "ACCEPT"
         elif gate_status == "ROLLBACK":
@@ -558,79 +631,6 @@ class ResolveHandler:
             new_information_hash=information_hash(
                 action=ActionCode.A09_RESOLVE,
                 status=resolve_status,
-                observations=observations,
-                metrics=metrics,
-            ),
-        )
-
-
-class FreezeToolHandler:
-    def __init__(self, repository, *, freeze_service):
-        self.repository = repository
-        self.freeze_service = freeze_service
-
-    def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
-        latest_resolve = next(
-            (
-                row
-                for row in reversed(self.repository.list_evidence(task_id))
-                if row.action == ActionCode.A09_RESOLVE.value
-            ),
-            None,
-        )
-        if latest_resolve is not None:
-            resolve_gates = dict(latest_resolve.gates_json or {})
-            qualification_status = str(
-                resolve_gates.get("qualification_status") or "NOT_EVALUATED"
-            )
-            if qualification_status != "QUALIFIED":
-                observations = (
-                    "hydrologist_manual_required",
-                    "calibration_handover_required",
-                    f"qualification_status={qualification_status}",
-                    "freeze_blocked_unqualified=true",
-                    "final_test_not_consumed=true",
-                )
-                metrics: dict[str, float] = {}
-                gates = {
-                    "reason": "qualification_required_before_freeze",
-                    "qualification_status": qualification_status,
-                    "handover_required": "true",
-                    "final_test_consumed": "false",
-                }
-                return EvidencePacket(
-                    evidence_id=_evidence_id(),
-                    task_id=task_id,
-                    action=ActionCode.A10_FREEZE,
-                    status="blocked",
-                    observations=observations,
-                    metrics=metrics,
-                    gates=gates,
-                    new_information_hash=information_hash(
-                        action=ActionCode.A10_FREEZE,
-                        status="blocked",
-                        observations=observations,
-                        metrics=metrics,
-                    ),
-                )
-
-        state = self.repository.ensure_task_state(task_id)
-        frozen_id = self.freeze_service.freeze(
-            task_id=task_id, source_scheme_id=state.current_scheme_id
-        )
-        self.repository.set_task_phase(task_id, "F")
-        observations = (f"frozen_scheme_id={frozen_id}",)
-        metrics: dict[str, float] = {}
-        return EvidencePacket(
-            evidence_id=_evidence_id(),
-            task_id=task_id,
-            action=ActionCode.A10_FREEZE,
-            status="succeeded",
-            observations=observations,
-            metrics=metrics,
-            new_information_hash=information_hash(
-                action=ActionCode.A10_FREEZE,
-                status="succeeded",
                 observations=observations,
                 metrics=metrics,
             ),

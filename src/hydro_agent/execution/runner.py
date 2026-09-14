@@ -43,16 +43,19 @@ class SandboxRunner:
         self.registry = registry
         self.workspaces = workspaces
 
-    def run(self, request: ExecutionRequest) -> ExecutionResult:
-        workspace = self.workspaces.create(request)
+    def run(self, request: ExecutionRequest, *, resume: bool = False) -> ExecutionResult:
+        workspace = (
+            self.workspaces.resume(request) if resume else self.workspaces.create(request)
+        )
         started = time.monotonic()
         status, error, exit_code = "failed", None, None
         payload, outputs = {}, ()
         peak = 0
         process = None
         stdout, stderr = workspace / "logs/stdout.log", workspace / "logs/stderr.log"
+        log_mode = "ab" if resume else "wb"
         try:
-            with stdout.open("wb") as out, stderr.open("wb") as err:
+            with stdout.open(log_mode) as out, stderr.open(log_mode) as err:
                 adapter = self.registry.get(request.model_id, request.capability)
                 command = adapter.command(request, workspace)
                 if (
@@ -169,6 +172,8 @@ class SandboxRunner:
             error_code=error,
         )
         temporary = workspace / "execution-result.tmp"
-        temporary.write_text(json.dumps(result.model_dump(mode="json"), indent=2), encoding="utf-8")
+        temporary.write_text(
+            json.dumps(result.model_dump(mode="json"), indent=2), encoding="utf-8"
+        )
         temporary.replace(workspace / "execution-result.json")
         return result

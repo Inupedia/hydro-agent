@@ -1,16 +1,13 @@
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import pytest
 
-from hydro_agent.agent.contracts import (
-    ActionCode,
-    AgentDecision,
-    EvidencePacket,
-    ProblemHypothesis,
-)
-from hydro_agent.agent.tools import ForecastHandler, FreezeToolHandler, ToolRouter, ToolUnavailable
+from hydro_agent.agent.contracts import ActionCode, AgentDecision, ProblemHypothesis
+from hydro_agent.agent.tools import ForecastHandler, OptimizeHandler, ToolRouter, ToolUnavailable
 from hydro_agent.persistence.database import Database
 from hydro_agent.persistence.repository import HydroRepository
+from hydro_agent.services.calibration import CalibrationExecutionFailed
 
 
 @dataclass
@@ -34,13 +31,54 @@ class SpyForecastService:
         return FakeForecast()
 
 
-class SpyFreezeService:
-    def __init__(self):
-        self.calls = 0
+class FakeCalibrationService:
+    def calibrate(self, **kwargs):
+        return SimpleNamespace(
+            action_run_id="run-cal-1",
+            strategy_id="xaj-bounded-v1",
+            base_scheme_id="scheme-base",
+            candidate_parameters={"K": 0.8},
+            objective_value=0.42,
+            objective="nse",
+            param_groups=("evap",),
+            artifact_ids=("cal-result",),
+            result_payload={
+                "optimizer": "dds",
+                "evaluation_budget": 64,
+                "model_evaluations": 61,
+                "execution_attempts": 2,
+                "resume_attempts": 1,
+                "restored_model_evaluations": 17,
+                "resumed_from_workspace": True,
+                "objective_metric": "nse",
+                "search_boundary_evidence": {
+                    "local_hits": [],
+                    "absolute_hits": [],
+                },
+            },
+        )
 
-    def freeze(self, *, task_id, source_scheme_id):
-        self.calls += 1
-        return f"frozen-{source_scheme_id}"
+
+class FailedCalibrationService:
+    def calibrate(self, **kwargs):
+        raise CalibrationExecutionFailed(
+            "run-cal-failed",
+            "timed_out",
+            "timeout",
+            model_evaluations=53,
+            evaluation_budget=64,
+            execution_attempts=4,
+            resume_attempts=3,
+        )
+
+
+class FakeCandidateService:
+    def __init__(self):
+        self.payload = None
+
+    def register_candidate(self, *, base_scheme_id, action_run_id, calibration_payload):
+        self.payload = calibration_payload
+        return "scheme-candidate"
 
 
 @pytest.fixture
@@ -76,6 +114,18 @@ def forecast_decision():
 
 
 @pytest.fixture
+def optimize_decision():
+    return AgentDecision(
+        action=ActionCode.A07_OPTIMIZE,
+        hypothesis=ProblemHypothesis.MODEL,
+        strategy_id="xaj-bounded-v1",
+        param_groups=("evap",),
+        objective="nse",
+        rationale_summary="Run the preregistered calibration experiment.",
+    )
+
+
+@pytest.fixture
 def tool_router(repository, spy_forecast_service):
     router = ToolRouter()
     router.register(
@@ -88,31 +138,6 @@ def tool_router(repository, spy_forecast_service):
         ),
     )
     return router
-
-
-def _freeze_decision():
-    return AgentDecision(
-        action=ActionCode.A10_FREEZE,
-        hypothesis=ProblemHypothesis.MODEL,
-        rationale_summary="Close out calibration.",
-    )
-
-
-def _add_resolve(repository, *, qualification_status: str, status: str = "KEEP"):
-    repository.add_evidence(
-        EvidencePacket(
-            evidence_id=f"ev-resolve-{qualification_status.lower()}",
-            task_id="task-1",
-            action=ActionCode.A09_RESOLVE,
-            status=status,  # type: ignore[arg-type]
-            observations=(f"qualification_status={qualification_status}",),
-            gates={
-                "status": status,
-                "qualification_status": qualification_status,
-            },
-            new_information_hash=f"hash-{qualification_status.lower()}",
-        )
-    )
 
 
 def test_forecast_action_calls_forecast_service_not_sandbox_directly(
@@ -134,29 +159,52 @@ def test_unregistered_action_raises_tool_unavailable(tool_router):
         tool_router.execute("task-1", decision)
 
 
-def test_freeze_blocks_unqualified_resolve_without_consuming_final_test(repository):
-    _add_resolve(repository, qualification_status="UNQUALIFIED")
-    freeze = SpyFreezeService()
-    packet = FreezeToolHandler(repository, freeze_service=freeze).execute(
-        "task-1", _freeze_decision()
+def test_optimize_evidence_exposes_resume_audit_fields(repository, optimize_decision):
+    candidates = FakeCandidateService()
+    handler = OptimizeHandler(
+        repository,
+        calibration_service=FakeCalibrationService(),
+        candidate_service=candidates,
+        calibration_snapshot_id="snap-cal",
+        validation_snapshot_id=None,
+        policy=object(),
     )
 
-    assert packet.status == "blocked"
-    assert "hydrologist_manual_required" in packet.observations
-    assert "calibration_handover_required" in packet.observations
-    assert "final_test_not_consumed=true" in packet.observations
-    assert packet.gates["handover_required"] == "true"
-    assert freeze.calls == 0
-    assert repository.get_task("task-1").phase == "B"
-
-
-def test_freeze_allows_qualified_resolve(repository):
-    _add_resolve(repository, qualification_status="QUALIFIED", status="ACCEPT")
-    freeze = SpyFreezeService()
-    packet = FreezeToolHandler(repository, freeze_service=freeze).execute(
-        "task-1", _freeze_decision()
-    )
+    packet = handler.execute("task-1", optimize_decision)
 
     assert packet.status == "succeeded"
-    assert freeze.calls == 1
-    assert repository.get_task("task-1").phase == "F"
+    assert packet.gates["execution_attempts"] == "2"
+    assert packet.gates["resume_attempts"] == "1"
+    assert packet.gates["restored_model_evaluations"] == "17"
+    assert packet.gates["resumed_from_workspace"] == "true"
+    assert packet.metrics["resume_attempts"] == 1.0
+    assert "resumed_from_workspace=true" in packet.observations
+    assert candidates.payload["resume_attempts"] == 1
+    assert candidates.payload["resumed_from_workspace"] is True
+
+
+def test_failed_optimize_records_spent_budget_without_registering_candidate(
+    repository, optimize_decision
+):
+    candidates = FakeCandidateService()
+    handler = OptimizeHandler(
+        repository,
+        calibration_service=FailedCalibrationService(),
+        candidate_service=candidates,
+        calibration_snapshot_id="snap-cal",
+        validation_snapshot_id=None,
+        policy=object(),
+    )
+
+    packet = handler.execute("task-1", optimize_decision)
+
+    assert packet.status == "failed"
+    assert packet.action_run_id == "run-cal-failed"
+    assert packet.metrics["model_evaluations"] == 53.0
+    assert packet.gates["evaluation_budget"] == "64"
+    assert packet.gates["execution_attempts"] == "4"
+    assert packet.gates["resume_attempts"] == "3"
+    assert packet.gates["resumed_from_workspace"] == "true"
+    assert packet.gates["candidate_scheme_id"] == ""
+    assert packet.gates["reason"] == "calibration_execution_failed"
+    assert candidates.payload is None
