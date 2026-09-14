@@ -105,21 +105,29 @@ def test_one_day_research_period_is_not_splittable() -> None:
         )
 
 
-def test_holdout_windows_have_hard_api_bounds() -> None:
-    with pytest.raises(ValueError, match="validation_days"):
-        build_experiment_timeline(
-            start_date=date(1980, 1, 1),
-            end_date=date(1990, 1, 1),
-            warmup_days=365,
-            validation_days=365,
-            final_test_days=30,
-        )
+def test_formal_holdout_windows_are_not_capped_at_legacy_90_days() -> None:
+    long_development = build_experiment_timeline(
+        start_date=date(1980, 1, 1),
+        end_date=date(1990, 1, 1),
+        warmup_days=365,
+        validation_days=365,
+        final_test_days=30,
+    )
+    assert long_development.protocol_mode == "research"
+    assert long_development.development_start == date(1988, 12, 3)
+    assert long_development.development_end == date(1989, 12, 2)
+    assert long_development.final_test_start == date(1989, 12, 3)
+    assert long_development.final_test_end == date(1990, 1, 1)
 
-    with pytest.raises(ValueError, match="final_test_days"):
-        build_experiment_timeline(
-            start_date=date(1980, 1, 1),
-            end_date=date(1990, 1, 1),
-            warmup_days=365,
-            validation_days=30,
-            final_test_days=365,
-        )
+    long_final_test = build_experiment_timeline(
+        start_date=date(1980, 1, 1),
+        end_date=date(1990, 1, 1),
+        warmup_days=365,
+        validation_days=30,
+        final_test_days=365,
+    )
+    assert long_final_test.protocol_mode == "research"
+    assert long_final_test.development_start == date(1988, 12, 3)
+    assert long_final_test.development_end == date(1989, 1, 1)
+    assert long_final_test.final_test_start == date(1989, 1, 2)
+    assert long_final_test.final_test_end == date(1990, 1, 1)

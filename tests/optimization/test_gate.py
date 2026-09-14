@@ -56,7 +56,7 @@ def test_guardrail_failure_rolls_back_even_when_average_improves():
     decision = GateEvaluator().evaluate(base, candidate, policy)
     assert decision.status == "ROLLBACK"
     assert decision.adoption_status == "REJECT"
-    assert "lead_guardrail" in decision.reasons
+    assert "lead_3_guardrail" in decision.reasons
 
 
 def test_meaningful_gain_is_adopted_even_before_standard_qualification():

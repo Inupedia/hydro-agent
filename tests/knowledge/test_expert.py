@@ -2,7 +2,8 @@ from dataclasses import dataclass
 from datetime import date
 
 from hydro_agent.knowledge.basin_priors import derive_basin_hydro_profile
-from hydro_agent.knowledge.expert import ExpertKnowledgeRepository
+from hydro_agent.knowledge.expert import ExpertPriorEngine
+from hydro_agent.knowledge.governance import KnowledgeQueryContext
 from hydro_agent.optimization.calibration_scientist import plan_from_diagnosis
 
 
@@ -19,17 +20,52 @@ class _Flow:
     discharge_m3s: float
 
 
-def test_external_expert_skill_is_seed_prior_not_normative():
-    repo = ExpertKnowledgeRepository()
-    source = repo.source()
+def _seed_context(**overrides) -> KnowledgeQueryContext:
+    payload = {
+        "model_id": "xaj",
+        "basin_id": "yaogu",
+        "allow_unverified_expert_priors": True,
+    }
+    payload.update(overrides)
+    return KnowledgeQueryContext.model_validate(payload)
+
+
+def test_external_expert_prior_is_advisory_not_normative():
+    engine = ExpertPriorEngine()
+    source = engine.source()
 
     assert source["status"] == "seed_prior"
     assert source["authority"] == "advisory_only"
     assert source["provenance"]["source_license"] == "PolyForm Noncommercial License 1.0.0"
     assert source["provenance"]["reuse_policy"] == "conceptual_reimplementation_no_source_copy"
 
-    advice = repo.advise({"metrics": {"nse": 0.4}})
+    entry = engine.governance_entry("expert.water_balance_first")
+    assert entry.authority == "advisory_only"
+    assert entry.review_status == "approved"
+    assert entry.verification_status == "unverified"
+
+    advice = engine.advise({"metrics": {"nse": 0.4}})
     assert advice.is_normative is False
+    assert advice.matched_prior_refs == ()
+
+
+def test_seed_prior_requires_explicit_campaign_opt_in():
+    engine = ExpertPriorEngine()
+    diagnosis = {"metrics": {"nse": 0.42, "pbias_percent": 18.0}}
+
+    disabled = engine.advise(
+        diagnosis,
+        governance_context=KnowledgeQueryContext(model_id="xaj", basin_id="yaogu"),
+    )
+    enabled = engine.advise(diagnosis, governance_context=_seed_context())
+    wrong_model = engine.advise(
+        diagnosis,
+        governance_context=_seed_context(model_id="openhydronet"),
+    )
+
+    assert disabled.matched_prior_refs == ()
+    assert "expert.water_balance_first@1" in enabled.matched_prior_refs
+    assert wrong_model.matched_prior_refs == ()
 
 
 def test_water_balance_prior_refines_broad_plan_before_dds():
@@ -41,29 +77,67 @@ def test_water_balance_prior_refines_broad_plan_before_dds():
             "recommended_param_groups": ["evap", "runoff", "routing"],
             "recommended_objective": "nse",
             "metrics": {"nse": 0.42, "pbias_percent": 18.0},
-        }
+        },
+        knowledge_context=_seed_context(),
     )
 
     assert plan.parameter_groups == ("evap", "runoff")
     assert plan.objective == "composite"
-    assert "expert.water_balance_first" in plan.knowledge_refs
+    assert "expert.water_balance_first@1" in plan.knowledge_refs
     assert plan.optimizer == "dds"
     assert plan.tunes_raw_parameter_vector is False
 
 
-def test_negative_nse_is_warning_not_gate_override():
-    repo = ExpertKnowledgeRepository()
-    advice = repo.advise({"metrics": {"nse": -0.2, "pbias_percent": 2.0}})
+def test_campaign_objective_lock_wins_over_expert_objective_advice():
+    plan = plan_from_diagnosis(
+        {
+            "hypothesis": "MODEL",
+            "phenomenon": "水量偏差较大",
+            "recommended_strategy_id": "xaj-bounded-v1",
+            "recommended_param_groups": ["evap", "runoff", "routing"],
+            "recommended_objective": "peak",
+            "metrics": {"nse": 0.42, "pbias_percent": 18.0},
+        },
+        campaign_objective="nse",
+        knowledge_context=_seed_context(),
+    )
 
-    assert "expert.negative_skill_check_data_first" in advice.matched_rule_ids
-    assert advice.prefer_recheck is True
+    assert plan.parameter_groups == ("evap", "runoff")
+    assert plan.objective == "nse"
+    assert "campaign 主目标锁定为 nse" in plan.rationale
+    assert any("专家目标建议 composite 未采用" in note for note in plan.expert_notes)
+
+
+def test_campaign_objective_can_be_carried_in_diagnosis_contract():
+    plan = plan_from_diagnosis(
+        {
+            "hypothesis": "MODEL",
+            "phenomenon": "洪峰偏差",
+            "recommended_objective": "peak",
+            "campaign_objective": "composite",
+            "metrics": {"nse": 0.6},
+        }
+    )
+
+    assert plan.objective == "composite"
+
+
+def test_negative_nse_prior_is_audit_advice_not_gate_override():
+    engine = ExpertPriorEngine()
+    advice = engine.advise(
+        {"metrics": {"nse": -0.2, "pbias_percent": 2.0}},
+        governance_context=_seed_context(),
+    )
+
+    assert "expert.negative_skill_check_data_first@1" in advice.matched_prior_refs
     assert advice.recommended_param_groups is None
+    assert any("优先复核时间对齐" in note for note in advice.notes)
     assert advice.is_normative is False
 
 
 def test_basin_attributes_are_profiled_as_advisory_context():
-    repo = ExpertKnowledgeRepository()
-    advice = repo.advise(
+    engine = ExpertPriorEngine()
+    advice = engine.advise(
         {"metrics": {"nse": 0.55}},
         basin_attributes={
             "aridity": 0.62,
@@ -72,9 +146,10 @@ def test_basin_attributes_are_profiled_as_advisory_context():
             "frac_snow": 0.12,
             "climate_zone": "humid_cold",
         },
+        governance_context=_seed_context(),
     )
 
-    assert "expert.basin_attributes_are_priors" in advice.matched_rule_ids
+    assert "expert.basin_attributes_are_priors@1" in advice.matched_prior_refs
     assert any("aridity=0.62" in note for note in advice.notes)
 
 

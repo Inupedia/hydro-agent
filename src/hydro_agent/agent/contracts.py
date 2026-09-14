@@ -119,6 +119,13 @@ class HydroContext(FrozenModel):
     available_strategies: tuple[str, ...] = ()
     available_param_groups: tuple[str, ...] = ("evap", "runoff", "routing")
     available_objectives: tuple[str, ...] = ("nse", "peak", "composite")
+    # Pre-registered objective for the campaign. Diagnosis/expert advice may
+    # choose where/how to search but cannot change the scoring ruler mid-run.
+    campaign_objective: Literal["nse", "peak", "composite"] = "nse"
+    # Unverified expert priors are opt-in campaign inputs, never implicit
+    # runtime defaults. Dataset ids can additionally block indirect leakage.
+    allow_unverified_expert_priors: bool = False
+    forbidden_evidence_dataset_ids: tuple[str, ...] = ()
     diagnosis: dict[str, object] = Field(default_factory=dict)
     experiment_history: tuple[str, ...] = ()
     skill_cards: tuple[dict[str, object], ...] = ()

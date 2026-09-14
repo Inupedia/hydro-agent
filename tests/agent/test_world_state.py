@@ -26,7 +26,16 @@ def seeded_repository(database):
         task_id="task-1",
         model_id="xaj",
         status="base",
-        config={"model_id": "xaj", "warmup_days": 2, "parameters": {"K": 0.7}},
+        config={
+            "model_id": "xaj",
+            "warmup_days": 2,
+            "parameters": {"K": 0.7},
+            "workbench": {
+                "calibration_objective": "composite",
+                "allow_unverified_expert_priors": True,
+                "forbidden_evidence_dataset_ids": ["same-campaign-observations"],
+            },
+        },
         content_hash="scheme-hash",
     )
     repo.create_snapshot(
@@ -45,6 +54,9 @@ def test_world_state_contains_only_decision_relevant_projection(seeded_repositor
     assert view.task.task_id == "task-1"
     assert view.model.model_id == "xaj"
     assert view.scheme.scheme_id == "scheme-base"
+    assert view.hydro.campaign_objective == "composite"
+    assert view.hydro.allow_unverified_expert_priors is True
+    assert view.hydro.forbidden_evidence_dataset_ids == ("same-campaign-observations",)
     assert view.permissions.safe_actions
     assert not hasattr(view, "database_url")
     assert not hasattr(view, "filesystem_root")

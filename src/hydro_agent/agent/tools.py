@@ -570,6 +570,50 @@ class FreezeToolHandler:
         self.freeze_service = freeze_service
 
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
+        latest_resolve = next(
+            (
+                row
+                for row in reversed(self.repository.list_evidence(task_id))
+                if row.action == ActionCode.A09_RESOLVE.value
+            ),
+            None,
+        )
+        if latest_resolve is not None:
+            resolve_gates = dict(latest_resolve.gates_json or {})
+            qualification_status = str(
+                resolve_gates.get("qualification_status") or "NOT_EVALUATED"
+            )
+            if qualification_status != "QUALIFIED":
+                observations = (
+                    "hydrologist_manual_required",
+                    "calibration_handover_required",
+                    f"qualification_status={qualification_status}",
+                    "freeze_blocked_unqualified=true",
+                    "final_test_not_consumed=true",
+                )
+                metrics: dict[str, float] = {}
+                gates = {
+                    "reason": "qualification_required_before_freeze",
+                    "qualification_status": qualification_status,
+                    "handover_required": "true",
+                    "final_test_consumed": "false",
+                }
+                return EvidencePacket(
+                    evidence_id=_evidence_id(),
+                    task_id=task_id,
+                    action=ActionCode.A10_FREEZE,
+                    status="blocked",
+                    observations=observations,
+                    metrics=metrics,
+                    gates=gates,
+                    new_information_hash=information_hash(
+                        action=ActionCode.A10_FREEZE,
+                        status="blocked",
+                        observations=observations,
+                        metrics=metrics,
+                    ),
+                )
+
         state = self.repository.ensure_task_state(task_id)
         frozen_id = self.freeze_service.freeze(
             task_id=task_id, source_scheme_id=state.current_scheme_id

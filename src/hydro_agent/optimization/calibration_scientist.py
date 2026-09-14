@@ -12,7 +12,8 @@ from typing import Any, Literal
 from pydantic import Field
 
 from hydro_agent.execution.contracts import FrozenModel
-from hydro_agent.knowledge.expert import ExpertKnowledgeRepository
+from hydro_agent.knowledge.expert import ExpertPriorEngine
+from hydro_agent.knowledge.governance import KnowledgeQueryContext
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 
 ParameterGroup = Literal["evap", "runoff", "routing"]
@@ -72,6 +73,24 @@ def _normalize_groups(raw_groups: object, fallback: tuple[str, ...]) -> tuple[st
     return groups
 
 
+def _name_list(raw: object) -> tuple[str, ...]:
+    if isinstance(raw, str):
+        return tuple(item.strip() for item in raw.split(",") if item.strip())
+    if isinstance(raw, (list, tuple)):
+        return tuple(str(item).strip() for item in raw if str(item).strip())
+    return ()
+
+
+def _search_adjustment(diagnosis: dict[str, Any]) -> SearchAdjustment:
+    """Resolve search-window behavior only from registered experiment evidence."""
+
+    if _name_list(diagnosis.get("absolute_boundary_hits")):
+        return "hold_absolute_bounds"
+    if _name_list(diagnosis.get("local_boundary_hits")):
+        return "broaden_within_absolute_bounds"
+    return "keep"
+
+
 def _progressive_strategy(
     *,
     recommended_strategy_id: str,
@@ -79,12 +98,12 @@ def _progressive_strategy(
     adjustment: str | None,
     registry: CalibrationStrategyRegistry,
 ) -> str:
-    """Translate expert search advice into bounded strategy progression.
+    """Translate bounded search evidence into deterministic progression.
 
-    A fresh diagnosis owns the scientific strategy unless the latest search
-    evidence explicitly asks for progressive broadening. Only then do we inspect
-    the previous strategy to widen its numerical window toward the existing
-    teacher/kernel absolute bounds.
+    A fresh diagnosis owns the scientific strategy unless the latest numerical
+    experiment explicitly shows a local-window boundary hit. Only then do we
+    inspect the previous strategy and widen toward the existing teacher/kernel
+    absolute bounds. Absolute bounds themselves are never widened here.
     """
 
     if adjustment != "broaden_within_absolute_bounds":
@@ -99,17 +118,36 @@ def _progressive_strategy(
     return "xaj-broadened-refine-v1"
 
 
+def _locked_objective(
+    diagnosis: dict[str, Any], campaign_objective: ObjectiveName | None
+) -> ObjectiveName | None:
+    raw = campaign_objective
+    if raw is None and diagnosis.get("campaign_objective") is not None:
+        raw = str(diagnosis["campaign_objective"])  # type: ignore[assignment]
+    if raw is None:
+        return None
+    if raw not in {"nse", "peak", "composite"}:
+        raise ValueError(f"unsupported campaign objective: {raw}")
+    return raw  # type: ignore[return-value]
+
+
 def plan_from_diagnosis(
     diagnosis: dict[str, Any],
     *,
     strategies: CalibrationStrategyRegistry | None = None,
-    expert_knowledge: ExpertKnowledgeRepository | None = None,
+    expert_priors: ExpertPriorEngine | None = None,
+    campaign_objective: ObjectiveName | None = None,
+    knowledge_context: KnowledgeQueryContext | None = None,
 ) -> CalibrationPlan:
     """Translate a diagnosis into an auditable optimization experiment.
 
-    Evidence is primary. Expert priors may refine the parameter group/objective
-    choice and bounded search scope, but remain advisory metadata and never alter
-    validation Gate rules or the teacher/kernel absolute parameter limits.
+    Evidence is primary. Governed expert priors may refine parameter groups and
+    objective suggestions, but remain advisory metadata and never alter Gate
+    rules, search-boundary safety, or teacher/kernel absolute parameter limits.
+    Unverified expert priors are inactive unless a campaign supplies an explicit
+    governed query context that permits them. When the campaign objective is
+    supplied (directly or as ``diagnosis['campaign_objective']``), it is immutable
+    for this plan and expert/diagnosis objective suggestions are ignored.
     """
 
     registry = strategies or CalibrationStrategyRegistry()
@@ -129,25 +167,23 @@ def plan_from_diagnosis(
     objective = str(diagnosis.get("recommended_objective") or strategy.objective)
     if objective not in {"nse", "peak", "composite"}:
         objective = strategy.objective
+    locked_objective = _locked_objective(diagnosis, campaign_objective)
 
     basin_attributes = diagnosis.get("basin_attributes")
-    expert = expert_knowledge or ExpertKnowledgeRepository()
-    advice = expert.advise(
+    prior_engine = expert_priors or ExpertPriorEngine()
+    advice = prior_engine.advise(
         diagnosis,
         basin_attributes=basin_attributes if isinstance(basin_attributes, dict) else None,
+        governance_context=knowledge_context,
     )
     if advice.recommended_param_groups:
         groups = _normalize_groups(advice.recommended_param_groups, groups)
-    if advice.recommended_objective in {"nse", "peak", "composite"}:
+    if locked_objective is None and advice.recommended_objective in {"nse", "peak", "composite"}:
         objective = advice.recommended_objective
+    if locked_objective is not None:
+        objective = locked_objective
 
-    adjustment = str(advice.search_adjustment or "keep")
-    if adjustment not in {
-        "keep",
-        "broaden_within_absolute_bounds",
-        "hold_absolute_bounds",
-    }:
-        adjustment = "keep"
+    adjustment = _search_adjustment(diagnosis)
     previous_raw = diagnosis.get("previous_strategy_id")
     previous_strategy_id = str(previous_raw) if previous_raw else None
     try:
@@ -183,16 +219,25 @@ def plan_from_diagnosis(
 
     scope: SearchScope = "local" if strategy.local_scale is not None else "global"
     prior_text = ""
-    if advice.matched_rule_ids:
+    if advice.matched_prior_refs:
         prior_text = (
             f" 专家先验[{advice.status}/{advice.authority}]="
-            f"{','.join(advice.matched_rule_ids)}；"
+            f"{','.join(advice.matched_prior_refs)}；"
         )
     search_text = ""
     if adjustment == "broaden_within_absolute_bounds":
-        search_text = " 搜索窗口按专家先验逐级放宽，但不越过老师/内核绝对边界；"
+        search_text = " 局部搜索触边界，按协议逐级放宽但不越过老师/内核绝对边界；"
     elif adjustment == "hold_absolute_bounds":
         search_text = " 已触及绝对参数边界，本轮禁止继续外扩并保留为诊断证据；"
+    objective_text = ""
+    expert_notes = list(advice.notes)
+    if locked_objective is not None:
+        objective_text = f" campaign 主目标锁定为 {locked_objective}；"
+        if advice.recommended_objective and advice.recommended_objective != locked_objective:
+            expert_notes.append(
+                f"专家目标建议 {advice.recommended_objective} 未采用：campaign objective 已锁定为 "
+                f"{locked_objective}。"
+            )
 
     return CalibrationPlan(
         hypothesis=CalibrationHypothesis(
@@ -208,14 +253,14 @@ def plan_from_diagnosis(
         search_scope=scope,
         local_scale=strategy.local_scale,
         evaluation_budget=strategy.evaluation_budget,
-        search_adjustment=adjustment,  # type: ignore[arg-type]
-        knowledge_refs=advice.matched_rule_ids,
-        expert_notes=advice.notes,
+        search_adjustment=adjustment,
+        knowledge_refs=advice.matched_prior_refs,
+        expert_notes=tuple(expert_notes),
         rationale=(
             f"基于 {primary_id} 假设，仅开放 {','.join(groups)} 参数组；"
             f"由 {strategy.optimizer} 在确定性边界内完成至多 {strategy.evaluation_budget} 次模型评估，"
             "Agent 不直接给参数值。"
-            f"{prior_text}{search_text}"
+            f"{objective_text}{prior_text}{search_text}"
         ),
     )
 

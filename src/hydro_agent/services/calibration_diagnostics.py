@@ -20,7 +20,6 @@ from hydro_agent.evaluation.metrics import (
     rmse,
 )
 from hydro_agent.knowledge.basin_priors import derive_basin_hydro_profile
-from hydro_agent.knowledge.expert import ExpertKnowledgeRepository
 
 
 def _safe(metric, obs: list[float], sim: list[float]) -> float | None:
@@ -57,15 +56,18 @@ def diagnose_prevalidation_window(
     validation_start: date,
     nse_good_enough: float,
     lookback_issue_days: int = DIAGNOSTIC_LOOKBACK_ISSUE_DAYS,
-    expert_knowledge: ExpertKnowledgeRepository | None = None,
 ) -> dict[str, Any]:
-    """Diagnose with issue/target dates strictly before the development window.
+    """Measure pre-development model behavior without applying expert policy.
 
     ``validation_start`` is retained as an internal compatibility parameter while
     callers migrate to the four-stage protocol. Semantically it is the first day
     of the mutable development Gate window, never the final test. The latest
     diagnostic issue is ``development_start - 4 days`` so lead-3 truth ends on
     ``development_start - 1 day``.
+
+    This function intentionally stops at observable evidence. It does not read
+    expert-rule thresholds or specialize the parameter search. Governed expert
+    priors may refine the later experiment plan, after this evidence is persisted.
     """
 
     if lookback_issue_days < 4:
@@ -185,89 +187,42 @@ def diagnose_prevalidation_window(
         )
         basin_attributes = profile.model_dump(exclude_none=True)
 
-    expert = expert_knowledge or ExpertKnowledgeRepository()
-    water_balance_rule = expert.rule("expert.water_balance_first")
-    if water_balance_rule.threshold is None:
-        raise ValueError("expert.water_balance_first requires a threshold")
-    water_balance_threshold = float(water_balance_rule.threshold)
-
-    pbias = metrics["pbias_percent"]
-    hypotheses: list[dict[str, Any]] = []
-
-    # Expert-prior ordering: fix water balance before fine-tuning hydrograph shape.
-    if abs(pbias) >= water_balance_threshold:
-        hypotheses.append(
-            {
-                "id": "MODEL",
-                "strength": 0.9,
-                "phenomenon": (
-                    f"率定期水量偏差 PBIAS={pbias:.1f}% 达到专家先验阈值 "
-                    f"±{water_balance_threshold:g}%，优先处理蒸散发/产流，不先精调汇流"
-                ),
-                "suggested_action": "A07_OPTIMIZE",
-                "suggested_strategy_id": "xaj-water-balance-v1",
-                "suggested_param_groups": ["evap", "runoff"],
-                "suggested_objective": "composite",
-                "knowledge_refs": [water_balance_rule.rule_id],
-            }
-        )
-    elif abs(peak_lag) >= 1:
-        hypotheses.append(
-            {
-                "id": "TIMING",
-                "strength": 0.82,
-                "phenomenon": f"率定期 lead-1 洪峰错位约 {peak_lag} 天，优先检查汇流响应",
-                "suggested_action": "A07_OPTIMIZE",
-                "suggested_strategy_id": "xaj-routing-refine-v1",
-                "suggested_param_groups": ["routing"],
-                "suggested_objective": "composite",
-            }
-        )
-    elif peak_ratio < 0.85 or peak_ratio > 1.15:
-        hypotheses.append(
-            {
-                "id": "MODEL",
-                "strength": 0.78,
-                "phenomenon": f"率定期洪峰比={peak_ratio:.2f}，优先联合产流与汇流过程",
-                "suggested_action": "A07_OPTIMIZE",
-                "suggested_strategy_id": "xaj-peak-bias-v1",
-                "suggested_param_groups": ["runoff", "routing"],
-                "suggested_objective": "composite",
-            }
-        )
-    elif overall_nse is None or overall_nse < nse_good_enough:
-        hypotheses.append(
-            {
-                "id": "MODEL",
-                "strength": 0.62,
-                "phenomenon": "水量与峰值无单一主导问题，但整体拟合不足，采用受约束综合率定",
-                "suggested_action": "A07_OPTIMIZE",
-                "suggested_strategy_id": "xaj-hydro-composite-v1",
-                "suggested_param_groups": ["evap", "runoff", "routing"],
-                "suggested_objective": "composite",
-            }
-        )
+    if overall_nse is not None and overall_nse >= nse_good_enough:
+        primary = {
+            "id": "MODEL",
+            "strength": 0.75,
+            "phenomenon": (
+                f"率定期观测诊断 NSE={overall_nse:.3f} 已达到当前研究停止阈值 "
+                f"{nse_good_enough:g}，不继续无意义调参"
+            ),
+            "suggested_action": "A10_FREEZE",
+            "suggested_strategy_id": None,
+            "suggested_param_groups": None,
+            "suggested_objective": None,
+        }
     else:
-        hypotheses.append(
-            {
-                "id": "MODEL",
-                "strength": 0.75,
-                "phenomenon": "率定期多指标已达到当前研究阈值，不继续无意义调参",
-                "suggested_action": "A10_FREEZE",
-                "suggested_strategy_id": None,
-                "suggested_param_groups": None,
-                "suggested_objective": None,
-            }
-        )
+        nse_text = "n/a" if overall_nse is None else f"{overall_nse:.3f}"
+        primary = {
+            "id": "MODEL",
+            "strength": 0.62,
+            "phenomenon": (
+                f"率定期观测诊断 NSE={nse_text}, PBIAS={metrics['pbias_percent']:.1f}%, "
+                f"洪峰比={peak_ratio:.2f}, 峰时差={peak_lag} 天；先保留完整参数组，"
+                "由治理后的知识与实验计划决定是否缩小搜索范围"
+            ),
+            "suggested_action": "A07_OPTIMIZE",
+            "suggested_strategy_id": "xaj-hydro-composite-v1",
+            "suggested_param_groups": ["evap", "runoff", "routing"],
+            "suggested_objective": "composite",
+        }
 
-    primary = hypotheses[0]
+    hypotheses = [primary]
     notes = [
         f"diagnostic_window={first_issue.isoformat()}..{latest_issue.isoformat()}",
         f"diagnostic_target_end={(development_start - timedelta(days=1)).isoformat()}",
         f"development_starts={development_start.isoformat()}",
         "diagnostic_truth_strictly_precedes_development=true",
-        "hydrologist_order=water_balance->peak_timing->peak_magnitude->overall_skill",
-        f"expert_prior={water_balance_rule.rule_id}",
+        "diagnosis_scope=measurement_only_no_expert_thresholds=true",
     ]
     if basin_attributes:
         notes.append(

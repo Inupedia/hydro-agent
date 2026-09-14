@@ -45,7 +45,9 @@ def test_local_boundary_advances_to_broader_but_still_bounded_strategy():
     assert plan.local_scale == 0.65
     assert plan.parameter_groups == ("evap", "runoff")
     assert plan.search_adjustment == "broaden_within_absolute_bounds"
-    assert "expert.local_boundary_can_broaden_within_bounds" in plan.knowledge_refs
+    # Boundary progression is deterministic protocol behavior, not an expert-rule dependency.
+    assert plan.knowledge_refs == ()
+    assert "按协议逐级放宽" in plan.rationale
 
 
 def test_repeated_local_boundary_can_progress_to_global_absolute_window():
@@ -103,5 +105,6 @@ def test_absolute_boundary_never_expands_beyond_teacher_kernel_bounds():
 
     assert plan.strategy_id == "xaj-water-balance-v1"
     assert plan.search_adjustment == "hold_absolute_bounds"
-    assert "expert.absolute_boundary_requires_diagnosis" in plan.knowledge_refs
+    # Absolute limits stay enforced even when all unverified expert priors are disabled.
+    assert plan.knowledge_refs == ()
     assert "禁止继续外扩" in plan.rationale

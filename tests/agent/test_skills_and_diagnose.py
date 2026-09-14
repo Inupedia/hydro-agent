@@ -34,7 +34,7 @@ def test_skills_registry_has_diagnose_and_calibration_cards():
     assert cfg.grade_dc_bing == 0.5
 
 
-def test_diagnose_recommends_peak_strategy_on_underestimation():
+def test_legacy_single_issue_diagnose_routes_underestimation_to_formal_a06():
     truth = {
         date(2020, 5, 2): 100.0,
         date(2020, 5, 3): 120.0,
@@ -47,12 +47,13 @@ def test_diagnose_recommends_peak_strategy_on_underestimation():
         nse_good_enough=0.6,
     )
     assert result["hypothesis"] == "MODEL"
-    assert result["recommended_strategy_id"] == "xaj-peak-bias-v1"
-    assert result["recommended_param_groups"] == ["runoff", "routing"]
-    assert result["recommended_objective"] == "composite"
-    assert len(result["hypotheses"]) >= 2
-    ids = {item["id"] for item in result["hypotheses"]}
-    assert "MODEL" in ids and "FORCING" in ids
+    assert result["recommended_action"] == "A06_DIAGNOSE"
+    assert result["recommended_strategy_id"] is None
+    assert result["recommended_param_groups"] is None
+    assert result["recommended_objective"] is None
+    assert result["hypotheses"] == []
+    assert result["metrics"]["peak_ratio"] < 0.85
+    assert "legacy_single_issue_diagnostic=true" in result["notes"]
 
 
 def test_diagnose_freeze_uses_skill_threshold():
