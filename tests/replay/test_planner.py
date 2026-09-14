@@ -70,7 +70,9 @@ def test_sampled_plan_can_span_long_final_window_without_enumerating_every_day(r
     issue_days = (date(2025, 1, 1), date(2025, 6, 1), date(2025, 12, 28))
     planner = ReplayPlanner(
         repository,
-        resolver=FakeResolver({day.isoformat(): f"snap-{index}" for index, day in enumerate(issue_days)}),
+        resolver=FakeResolver(
+            {day.isoformat(): f"snap-{index}" for index, day in enumerate(issue_days)}
+        ),
     )
     plan = planner.plan_issues("task-1", issue_days)
     assert tuple(case.issue_time.date() for case in plan.cases) == issue_days
