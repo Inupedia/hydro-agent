@@ -12,7 +12,7 @@ from typing import Any, Literal
 from pydantic import Field
 
 from hydro_agent.execution.contracts import FrozenModel
-from hydro_agent.knowledge.expert import ExpertKnowledgeRepository
+from hydro_agent.knowledge.expert import ExpertPriorEngine
 from hydro_agent.knowledge.governance import KnowledgeQueryContext
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 
@@ -135,14 +135,14 @@ def plan_from_diagnosis(
     diagnosis: dict[str, Any],
     *,
     strategies: CalibrationStrategyRegistry | None = None,
-    expert_knowledge: ExpertKnowledgeRepository | None = None,
+    expert_priors: ExpertPriorEngine | None = None,
     campaign_objective: ObjectiveName | None = None,
     knowledge_context: KnowledgeQueryContext | None = None,
 ) -> CalibrationPlan:
     """Translate a diagnosis into an auditable optimization experiment.
 
-    Evidence is primary. Expert priors may refine parameter groups and objective
-    suggestions, but remain advisory metadata and never alter validation Gate
+    Evidence is primary. Governed expert priors may refine parameter groups and
+    objective suggestions, but remain advisory metadata and never alter Gate
     rules, search-boundary safety, or teacher/kernel absolute parameter limits.
     Unverified expert priors are inactive unless a campaign supplies an explicit
     governed query context that permits them. When the campaign objective is
@@ -170,8 +170,8 @@ def plan_from_diagnosis(
     locked_objective = _locked_objective(diagnosis, campaign_objective)
 
     basin_attributes = diagnosis.get("basin_attributes")
-    expert = expert_knowledge or ExpertKnowledgeRepository()
-    advice = expert.advise(
+    prior_engine = expert_priors or ExpertPriorEngine()
+    advice = prior_engine.advise(
         diagnosis,
         basin_attributes=basin_attributes if isinstance(basin_attributes, dict) else None,
         governance_context=knowledge_context,
