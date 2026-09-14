@@ -1,9 +1,7 @@
-"""Lightweight knowledge platform for Hydro-Agent.
+"""Knowledge platform boundaries for Hydro-Agent.
 
-Normative standards, advisory expert priors and audited calibration cases are
-kept as different knowledge classes. This prevents heuristics from being
-silently promoted into Gate rules while still allowing the Agent to learn from
-external expertise and local evidence.
+Normative standards, governed advisory claims and audited calibration cases stay
+separate so expert material cannot silently become execution authority.
 """
 
 from hydro_agent.knowledge.basin_priors import derive_basin_hydro_profile
@@ -17,7 +15,6 @@ from hydro_agent.knowledge.expert import (
     BasinHydroProfile,
     ExpertAdvice,
     ExpertKnowledgeRepository,
-    ExpertRule,
 )
 from hydro_agent.knowledge.governance import (
     KnowledgeApplicability,
@@ -36,7 +33,6 @@ __all__ = [
     "CalibrationCaseMemory",
     "ExpertAdvice",
     "ExpertKnowledgeRepository",
-    "ExpertRule",
     "GovernedKnowledgeRepository",
     "KnowledgeApplicability",
     "KnowledgeAuthority",
