@@ -82,7 +82,44 @@ def test_provider_turns_diagnosis_into_group_level_dds_experiment():
     assert decision.action == ActionCode.A07_OPTIMIZE
     assert decision.strategy_id == "xaj-water-balance-v1"
     assert decision.param_groups == ("evap", "runoff")
-    assert decision.objective == "composite"
+    assert decision.objective == "nse"
+
+
+def test_provider_only_uses_unverified_seed_prior_when_campaign_opts_in():
+    diagnosis = {
+        "hypothesis": "MODEL",
+        "phenomenon": "PBIAS=18%",
+        "recommended_action": "A07_OPTIMIZE",
+        "recommended_strategy_id": "xaj-bounded-v1",
+        "recommended_param_groups": "evap,runoff,routing",
+        "recommended_objective": "nse",
+        "metrics": {"nse": 0.42, "pbias_percent": 18.0},
+    }
+    provider = CalibrationScientistDecisionProvider()
+
+    disabled = provider.decide(
+        _view(
+            latest_action=ActionCode.A06_DIAGNOSE,
+            latest_status="succeeded",
+            hydro=HydroContext(diagnosis=diagnosis),
+        )
+    )
+    enabled = provider.decide(
+        _view(
+            latest_action=ActionCode.A06_DIAGNOSE,
+            latest_status="succeeded",
+            hydro=HydroContext(
+                diagnosis=diagnosis,
+                allow_unverified_expert_priors=True,
+            ),
+        )
+    )
+
+    assert disabled.param_groups == ("evap", "runoff", "routing")
+    assert "expert.water_balance_first" not in disabled.rationale_summary
+    assert enabled.param_groups == ("evap", "runoff")
+    assert "expert.water_balance_first" in enabled.rationale_summary
+    assert enabled.objective == "nse"
 
 
 def test_provider_reflects_rollback_into_rediagnosis_before_second_experiment():
