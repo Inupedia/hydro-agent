@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -166,7 +167,7 @@ def test_resolve_gate_uses_current_scheme_not_initial_base(repository):
 
 
 def test_aligned_series_ignores_extra_out_of_window_forecast():
-    window = ValidationWindow(start=date(2021, 6, 1), end=date(2021, 6, 2))
+    window = ValidationWindow(start=date(2021, 6, 1), end=date(2021, 6, 3))
     truth = {
         date(2021, 6, 2): 10.0,
         date(2021, 6, 3): 11.0,
@@ -224,7 +225,7 @@ def test_aligned_series_ignores_extra_out_of_window_forecast():
 
 
 def test_aligned_series_drops_issue_missing_on_one_scheme():
-    window = ValidationWindow(start=date(2021, 6, 1), end=date(2021, 6, 3))
+    window = ValidationWindow(start=date(2021, 6, 1), end=date(2021, 6, 4))
     truth = {
         date(2021, 6, 2): 10.0,
         date(2021, 6, 3): 11.0,
@@ -349,12 +350,6 @@ def test_diagnose_uses_current_scheme_after_rollback(tmp_path, repository):
         artifact_ids=(),
     )
 
-    class FakeSource:
-        flow_rows = [
-            SimpleNamespace(valid_date=day, discharge_m3s=value)
-            for day, value in sorted(truth.items())
-        ]
-
     live = {
         "task-1": {
             "start_date": "2021-06-01",
@@ -369,7 +364,17 @@ def test_diagnose_uses_current_scheme_after_rollback(tmp_path, repository):
         scheme_path=_tiny_scheme(tmp_path),
         report_root=tmp_path / "reports",
     )
-    kernel.source = FakeSource()
+    kernel.source = replace(
+        kernel.source,
+        flow_rows=tuple(
+            SimpleNamespace(
+                valid_date=day,
+                discharge_m3s=value,
+                eligible_for_scoring=True,
+            )
+            for day, value in sorted(truth.items())
+        ),
+    )
     kernel.build_tools(task_configs=live)
     result = kernel._diagnose("task-1")
     assert "scheme_id=scheme-base" in result["notes"]
@@ -458,7 +463,7 @@ def test_gate_bundles_compare_accepted_baseline_not_initial_base(tmp_path, repos
 
     class FakeSource:
         flow_rows = [
-            SimpleNamespace(valid_date=d, discharge_m3s=v)
+            SimpleNamespace(valid_date=d, discharge_m3s=v, eligible_for_scoring=True)
             for d, v in zip(
                 truth_days + [date(2021, 6, 6)],
                 [100.0, 110.0, 90.0, 100.0, 110.0],
@@ -472,7 +477,7 @@ def test_gate_bundles_compare_accepted_baseline_not_initial_base(tmp_path, repos
         source=FakeSource(),
         policy=POLICY,
         task_configs={
-            "task-1": {"start_date": "2021-06-01", "end_date": "2021-06-02"},
+            "task-1": {"start_date": "2021-06-01", "end_date": "2021-06-03"},
         },
     )
     base_bundle, cand_bundle, _ = gate.bundles("task-1")
