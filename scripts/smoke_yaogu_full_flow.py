@@ -2,18 +2,14 @@
 """Real Yaogu calibration-scientist E2E smoke.
 
 The smoke uses the user-supplied Yaogu academy materials, the vendored teacher
-XAJ kernel, leakage-safe diagnostics, structured calibration plans, a
+XAJ kernel, the same full-calibration diagnosis path as the product API, a
 budget-aware numerical optimizer, independent development Gate and scientific
 closeout semantics.
 
 The short Yaogu smoke window is intentionally too small to establish formal
-qualification. Therefore a scientifically correct run ends in a guarded human
-handover without freezing the scheme or consuming final-test evidence. A
-qualified production run still follows freeze -> replay -> final evaluation.
-
-For reproducibility this CI smoke uses the deterministic CalibrationScientist
-policy provider rather than an external LLM. The provider obeys the same
-WorldStateView -> AgentDecision contract as LLM providers.
+qualification or convergence. It uses a small trial budget only to validate
+wiring; budget exhaustion must be reported as not-converged and must not consume
+final-test evidence.
 """
 
 from __future__ import annotations
@@ -92,8 +88,6 @@ def _has_observation(packet, expected: str) -> bool:
 
 
 def write_case_memory(repository, task_id: str) -> list[CalibrationCase]:
-    """Convert A06→A07→A08 evidence triples into persistent calibration cases."""
-
     rows = repository.list_evidence(task_id)
     memory = CalibrationCaseMemory(CASE_PATH)
     cases: list[CalibrationCase] = []
@@ -185,8 +179,6 @@ def main() -> int:
         if plan.get("status") == "failed":
             raise RuntimeError(f"Yaogu model-plan failed before review: {plan.get('error')}")
         if plan.get("status") == "awaiting_review":
-            # CI cannot visually click the map. We only auto-confirm the exact immutable
-            # boundary hash after the builder's numerical boundary check has passed.
             plans.confirm(plan_id, str(plan["boundary_hash"]))
             plan = wait_plan(plans, plan_id)
         if plan.get("status") != "ready":
@@ -234,7 +226,8 @@ def main() -> int:
             validation_days=30,
             final_test_days=30,
             max_agent_decision_rounds=20,
-            max_optimization_cycles=4,
+            max_optimization_cycles=2,
+            campaign_mode="smoke",
         )
         task_id = create_workbench_task(deps, request)
         task_config = deps.task_configs[task_id]
@@ -279,16 +272,17 @@ def main() -> int:
             warmup_days=warmup_days,
         )
         tools = kernel.build_tools(task_configs=deps.task_configs)
-        provider = CalibrationScientistDecisionProvider(max_experiments=2)
+        provider = CalibrationScientistDecisionProvider()
+        world_state = WorldStateBuilder(
+            repository,
+            skills=kernel.skills,
+            strategies=kernel.strategies,
+        )
         runtime = AgentRuntime(
             repository,
             provider=provider,
             tools=tools,
-            world_state=WorldStateBuilder(
-                repository,
-                skills=kernel.skills,
-                strategies=kernel.strategies,
-            ),
+            world_state=world_state,
             provider_name="calibration-scientist-deterministic",
         )
 
@@ -323,10 +317,11 @@ def main() -> int:
                 terminal_packet = packet
                 break
         else:
-            raise RuntimeError("calibration scientist did not close out within 20 rounds")
+            raise RuntimeError("calibration scientist did not close out within smoke resource limit")
 
         task = repository.get_task(task_id)
         state = repository.ensure_task_state(task_id)
+        campaign = world_state.build(task_id).hydro.campaign
         evidence = repository.list_evidence(task_id)
         gate_packets = [packet for packet in packets if packet.action == ActionCode.A08_GATE]
         cases = write_case_memory(repository, task_id)
@@ -343,6 +338,12 @@ def main() -> int:
                 "diagnostic_truth_strictly_precedes_development=true" in obs
                 for obs in packet.observations
             )
+            for packet in diagnoses
+        )
+        full_calibration_diagnosis = bool(diagnoses) and all(
+            _has_observation(packet, "diagnosis_primary_evidence=continuous_calibration")
+            and _has_observation(packet, "calibration_evidence_development_accessed=false")
+            and _has_observation(packet, "calibration_evidence_final_test_accessed=false")
             for packet in diagnoses
         )
         optimization_protocol_safe = bool(optimizations) and all(
@@ -377,21 +378,27 @@ def main() -> int:
             and _has_observation(handover_packet, "final_test_not_consumed=true")
             and str(handover_packet.gates.get("final_test_consumed")) == "false"
         )
+        smoke_budget_honest = (
+            campaign.mode == "smoke"
+            and campaign.stop_reason == "BUDGET_EXHAUSTED"
+            and campaign.converged is False
+            and campaign.trial_count == 2
+        )
 
-        # This 10-day smoke is expected to end in handover because a 3-day
-        # development window cannot establish the formal scheme qualification.
-        # The assertion protects the untouched final-test set for a later,
-        # explicitly reviewed run rather than rewarding an unqualified closeout.
         research_evidence_path = REPORT_ROOT / task_id / "research-evidence.json"
-        final_test_unconsumed = not research_evidence_path.exists() and not replay_packets and not eval_packets
+        final_test_unconsumed = (
+            not research_evidence_path.exists() and not replay_packets and not eval_packets
+        )
 
         summary = {
             "ok": (
                 handover_protocol_safe
                 and final_test_unconsumed
                 and strict_predevelopment
+                and full_calibration_diagnosis
                 and protocol_ok
                 and optimization_protocol_safe
+                and smoke_budget_honest
                 and bool(optimizations)
                 and bool(cases)
             ),
@@ -403,7 +410,10 @@ def main() -> int:
             "protocol": protocol,
             "protocol_ok": protocol_ok,
             "diagnostic_truth_strictly_precedes_development": strict_predevelopment,
+            "full_calibration_diagnosis": full_calibration_diagnosis,
             "optimization_protocol_safe": optimization_protocol_safe,
+            "campaign": campaign.model_dump(mode="json"),
+            "smoke_budget_honest": smoke_budget_honest,
             "handover_protocol_safe": handover_protocol_safe,
             "latest_gate_qualification": latest_gate_qualification,
             "final_test_unconsumed": final_test_unconsumed,
