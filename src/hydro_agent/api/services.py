@@ -112,6 +112,8 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
             "end_date": payload.end_date.isoformat(),
             "max_agent_decision_rounds": payload.max_agent_decision_rounds,
             "max_optimization_cycles": payload.max_optimization_cycles,
+            "allow_unverified_expert_priors": payload.allow_unverified_expert_priors,
+            "forbidden_evidence_dataset_ids": list(payload.forbidden_evidence_dataset_ids),
         },
     }
     if plan_config is not None or deps.base_scheme_config is not None:
