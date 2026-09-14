@@ -1,9 +1,10 @@
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import pytest
 
 from hydro_agent.agent.contracts import ActionCode, AgentDecision, ProblemHypothesis
-from hydro_agent.agent.tools import ForecastHandler, ToolRouter, ToolUnavailable
+from hydro_agent.agent.tools import ForecastHandler, OptimizeHandler, ToolRouter, ToolUnavailable
 from hydro_agent.persistence.database import Database
 from hydro_agent.persistence.repository import HydroRepository
 
@@ -27,6 +28,43 @@ class SpyForecastService:
     def forecast(self, **kwargs):
         self.calls += 1
         return FakeForecast()
+
+
+class FakeCalibrationService:
+    def calibrate(self, **kwargs):
+        return SimpleNamespace(
+            action_run_id="run-cal-1",
+            strategy_id="xaj-bounded-v1",
+            base_scheme_id="scheme-base",
+            candidate_parameters={"K": 0.8},
+            objective_value=0.42,
+            objective="nse",
+            param_groups=("evap",),
+            artifact_ids=("cal-result",),
+            result_payload={
+                "optimizer": "dds",
+                "evaluation_budget": 64,
+                "model_evaluations": 61,
+                "execution_attempts": 2,
+                "resume_attempts": 1,
+                "restored_model_evaluations": 17,
+                "resumed_from_workspace": True,
+                "objective_metric": "nse",
+                "search_boundary_evidence": {
+                    "local_hits": [],
+                    "absolute_hits": [],
+                },
+            },
+        )
+
+
+class FakeCandidateService:
+    def __init__(self):
+        self.payload = None
+
+    def register_candidate(self, *, base_scheme_id, action_run_id, calibration_payload):
+        self.payload = calibration_payload
+        return "scheme-candidate"
 
 
 @pytest.fixture
@@ -93,3 +131,35 @@ def test_unregistered_action_raises_tool_unavailable(tool_router):
     )
     with pytest.raises(ToolUnavailable):
         tool_router.execute("task-1", decision)
+
+
+def test_optimize_evidence_exposes_resume_audit_fields(repository):
+    candidates = FakeCandidateService()
+    handler = OptimizeHandler(
+        repository,
+        calibration_service=FakeCalibrationService(),
+        candidate_service=candidates,
+        calibration_snapshot_id="snap-cal",
+        validation_snapshot_id=None,
+        policy=object(),
+    )
+    decision = AgentDecision(
+        action=ActionCode.A07_OPTIMIZE,
+        hypothesis=ProblemHypothesis.MODEL,
+        strategy_id="xaj-bounded-v1",
+        param_groups=("evap",),
+        objective="nse",
+        rationale_summary="Run the preregistered calibration experiment.",
+    )
+
+    packet = handler.execute("task-1", decision)
+
+    assert packet.status == "succeeded"
+    assert packet.gates["execution_attempts"] == "2"
+    assert packet.gates["resume_attempts"] == "1"
+    assert packet.gates["restored_model_evaluations"] == "17"
+    assert packet.gates["resumed_from_workspace"] == "true"
+    assert packet.metrics["resume_attempts"] == 1.0
+    assert "resumed_from_workspace=true" in packet.observations
+    assert candidates.payload["resume_attempts"] == 1
+    assert candidates.payload["resumed_from_workspace"] is True
