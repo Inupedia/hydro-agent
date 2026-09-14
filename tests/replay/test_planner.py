@@ -64,3 +64,26 @@ def test_f_mode_plan_rejects_day_without_legal_forecast_snapshot(repository):
     )
     with pytest.raises(DataAccessViolation, match="no legal forcing"):
         planner.plan("task-1", date(2025, 5, 1), date(2025, 5, 3))
+
+
+def test_sampled_plan_can_span_long_final_window_without_enumerating_every_day(repository):
+    issue_days = (date(2025, 1, 1), date(2025, 6, 1), date(2025, 12, 28))
+    planner = ReplayPlanner(
+        repository,
+        resolver=FakeResolver({day.isoformat(): f"snap-{index}" for index, day in enumerate(issue_days)}),
+    )
+    plan = planner.plan_issues("task-1", issue_days)
+    assert tuple(case.issue_time.date() for case in plan.cases) == issue_days
+    assert tuple(case.data_snapshot_id for case in plan.cases) == (
+        "snap-0",
+        "snap-1",
+        "snap-2",
+    )
+
+
+def test_sampled_plan_rejects_duplicate_or_unsorted_issue_days(repository):
+    planner = ReplayPlanner(repository, resolver=FakeResolver({}))
+    with pytest.raises(ValueError, match="duplicate"):
+        planner.plan_issues("task-1", (date(2025, 1, 1), date(2025, 1, 1)))
+    with pytest.raises(ValueError, match="sorted"):
+        planner.plan_issues("task-1", (date(2025, 1, 2), date(2025, 1, 1)))

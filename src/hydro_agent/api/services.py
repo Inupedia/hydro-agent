@@ -4,11 +4,13 @@ import copy
 import json
 import uuid
 from collections.abc import Mapping
+from datetime import date, timedelta
 from typing import Any
 
 from hydro_agent.api.deps import AppDependencies
 from hydro_agent.api.schemas import TaskCreateRequest, TaskSummary
 from hydro_agent.execution.hashing import sha256_bytes
+from hydro_agent.workbench.rolling_sampling import evenly_spaced_issue_days
 from hydro_agent.workbench.timeline import build_experiment_timeline
 
 DEFAULT_XAJ_PARAMS = {
@@ -30,6 +32,10 @@ DEFAULT_XAJ_PARAMS = {
 }
 
 
+def _as_date(value: Any) -> date:
+    return date.fromisoformat(str(value)[:10])
+
+
 def build_runtime_task_config(
     workbench: Mapping[str, Any],
     *,
@@ -48,6 +54,23 @@ def build_runtime_task_config(
         runtime["start_date"] = development_start
     if development_end:
         runtime["end_date"] = development_end
+
+    issue_limit = runtime.get("development_rolling_issue_limit")
+    if issue_limit is not None and development_start and development_end:
+        issue_days = evenly_spaced_issue_days(
+            _as_date(development_start),
+            _as_date(development_end),
+            int(issue_limit),
+        )
+        if len(issue_days) < 2:
+            raise ValueError("development rolling sampling requires at least two safe issue days")
+        # A05 is a wiring forecast, not the development Gate itself. Anchor it to
+        # the latest preregistered full-lead-safe issue so its +1/+2/+3 forcing
+        # cannot cross into final_test.
+        runtime["start_date"] = issue_days[0].isoformat()
+        runtime["end_date"] = issue_days[-1].isoformat()
+        runtime["development_rolling_issue_dates"] = [day.isoformat() for day in issue_days]
+
     if model_plan_id:
         runtime["model_plan_id"] = model_plan_id
     return runtime
@@ -76,8 +99,6 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
             raise ValueError("任务流域与模型方案不一致")
         if payload.forcing_mode != "R":
             raise ValueError("老师历史资料仅支持 R 回算；不可当作未来气象预报")
-        from datetime import date, timedelta
-
         if payload.start_date < date.fromisoformat(
             plan["suggested_start"]
         ) or payload.end_date + timedelta(days=3) > date.fromisoformat(plan["data_end"]):
@@ -118,6 +139,8 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
             "campaign_max_no_gain_gates": payload.campaign_max_no_gain_gates,
             "calibration_objective": payload.calibration_objective,
             "search_objective_policy": payload.search_objective_policy,
+            "development_rolling_issue_limit": payload.development_rolling_issue_limit,
+            "final_test_rolling_issue_limit": payload.final_test_rolling_issue_limit,
             "allow_unverified_expert_priors": payload.allow_unverified_expert_priors,
             "forbidden_evidence_dataset_ids": list(payload.forbidden_evidence_dataset_ids),
         },

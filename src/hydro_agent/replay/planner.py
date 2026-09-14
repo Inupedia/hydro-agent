@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta, timezone
 
 from hydro_agent.data.policy import DataAccessViolation
@@ -23,28 +24,37 @@ class ReplayPlanner:
         if issue_count > MAX_REPLAY_ISSUES:
             raise ValueError(
                 f"rolling replay limited to {MAX_REPLAY_ISSUES} issue days; "
-                "use the bounded validation window instead of the full research period"
+                "use preregistered sampled issues for a long research period"
             )
+        issue_days = tuple(start_date + timedelta(days=offset) for offset in range(issue_count))
+        return self.plan_issues(task_id, issue_days)
+
+    def plan_issues(self, task_id: str, issue_days: Sequence[date]) -> ReplayPlan:
+        days = tuple(issue_days)
+        if not days:
+            raise ValueError("replay requires at least one issue day")
+        if len(days) > MAX_REPLAY_ISSUES:
+            raise ValueError(f"rolling replay limited to {MAX_REPLAY_ISSUES} issue days")
+        if len(set(days)) != len(days):
+            raise ValueError("duplicate issue days")
+        if days != tuple(sorted(days)):
+            raise ValueError("issue days must be sorted")
+
         task = self.repository.get_task(task_id)
         state = self.repository.ensure_task_state(task_id)
         scheme = self.repository.get_scheme(state.current_scheme_id)
         if scheme.status != "frozen":
             raise ValueError("current scheme must be frozen for replay planning")
+
         cases: list[ReplayCase] = []
-        seen: set[datetime] = set()
-        day = start_date
-        while day <= end_date:
+        for day in days:
             issue = datetime(day.year, day.month, day.day, self.issue_hour, tzinfo=timezone.utc)
-            if issue in seen:
-                raise ValueError("duplicate issue times")
-            seen.add(issue)
             issue_iso = issue.isoformat().replace("+00:00", "Z")
             try:
                 snapshot_id = self.resolver.resolve(task_id, "forecast", issue_iso)
             except DataAccessViolation as exc:
                 raise DataAccessViolation("no legal forcing") from exc
             cases.append(ReplayCase(issue_time=issue, data_snapshot_id=snapshot_id))
-            day += timedelta(days=1)
         return ReplayPlan(
             task_id=task_id,
             scheme_id=scheme.scheme_id,

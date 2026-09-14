@@ -28,6 +28,10 @@ class TaskCreateRequest(FrozenApiModel):
     development_end_date: date | None = None
     final_test_start_date: date | None = None
     final_test_end_date: date | None = None
+    # Long formal windows keep continuous hydrologic evaluation intact while
+    # bounding rolling 1-3 day forecast cost with preregistered issue samples.
+    development_rolling_issue_limit: int | None = Field(default=None, ge=2, le=90)
+    final_test_rolling_issue_limit: int | None = Field(default=None, ge=2, le=90)
     max_agent_decision_rounds: int = Field(default=20, ge=1, le=100)
     # Legacy cycle count remains a smoke wiring cap only. Formal campaign lifetime
     # is governed by model-evaluation and convergence policy below.
@@ -62,6 +66,30 @@ class TaskCreateRequest(FrozenApiModel):
             raise ValueError(
                 "explicit protocol requires development_start/end and final_test_start/end together"
             )
+
+        if supplied == 4:
+            for label, start, end, limit in (
+                (
+                    "development",
+                    self.development_start_date,
+                    self.development_end_date,
+                    self.development_rolling_issue_limit,
+                ),
+                (
+                    "final_test",
+                    self.final_test_start_date,
+                    self.final_test_end_date,
+                    self.final_test_rolling_issue_limit,
+                ),
+            ):
+                if limit is None or start is None or end is None:
+                    continue
+                # Three forecast leads must remain inside the declared window and
+                # at least two issue dates are required for a sampled comparison.
+                if (end - start).days + 1 < 5:
+                    raise ValueError(
+                        f"{label} rolling sampling requires at least five window days"
+                    )
 
         if self.campaign_mode == "convergence":
             required = {
