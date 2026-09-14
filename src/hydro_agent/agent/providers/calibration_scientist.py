@@ -152,9 +152,7 @@ class CalibrationScientistDecisionProvider:
                 action=action,
                 hypothesis=hypothesis,
                 strategy_id=plan.strategy_id if action == ActionCode.A07_OPTIMIZE else None,
-                param_groups=(
-                    plan.parameter_groups if action == ActionCode.A07_OPTIMIZE else None
-                ),
+                param_groups=(plan.parameter_groups if action == ActionCode.A07_OPTIMIZE else None),
                 objective=plan.objective if action == ActionCode.A07_OPTIMIZE else None,
                 rationale_summary=plan.rationale[:600],
             )
@@ -186,9 +184,7 @@ class CalibrationScientistDecisionProvider:
             campaign = view.hydro.campaign
             gate_status = str(latest.gates.get("gate_status") or latest.status)
             qualification_status = str(latest.gates.get("qualification_status") or "")
-            candidate_adopted = (
-                str(latest.gates.get("candidate_adopted") or "").lower() == "true"
-            )
+            candidate_adopted = str(latest.gates.get("candidate_adopted") or "").lower() == "true"
 
             if campaign.stop_reason is not None:
                 action = self._fallback(view, ActionCode.A10_FREEZE)
