@@ -122,6 +122,9 @@ class RunSummary(FrozenApiModel):
     llm_text: str = ""
     llm_error: str | None = None
     llm_decision_action: str | None = None
+    queue_position: int | None = None
+    worker_slots_used: int = 0
+    worker_slots_max: int = 5
 
 
 class TimelineItem(FrozenApiModel):

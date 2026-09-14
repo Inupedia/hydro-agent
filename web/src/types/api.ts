@@ -55,6 +55,9 @@ export type RunSummary = {
   llm_text?: string
   llm_error?: string | null
   llm_decision_action?: string | null
+  queue_position?: number | null
+  worker_slots_used?: number
+  worker_slots_max?: number
 }
 
 export type TimelineItem = {

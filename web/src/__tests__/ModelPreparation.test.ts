@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ModelPreparation from '../components/ModelPreparation.vue'
 import { api } from '../api/client'
 
+function portal(testId: string) {
+  return document.body.querySelector(`[data-test="${testId}"]`) as HTMLElement | null
+}
+
 vi.mock('../api/client', () => ({
   api: {
     getBasin: vi.fn(),
@@ -92,6 +96,20 @@ describe('ModelPreparation', () => {
     await flushPromises()
     expect(api.deleteModelPlan).toHaveBeenCalledWith(plan.plan_id)
     expect(wrapper.emitted('selected')?.at(-1)?.[0]).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('opens bulk plan management in the shared glass dialog', async () => {
+    const wrapper = mount(ModelPreparation, { props: { basinId: 'yaogu' } })
+    await flushPromises()
+    expect(portal('bulk-plan-manager')).toBeNull()
+    await wrapper.get('[data-test="manage-plans"]').trigger('click')
+    await flushPromises()
+    const dialog = portal('bulk-plan-manager')
+    expect(dialog).not.toBeNull()
+    expect(dialog?.parentElement).toBe(document.body)
+    expect(dialog?.classList.contains('glass-dialog-backdrop')).toBe(true)
+    expect(dialog?.textContent).toContain('批量管理')
     wrapper.unmount()
   })
 })

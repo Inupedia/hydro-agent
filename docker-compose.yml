@@ -41,6 +41,8 @@ services:
       HYDRO_WORKFLOW_DIR: "/app/workflow"
       HYDRO_LLM_TIMEOUT_SECONDS: "180"
       HYDRO_LLM_MAX_RETRIES: "5"
+      HYDRO_MAX_CONCURRENT_RUNS: "5"
+      HYDRO_MAX_QUEUED_RUNS: "20"
     restart: unless-stopped
 
 volumes:

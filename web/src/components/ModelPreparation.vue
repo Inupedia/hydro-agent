@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, type BasinInfo, type ModelPlan } from '../api/client'
 import GlassSelect from './GlassSelect.vue'
+import GlassDialog from './GlassDialog.vue'
 
 const props = defineProps<{
   basinId?: string | null
@@ -201,9 +202,13 @@ async function remove() {
   await performDelete([id])
 }
 
-function toggleManage() {
-  manageOpen.value = !manageOpen.value
-  if (!manageOpen.value) selectedPlanIds.value = []
+function openManage() {
+  manageOpen.value = true
+}
+
+function closeManage() {
+  manageOpen.value = false
+  selectedPlanIds.value = []
 }
 
 function toggleAllPlans() {
@@ -217,7 +222,7 @@ async function removeSelectedPlans() {
   if (!ids.length) return
   if (!window.confirm(`删除选中的 ${ids.length} 个模型方案？此操作不可恢复。`)) return
   await performDelete(ids)
-  if (!selectedPlanIds.value.length) manageOpen.value = false
+  if (!selectedPlanIds.value.length) closeManage()
 }
 
 watch(
@@ -291,8 +296,8 @@ onUnmounted(() => {
           />
         </label>
         <div class="reuse-actions">
-          <button type="button" class="manage-button" data-test="manage-plans" :disabled="locked || busy || !reusablePlans.length" @click="toggleManage">
-            {{ manageOpen ? '收起管理' : '批量管理' }}
+          <button type="button" class="manage-button" data-test="manage-plans" :disabled="locked || busy || !reusablePlans.length" @click="openManage">
+            批量管理
           </button>
           <button type="button" class="danger-button" data-test="delete-plan" :disabled="!canDelete" @click="remove">
             删除当前
@@ -300,27 +305,32 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <section v-if="manageOpen" class="bulk-plan-manager" data-test="bulk-plan-manager">
-        <div class="bulk-plan-head">
-          <div><strong>批量管理模型方案</strong><span>仅可删除未在建模中的方案</span></div>
+      <GlassDialog
+        :open="manageOpen"
+        test-id="bulk-plan-manager"
+        overline="模型方案"
+        title="批量管理"
+        labelled-by="plan-manager-title"
+        @close="closeManage"
+      >
+        <template #toolbar>
+          <span>仅可删除未在建模中的方案</span>
           <button type="button" class="text-button" :disabled="!deletablePlans.length" @click="toggleAllPlans">
             {{ allDeletableSelected ? '取消全选' : '全选可删除方案' }}
           </button>
-        </div>
-        <div v-if="deletablePlans.length" class="bulk-plan-list">
-          <label v-for="plan in deletablePlans" :key="plan.plan_id" class="bulk-plan-item">
-            <input v-model="selectedPlanIds" type="checkbox" :value="plan.plan_id" />
-            <span><strong>{{ plan.plan_id }}</strong><small>{{ plan.model_mode || 'lumped' }} · {{ labels[plan.status] || plan.status }}</small></span>
-          </label>
-        </div>
-        <p v-else class="basin-caption">当前没有可批量删除的模型方案。</p>
-        <div class="bulk-plan-actions">
+        </template>
+        <label v-for="plan in deletablePlans" :key="plan.plan_id" class="glass-dialog-item">
+          <input v-model="selectedPlanIds" type="checkbox" :value="plan.plan_id" />
+          <span><strong>{{ plan.plan_id }}</strong><small>{{ plan.model_mode || 'lumped' }} · {{ labels[plan.status] || plan.status }}</small></span>
+        </label>
+        <p v-if="!deletablePlans.length">当前没有可批量删除的模型方案。</p>
+        <template #footer>
           <span>已选 {{ selectedPlanIds.length }} 个</span>
           <button type="button" class="danger-button" data-test="delete-selected-plans" :disabled="!selectedPlanIds.length || busy || locked" @click="removeSelectedPlans">
             删除选中
           </button>
-        </div>
-      </section>
+        </template>
+      </GlassDialog>
 
       <fieldset :disabled="locked || busy || loadingBasin || !canBuild">
         <label>结构模式
@@ -511,35 +521,6 @@ onUnmounted(() => {
   font-weight: 500;
   cursor: pointer;
 }
-.bulk-plan-manager {
-  display: grid;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.72);
-}
-.bulk-plan-head,
-.bulk-plan-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.bulk-plan-head > div { display: grid; gap: 2px; }
-.bulk-plan-head strong { font-size: 13px; }
-.bulk-plan-head span,
-.bulk-plan-actions span { color: var(--text-secondary); font-size: 11px; }
-.bulk-plan-list { display: grid; gap: 6px; max-height: 220px; overflow: auto; }
-.bulk-plan-item {
-  grid-template-columns: auto minmax(0, 1fr) !important;
-  align-items: center;
-  gap: 9px !important;
-  padding: 8px 10px;
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-xs);
-  background: var(--surface);
-}
-.bulk-plan-item input { width: 14px; height: 14px; margin: 0; }
-.bulk-plan-item span { min-width: 0; display: grid; gap: 2px; }
-.bulk-plan-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.bulk-plan-item small { color: var(--text-secondary); font-size: 10px; }
-.bulk-plan-actions .danger-button { min-height: 34px; padding: 0 12px; font-size: 12px; }
 .materials {
   display: grid;
   gap: 10px;

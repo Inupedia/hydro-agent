@@ -154,8 +154,18 @@ export function forcingLabel(mode: 'R' | 'F'): string {
   return mode === 'R' ? '实测气象驱动资料' : '预报气象驱动资料'
 }
 
+export function workbenchErrorZh(error: string | null | undefined): string | null {
+  if (!error) return null
+  if (error.includes('计算席位已满') || error.includes('local worker busy')) {
+    return '计算席位已满（最多同时运行 5 个任务）。任务已保存，请稍后再点开始运行。'
+  }
+  return null
+}
+
 export function providerErrorZh(error: string | null | undefined): string | null {
   if (!error) return null
+  const seats = workbenchErrorZh(error)
+  if (seats) return seats
   if (error.includes('503') || error.includes('429') || error.includes('502')) {
     return '模型服务暂时繁忙，请稍后重试继续（SiliconFlow HTTP 过载）。'
   }

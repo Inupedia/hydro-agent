@@ -12,11 +12,12 @@ import GlassSelect from '../components/GlassSelect.vue'
 import ParamTuningPanel from '../components/ParamTuningPanel.vue'
 import ReportSectionHead from '../components/ReportSectionHead.vue'
 import ResearchEvidencePanel from '../components/ResearchEvidencePanel.vue'
+import GlassDialog from '../components/GlassDialog.vue'
 import { useDemoStore } from '../stores/demo'
 import { DEMO_PRESET } from '../demo/preset'
 import { api } from '../api/client'
 import { gsap, motionDuration, prefersReducedMotion } from '../motion/gsap'
-import { basinLabel } from '../demo/stages'
+import { basinLabel, providerErrorZh, workbenchErrorZh } from '../demo/stages'
 
 const demo = useDemoStore()
 const route = useRoute()
@@ -142,6 +143,7 @@ const forecastSurface = ref<HTMLElement | null>(null)
 const tuningMount = ref<HTMLElement | null>(null)
 const caseManagerOpen = ref(false)
 const selectedCaseIds = ref<string[]>([])
+const runNotice = ref<{ overline: string; title: string; body: string } | null>(null)
 let timer: number | undefined
 let layoutTween: ReturnType<typeof gsap.timeline> | null = null
 
@@ -160,6 +162,7 @@ const showWorkflow = computed(
     !showResultsStage.value &&
     (busy.value ||
       demo.isRunning ||
+      demo.isQueued ||
       !!demo.run?.paused ||
       demo.isFailed ||
       (!!demo.taskId && !!demo.run && demo.run.status !== 'created' && !demo.isCompleted)),
@@ -192,19 +195,53 @@ const allCasesSelected = computed(
   () => demo.caseLibrary.length > 0 && demo.caseLibrary.every((task) => selectedCaseIds.value.includes(task.task_id)),
 )
 const elapsed = computed(() => {
+  if (demo.isQueued) {
+    const place = demo.run?.queue_position
+    return place ? `排队等待第 ${place} 位` : '排队等待计算席位'
+  }
   if (!demo.startedAt || demo.isCompleted || demo.isFailed) return demo.isCompleted ? '已结束' : '等待开始'
   const seconds = Math.max(0, Math.floor((now.value - demo.startedAt) / 1000))
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 })
-const error = computed(() => demo.error || demo.run?.llm_error)
+const error = computed(
+  () => workbenchErrorZh(demo.error) || providerErrorZh(demo.run?.llm_error) || demo.error || demo.run?.llm_error,
+)
+
+function showQueuedNotice() {
+  const place = demo.run?.queue_position
+  const used = demo.run?.worker_slots_used ?? 0
+  const max = demo.run?.worker_slots_max ?? 5
+  runNotice.value = {
+    overline: '计算席位',
+    title: '已加入排队',
+    body: place
+      ? `当前最多同时运行 ${max} 个任务，已有 ${used} 个正在计算。你排在第 ${place} 位，席位空出后会自动开始，无需重复提交。`
+      : `当前最多同时运行 ${max} 个任务。席位空出后会自动开始，无需重复提交。`,
+  }
+}
+
+function showSeatFullNotice(raw: string) {
+  runNotice.value = {
+    overline: '计算席位',
+    title: '暂时无法开始',
+    body: workbenchErrorZh(raw) || '计算席位已满（最多同时运行 5 个任务）。任务已保存，请稍后再点开始运行。',
+  }
+}
+
+function closeRunNotice() {
+  runNotice.value = null
+}
 
 async function begin() {
   busy.value = true
   try {
     if (!demo.taskId) await demo.createTaskFromDraft()
     await demo.startRun()
+    if (demo.isQueued) showQueuedNotice()
   } catch (err) {
-    demo.error = String((err as Error).message || err)
+    const raw = String((err as Error).message || err)
+    demo.error = raw
+    if (workbenchErrorZh(raw)) showSeatFullNotice(raw)
   } finally {
     busy.value = false
   }
@@ -213,8 +250,11 @@ async function resume() {
   busy.value = true
   try {
     await demo.resumeCompute()
+    if (demo.isQueued) showQueuedNotice()
   } catch (err) {
-    demo.error = String((err as Error).message || err)
+    const raw = String((err as Error).message || err)
+    demo.error = raw
+    if (workbenchErrorZh(raw)) showSeatFullNotice(raw)
   } finally {
     busy.value = false
   }
@@ -431,39 +471,52 @@ onUnmounted(() => {
               data-test="header-case-picker"
               aria-label="已有案例"
               compact
-              :disabled="demo.isRunning || busy"
+              :disabled="demo.isRunning || demo.isQueued || busy"
               :options="caseSelectOptions"
             />
           </label>
-          <button data-test="header-delete-case" type="button" class="case-delete" :disabled="demo.isRunning || busy || !demo.caseLibrary.length" @click="openCaseManager">管理</button>
+          <button data-test="header-delete-case" type="button" class="manage-button" :disabled="demo.isRunning || demo.isQueued || busy || !demo.caseLibrary.length" @click="openCaseManager">管理</button>
           <button data-test="header-new-task" type="button" class="header-new-task" @click="newTask">新建任务</button>
         </div>
         <div class="connection"><i :class="{ online: connected }" />{{ mode }}</div>
       </div>
     </header>
 
-    <div v-if="caseManagerOpen" class="case-manager-backdrop" @click.self="closeCaseManager">
-      <section class="case-manager-panel glass-pane" role="dialog" aria-modal="true" aria-label="批量管理历史案例">
-        <header class="case-manager-head">
-          <div><span class="overline">历史案例</span><h2>批量管理</h2></div>
-          <button type="button" class="case-manager-close" aria-label="关闭" @click="closeCaseManager">×</button>
-        </header>
-        <div class="case-manager-toolbar">
-          <span>共 {{ demo.caseLibrary.length }} 份已完成记录</span>
-          <button type="button" class="text-button" @click="toggleAllCases">{{ allCasesSelected ? '取消全选' : '全选' }}</button>
-        </div>
-        <div class="case-manager-list">
-          <label v-for="task in demo.caseLibrary" :key="task.task_id" class="case-manager-item">
-            <input v-model="selectedCaseIds" type="checkbox" :value="task.task_id" />
-            <span><strong>{{ task.start_date || task.task_id }}</strong><small>{{ basinLabel(task.basin_id) }} · {{ task.task_id }}</small></span>
-          </label>
-        </div>
-        <footer class="case-manager-footer">
-          <span>已选 {{ selectedCaseIds.length }} 份</span>
-          <button type="button" class="case-delete" data-test="delete-selected-cases" :disabled="!selectedCaseIds.length || busy" @click="deleteSelectedCases">删除选中</button>
-        </footer>
-      </section>
-    </div>
+    <GlassDialog
+      :open="!!runNotice"
+      test-id="run-notice"
+      :overline="runNotice?.overline || '计算席位'"
+      :title="runNotice?.title || ''"
+      labelled-by="run-notice-title"
+      @close="closeRunNotice"
+    >
+      <p>{{ runNotice?.body }}</p>
+      <template #footer>
+        <button class="start-button" data-test="run-notice-ack" type="button" @click="closeRunNotice">知道了</button>
+      </template>
+    </GlassDialog>
+
+    <GlassDialog
+      :open="caseManagerOpen"
+      test-id="case-manager"
+      overline="历史案例"
+      title="批量管理"
+      labelled-by="case-manager-title"
+      @close="closeCaseManager"
+    >
+      <template #toolbar>
+        <span>共 {{ demo.caseLibrary.length }} 份已完成记录</span>
+        <button type="button" class="text-button" @click="toggleAllCases">{{ allCasesSelected ? '取消全选' : '全选' }}</button>
+      </template>
+      <label v-for="task in demo.caseLibrary" :key="task.task_id" class="glass-dialog-item">
+        <input v-model="selectedCaseIds" type="checkbox" :value="task.task_id" />
+        <span><strong>{{ task.start_date || task.task_id }}</strong><small>{{ basinLabel(task.basin_id) }} · {{ task.task_id }}</small></span>
+      </label>
+      <template #footer>
+        <span>已选 {{ selectedCaseIds.length }} 份</span>
+        <button type="button" class="danger-button" data-test="delete-selected-cases" :disabled="!selectedCaseIds.length || busy" @click="deleteSelectedCases">删除选中</button>
+      </template>
+    </GlassDialog>
 
     <main class="observatory-grid">
       <section ref="mainStage" class="main-stage glass-pane" :class="{ 'main-stage--focus': focusStage, 'main-stage--results': showResultsStage }">
@@ -558,6 +611,7 @@ onUnmounted(() => {
           <div class="pane-actions">
             <button v-if="!demo.run || demo.run.status === 'created'" class="start-button" :disabled="busy || !connected || (serviceMode === 'real' && !demo.draft.model_plan_id)" type="submit">{{ busy ? '正在启动…' : planReady ? '开始运行' : '请先完成建模' }}</button>
             <button v-else-if="demo.run.paused && demo.mode !== 'replay'" type="button" class="start-button" :disabled="busy" @click="resume">继续计算</button>
+            <button v-else-if="demo.isQueued" type="button" class="start-button" disabled>排队等待计算席位{{ demo.run.queue_position ? `（第 ${demo.run.queue_position} 位）` : '' }}</button>
             <button v-else-if="demo.isRunning" type="button" class="start-button" disabled>正在计算<span class="activity-dot" /></button>
             <button v-else type="button" class="start-button" @click="newTask">新建任务</button>
             <p class="source-note">{{ demo.draft.forcing_mode === 'R' ? `使用 ${selectedBasin?.label || demo.draft.basin_id} 本地日资料做历史率定与检验，不代表业务预报。` : '预报资料可用性将在运行时检查。' }}</p>
@@ -566,11 +620,11 @@ onUnmounted(() => {
                 <GlassSelect
                   v-model="selectedCaseId"
                   aria-label="已有案例"
-                  :disabled="demo.isRunning || busy"
+                  :disabled="demo.isRunning || demo.isQueued || busy"
                   :options="caseSelectOptions"
                 />
               </label>
-              <button data-test="delete-case" type="button" class="case-delete" :disabled="demo.isRunning || busy || !demo.caseLibrary.length" @click="openCaseManager">管理</button>
+              <button data-test="delete-case" type="button" class="manage-button" :disabled="demo.isRunning || demo.isQueued || busy || !demo.caseLibrary.length" @click="openCaseManager">管理</button>
             </div>
           </div>
         </form>
@@ -596,88 +650,10 @@ onUnmounted(() => {
 
 <style src="../observatory.css"></style>
 <style scoped>
-.case-manager-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: rgba(26, 28, 34, 0.2);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-.case-manager-panel {
-  width: min(520px, 100%);
-  max-height: min(680px, 78vh);
-  padding: 20px;
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
-}
-.case-manager-head,
-.case-manager-toolbar,
-.case-manager-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.case-manager-head h2 { margin: 4px 0 0; }
-.case-manager-close {
-  width: 34px;
-  height: 34px;
-  border: 0;
-  border-radius: 50%;
-  background: var(--neutral-soft);
-  color: var(--text-secondary);
-  font-size: 20px;
-  cursor: pointer;
-}
-.case-manager-toolbar {
-  padding: 12px 0 10px;
-  border-bottom: 1px solid var(--separator);
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-.case-manager-list {
-  min-height: 0;
-  display: grid;
-  gap: 7px;
-  padding: 10px 0;
-  overflow: auto;
-  scrollbar-gutter: stable;
-}
-.case-manager-item {
-  display: grid !important;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 10px !important;
-  padding: 10px 11px;
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-}
-.case-manager-item input { width: 15px; height: 15px; margin: 0; }
-.case-manager-item span { display: grid; min-width: 0; gap: 2px; }
-.case-manager-item strong { font-size: 13px; }
-.case-manager-item small { overflow: hidden; color: var(--text-secondary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.case-manager-footer {
-  padding-top: 12px;
-  border-top: 1px solid var(--separator);
-  color: var(--text-secondary);
-  font-size: 12px;
-}
 .advanced-fields small {
   color: var(--text-secondary);
   font-size: 11px;
   font-weight: 400;
   line-height: 1.5;
-}
-@media (prefers-reduced-transparency: reduce) {
-  .case-manager-backdrop {
-    background: rgba(26, 28, 34, 0.32);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
 }
 </style>

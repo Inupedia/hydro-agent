@@ -1,4 +1,4 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -7,6 +7,10 @@ import ModelPreparation from '../components/ModelPreparation.vue'
 import { useDemoStore } from '../stores/demo'
 import { api } from '../api/client'
 import { DEMO_PRESET } from '../demo/preset'
+
+function portal(testId: string) {
+  return document.body.querySelector(`[data-test="${testId}"]`) as HTMLElement | null
+}
 
 vi.mock('../components/HydrographComparisonChart.vue', () => ({ default: { template: '<div data-test="hydrograph" />' } }))
 vi.mock('../components/ModelPreparation.vue', () => ({ default: { name: 'ModelPreparation', emits: ['selected'], template: '<div />' } }))
@@ -68,8 +72,52 @@ describe('single page observatory', () => {
     expect(api.startRun).toHaveBeenCalledTimes(1)
     expect(router.currentRoute.value.path).toBe('/')
     expect(wrapper.find('[data-test="live-workflow"]').exists()).toBe(true)
+    expect(portal('run-notice')).toBeNull()
     expect(wrapper.find('.water-scene').exists()).toBe(false)
     expect(wrapper.find('fieldset').attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('shows a glass dialog when the run is queued behind occupied seats', async () => {
+    vi.mocked(api.startRun).mockResolvedValueOnce({
+      status: 'queued',
+      worker_active: false,
+      queue_position: 2,
+      worker_slots_used: 5,
+      worker_slots_max: 5,
+    } as Awaited<ReturnType<typeof api.startRun>>)
+    vi.mocked(api.getRun).mockResolvedValue({
+      status: 'queued',
+      worker_active: false,
+      queue_position: 2,
+      worker_slots_used: 5,
+      worker_slots_max: 5,
+    } as Awaited<ReturnType<typeof api.getRun>>)
+    const { wrapper } = await setup()
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    const notice = portal('run-notice')
+    expect(notice).not.toBeNull()
+    expect(notice?.textContent).toContain('已加入排队')
+    expect(notice?.textContent).toContain('第 2 位')
+    portal('run-notice')?.querySelector<HTMLButtonElement>('[data-test="run-notice-ack"]')?.click()
+    await flushPromises()
+    expect(portal('run-notice')).toBeNull()
+    expect(wrapper.find('.start-button').text()).toContain('排队等待计算席位')
+    wrapper.unmount()
+  })
+
+  it('shows a glass dialog when compute seats are full', async () => {
+    vi.mocked(api.startRun).mockRejectedValueOnce(
+      new Error('API 409: {"detail":"计算席位已满（最多同时运行 5 个任务），请稍后再试"}'),
+    )
+    const { wrapper } = await setup()
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    const notice = portal('run-notice')
+    expect(notice).not.toBeNull()
+    expect(notice?.textContent).toContain('暂时无法开始')
+    expect(notice?.textContent).toContain('最多同时运行 5 个任务')
     wrapper.unmount()
   })
 
@@ -246,6 +294,7 @@ describe('single page observatory', () => {
     expect(wrapper.find('[data-test="header-new-task"]').text()).toBe('新建任务')
     expect(wrapper.find('[data-test="header-case-picker"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="header-delete-case"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="header-delete-case"]').classes()).toContain('manage-button')
     expect(wrapper.find('[data-test="param-tuning"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="hydrologist-tune"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('新安江参数如何被调整')
@@ -267,17 +316,22 @@ describe('single page observatory', () => {
     await flushPromises()
 
     await wrapper.find('[data-test="delete-case"]').trigger('click')
-    expect(wrapper.find('.case-manager-panel').exists()).toBe(true)
-    const checkboxes = wrapper.findAll('.case-manager-item input[type="checkbox"]')
+    await flushPromises()
+    const manager = portal('case-manager')
+    expect(manager).not.toBeNull()
+    expect(manager?.parentElement).toBe(document.body)
+    const checkboxes = [...(manager?.querySelectorAll('input[type="checkbox"]') || [])].map(
+      (el) => new DOMWrapper(el as HTMLInputElement),
+    )
     expect(checkboxes).toHaveLength(2)
     await checkboxes[0].setValue(true)
     await checkboxes[1].setValue(true)
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
-    await wrapper.find('[data-test="delete-selected-cases"]').trigger('click')
+    await new DOMWrapper(manager!.querySelector('[data-test="delete-selected-cases"]')!).trigger('click')
     await flushPromises()
     expect(api.deleteTask).toHaveBeenCalledWith('case-1')
     expect(api.deleteTask).toHaveBeenCalledWith('case-2')
-    expect(wrapper.find('.case-manager-panel').exists()).toBe(false)
+    expect(portal('case-manager')).toBeNull()
     confirm.mockRestore()
     wrapper.unmount()
   })

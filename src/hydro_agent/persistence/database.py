@@ -17,6 +17,7 @@ class Database:
         @event.listens_for(self.engine, "connect")
         def configure(connection, _record):
             connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("PRAGMA busy_timeout=5000")
 
         self._sessions = sessionmaker(self.engine, expire_on_commit=False)

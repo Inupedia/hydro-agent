@@ -108,7 +108,21 @@
   white-space: nowrap;
 }
 .header-new-task:hover { background: var(--accent-hover); }
-.case-delete {
+.manage-button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--neutral-soft);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.manage-button:hover:not(:disabled) { background: #e7e8ec; }
+.manage-button:disabled { opacity: 0.45; cursor: default; }
+.danger-button {
   min-height: 36px;
   padding: 0 12px;
   border: 0;
@@ -120,8 +134,8 @@
   cursor: pointer;
   white-space: nowrap;
 }
-.case-delete:hover:not(:disabled) { background: #ffe3e5; }
-.case-delete:disabled { opacity: 0.45; cursor: default; }
+.danger-button:hover:not(:disabled) { background: #ffe3e5; }
+.danger-button:disabled { opacity: 0.45; cursor: default; }
 .connection {
   display: flex;
   align-items: center;
@@ -366,7 +380,7 @@
   align-items: flex-end;
   gap: 8px;
 }
-.case-picker-row .case-delete { min-height: 40px; }
+.case-picker-row .manage-button { min-height: 40px; }
 
 .main-stage {
   display: flex;

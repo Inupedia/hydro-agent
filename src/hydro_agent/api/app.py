@@ -50,6 +50,7 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
             "workflow_id": binding["workflow_id"],
             "workflow_version": binding["workflow_version"],
             "workflow_hash": binding["workflow_hash"],
+            **executor.slots(),
         }
 
     app.include_router(basins.router)

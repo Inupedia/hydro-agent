@@ -96,6 +96,7 @@ export const useDemoStore = defineStore('demo', () => {
   const isRunning = computed(
     () => Boolean(run.value?.worker_active) || run.value?.status === 'running',
   )
+  const isQueued = computed(() => run.value?.status === 'queued')
   const isCompleted = computed(
     () =>
       run.value?.status === 'completed' ||
@@ -230,7 +231,7 @@ export const useDemoStore = defineStore('demo', () => {
     error.value = null
     const unique = [...new Map(tasks.map((task) => [task.task_id, task])).values()]
     if (!unique.length) return
-    if (isRunning.value && unique.some((task) => task.task_id === taskId.value)) {
+    if ((isRunning.value || isQueued.value) && unique.some((task) => task.task_id === taskId.value)) {
       throw new Error('任务正在运行，无法删除')
     }
 
@@ -395,6 +396,7 @@ export const useDemoStore = defineStore('demo', () => {
     caseLibrary,
     settingsOpen,
     isRunning,
+    isQueued,
     isCompleted,
     isFailed,
     checkConditions,

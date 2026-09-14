@@ -20,6 +20,9 @@ export type HealthResponse = {
   orchestrator?: string
   mode?: string
   provider_model?: string | null
+  run_slots_used?: number
+  run_slots_max?: number
+  run_queue?: number
 }
 
 export type HydrologistSession = {

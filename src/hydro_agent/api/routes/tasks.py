@@ -44,7 +44,7 @@ def delete_task(task_id: str, request: Request) -> None:
     executor = getattr(deps, "executor", None)
     if executor is not None:
         try:
-            if executor.status(task_id).worker_active:
+            if executor.is_occupied(task_id):
                 raise HTTPException(status_code=409, detail="任务正在运行，无法删除")
         except HTTPException:
             raise
