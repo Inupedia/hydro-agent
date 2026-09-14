@@ -186,9 +186,9 @@ class CalibrationScientistDecisionProvider:
             campaign = view.hydro.campaign
             gate_status = str(latest.gates.get("gate_status") or latest.status)
             qualification_status = str(latest.gates.get("qualification_status") or "")
-            candidate_adopted = (
-                str(latest.gates.get("candidate_adopted") or "").lower() == "true"
-            )
+            candidate_adopted = str(
+                latest.gates.get("candidate_adopted") or ""
+            ).lower() == "true"
 
             if campaign.stop_reason is not None:
                 action = self._fallback(view, ActionCode.A10_FREEZE)
