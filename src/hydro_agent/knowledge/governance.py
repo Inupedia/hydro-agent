@@ -24,6 +24,12 @@ KnowledgeCategory = Literal[
     "policy_suggestion",
     "quarantine",
 ]
+KnowledgeAuthority = Literal[
+    "advisory_only",
+    "validator_evidence",
+    "provenance_only",
+    "runtime_prohibited",
+]
 VerificationStatus = Literal[
     "unverified",
     "verified_in_scope",
@@ -53,11 +59,16 @@ class KnowledgeEntry(FrozenModel):
     ``review_status`` answers whether a human approved the entry for its stated
     role. ``verification_status`` answers whether the claim itself has been
     reproduced/verified. Those are deliberately independent.
+
+    ``authority`` is deliberately explicit. Only ``advisory_only`` entries may
+    enter Agent planning; constraint evidence, benchmark provenance and policy
+    text can be stored and audited without acquiring runtime authority.
     """
 
     knowledge_id: str = Field(min_length=1)
     revision: int = Field(ge=1)
     category: KnowledgeCategory
+    authority: KnowledgeAuthority = "advisory_only"
     claim: str = Field(min_length=1)
     source_id: str = Field(min_length=1)
     source_hash: str = Field(min_length=1)
@@ -66,6 +77,10 @@ class KnowledgeEntry(FrozenModel):
     verification_status: VerificationStatus = "unverified"
     review_status: ReviewStatus = "pending"
     exposure_tags: tuple[ExposureTag, ...] = ()
+    # IDs of datasets whose observations or derived metrics were used to form
+    # this claim. A campaign may forbid same-dataset priors even when the claim
+    # does not literally carry a final_test tag, preventing indirect leakage.
+    evidence_dataset_ids: tuple[str, ...] = ()
     evidence_refs: tuple[str, ...] = ()
     conflicts_with: tuple[str, ...] = ()
     supersedes: tuple[str, ...] = ()
@@ -83,6 +98,7 @@ class KnowledgeQueryContext(FrozenModel):
     evaporation_semantic: str | None = None
     allow_unverified_expert_priors: bool = False
     forbidden_exposure_tags: tuple[ExposureTag, ...] = ("final_test",)
+    forbidden_evidence_dataset_ids: tuple[str, ...] = ()
 
 
 class KnowledgeFilterDecision(FrozenModel):
@@ -115,13 +131,16 @@ def _rejection_reasons(entry: KnowledgeEntry, context: KnowledgeQueryContext) ->
     reasons: list[str] = []
     if entry.category == "quarantine":
         reasons.append("category_quarantined")
+    if entry.authority != "advisory_only":
+        reasons.append(f"authority_not_planning:{entry.authority}")
     if entry.review_status != "approved":
         reasons.append("review_not_approved")
     if entry.verification_status in {"disputed", "rejected", "superseded"}:
         reasons.append(f"verification_{entry.verification_status}")
     elif entry.verification_status == "unverified":
         allowed_prior = (
-            context.allow_unverified_expert_priors and entry.category == "expert_diagnostic_prior"
+            context.allow_unverified_expert_priors
+            and entry.category == "expert_diagnostic_prior"
         )
         if not allowed_prior:
             reasons.append("unverified_not_allowed")
@@ -130,6 +149,11 @@ def _rejection_reasons(entry: KnowledgeEntry, context: KnowledgeQueryContext) ->
     leaked = forbidden.intersection(entry.exposure_tags)
     if leaked:
         reasons.append("forbidden_exposure:" + ",".join(sorted(leaked)))
+
+    forbidden_datasets = set(context.forbidden_evidence_dataset_ids)
+    leaked_datasets = forbidden_datasets.intersection(entry.evidence_dataset_ids)
+    if leaked_datasets:
+        reasons.append("forbidden_evidence_dataset:" + ",".join(sorted(leaked_datasets)))
 
     scope = entry.applicability
     checks = (
