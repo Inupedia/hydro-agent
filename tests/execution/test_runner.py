@@ -61,6 +61,31 @@ def test_runner(tmp_path, execution_request, mode, status, error):
         assert not psutil.pid_exists(pid) or psutil.Process(pid).status() == psutil.STATUS_ZOMBIE
 
 
+def test_runner_resume_reuses_work_state_and_discards_stale_output(tmp_path, execution_request):
+    registry = RuntimeRegistry()
+    registry.register(FixtureAdapter("resume"))
+    runner = SandboxRunner(registry, WorkspaceManager(tmp_path))
+
+    first = runner.run(execution_request)
+    assert first.status == "timed_out"
+    workspace = tmp_path / "task-1/run-1"
+    assert (workspace / "work/resume.marker").read_text(encoding="utf-8") == "durable-state"
+    assert json.loads((workspace / "output/result.json").read_text(encoding="utf-8")) == {
+        "stale": True
+    }
+
+    second = runner.run(execution_request, resume=True)
+    assert second.status == "succeeded"
+    assert second.result_payload == {"resumed": True, "state_preserved": True}
+    assert json.loads((workspace / "output/result.json").read_text(encoding="utf-8")) == {
+        "resumed": True,
+        "state_preserved": True,
+    }
+    logs = (workspace / "logs/stdout.log").read_text(encoding="utf-8")
+    assert "fixture-runtime-first-attempt" in logs
+    assert logs.count("fixture-runtime-finished") == 1
+
+
 def test_secret_not_inherited(tmp_path, execution_request, monkeypatch):
     monkeypatch.setenv("SILICONFLOW_API_KEY", "test-secret")
     registry = RuntimeRegistry()
