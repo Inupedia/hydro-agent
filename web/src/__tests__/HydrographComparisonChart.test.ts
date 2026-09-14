@@ -2,8 +2,17 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { expect, it, vi } from 'vitest'
 import HydrographComparisonChart from '../components/HydrographComparisonChart.vue'
 
-const mocks = vi.hoisted(() => ({ setOption: vi.fn(), resize: vi.fn(), dispose: vi.fn(), init: vi.fn() }))
-vi.mock('echarts', () => ({ init: mocks.init }))
+const mocks = vi.hoisted(() => ({
+  setOption: vi.fn(),
+  resize: vi.fn(),
+  dispose: vi.fn(),
+  init: vi.fn(),
+  linearGradient: vi.fn((...args: unknown[]) => ({ type: 'linear', args })),
+}))
+vi.mock('echarts', () => ({
+  init: mocks.init,
+  graphic: { LinearGradient: mocks.linearGradient },
+}))
 
 it('renders observed, baseline and final scheme in one comparison chart', async () => {
   let resize: () => void = () => {}
@@ -42,8 +51,10 @@ it('renders observed, baseline and final scheme in one comparison chart', async 
   expect(wrapper.text()).toContain('基准方案')
   expect(wrapper.text()).toContain('最终方案')
   expect(wrapper.text()).toContain('维持原方案')
-  const option = mocks.setOption.mock.calls[0][0] as { series: Array<{ name: string }> }
+  const option = mocks.setOption.mock.calls[0][0] as { series: Array<{ name: string; lineStyle?: { width?: number } }> }
   expect(option.series.map((row) => row.name)).toEqual(['观测', '基准方案', '最终方案'])
+  expect(option.series.map((row) => row.lineStyle?.width)).toEqual([3, 2, 3])
+  expect(mocks.linearGradient).toHaveBeenCalledTimes(1)
   resize()
   wrapper.unmount()
   vi.unstubAllGlobals()
