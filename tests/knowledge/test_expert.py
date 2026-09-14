@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from hydro_agent.knowledge.basin_priors import derive_basin_hydro_profile
-from hydro_agent.knowledge.expert import ExpertKnowledgeRepository
+from hydro_agent.knowledge.expert import ExpertPriorEngine
 from hydro_agent.knowledge.governance import KnowledgeQueryContext
 from hydro_agent.optimization.calibration_scientist import plan_from_diagnosis
 
@@ -30,35 +30,35 @@ def _seed_context(**overrides) -> KnowledgeQueryContext:
     return KnowledgeQueryContext.model_validate(payload)
 
 
-def test_external_expert_skill_is_seed_prior_not_normative():
-    repo = ExpertKnowledgeRepository()
-    source = repo.source()
+def test_external_expert_prior_is_advisory_not_normative():
+    engine = ExpertPriorEngine()
+    source = engine.source()
 
     assert source["status"] == "seed_prior"
     assert source["authority"] == "advisory_only"
     assert source["provenance"]["source_license"] == "PolyForm Noncommercial License 1.0.0"
     assert source["provenance"]["reuse_policy"] == "conceptual_reimplementation_no_source_copy"
 
-    entry = repo.governance_entry("expert.water_balance_first")
+    entry = engine.governance_entry("expert.water_balance_first")
     assert entry.authority == "advisory_only"
     assert entry.review_status == "approved"
     assert entry.verification_status == "unverified"
 
-    advice = repo.advise({"metrics": {"nse": 0.4}})
+    advice = engine.advise({"metrics": {"nse": 0.4}})
     assert advice.is_normative is False
     assert advice.matched_rule_ids == ()
 
 
 def test_seed_prior_requires_explicit_campaign_opt_in():
-    repo = ExpertKnowledgeRepository()
+    engine = ExpertPriorEngine()
     diagnosis = {"metrics": {"nse": 0.42, "pbias_percent": 18.0}}
 
-    disabled = repo.advise(
+    disabled = engine.advise(
         diagnosis,
         governance_context=KnowledgeQueryContext(model_id="xaj", basin_id="yaogu"),
     )
-    enabled = repo.advise(diagnosis, governance_context=_seed_context())
-    wrong_model = repo.advise(
+    enabled = engine.advise(diagnosis, governance_context=_seed_context())
+    wrong_model = engine.advise(
         diagnosis,
         governance_context=_seed_context(model_id="openhydronet"),
     )
@@ -123,8 +123,8 @@ def test_campaign_objective_can_be_carried_in_diagnosis_contract():
 
 
 def test_negative_nse_prior_is_audit_advice_not_gate_override():
-    repo = ExpertKnowledgeRepository()
-    advice = repo.advise(
+    engine = ExpertPriorEngine()
+    advice = engine.advise(
         {"metrics": {"nse": -0.2, "pbias_percent": 2.0}},
         governance_context=_seed_context(),
     )
@@ -136,8 +136,8 @@ def test_negative_nse_prior_is_audit_advice_not_gate_override():
 
 
 def test_basin_attributes_are_profiled_as_advisory_context():
-    repo = ExpertKnowledgeRepository()
-    advice = repo.advise(
+    engine = ExpertPriorEngine()
+    advice = engine.advise(
         {"metrics": {"nse": 0.55}},
         basin_attributes={
             "aridity": 0.62,
