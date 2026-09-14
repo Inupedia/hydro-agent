@@ -18,7 +18,8 @@ class PermissionDenied(PermissionError):
     pass
 
 
-# Reserve rounds for freeze → replay → evaluate so calibration KEEP loops cannot starve closeout.
+# Reserve Agent calls for closeout. This is a resource boundary, not a scientific
+# convergence claim.
 CLOSEOUT_RESERVE_ROUNDS = 3
 
 
@@ -42,7 +43,6 @@ def _implemented() -> frozenset[ActionCode]:
     return _codes(implemented_action_ids())
 
 
-# Compatibility aliases for tests and closeout helpers.
 CLOSEOUT_ACTIONS = _closeout_actions()
 EXPLORATORY_ACTIONS = _exploratory_actions()
 PHASE_ACTIONS = {
@@ -51,6 +51,15 @@ PHASE_ACTIONS = {
     "E": set(_phase_actions("E")),
 }
 IMPLEMENTED = set(_implemented())
+
+
+def _legacy_cycle_budget_exhausted(view: WorldStateView) -> bool:
+    """Cycle-count budget is retained only for smoke wiring compatibility."""
+
+    return (
+        view.hydro.campaign.mode == "smoke"
+        and view.budget.optimization_cycles_remaining <= 0
+    )
 
 
 def decision_fingerprint(
@@ -68,7 +77,6 @@ def decision_fingerprint(
             groups,
             decision.objective or "",
             scheme_id,
-            # Allow a fresh A07 after Gate KEEP/ROLLBACK without tripping "no new evidence".
             f"opt{optimize_attempt}",
         ]
     )
@@ -79,13 +87,7 @@ def evidence_actions(view: WorldStateView) -> set[str]:
 
 
 def latest_action_index(view: WorldStateView, action: ActionCode) -> int:
-    """Return the latest visible evidence position for an action, or -1.
-
-    Calibration is a repeated cycle, so set membership is insufficient: an old
-    A08 must not satisfy a newer A07, and an old A09 must not satisfy a newer
-    A08. WorldState keeps the recent evidence tail, which is enough to resolve
-    the currently open cycle.
-    """
+    """Return the latest visible evidence position for an action, or -1."""
 
     return max(
         (index for index, item in enumerate(view.evidence_summary) if item.action == action),
@@ -118,7 +120,8 @@ def rediagnosis_required(view: WorldStateView) -> bool:
 
 
 def closeout_pending(view: WorldStateView) -> bool:
-    """True when freeze/replay/evaluate (or in-flight gate/resolve) still needed."""
+    """True when a transaction or preregistered/resource closeout is still needed."""
+
     actions = evidence_actions(view)
     phase = view.task.phase
     if phase == "E":
@@ -126,15 +129,12 @@ def closeout_pending(view: WorldStateView) -> bool:
     if phase == "F":
         return ActionCode.A11_REPLAY.value not in actions
     if phase == "B":
-        # Mid gate cycle must finish even if rounds are gone.
         if pending_calibration_action(view) is not None:
             return True
-        # Opt budget gone or rounds reserved → must still be able to freeze.
         if ActionCode.A10_FREEZE.value not in actions:
-            if (
-                view.budget.optimization_cycles_remaining <= 0
-                and ActionCode.A07_OPTIMIZE.value in actions
-            ):
+            if view.hydro.campaign.stop_reason is not None:
+                return True
+            if _legacy_cycle_budget_exhausted(view) and ActionCode.A07_OPTIMIZE.value in actions:
                 return True
             if view.budget.agent_rounds_remaining <= CLOSEOUT_RESERVE_ROUNDS:
                 return True
@@ -149,20 +149,20 @@ class PermissionGate:
         phase_set = set(_phase_actions(view.task.phase))
         allowed = set(phase_set & _implemented())
         remaining = int(view.budget.agent_rounds_remaining)
+        campaign_stopped = view.hydro.campaign.stop_reason is not None
 
-        if view.budget.optimization_cycles_remaining <= 0:
+        if _legacy_cycle_budget_exhausted(view) or campaign_stopped:
             allowed.discard(ActionCode.A07_OPTIMIZE)
         if not view.task.allow_optimization:
             allowed.discard(ActionCode.A07_OPTIMIZE)
         if "calibrate" not in view.model.capabilities and "adapt" not in view.model.capabilities:
             allowed.discard(ActionCode.A07_OPTIMIZE)
 
-        # Reserve last rounds for closeout; at zero rounds still allow closeout.
+        # Agent-call limits remain explicit resource caps, never convergence evidence.
         if remaining <= CLOSEOUT_RESERVE_ROUNDS:
             allowed -= set(_exploratory_actions())
         if remaining <= 0:
             allowed = set(_closeout_actions() & phase_set & _implemented())
-            # Mid-cycle gate/resolve still needed in B.
             if view.task.phase == "B":
                 allowed |= {
                     ActionCode.A08_GATE,
@@ -170,22 +170,16 @@ class PermissionGate:
                     ActionCode.A10_FREEZE,
                 } & _implemented()
 
-        # A calibration candidate is a transaction: the newest A07 must be
-        # gated and that exact Gate must be resolved before any freeze/retry.
-        # This remains mandatory even after the exploration budget is gone.
         pending = pending_calibration_action(view)
         if view.task.phase == "B" and pending is not None:
+            # An A07 transaction must always finish Gate/Resolve before any stop.
             allowed = {pending} if pending in _implemented() else set()
-        elif view.task.phase == "B" and rediagnosis_required(view):
-            # A new A07 is forbidden until a fresh diagnosis exists, but the
-            # scientist is always allowed to stop experimenting and freeze the
-            # current resolved working scheme. Permission policy guards safety;
-            # it must not force the research policy to spend another experiment.
+        elif view.task.phase == "B" and campaign_stopped:
             allowed = {ActionCode.A10_FREEZE} & _implemented()
-            if (
-                view.budget.optimization_cycles_remaining > 0
-                and remaining > CLOSEOUT_RESERVE_ROUNDS
-            ):
+        elif view.task.phase == "B" and rediagnosis_required(view):
+            allowed = {ActionCode.A10_FREEZE} & _implemented()
+            cycle_budget_available = not _legacy_cycle_budget_exhausted(view)
+            if cycle_budget_available and remaining > CLOSEOUT_RESERVE_ROUNDS:
                 allowed |= {ActionCode.A06_DIAGNOSE} & _implemented()
 
         return tuple(sorted(allowed, key=lambda item: item.value))
