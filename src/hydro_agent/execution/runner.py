@@ -33,8 +33,11 @@ def _kill_group(process: subprocess.Popen) -> None:
         pass
     except PermissionError:
         # macOS can return EPERM for a group whose only member just exited.
-        if process.poll() is None:
-            raise
+        # waitpid may lag that group transition; one immediate poll is racy.
+        try:
+            process.wait(timeout=0.1)
+        except subprocess.TimeoutExpired:
+            raise PermissionError("could not terminate live runtime process group") from None
     process.wait()
 
 

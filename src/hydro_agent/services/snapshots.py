@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -48,7 +48,14 @@ class SnapshotResolver:
         except KeyError:
             return self.history_days
 
-    def resolve(self, task_id: str, capability: str, issue_time: str) -> str:
+    def resolve(
+        self,
+        task_id: str,
+        capability: str,
+        issue_time: str,
+        *,
+        history_end_date: date | None = None,
+    ) -> str:
         task = self.repository.get_task(task_id)
         issue = _parse_issue(issue_time)
         history_days = self._history_days_for(task_id, capability)
@@ -66,6 +73,8 @@ class SnapshotResolver:
                 and context.get("capability") == capability
                 and int(context.get("history_days") or self.history_days) == history_days
                 and _parse_issue(str(ctx_issue)) == issue
+                and context.get("history_end_date")
+                == (history_end_date.isoformat() if history_end_date is not None else None)
             ):
                 matches.append(snapshot)
         if len(matches) > 1:
@@ -80,6 +89,8 @@ class SnapshotResolver:
             else load_normalized_source(Path(self.source))
         )
         history_suffix = "" if history_days == self.history_days else f"--h{history_days}"
+        if history_end_date is not None:
+            history_suffix += f"--end{history_end_date.strftime('%Y%m%d')}"
         snapshot_id = (
             f"{task_id}--{task.phase}--{capability}{history_suffix}--"
             f"{issue.strftime('%Y%m%dT%H%M%SZ')}"
@@ -93,6 +104,7 @@ class SnapshotResolver:
             capability=capability,  # type: ignore[arg-type]
             issue_time=issue,
             history_days=history_days,
+            history_end_date=history_end_date,
             day_timezone=str(loaded.basin.get("day_timezone", "UTC")),
         )
         path = self.builder.build(

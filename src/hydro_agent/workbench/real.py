@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import shutil
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from hydro_agent.agent.contracts import ActionCode, AgentDecision, EvidencePacket
 from hydro_agent.agent.research_closeout import ResearchFreezeToolHandler
@@ -349,10 +350,38 @@ class _TaskAwareOptimizeHandler:
 
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
         window = self.kernel.validation_gate.window_for(task_id)
-        cal_day = window.calibration_issue
-        cal_issue = datetime(cal_day.year, cal_day.month, cal_day.day, tzinfo=timezone.utc)
+        cfg = self.kernel._workbench_config(task_id)
+        cal_day = date.fromisoformat(
+            str(cfg.get("calibration_end_date") or window.calibration_issue)[:10]
+        )
+        if cal_day >= window.start:
+            raise ValueError("calibration must end before development starts")
+        # The final daily observation becomes available at the next midnight.
+        # Keep the history anchored to calibration end, not the access timestamp.
+        cal_issue = datetime.combine(
+            cal_day + timedelta(days=1),
+            time.min,
+            ZoneInfo(str(self.kernel.source.basin.get("day_timezone", "UTC"))),
+        )
+        # Retrospective observations can be published after local midnight.
+        # Availability time is independent of the immutable scoring window;
+        # advancing it must not extend that window into development.
+        cal_start = date.fromisoformat(str(cfg.get("calibration_start_date") or cal_day)[:10])
+        cal_issue = max(
+            [cal_issue]
+            + [
+                row.available_at
+                for row in self.kernel.source.flow_rows
+                if cal_start <= row.valid_date <= cal_day and row.eligible_for_scoring
+            ]
+        )
         cal_iso = cal_issue.isoformat().replace("+00:00", "Z")
-        cal_id = self.kernel.resolver.resolve(task_id, "calibrate", cal_iso)
+        cal_id = self.kernel.resolver.resolve(
+            task_id,
+            "calibrate",
+            cal_iso,
+            history_end_date=cal_day,
+        )
         strategy_id = decision.strategy_id
         param_groups = decision.param_groups
         objective = decision.objective
@@ -392,6 +421,7 @@ class _TaskAwareOptimizeHandler:
         extra = (
             f"calibration_snapshot_id={cal_id}",
             f"calibration_issue={cal_iso}",
+            f"calibration_history_end={cal_day.isoformat()}",
             f"development_window={window.start.isoformat()}..{window.end.isoformat()}",
             "development_evaluated_by=A08_GATE",
             "final_test_accessed=false",
@@ -446,7 +476,9 @@ class _TaskAwareEvaluateHandler:
             row.action == ActionCode.A12_EVALUATE_REPORT.value and row.status == "succeeded"
             for row in previous
         ):
-            raise RuntimeError("final_test already consumed; A12 evaluation is read-only and single-use")
+            raise RuntimeError(
+                "final_test already consumed; A12 evaluation is read-only and single-use"
+            )
 
         cfg = self.task_configs.get(task_id) or {}
         issue = _final_test_issue_from_config(cfg)

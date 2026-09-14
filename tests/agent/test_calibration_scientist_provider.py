@@ -1,3 +1,5 @@
+import pytest
+
 from hydro_agent.agent.contracts import (
     ActionCode,
     BudgetSummary,
@@ -212,3 +214,29 @@ def test_provider_closes_out_only_when_campaign_has_explicit_stop_reason():
     assert decision.action == ActionCode.A10_FREEZE
     assert "Campaign stop=BUDGET_EXHAUSTED" in decision.rationale_summary
     assert "converged=false" in decision.rationale_summary
+
+
+def test_failed_optimize_is_rediagnosed_without_gate():
+    view = _view(
+        latest_action=ActionCode.A07_OPTIMIZE,
+        latest_status="failed",
+        hydro=HydroContext(),
+    )
+    assert CalibrationScientistDecisionProvider().decide(view).action == ActionCode.A06_DIAGNOSE
+
+
+@pytest.mark.parametrize("mode", ["convergence", "target_quality"])
+@pytest.mark.parametrize("latest_action", [ActionCode.A06_DIAGNOSE, ActionCode.A09_RESOLVE])
+def test_research_modes_ignore_legacy_cycle_count(mode, latest_action):
+    view = _view(
+        latest_action=latest_action,
+        latest_status="succeeded" if latest_action == ActionCode.A06_DIAGNOSE else "KEEP",
+        hydro=HydroContext(campaign=CampaignSnapshot(mode=mode)),
+        optimization_cycles_remaining=0,
+    )
+    expected = (
+        ActionCode.A07_OPTIMIZE
+        if latest_action == ActionCode.A06_DIAGNOSE
+        else ActionCode.A06_DIAGNOSE
+    )
+    assert CalibrationScientistDecisionProvider().decide(view).action == expected

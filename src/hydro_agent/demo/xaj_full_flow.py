@@ -6,11 +6,11 @@ from pathlib import Path
 
 from hydro_agent.agent.contracts import ActionCode, AgentDecision, ProblemHypothesis
 from hydro_agent.agent.providers.scripted import ScriptedDecisionProvider
+from hydro_agent.agent.research_closeout import ResearchFreezeToolHandler
 from hydro_agent.agent.runtime import AgentRuntime
 from hydro_agent.agent.tools import (
     EvaluateReportToolHandler,
     ForecastHandler,
-    FreezeToolHandler,
     GateHandler,
     OptimizeHandler,
     ReplayToolHandler,
@@ -184,7 +184,7 @@ class XajFullResearchFlow:
         tools.register(ActionCode.A09_RESOLVE, ResolveHandler(self.repository))
         tools.register(
             ActionCode.A10_FREEZE,
-            FreezeToolHandler(self.repository, freeze_service=self.freeze_service),
+            ResearchFreezeToolHandler(self.repository, freeze_service=self.freeze_service),
         )
         tools.register(
             ActionCode.A11_REPLAY,

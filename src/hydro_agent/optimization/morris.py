@@ -423,6 +423,8 @@ def screen_morris(
                 current = None
                 current_score = None
             emit_checkpoint()
+            if current is None:
+                break
 
     raw_stats: dict[str, tuple[float | None, float | None, float | None]] = {}
     max_mu_star = 0.0

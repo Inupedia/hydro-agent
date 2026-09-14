@@ -1,15 +1,72 @@
-from datetime import date
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
 import pytest
 
-from hydro_agent.agent.contracts import ActionCode, AgentDecision, ProblemHypothesis
+from hydro_agent.agent.contracts import ActionCode, AgentDecision, EvidencePacket, ProblemHypothesis
 from hydro_agent.workbench.real import (
     _final_test_dates_from_config,
     _issue_from_config,
     _TaskAwareEvaluateHandler,
+    _TaskAwareOptimizeHandler,
 )
-from hydro_agent.workbench.validation_gate import RealValidationGate
+from hydro_agent.workbench.validation_gate import RealValidationGate, ValidationWindow
+
+
+def test_optimize_waits_for_last_observation_without_extending_history(monkeypatch):
+    captured = {}
+
+    def resolve(task_id, capability, issue_time, **kwargs):
+        captured.update(issue_time=issue_time, **kwargs)
+        return "cal-snapshot"
+
+    packet = EvidencePacket(
+        evidence_id="ev-test",
+        task_id="task-1",
+        action=ActionCode.A07_OPTIMIZE,
+        status="failed",
+        new_information_hash="hash-test",
+    )
+    monkeypatch.setattr(
+        "hydro_agent.workbench.real.OptimizeHandler",
+        lambda *args, **kwargs: SimpleNamespace(execute=lambda *args: packet),
+    )
+    kernel = SimpleNamespace(
+        validation_gate=SimpleNamespace(
+            window_for=lambda _: ValidationWindow(date(2000, 5, 5), date(2000, 5, 7))
+        ),
+        _workbench_config=lambda _: {
+            "calibration_start_date": "2000-05-01",
+            "calibration_end_date": "2000-05-04",
+        },
+        source=SimpleNamespace(
+            basin={"day_timezone": "Asia/Shanghai"},
+            flow_rows=[
+                SimpleNamespace(
+                    valid_date=date(2000, 5, 4),
+                    eligible_for_scoring=True,
+                    available_at=datetime(2000, 5, 5, tzinfo=timezone.utc),
+                )
+            ],
+        ),
+        resolver=SimpleNamespace(resolve=resolve),
+        repository=None,
+        calibration=None,
+        candidates=None,
+    )
+    _TaskAwareOptimizeHandler(kernel, {}).execute(
+        "task-1",
+        AgentDecision(
+            action=ActionCode.A07_OPTIMIZE,
+            hypothesis=ProblemHypothesis.MODEL,
+            strategy_id="xaj-bounded-v1",
+            param_groups=("evap",),
+            objective="nse",
+            rationale_summary="Test inclusive calibration boundary.",
+        ),
+    )
+    assert captured["issue_time"] == "2000-05-05T00:00:00Z"
+    assert captured["history_end_date"] == date(2000, 5, 4)
 
 
 def test_gate_reads_development_window_not_final_test() -> None:

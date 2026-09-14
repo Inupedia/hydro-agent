@@ -38,6 +38,16 @@ class SnapshotContext(FrozenModel):
     issue_time: AwareDatetime
     history_days: int = Field(default=365, ge=1, le=36500)
     day_timezone: str = "UTC"
+    history_end_date: date | None = None
+
+    @model_validator(mode="after")
+    def validate_history_end(self):
+        if self.history_end_date is not None:
+            if self.capability != "calibrate" or self.history_end_date > self.issue_date:
+                raise ValueError(
+                    "history_end_date requires calibration and cannot exceed issue date"
+                )
+        return self
 
     @field_validator("day_timezone")
     @classmethod
@@ -56,20 +66,18 @@ class SnapshotContext(FrozenModel):
 
     @property
     def dates(self):
-        first = self.issue_date - timedelta(days=self.history_days - 1)
+        first = (self.history_end_date or self.issue_date) - timedelta(days=self.history_days - 1)
         forecast_horizon_days = 3 if self.capability == "forecast" else 0
         return tuple(
-            first + timedelta(days=i)
-            for i in range(self.history_days + forecast_horizon_days)
+            first + timedelta(days=i) for i in range(self.history_days + forecast_horizon_days)
         )
 
     @property
     def flow_dates(self):
-        first = self.issue_date - timedelta(days=self.history_days - 1)
+        first = (self.history_end_date or self.issue_date) - timedelta(days=self.history_days - 1)
         truth_horizon_days = 3 if self.capability in {"forecast", "evaluate"} else 0
         return tuple(
-            first + timedelta(days=i)
-            for i in range(self.history_days + truth_horizon_days)
+            first + timedelta(days=i) for i in range(self.history_days + truth_horizon_days)
         )
 
 

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -65,6 +65,19 @@ def f_snapshot_resolver(tmp_path):
 def test_resolver_reuses_exact_existing_legal_snapshot(snapshot_resolver):
     snapshot_id = snapshot_resolver.resolve("task-1", "forecast", ISSUE)
     assert snapshot_id == "snap-legal-0501"
+
+
+def test_calibration_history_anchor_is_part_of_snapshot_identity(snapshot_resolver):
+    issue = "2020-05-02T00:00:00Z"
+    anchored = snapshot_resolver.resolve(
+        "task-1", "calibrate", issue, history_end_date=date(2020, 5, 1)
+    )
+    ordinary = snapshot_resolver.resolve("task-1", "calibrate", issue)
+    assert anchored != ordinary
+    assert (
+        snapshot_resolver.resolve("task-1", "calibrate", issue, history_end_date=date(2020, 5, 1))
+        == anchored
+    )
 
 
 def test_resolver_never_falls_back_to_later_f_mode_snapshot(f_snapshot_resolver):

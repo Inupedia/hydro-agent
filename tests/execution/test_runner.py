@@ -1,12 +1,14 @@
 import json
+import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import Mock
 
 import psutil
 import pytest
 
 from hydro_agent.execution.registry import RuntimeRegistry
-from hydro_agent.execution.runner import SandboxRunner
+from hydro_agent.execution.runner import SandboxRunner, _kill_group
 from hydro_agent.execution.workspace import WorkspaceManager
 
 
@@ -24,6 +26,22 @@ class FixtureAdapter:
             str(workspace),
             self.mode,
         ]
+
+
+def test_kill_group_allows_exit_reaping_race(monkeypatch):
+    monkeypatch.setattr("os.killpg", Mock(side_effect=PermissionError("EPERM")))
+    process = Mock(pid=123, poll=Mock(return_value=None))
+    process.wait.return_value = 0
+    _kill_group(process)
+    assert process.wait.call_args_list[0].kwargs == {"timeout": 0.1}
+
+
+def test_kill_group_does_not_hide_live_process_permission_error(monkeypatch):
+    monkeypatch.setattr("os.killpg", Mock(side_effect=PermissionError("EPERM")))
+    process = Mock(pid=123)
+    process.wait.side_effect = subprocess.TimeoutExpired("fixture", 0.1)
+    with pytest.raises(PermissionError, match="live runtime"):
+        _kill_group(process)
 
 
 @pytest.mark.parametrize(

@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from hydro_agent.optimization.campaign import (
     DEFAULT_SMOKE_MAX_MODEL_EVALUATIONS,
     CampaignPolicy,
@@ -232,3 +234,42 @@ def test_campaign_resume_rebuilds_identical_state_from_persisted_evidence():
     assert after_restart.selected_best_scheme_id == "scheme-1"
     assert after_restart.selected_primary_score == 0.4
     assert after_restart.total_model_evaluations == 512
+
+
+@pytest.mark.parametrize("scores", [(0.2, 0.4, 0.6), (0.6, None, 0.6)])
+def test_unchanged_selected_scheme_is_not_search_convergence(scores):
+    records = tuple(
+        _trial(
+            index,
+            strategy="xaj-bounded-v1" if index < 3 else "xaj-broadened-refine-v1",
+            search_score=score if score is not None else 0.6,
+            base_primary=0.5,
+            selected_primary=0.5,
+            adopted=False,
+        ).model_copy(update={"search_score": score})
+        for index, score in enumerate(scores, start=1)
+    )
+    snapshot = rebuild_campaign(
+        records,
+        current_scheme_id="scheme-0",
+        policy=CampaignPolicy(
+            mode="convergence",
+            max_model_evaluations=5000,
+            min_model_evaluations=1000,
+            plateau_window=2,
+            plateau_abs_epsilon=0.001,
+        ),
+    )
+    assert not snapshot.plateau_candidate
+    assert not snapshot.converged
+    assert snapshot.can_continue_search
+
+
+def test_repeated_gate_rejection_requires_review_not_infeasibility_claim():
+    snapshot = rebuild_campaign(
+        [_trial(1, search_score=0.7, base_primary=0.5, selected_primary=0.5, adopted=False)],
+        current_scheme_id="scheme-0",
+        policy=CampaignPolicy(mode="smoke", max_no_gain_gates=1),
+    )
+    assert snapshot.stop_reason == "HUMAN_HANDOVER"
+    assert not snapshot.converged

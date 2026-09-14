@@ -7,6 +7,7 @@ and stop reason from persisted A07/A08/A09 evidence.
 
 from __future__ import annotations
 
+from math import isclose, isfinite
 from typing import Literal, Mapping, Sequence
 
 from pydantic import Field
@@ -144,16 +145,40 @@ def rebuild_campaign(
     if (
         policy.convergence_registered
         and total_evaluations >= int(policy.min_model_evaluations or 0)
-        and len(selected_scores) >= int(policy.plateau_window or 0) + 1
+        and len(resolved) >= int(policy.plateau_window or 0) + 1
+        and len(resolved) == len(records)
     ):
         window = int(policy.plateau_window or 0)
         epsilon = float(policy.plateau_abs_epsilon or 0.0)
-        recent_scores = selected_scores[-(window + 1) :]
-        improvements = [
-            max(0.0, current - previous)
-            for previous, current in zip(recent_scores, recent_scores[1:])
-        ]
-        plateau_candidate = all(delta <= epsilon for delta in improvements)
+        # A KEEP leaves the selected development score unchanged even while the
+        # calibration search is improving. Require both trajectories to plateau;
+        # missing/failed search evidence must never manufacture convergence.
+        recent = resolved[-(window + 1) :]
+        complete = all(
+            record.search_score is not None
+            and isfinite(record.search_score)
+            and record.selected_primary is not None
+            and isfinite(record.selected_primary)
+            and record.model_evaluations > 0
+            for record in recent
+        )
+        if complete:
+            running_best = float("-inf")
+            search_scores = []
+            for record in resolved:
+                if record.search_score is not None and isfinite(record.search_score):
+                    running_best = max(running_best, record.search_score)
+                search_scores.append(running_best)
+            trajectories = (
+                search_scores[-(window + 1) :],
+                [float(record.selected_primary) for record in recent],
+            )
+            plateau_candidate = all(
+                current - previous <= epsilon
+                or isclose(current - previous, epsilon, rel_tol=1e-9, abs_tol=1e-12)
+                for scores in trajectories
+                for previous, current in zip(scores, scores[1:])
+            )
         plateau_strategies = tuple(record.strategy_id for record in resolved[-window:])
 
     restart_check_satisfied = bool(
@@ -169,8 +194,11 @@ def rebuild_campaign(
         stop_reason = "CONVERGED"
         converged = True
     elif policy.max_no_gain_gates is not None and no_gain_count >= policy.max_no_gain_gates:
-        stop_reason = "UNSATISFIABLE"
-        notes.append("repeated development Gate checks produced no selected-best improvement")
+        stop_reason = "HUMAN_HANDOVER"
+        notes.append(
+            "repeated development Gate checks produced no selected-best improvement; "
+            "this does not prove the target is unsatisfiable"
+        )
     elif (
         policy.max_model_evaluations is not None
         and total_evaluations >= policy.max_model_evaluations

@@ -175,6 +175,9 @@ class PermissionGate:
                 } & _implemented()
 
         pending = pending_calibration_action(view)
+        if view.task.phase == "B" and pending is None:
+            allowed.discard(ActionCode.A08_GATE)
+            allowed.discard(ActionCode.A09_RESOLVE)
         if view.task.phase == "B" and pending is not None:
             # A successful A07 transaction must finish Gate/Resolve before any stop.
             allowed = {pending} if pending in _implemented() else set()

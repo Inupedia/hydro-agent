@@ -128,7 +128,10 @@ class CalibrationScientistDecisionProvider:
                         "按预注册停止证据请求研究收尾。"
                     ),
                 )
-            if view.budget.optimization_cycles_remaining <= 0:
+            if (
+                view.hydro.campaign.mode == "smoke"
+                and view.budget.optimization_cycles_remaining <= 0
+            ):
                 action = self._fallback(view, ActionCode.A10_FREEZE)
                 return AgentDecision(
                     action=action,
@@ -157,6 +160,13 @@ class CalibrationScientistDecisionProvider:
             )
 
         if latest.action == ActionCode.A07_OPTIMIZE:
+            if latest.status != "succeeded":
+                action = self._fallback(view, ActionCode.A06_DIAGNOSE)
+                return AgentDecision(
+                    action=action,
+                    hypothesis=ProblemHypothesis.RESOURCE,
+                    rationale_summary="率定执行失败且没有可评估候选；重新诊断执行证据，不进入 Gate。",
+                )
             action = self._fallback(view, ActionCode.A08_GATE)
             return AgentDecision(
                 action=action,
@@ -191,7 +201,10 @@ class CalibrationScientistDecisionProvider:
                         f"converged={'true' if campaign.converged else 'false'}。"
                     ),
                 )
-            if view.budget.optimization_cycles_remaining <= 0:
+            if (
+                view.hydro.campaign.mode == "smoke"
+                and view.budget.optimization_cycles_remaining <= 0
+            ):
                 action = self._fallback(view, ActionCode.A10_FREEZE)
                 return AgentDecision(
                     action=action,
