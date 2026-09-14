@@ -5,6 +5,7 @@ from hydro_agent.agent.contracts import ActionCode, AgentDecision, ProblemHypoth
 from hydro_agent.research.formal_runtime import (
     PreregisteredReplayHandler,
     PreregisteredValidationGate,
+    _continuous_hydro_series,
 )
 from hydro_agent.workbench.validation_gate import ValidationWindow
 
@@ -103,3 +104,93 @@ def test_formal_replay_samples_final_window_and_advances_to_read_only_evaluation
     assert packet.status == "succeeded"
     assert packet.metrics["rolling_issue_count"] == 3.0
     assert "continuous_final_test_window_preserved=true" in packet.observations
+
+
+def test_formal_gate_uses_continuous_hydro_for_qualification(monkeypatch):
+    base = SimpleNamespace(scheme_id="base", primary_score=0.1, leads=())
+    candidate = SimpleNamespace(scheme_id="candidate", primary_score=0.2, leads=())
+    sampled_hydro = object()
+    continuous_hydro = object()
+
+    monkeypatch.setattr(
+        "hydro_agent.workbench.validation_gate.RealValidationGate.bundles",
+        lambda self, task_id: (base, candidate, sampled_hydro),
+    )
+    monkeypatch.setattr(
+        "hydro_agent.research.formal_runtime._continuous_hydro_series",
+        lambda **kwargs: continuous_hydro,
+    )
+    repository = SimpleNamespace(
+        get_scheme=lambda scheme_id: SimpleNamespace(
+            scheme_id=scheme_id,
+            config_json={"model_id": "xaj", "warmup_days": 1, "parameters": {}},
+        )
+    )
+    gate = PreregisteredValidationGate(
+        repository=repository,
+        forecast_service=RecordingForecastService(),
+        source=SimpleNamespace(),
+        policy=SimpleNamespace(),
+        task_configs={
+            "task-1": {
+                "development_start_date": "1999-01-01",
+                "development_end_date": "2001-12-31",
+                "development_rolling_issue_limit": 4,
+            }
+        },
+    )
+
+    got_base, got_candidate, got_hydro = gate.bundles("task-1")
+
+    assert got_base is base
+    assert got_candidate is candidate
+    assert got_hydro is continuous_hydro
+    assert got_hydro is not sampled_hydro
+
+
+def test_continuous_hydro_series_preserves_real_chronology(monkeypatch):
+    params = {
+        "K": 0.75,
+        "B": 0.25,
+        "IM": 0.06,
+        "UM": 20.0,
+        "LM": 60.0,
+        "DM": 40.0,
+        "C": 0.16,
+        "SM": 20.0,
+        "EX": 1.2,
+        "KI": 0.3,
+        "KG": 0.4,
+        "CS": 0.9,
+        "L": 2.0,
+        "CI": 0.8,
+        "CG": 0.98,
+    }
+    days = [date(1998, 12, 31), date(1999, 1, 1), date(1999, 1, 2), date(1999, 1, 3)]
+    source = SimpleNamespace(
+        basin={"basin_id": "b", "area_km2": 1000.0},
+        forcing_rows=[
+            SimpleNamespace(valid_date=day, precipitation_mm_day=1.0, pet_mm_day=0.5)
+            for day in days
+        ],
+        flow_rows=[
+            SimpleNamespace(valid_date=day, discharge_m3s=10.0 + i, eligible_for_scoring=True)
+            for i, day in enumerate(days[1:])
+        ],
+    )
+    monkeypatch.setattr(
+        "hydro_agent.research.formal_runtime.simulate",
+        lambda scheme, basin, forcing, include_warmup: [1.0, 11.0, 12.0, 13.0],
+    )
+
+    series = _continuous_hydro_series(
+        source=source,
+        scheme_config={"warmup_days": 1, "parameters": params},
+        start=date(1999, 1, 1),
+        end=date(1999, 1, 3),
+    )
+
+    assert series.obs == (10.0, 11.0, 12.0)
+    assert series.sim == (11.0, 12.0, 13.0)
+    assert [stamp.date() for stamp in series.times or ()] == days[1:]
+    assert series.area_km2 == 1000.0

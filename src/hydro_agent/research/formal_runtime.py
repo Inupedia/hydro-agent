@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+
+import numpy as np
 
 from hydro_agent.agent.contracts import ActionCode, AgentDecision, EvidencePacket
 from hydro_agent.agent.tools import information_hash
+from hydro_agent.evaluation.gbt22482 import HydroSeries
+from hydro_agent.models.xaj.contracts import XajBasin, XajScheme
+from hydro_agent.models.xaj.upstream import simulate
 from hydro_agent.workbench.rolling_sampling import (
     FORECAST_LEAD_DAYS,
     evenly_spaced_issue_days,
@@ -16,6 +21,84 @@ from hydro_agent.workbench.validation_gate import RealValidationGate, Validation
 
 def _day(value: object) -> date:
     return date.fromisoformat(str(value)[:10])
+
+
+def _continuous_hydro_series(
+    *,
+    source,
+    scheme_config: dict,
+    start: date,
+    end: date,
+) -> HydroSeries:
+    """Build a real continuous observed/simulated development series.
+
+    Rolling issue samples are appropriate for lead-wise forecast comparison, but
+    they must never be flattened into a fake 24-hour hydrograph for GB/T process
+    metrics. Qualification therefore runs one uninterrupted XAJ trajectory over
+    the preregistered development window.
+    """
+
+    if end < start:
+        raise ValueError("continuous qualification end before start")
+    warmup_days = int(scheme_config.get("warmup_days") or 1)
+    series_start = start - timedelta(days=warmup_days)
+    forcing_by_date = {row.valid_date: row for row in source.forcing_rows}
+    required_dates = tuple(
+        series_start + timedelta(days=index)
+        for index in range((end - series_start).days + 1)
+    )
+    missing_forcing = [day for day in required_dates if day not in forcing_by_date]
+    if missing_forcing:
+        raise ValueError(
+            "continuous qualification forcing incomplete: "
+            f"missing={missing_forcing[0].isoformat()}"
+        )
+
+    basin = XajBasin.model_validate(source.basin)
+    scheme = XajScheme(
+        model_id="xaj",
+        warmup_days=warmup_days,
+        parameters=scheme_config["parameters"],
+        routing=scheme_config.get("routing") or {},
+    )
+    forcing = np.asarray(
+        [
+            [
+                float(forcing_by_date[day].precipitation_mm_day),
+                float(forcing_by_date[day].pet_mm_day),
+            ]
+            for day in required_dates
+        ],
+        dtype=float,
+    )
+    full_sim = simulate(scheme, basin, forcing[:, None, :], include_warmup=True)
+    if len(full_sim) != len(required_dates):
+        raise ValueError("continuous qualification simulation length mismatch")
+
+    flow_by_date = {row.valid_date: row for row in source.flow_rows}
+    obs: list[float] = []
+    sim: list[float] = []
+    times: list[datetime] = []
+    for offset, day in enumerate(required_dates[warmup_days:], start=warmup_days):
+        if day < start or day > end:
+            continue
+        row = flow_by_date.get(day)
+        if row is None or not bool(getattr(row, "eligible_for_scoring", True)):
+            continue
+        obs.append(float(row.discharge_m3s))
+        sim.append(float(full_sim[offset]))
+        times.append(datetime(day.year, day.month, day.day, tzinfo=timezone.utc))
+
+    if len(obs) < 2:
+        raise ValueError("continuous qualification requires at least two valid observations")
+    return HydroSeries(
+        obs=tuple(obs),
+        sim=tuple(sim),
+        times=tuple(times),
+        dt_hours=24.0,
+        publish_time=None,
+        area_km2=float(basin.area_km2),
+    )
 
 
 class PreregisteredValidationGate(RealValidationGate):
@@ -40,6 +123,18 @@ class PreregisteredValidationGate(RealValidationGate):
                 issue_time=issue.isoformat().replace("+00:00", "Z"),
                 policy=self.policy,
             )
+
+    def bundles(self, task_id: str):
+        base, candidate, _sampled_hydro = super().bundles(task_id)
+        window = self.window_for(task_id)
+        candidate_scheme = self.repository.get_scheme(candidate.scheme_id)
+        continuous_hydro = _continuous_hydro_series(
+            source=self.source,
+            scheme_config=dict(candidate_scheme.config_json or {}),
+            start=window.start,
+            end=window.end,
+        )
+        return base, candidate, continuous_hydro
 
 
 class PreregisteredReplayHandler:
