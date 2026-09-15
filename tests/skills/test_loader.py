@@ -4,7 +4,6 @@ from hydro_agent.agent import contracts
 from hydro_agent.skills import SkillRegistry
 from hydro_agent.skills.loader import load_skills, parse_skill_md
 
-
 EXPECTED_SKILLS = {
     "hydro-data-readiness",
     "hydro-error-diagnosis",
