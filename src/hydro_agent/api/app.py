@@ -16,9 +16,12 @@ from hydro_agent.api.routes import (
     research,
     results,
     runs,
+    skills as skill_routes,
     tasks,
     workflow,
 )
+from hydro_agent.skills import SkillRegistry
+from hydro_agent.skills.manager import SkillManager
 
 
 def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> FastAPI:
@@ -31,8 +34,12 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
     )
     executor = TaskExecutor(deps)
     deps.executor = executor  # type: ignore[attr-defined]
+    skill_registry = deps.skills if deps.skills is not None else SkillRegistry()
+    deps.skills = skill_registry
     app.state.deps = deps
     app.state.executor = executor
+    app.state.skills = skill_registry
+    app.state.skill_manager = SkillManager(skill_registry)
 
     @app.get("/api/health")
     def health():
@@ -50,6 +57,8 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
             "workflow_id": binding["workflow_id"],
             "workflow_version": binding["workflow_version"],
             "workflow_hash": binding["workflow_hash"],
+            "skills": len(skill_registry.list()),
+            "skills_user_root": str(skill_registry.user_root),
             **executor.slots(),
         }
 
@@ -61,6 +70,7 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
     app.include_router(results.router)
     app.include_router(research.router)
     app.include_router(workflow.router)
+    app.include_router(skill_routes.router)
 
     if static_dir is not None:
         root = Path(static_dir).resolve()

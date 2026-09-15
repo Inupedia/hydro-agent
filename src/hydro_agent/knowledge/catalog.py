@@ -13,20 +13,24 @@ from hydro_agent.knowledge.governance import (
     KnowledgeQueryContext,
     select_knowledge_entries,
 )
+from hydro_agent.skill_paths import active_skill_root
 
 
 class GovernedKnowledgeRepository:
     """Read-only repository for atomized, scope-aware knowledge claims.
 
-    Source review manifests live separately under ``data/review``. Only claims
-    intentionally copied into ``data/governed`` are visible here, and visibility
-    still does not imply Agent usability: every query passes through the strict
+    Governed claims are packaged with the Agent Skill that owns the methodology.
+    A user-managed skill override therefore replaces both SKILL.md instructions
+    and its governed assets as one versioned filesystem unit. Visibility still
+    does not imply Agent usability: every query passes through the strict
     governance filter before returning an evidence bundle.
     """
 
     def __init__(self, root: Path | None = None):
         self.root = (
-            Path(root) if root is not None else Path(__file__).with_name("data") / "governed"
+            Path(root)
+            if root is not None
+            else active_skill_root("xaj-calibration") / "assets" / "governed"
         )
         self._entries: dict[tuple[str, int], KnowledgeEntry] = {}
         self._load()

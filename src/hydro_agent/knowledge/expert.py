@@ -22,6 +22,7 @@ from hydro_agent.knowledge.governance import (
     KnowledgeQueryContext,
     select_knowledge_entries,
 )
+from hydro_agent.skill_paths import active_skill_root
 
 
 class _ExpertPriorRule(FrozenModel):
@@ -71,11 +72,17 @@ class ExpertPriorEngine:
     """Evaluate executable advisory priors behind the governance filter.
 
     Search-boundary safety, Gate behavior and closeout policy remain deterministic
-    protocol concerns and are deliberately absent from this engine.
+    protocol concerns and are deliberately absent from this engine. The default
+    prior assets travel with the active xaj-calibration Agent Skill so a writable
+    user skill override can update advisory knowledge without modifying source.
     """
 
     def __init__(self, root: Path | None = None):
-        self.root = Path(root) if root is not None else Path(__file__).with_name("data") / "expert"
+        self.root = (
+            Path(root)
+            if root is not None
+            else active_skill_root("xaj-calibration") / "assets" / "expert"
+        )
         self._sources: dict[str, dict[str, Any]] = {}
         self._rules: dict[str, tuple[str, _ExpertPriorRule]] = {}
         self._entries: dict[str, KnowledgeEntry] = {}

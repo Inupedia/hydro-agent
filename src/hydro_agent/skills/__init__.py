@@ -1,9 +1,13 @@
 """Domain skills for Hydro-Agent — agentskills.io SKILL.md packages.
 
 Progressive disclosure:
-1. Metadata (name/description + machine fields) always available on WorldStateView
-2. Full SKILL.md body activated in the LangGraph decide node when relevant
-3. references/ loaded only when calibration needs parameter detail
+1. Metadata (name/description + machine fields) is always available.
+2. Full SKILL.md is activated only when relevant.
+3. references/ and assets/ are loaded on demand.
+
+Built-in skills ship with the Python package. A writable user overlay lives in
+HYDRO_AGENT_SKILLS_DIR (or .agents/skills by default); user skills with the same
+name override built-ins without modifying installed source files.
 
 Standards are *not* stored in Skill metadata. Skills describe when/how to use
 knowledge; executable standard thresholds come from ``KnowledgeRepository``.
@@ -12,22 +16,28 @@ knowledge; executable standard thresholds come from ``KnowledgeRepository``.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from hydro_agent.execution.contracts import FrozenModel
 from hydro_agent.knowledge import KnowledgeRepository
-from hydro_agent.skills.loader import LoadedSkill, default_skills_root, load_skills, read_reference
+from hydro_agent.skills.loader import (
+    LoadedSkill,
+    default_skills_root,
+    default_user_skills_root,
+    load_skills,
+    read_reference,
+)
 
 if TYPE_CHECKING:
     from hydro_agent.agent.contracts import WorldStateView
 
 CALIBRATION_SKILL_ID = "xaj-calibration"
 GBT_SKILL_ID = "gbt-22482-accuracy"
-# Backward-compatible import for older providers/diagnostics. The value is no
-# longer a code constant: it is resolved from the versioned standard profile.
 DEFAULT_NSE_GOOD_ENOUGH = float(
     KnowledgeRepository().gbt_accuracy_metadata()["grade_dc_bing"]
 )
+
+SkillSource = Literal["builtin", "user", "memory"]
 
 
 class SkillCard(FrozenModel):
@@ -45,8 +55,6 @@ class SkillCard(FrozenModel):
 
 
 def _card_from_loaded(skill: LoadedSkill) -> SkillCard:
-    # nse_good_enough remains a generic calibration hint for backward-compatible
-    # cards. It must never override a versioned technical-standard threshold.
     nse = None
     raw_nse = skill.metadata.get("nse_good_enough")
     if raw_nse is not None:
@@ -70,25 +78,79 @@ def _card_from_loaded(skill: LoadedSkill) -> SkillCard:
 
 
 class SkillRegistry:
+    """Merged built-in + user Agent Skills registry.
+
+    Existing ``root=...`` callers keep single-root behavior. Default callers use
+    package-owned built-ins plus a writable user overlay; duplicate user skill
+    names intentionally override the built-in skill at runtime.
+    """
+
     def __init__(
         self,
         skills: tuple[SkillCard, ...] | None = None,
         *,
         root: Path | None = None,
+        builtin_root: Path | None = None,
+        user_root: Path | None = None,
         loaded: dict[str, LoadedSkill] | None = None,
         knowledge: KnowledgeRepository | None = None,
     ):
         self._knowledge = knowledge or KnowledgeRepository()
+        self._static = loaded is not None or skills is not None
+
+        if root is not None:
+            self._builtin_root: Path | None = None
+            self._user_root = Path(root)
+        else:
+            self._builtin_root = (
+                Path(builtin_root) if builtin_root is not None else default_skills_root()
+            )
+            self._user_root = (
+                Path(user_root) if user_root is not None else default_user_skills_root()
+            )
+
+        self._loaded: dict[str, LoadedSkill] = {}
+        self._sources: dict[str, SkillSource] = {}
+        self._cards: dict[str, SkillCard] = {}
+
         if loaded is not None:
             self._loaded = dict(loaded)
+            self._sources = {skill_id: "memory" for skill_id in self._loaded}
+            self._cards = {sid: _card_from_loaded(s) for sid, s in self._loaded.items()}
         elif skills is not None:
-            # Backward-compatible: cards only, no bodies.
-            self._loaded = {}
             self._cards = {s.skill_id: s for s in skills}
-            return
+            self._sources = {skill_id: "memory" for skill_id in self._cards}
         else:
-            self._loaded = load_skills(root if root is not None else default_skills_root())
-        self._cards = {sid: _card_from_loaded(s) for sid, s in self._loaded.items()}
+            self.reload()
+
+    @property
+    def user_root(self) -> Path:
+        return self._user_root
+
+    @property
+    def builtin_root(self) -> Path | None:
+        return self._builtin_root
+
+    def reload(self) -> tuple[str, ...]:
+        """Re-scan skill directories and return active skill IDs."""
+        if self._static:
+            return tuple(sorted(self._cards))
+
+        loaded: dict[str, LoadedSkill] = {}
+        sources: dict[str, SkillSource] = {}
+        if self._builtin_root is not None:
+            for skill_id, skill in load_skills(self._builtin_root).items():
+                loaded[skill_id] = skill
+                sources[skill_id] = "builtin"
+
+        for skill_id, skill in load_skills(self._user_root).items():
+            loaded[skill_id] = skill
+            sources[skill_id] = "user"
+
+        self._loaded = loaded
+        self._sources = sources
+        self._cards = {sid: _card_from_loaded(s) for sid, s in loaded.items()}
+        return tuple(sorted(self._cards))
 
     def list(self) -> tuple[SkillCard, ...]:
         return tuple(self._cards[k] for k in sorted(self._cards))
@@ -98,6 +160,12 @@ class SkillRegistry:
 
     def get_loaded(self, skill_id: str) -> LoadedSkill | None:
         return self._loaded.get(skill_id)
+
+    def source(self, skill_id: str) -> SkillSource:
+        try:
+            return self._sources[skill_id]
+        except KeyError as exc:
+            raise KeyError(skill_id) from exc
 
     def summaries_zh(self) -> tuple[str, ...]:
         return tuple(f"{s.skill_id}:{s.title_zh}" for s in self.list())
@@ -185,6 +253,8 @@ class SkillRegistry:
         return tuple(out)
 
     def render_activated(self, view: WorldStateView) -> str:
+        # Long-lived providers pick up external Skill edits on the next decision.
+        self.reload()
         ids = self.activate_for_view(view)
         include_params = "xaj-calibration" in ids
         chunks = [

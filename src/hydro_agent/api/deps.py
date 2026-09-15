@@ -36,6 +36,7 @@ class AppDependencies:
     hydrologist: Any = None
     hydrologist_graph: Any = None
     runtime_for_task: Callable[[str], AgentRuntime] | None = None
+    skills: Any = None
     llm_traces: dict[str, LlmTrace] = field(default_factory=dict)
     agent_round_logs: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     _llm_lock: threading.Lock = field(default_factory=threading.Lock)
