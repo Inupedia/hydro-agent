@@ -67,9 +67,12 @@ def test_user_focused_skill_assets_drive_expert_priors(monkeypatch, tmp_path: Pa
 
     engine = ExpertPriorEngine()
     context = KnowledgeQueryContext(model_id="xaj", allow_unverified_expert_priors=True)
-    assert engine.advise(
-        {"metrics": {"pbias_percent": 20.0}}, governance_context=context
-    ).matched_prior_refs == ()
+    assert (
+        engine.advise(
+            {"metrics": {"pbias_percent": 20.0}}, governance_context=context
+        ).matched_prior_refs
+        == ()
+    )
     assert engine.advise(
         {"metrics": {"pbias_percent": 30.0}}, governance_context=context
     ).matched_prior_refs == ("expert.water_balance_first@1",)
@@ -94,9 +97,7 @@ def test_user_focused_skill_assets_drive_governed_catalog(monkeypatch, tmp_path:
         "verification_status": "verified_in_scope",
         "review_status": "approved",
     }
-    (governed_dir / "claims.json").write_text(
-        json.dumps({"entries": [claim]}), encoding="utf-8"
-    )
+    (governed_dir / "claims.json").write_text(json.dumps({"entries": [claim]}), encoding="utf-8")
     monkeypatch.setenv("HYDRO_AGENT_SKILLS_DIR", str(user_root))
 
     registry = SkillRegistry(builtin_root=builtin_root, user_root=user_root)
