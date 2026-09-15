@@ -19,7 +19,7 @@ from hydro_agent.evaluation.metrics import (
     pbias_percent,
     rmse,
 )
-from hydro_agent.knowledge.basin_priors import derive_basin_hydro_profile
+from hydro_agent.hydrology import derive_basin_hydro_profile
 
 
 def _safe(metric, obs: list[float], sim: list[float]) -> float | None:
@@ -65,11 +65,12 @@ def diagnose_prevalidation_window(
     diagnostic issue is ``development_start - 4 days`` so lead-3 truth ends on
     ``development_start - 1 day``.
 
-    This function intentionally stops at observable evidence. It does not read
-    expert-rule thresholds or specialize the parameter search. Governed expert
-    priors may refine the later experiment plan, after this evidence is persisted.
+    ``nse_good_enough`` is retained only for call-site compatibility. Diagnostics
+    do not use it to stop a Campaign: they emit observable evidence and a
+    falsifiable next hypothesis. Campaign/ConvergencePolicy owns stopping.
     """
 
+    _ = nse_good_enough
     if lookback_issue_days < 4:
         raise ValueError("lookback_issue_days must be >= 4")
 
@@ -187,34 +188,20 @@ def diagnose_prevalidation_window(
         )
         basin_attributes = profile.model_dump(exclude_none=True)
 
-    if overall_nse is not None and overall_nse >= nse_good_enough:
-        primary = {
-            "id": "MODEL",
-            "strength": 0.75,
-            "phenomenon": (
-                f"率定期观测诊断 NSE={overall_nse:.3f} 已达到当前研究停止阈值 "
-                f"{nse_good_enough:g}，不继续无意义调参"
-            ),
-            "suggested_action": "A10_FREEZE",
-            "suggested_strategy_id": None,
-            "suggested_param_groups": None,
-            "suggested_objective": None,
-        }
-    else:
-        nse_text = "n/a" if overall_nse is None else f"{overall_nse:.3f}"
-        primary = {
-            "id": "MODEL",
-            "strength": 0.62,
-            "phenomenon": (
-                f"率定期观测诊断 NSE={nse_text}, PBIAS={metrics['pbias_percent']:.1f}%, "
-                f"洪峰比={peak_ratio:.2f}, 峰时差={peak_lag} 天；先保留完整参数组，"
-                "由治理后的知识与实验计划决定是否缩小搜索范围"
-            ),
-            "suggested_action": "A07_OPTIMIZE",
-            "suggested_strategy_id": "xaj-hydro-composite-v1",
-            "suggested_param_groups": ["evap", "runoff", "routing"],
-            "suggested_objective": "composite",
-        }
+    nse_text = "n/a" if overall_nse is None else f"{overall_nse:.3f}"
+    primary = {
+        "id": "MODEL",
+        "strength": 0.62,
+        "phenomenon": (
+            f"率定期观测诊断 NSE={nse_text}, PBIAS={metrics['pbias_percent']:.1f}%, "
+            f"洪峰比={peak_ratio:.2f}, 峰时差={peak_lag} 天；先保留完整参数组，"
+            "由治理后的知识与实验计划决定是否缩小搜索范围"
+        ),
+        "suggested_action": "A07_OPTIMIZE",
+        "suggested_strategy_id": "xaj-hydro-composite-v1",
+        "suggested_param_groups": ["evap", "runoff", "routing"],
+        "suggested_objective": "composite",
+    }
 
     hypotheses = [primary]
     notes = [
