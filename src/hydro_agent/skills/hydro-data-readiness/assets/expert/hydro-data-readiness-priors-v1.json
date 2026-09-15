@@ -1,0 +1,28 @@
+{
+  "knowledge_id": "hydro-data-readiness-priors-v1",
+  "knowledge_type": "expert_prior",
+  "status": "seed_prior",
+  "authority": "advisory_only",
+  "description": "数据准备度诊断先验；只提醒复核数据，不拥有停止、Gate 或参数边界权限。",
+  "governance": {
+    "revision": 1,
+    "category": "expert_diagnostic_prior",
+    "review_status": "approved",
+    "verification_status": "unverified",
+    "applicability": {"model_ids": ["xaj"]},
+    "exposure_tags": [],
+    "evidence_dataset_ids": [],
+    "evidence_refs": ["source.hydrologist_calibration_priors.v1"]
+  },
+  "rules": [
+    {
+      "rule_id": "expert.negative_skill_check_data_first",
+      "signal": "nse_lt",
+      "threshold": 0.0,
+      "priority": 120,
+      "recommendation": {
+        "message": "整体技能为负时，参数实验前优先复核时间对齐、单位、状态与 forcing；该规则只提供诊断提醒。"
+      }
+    }
+  ]
+}

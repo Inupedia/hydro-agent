@@ -1,0 +1,54 @@
+{
+  "catalog_id": "xaj-v3-experiment-claims",
+  "source_id": "xaj-skill-v3-2026-09-13",
+  "entries": [
+    {
+      "knowledge_id": "case.yaogu.xaj.local-sensitivity-ranking",
+      "revision": 1,
+      "category": "experiment_case",
+      "authority": "provenance_only",
+      "claim": "The supplied Yaogu local perturbation experiment reports CS/SM/KE/XE among the strongest peak-response parameters and CG/KC/CI/CS among the strongest NSE-response parameters under its stated perturbation protocol.",
+      "source_id": "xaj-skill-v3-2026-09-13",
+      "source_hash": "sha256:783000ae7f04195a4d9a82651bae08295ce99d4bffc5994453f799a827664495",
+      "source_locator": "skill_v3.md#2.1-local-sensitivity-ranking",
+      "applicability": {"model_ids": ["xaj"], "basin_ids": ["yaogu"], "execution_representations": ["lumped"], "timesteps": ["1d"]},
+      "verification_status": "unverified",
+      "review_status": "approved",
+      "exposure_tags": ["calibration", "development"],
+      "evidence_dataset_ids": ["yaogu-academy-1989-2003"],
+      "evidence_refs": ["skill_v3.md#2.1", "skill_v3.md#13"]
+    },
+    {
+      "knowledge_id": "policy.xaj.v3-objective-weights",
+      "revision": 1,
+      "category": "policy_suggestion",
+      "authority": "runtime_prohibited",
+      "claim": "The supplied expert material proposes a weighted composite objective using NSE, PBIAS, peak error, bounded timing penalty and volume ratio, with example weights from the Yaogu exercise.",
+      "source_id": "xaj-skill-v3-2026-09-13",
+      "source_hash": "sha256:783000ae7f04195a4d9a82651bae08295ce99d4bffc5994453f799a827664495",
+      "source_locator": "skill_v3.md#7.3-objective-function",
+      "applicability": {"model_ids": ["xaj"], "basin_ids": ["yaogu"], "timesteps": ["1d"]},
+      "verification_status": "unverified",
+      "review_status": "pending",
+      "exposure_tags": ["calibration", "development"],
+      "evidence_dataset_ids": ["yaogu-academy-1989-2003"],
+      "evidence_refs": ["skill_v3.md#7.3"]
+    },
+    {
+      "knowledge_id": "case.yaogu.xaj.v3-benchmarks",
+      "revision": 1,
+      "category": "calibration_case",
+      "authority": "provenance_only",
+      "claim": "The supplied expert material reports Yaogu calibration and validation benchmark scores for a compliant seven-parameter run and a range-relaxed diagnostic run.",
+      "source_id": "xaj-skill-v3-2026-09-13",
+      "source_hash": "sha256:783000ae7f04195a4d9a82651bae08295ce99d4bffc5994453f799a827664495",
+      "source_locator": "skill_v3.md#10-yaogu-benchmarks",
+      "applicability": {"model_ids": ["xaj"], "basin_ids": ["yaogu"], "execution_representations": ["lumped"], "timesteps": ["1d"]},
+      "verification_status": "unverified",
+      "review_status": "approved",
+      "exposure_tags": ["calibration", "development"],
+      "evidence_dataset_ids": ["yaogu-academy-1989-2003"],
+      "evidence_refs": ["skill_v3.md#10", "skill_v3.md#13"]
+    }
+  ]
+}

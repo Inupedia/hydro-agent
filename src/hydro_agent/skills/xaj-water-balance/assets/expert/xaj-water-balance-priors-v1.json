@@ -1,0 +1,38 @@
+{
+  "knowledge_id": "xaj-water-balance-priors-v1",
+  "knowledge_type": "expert_prior",
+  "status": "seed_prior",
+  "authority": "advisory_only",
+  "description": "XAJ 水量平衡实验设计先验；仅影响假设和参数组建议。",
+  "governance": {
+    "revision": 1,
+    "category": "expert_diagnostic_prior",
+    "review_status": "approved",
+    "verification_status": "unverified",
+    "applicability": {"model_ids": ["xaj"]},
+    "exposure_tags": [],
+    "evidence_dataset_ids": [],
+    "evidence_refs": ["source.hydrologist_calibration_priors.v1"]
+  },
+  "rules": [
+    {
+      "rule_id": "expert.water_balance_first",
+      "signal": "abs_pbias_percent_gte",
+      "threshold": 10.0,
+      "priority": 100,
+      "recommendation": {
+        "parameter_groups": ["evap", "runoff"],
+        "objective": "composite",
+        "message": "水量平衡偏差显著时，先检验蒸散发/产流过程，不优先精调汇流。"
+      }
+    },
+    {
+      "rule_id": "expert.basin_attributes_are_priors",
+      "signal": "basin_attributes_available",
+      "priority": 60,
+      "recommendation": {
+        "message": "干旱度、径流系数、基流指数、降雪比例等流域属性只能作为实验先验，不能替代观测证据和独立验证。"
+      }
+    }
+  ]
+}
