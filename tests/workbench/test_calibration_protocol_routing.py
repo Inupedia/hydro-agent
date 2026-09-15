@@ -23,7 +23,7 @@ def test_optimize_waits_for_last_observation_without_extending_history(monkeypat
     packet = EvidencePacket(
         evidence_id="ev-test",
         task_id="task-1",
-        action=ActionCode.A07_OPTIMIZE,
+        action=ActionCode.A05_OPTIMIZE,
         status="failed",
         new_information_hash="hash-test",
     )
@@ -57,7 +57,7 @@ def test_optimize_waits_for_last_observation_without_extending_history(monkeypat
     _TaskAwareOptimizeHandler(kernel, {}).execute(
         "task-1",
         AgentDecision(
-            action=ActionCode.A07_OPTIMIZE,
+            action=ActionCode.A05_OPTIMIZE,
             hypothesis=ProblemHypothesis.MODEL,
             strategy_id="xaj-bounded-v1",
             param_groups=("evap",),
@@ -114,7 +114,7 @@ def test_final_test_evaluation_can_only_be_consumed_once() -> None:
     repository = SimpleNamespace(
         list_evidence=lambda _task_id: [
             SimpleNamespace(
-                action=ActionCode.A12_EVALUATE_REPORT.value,
+                action=ActionCode.A10_EVALUATE_REPORT.value,
                 status="succeeded",
             )
         ]
@@ -130,7 +130,7 @@ def test_final_test_evaluation_can_only_be_consumed_once() -> None:
         },
     )
     decision = AgentDecision(
-        action=ActionCode.A12_EVALUATE_REPORT,
+        action=ActionCode.A10_EVALUATE_REPORT,
         hypothesis=ProblemHypothesis.MODEL,
         rationale_summary="final test must not be evaluated twice",
     )

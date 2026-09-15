@@ -163,6 +163,7 @@ onUnmounted(() => {
 }
 .glass-dialog-panel.size-workbench {
   width: min(1100px, calc(100vw - 32px));
+  height: min(88dvh, 860px);
   max-height: min(88dvh, 860px);
 }
 .glass-dialog-panel.size-workbench .glass-dialog-body {
@@ -294,6 +295,11 @@ onUnmounted(() => {
     max-height: calc(100dvh - 32px);
     height: auto;
     width: min(520px, 100%);
+  }
+  .glass-dialog-panel.size-workbench {
+    width: min(1100px, calc(100vw - 32px));
+    height: calc(100dvh - 32px);
+    max-height: calc(100dvh - 32px);
   }
 }
 @media (prefers-reduced-transparency: reduce) {

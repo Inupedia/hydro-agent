@@ -24,7 +24,7 @@ def test_fresh_diagnosis_recommendation_is_not_rotated_for_novelty():
         model=ModelSummary(model_id="xaj", capabilities=("forecast", "calibrate")),
         scheme=SchemeSummary(scheme_id="scheme-current", status="base", content_hash="h"),
         permissions=PermissionSummary(
-            safe_actions=(ActionCode.A07_OPTIMIZE, ActionCode.A10_FREEZE),
+            safe_actions=(ActionCode.A05_OPTIMIZE, ActionCode.A08_FREEZE),
             paused=False,
         ),
         budget=BudgetSummary(
@@ -36,14 +36,14 @@ def test_fresh_diagnosis_recommendation_is_not_rotated_for_novelty():
         evidence_summary=(
             EvidenceSummary(
                 evidence_id="old-opt",
-                action=ActionCode.A07_OPTIMIZE,
+                action=ActionCode.A05_OPTIMIZE,
                 status="succeeded",
                 new_information_hash="h-old-opt",
                 gates={"strategy_id": "xaj-peak-bias-v1"},
             ),
             EvidenceSummary(
                 evidence_id="fresh-diagnosis",
-                action=ActionCode.A06_DIAGNOSE,
+                action=ActionCode.A04_DIAGNOSE,
                 status="succeeded",
                 new_information_hash="h-diagnosis",
                 metrics={"nse": 0.1},
@@ -63,16 +63,16 @@ def test_fresh_diagnosis_recommendation_is_not_rotated_for_novelty():
     payload = _diagnosis_calibration_progress(
         view,
         {
-            "action": "A10_FREEZE",
+            "action": "A08_FREEZE",
             "hypothesis": "MODEL",
             "strategy_id": None,
             "rationale_summary": "model proposed freeze",
         },
-        safe_actions={"A07_OPTIMIZE", "A10_FREEZE"},
+        safe_actions={"A05_OPTIMIZE", "A08_FREEZE"},
         dc_bing_floor=0.5,
     )
 
-    assert payload["action"] == "A07_OPTIMIZE"
+    assert payload["action"] == "A05_OPTIMIZE"
     assert payload["strategy_id"] == "xaj-peak-bias-v1"
     assert payload["param_groups"] == ["runoff", "routing"]
     assert payload["objective"] == "composite"

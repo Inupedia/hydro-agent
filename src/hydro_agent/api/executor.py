@@ -180,6 +180,14 @@ class TaskExecutor:
             self._running.pop(task_id, None)
 
     def _validate_plan(self, task_id: str):
+        from hydro_agent.workflow.definition import CURRENT_VERSION
+
+        task = self.deps.repository.get_task(task_id)
+        if task.workflow_version and task.workflow_version != CURRENT_VERSION:
+            raise RuntimeError(
+                f"旧任务绑定流程 v{task.workflow_version}，当前运行器使用 v{CURRENT_VERSION}。"
+                "请新建任务使用连续的 Action 编号；历史证据保留原编号。"
+            )
         state = self.deps.repository.ensure_task_state(task_id)
         config = (
             self.deps.repository.get_scheme(state.current_scheme_id).config_json

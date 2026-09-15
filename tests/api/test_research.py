@@ -31,7 +31,7 @@ def test_research_summary_rebuilds_protocol_trials_and_short_final_test(
         EvidencePacket(
             evidence_id="ev-06",
             task_id=task_id,
-            action=ActionCode.A06_DIAGNOSE,
+            action=ActionCode.A04_DIAGNOSE,
             status="succeeded",
             observations=("diagnosis",),
             new_information_hash="hash-06",
@@ -41,7 +41,7 @@ def test_research_summary_rebuilds_protocol_trials_and_short_final_test(
         EvidencePacket(
             evidence_id="ev-07",
             task_id=task_id,
-            action=ActionCode.A07_OPTIMIZE,
+            action=ActionCode.A05_OPTIMIZE,
             status="succeeded",
             observations=("candidate",),
             metrics={"model_evaluations": 120.0},
@@ -70,7 +70,7 @@ def test_research_summary_rebuilds_protocol_trials_and_short_final_test(
         EvidencePacket(
             evidence_id="ev-08",
             task_id=task_id,
-            action=ActionCode.A08_GATE,
+            action=ActionCode.A06_GATE,
             status="ROLLBACK",
             observations=("development rejected candidate",),
             metrics={"primary_delta": -0.1, "base_primary": -1.3, "candidate_primary": -3.8},
@@ -88,7 +88,7 @@ def test_research_summary_rebuilds_protocol_trials_and_short_final_test(
         EvidencePacket(
             evidence_id="ev-09",
             task_id=task_id,
-            action=ActionCode.A09_RESOLVE,
+            action=ActionCode.A07_RESOLVE,
             status="ROLLBACK",
             observations=("resolved",),
             gates={
@@ -103,7 +103,7 @@ def test_research_summary_rebuilds_protocol_trials_and_short_final_test(
         EvidencePacket(
             evidence_id="ev-12",
             task_id=task_id,
-            action=ActionCode.A12_EVALUATE_REPORT,
+            action=ActionCode.A10_EVALUATE_REPORT,
             status="succeeded",
             observations=(
                 "final_test_window=2025-05-08..2025-05-10",

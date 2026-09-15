@@ -11,17 +11,15 @@ from hydro_agent.optimization.campaign import CampaignSnapshot
 
 class ActionCode(StrEnum):
     A01_CHECK_DATA = "A01_CHECK_DATA"
-    A02_REPAIR_DATA = "A02_REPAIR_DATA"
-    A03_VALIDATE_SCHEME = "A03_VALIDATE_SCHEME"
-    A04_REBUILD_STATE = "A04_REBUILD_STATE"
-    A05_FORECAST = "A05_FORECAST"
-    A06_DIAGNOSE = "A06_DIAGNOSE"
-    A07_OPTIMIZE = "A07_OPTIMIZE"
-    A08_GATE = "A08_GATE"
-    A09_RESOLVE = "A09_RESOLVE"
-    A10_FREEZE = "A10_FREEZE"
-    A11_REPLAY = "A11_REPLAY"
-    A12_EVALUATE_REPORT = "A12_EVALUATE_REPORT"
+    A02_VALIDATE_SCHEME = "A02_VALIDATE_SCHEME"
+    A03_FORECAST = "A03_FORECAST"
+    A04_DIAGNOSE = "A04_DIAGNOSE"
+    A05_OPTIMIZE = "A05_OPTIMIZE"
+    A06_GATE = "A06_GATE"
+    A07_RESOLVE = "A07_RESOLVE"
+    A08_FREEZE = "A08_FREEZE"
+    A09_REPLAY = "A09_REPLAY"
+    A10_EVALUATE_REPORT = "A10_EVALUATE_REPORT"
 
 
 class ProblemHypothesis(StrEnum):
@@ -48,6 +46,7 @@ class AgentDecision(FrozenModel):
     experiment_signature: str | None = Field(default=None, max_length=64)
     experiment_reason_codes: tuple[str, ...] = ()
     experiment_evidence_refs: tuple[str, ...] = ()
+    activated_skill_ids: tuple[str, ...] = ()
     # User-facing audit trace. These are concise decision summaries, not hidden chain-of-thought.
     observation_zh: str = Field(default="", max_length=240)
     analysis_zh: str = Field(default="", max_length=600)

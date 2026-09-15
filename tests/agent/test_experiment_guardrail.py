@@ -24,7 +24,7 @@ def view(*, diagnosis, evidence=(), campaign_objective="nse"):
         ),
         model=ModelSummary(model_id="xaj", capabilities=("forecast", "calibrate")),
         scheme=SchemeSummary(scheme_id="scheme-1", status="base", content_hash="hash"),
-        permissions=PermissionSummary(safe_actions=(ActionCode.A07_OPTIMIZE,)),
+        permissions=PermissionSummary(safe_actions=(ActionCode.A05_OPTIMIZE,)),
         budget=BudgetSummary(
             agent_rounds_remaining=10,
             optimization_cycles_remaining=3,
@@ -48,7 +48,7 @@ def view(*, diagnosis, evidence=(), campaign_objective="nse"):
 
 def optimize_decision(strategy="xaj-local-refine-v1"):
     return AgentDecision(
-        action=ActionCode.A07_OPTIMIZE,
+        action=ActionCode.A05_OPTIMIZE,
         hypothesis=ProblemHypothesis.MODEL,
         strategy_id=strategy,
         param_groups=("evap", "runoff", "routing"),
@@ -60,7 +60,7 @@ def optimize_decision(strategy="xaj-local-refine-v1"):
 def diagnosis_row(evidence_id="ev-diag"):
     return EvidenceSummary(
         evidence_id=evidence_id,
-        action=ActionCode.A06_DIAGNOSE,
+        action=ActionCode.A04_DIAGNOSE,
         status="succeeded",
         new_information_hash="diag-hash",
         metrics={"nse": 0.1, "pbias_percent": 25.0},
@@ -133,7 +133,7 @@ def test_guardrail_uses_boundary_evidence_to_widen_search():
 def test_non_optimize_decision_is_untouched():
     state = view(diagnosis={}, evidence=(diagnosis_row(),))
     decision = AgentDecision(
-        action=ActionCode.A10_FREEZE,
+        action=ActionCode.A08_FREEZE,
         hypothesis=ProblemHypothesis.MODEL,
         rationale_summary="freeze",
     )
@@ -145,7 +145,7 @@ def test_guardrail_fails_open_when_no_strategy_catalog_is_available():
         task=TaskSummary(task_id="t", basin_id="b", phase="B", forcing_mode="R"),
         model=ModelSummary(model_id="xaj", capabilities=("calibrate",)),
         scheme=SchemeSummary(scheme_id="s", status="base", content_hash="h"),
-        permissions=PermissionSummary(safe_actions=(ActionCode.A07_OPTIMIZE,)),
+        permissions=PermissionSummary(safe_actions=(ActionCode.A05_OPTIMIZE,)),
         budget=BudgetSummary(
             agent_rounds_remaining=5,
             optimization_cycles_remaining=1,

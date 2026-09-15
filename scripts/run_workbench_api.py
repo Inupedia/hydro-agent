@@ -61,7 +61,7 @@ class StubHandler:
         metrics = dict(self.extra.get("metrics", {}))
         gates = dict(self.extra.get("gates", {}))
         artifact_ids = tuple(self.extra.get("artifact_ids", ()))
-        if self.action == ActionCode.A10_FREEZE:
+        if self.action == ActionCode.A08_FREEZE:
             state = self.repository.ensure_task_state(task_id)
             frozen_id = self._freeze.freeze(
                 task_id=task_id, source_scheme_id=state.current_scheme_id
@@ -70,11 +70,11 @@ class StubHandler:
             if task.phase == "B":
                 self.repository.set_task_phase(task_id, "F")
             observations = (f"frozen_scheme_id={frozen_id}",)
-        elif self.action == ActionCode.A11_REPLAY:
+        elif self.action == ActionCode.A09_REPLAY:
             task = self.repository.get_task(task_id)
             if task.phase == "F":
                 self.repository.set_task_phase(task_id, "E")
-        elif self.action == ActionCode.A12_EVALUATE_REPORT:
+        elif self.action == ActionCode.A10_EVALUATE_REPORT:
             self.deps.report_artifacts[task_id] = ("report.json", "report.md")
             self.deps.metrics_by_task[task_id] = {
                 "NSE": 0.52,
@@ -100,33 +100,33 @@ class StubHandler:
 class DemoDecisionProvider:
     SEQUENCE = (
         AgentDecision(
-            action=ActionCode.A05_FORECAST,
+            action=ActionCode.A03_FORECAST,
             hypothesis=ProblemHypothesis.MODEL,
             rationale_summary="Run the base forecast.",
         ),
         AgentDecision(
-            action=ActionCode.A07_OPTIMIZE,
+            action=ActionCode.A05_OPTIMIZE,
             hypothesis=ProblemHypothesis.MODEL,
             strategy_id="xaj-bounded-v1",
             rationale_summary="Bounded calibration produces one candidate.",
         ),
         AgentDecision(
-            action=ActionCode.A08_GATE,
+            action=ActionCode.A06_GATE,
             hypothesis=ProblemHypothesis.MODEL,
             rationale_summary="Evaluate the candidate against Gate guardrails.",
         ),
         AgentDecision(
-            action=ActionCode.A10_FREEZE,
+            action=ActionCode.A08_FREEZE,
             hypothesis=ProblemHypothesis.MODEL,
             rationale_summary="Freeze the operational scheme.",
         ),
         AgentDecision(
-            action=ActionCode.A11_REPLAY,
+            action=ActionCode.A09_REPLAY,
             hypothesis=ProblemHypothesis.MODEL,
             rationale_summary="Replay historical issue times.",
         ),
         AgentDecision(
-            action=ActionCode.A12_EVALUATE_REPORT,
+            action=ActionCode.A10_EVALUATE_REPORT,
             hypothesis=ProblemHypothesis.MODEL,
             rationale_summary="Generate read-only evaluation and report.",
         ),
@@ -142,34 +142,34 @@ class DemoDecisionProvider:
 def _build_demo(deps: AppDependencies, repository) -> None:
     tools = ToolRouter()
     tools.register(
-        ActionCode.A05_FORECAST, StubHandler(repository, deps, ActionCode.A05_FORECAST)
+        ActionCode.A03_FORECAST, StubHandler(repository, deps, ActionCode.A03_FORECAST)
     )
     tools.register(
-        ActionCode.A07_OPTIMIZE, StubHandler(repository, deps, ActionCode.A07_OPTIMIZE)
+        ActionCode.A05_OPTIMIZE, StubHandler(repository, deps, ActionCode.A05_OPTIMIZE)
     )
     tools.register(
-        ActionCode.A08_GATE,
+        ActionCode.A06_GATE,
         StubHandler(
             repository,
             deps,
-            ActionCode.A08_GATE,
+            ActionCode.A06_GATE,
             status="KEEP",
             observations=("保持原方案", "改进幅度未达到设定门槛"),
             gates={"status": "KEEP", "reason_code": "insufficient_primary_delta"},
         ),
     )
     tools.register(
-        ActionCode.A09_RESOLVE,
-        StubHandler(repository, deps, ActionCode.A09_RESOLVE, status="KEEP"),
+        ActionCode.A07_RESOLVE,
+        StubHandler(repository, deps, ActionCode.A07_RESOLVE, status="KEEP"),
     )
-    tools.register(ActionCode.A10_FREEZE, StubHandler(repository, deps, ActionCode.A10_FREEZE))
-    tools.register(ActionCode.A11_REPLAY, StubHandler(repository, deps, ActionCode.A11_REPLAY))
+    tools.register(ActionCode.A08_FREEZE, StubHandler(repository, deps, ActionCode.A08_FREEZE))
+    tools.register(ActionCode.A09_REPLAY, StubHandler(repository, deps, ActionCode.A09_REPLAY))
     tools.register(
-        ActionCode.A12_EVALUATE_REPORT,
+        ActionCode.A10_EVALUATE_REPORT,
         StubHandler(
             repository,
             deps,
-            ActionCode.A12_EVALUATE_REPORT,
+            ActionCode.A10_EVALUATE_REPORT,
             metrics={"NSE": 0.52, "KGE": 0.41, "MAE": 1.15, "Bias": -0.03},
             artifact_ids=("report.json", "report.md"),
         ),
@@ -267,6 +267,7 @@ def _build_real(
                         "action": decision.action.value,
                         "hypothesis": decision.hypothesis.value,
                         "strategy_id": decision.strategy_id,
+                        "activated_skill_ids": list(decision.activated_skill_ids),
                         "rationale_summary": decision.rationale_summary,
                         "llm_output": trace.text,
                         "input_summary_zh": input_summary,
@@ -309,6 +310,7 @@ def _build_real(
         report_root=report_root,
         warmup_days=int(os.getenv("HYDRO_AGENT_WARMUP_DAYS", "30")),
     )
+    deps.skills = kernel.skills
     provider.bind(SiliconFlowDecisionProvider(settings=settings, skills=kernel.skills))
     tools = kernel.build_tools(task_configs=deps.task_configs)
     deps.base_scheme_config = kernel.scheme_config

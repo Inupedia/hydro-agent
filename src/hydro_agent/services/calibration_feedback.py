@@ -14,7 +14,7 @@ def apply_latest_gate_feedback(result: dict, evidence_rows: list) -> dict:
         (
             index
             for index in range(len(evidence_rows) - 1, -1, -1)
-            if evidence_rows[index].action == "A09_RESOLVE"
+            if evidence_rows[index].action == "A07_RESOLVE"
         ),
         None,
     )
@@ -23,7 +23,7 @@ def apply_latest_gate_feedback(result: dict, evidence_rows: list) -> dict:
         return result
 
     latest_gate = next(
-        (row for row in reversed(evidence_rows[:resolve_index]) if row.action == "A08_GATE"),
+        (row for row in reversed(evidence_rows[:resolve_index]) if row.action == "A06_GATE"),
         None,
     )
     if latest_gate is None:
@@ -55,7 +55,7 @@ def apply_latest_gate_feedback(result: dict, evidence_rows: list) -> dict:
         "id": "MODEL",
         "strength": 0.95,
         "phenomenon": phenomenon,
-        "suggested_action": "A07_OPTIMIZE",
+        "suggested_action": "A05_OPTIMIZE",
         "suggested_strategy_id": strategy,
         "suggested_param_groups": groups,
         "suggested_objective": "composite",

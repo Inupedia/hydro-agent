@@ -1,6 +1,7 @@
 /** Audience-facing stage grouping for live actions. */
 
 import { WORKFLOW, type AudienceStageId } from '../generated/workflow'
+import { currentActionId } from '../workflow/legacyActions'
 
 export type { AudienceStageId }
 
@@ -16,7 +17,7 @@ export const AUDIENCE_STAGES: AudienceStage[] = WORKFLOW.display_stages.map((sta
 
 function actionMeta(action: string | null | undefined) {
   if (!action) return null
-  return WORKFLOW.actions[action as keyof typeof WORKFLOW.actions] || null
+  return WORKFLOW.actions[currentActionId(action) as keyof typeof WORKFLOW.actions] || null
 }
 
 export function stageForAction(action: string | null | undefined): AudienceStageId | null {

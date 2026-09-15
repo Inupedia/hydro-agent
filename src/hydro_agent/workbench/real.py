@@ -185,21 +185,21 @@ class RealWorkbenchKernel:
         self.validation_gate.task_configs = task_configs
         tools = ToolRouter()
         tools.register(ActionCode.A01_CHECK_DATA, CheckDataHandler(self.repository))
-        tools.register(ActionCode.A03_VALIDATE_SCHEME, ValidateSchemeHandler(self.repository))
+        tools.register(ActionCode.A02_VALIDATE_SCHEME, ValidateSchemeHandler(self.repository))
         tools.register(
-            ActionCode.A05_FORECAST,
+            ActionCode.A03_FORECAST,
             _TaskAwareForecastHandler(self, task_configs),
         )
         tools.register(
-            ActionCode.A06_DIAGNOSE,
+            ActionCode.A04_DIAGNOSE,
             DiagnoseHandler(self.repository, diagnose_fn=self._diagnose),
         )
         tools.register(
-            ActionCode.A07_OPTIMIZE,
+            ActionCode.A05_OPTIMIZE,
             _TaskAwareOptimizeHandler(self, task_configs),
         )
         tools.register(
-            ActionCode.A08_GATE,
+            ActionCode.A06_GATE,
             GateHandler(
                 self.repository,
                 gate_evaluator=self.gate,
@@ -208,17 +208,17 @@ class RealWorkbenchKernel:
                 gbt_config_provider=lambda _task_id: self.skills.gbt_accuracy_config(),
             ),
         )
-        tools.register(ActionCode.A09_RESOLVE, ResolveHandler(self.repository))
+        tools.register(ActionCode.A07_RESOLVE, ResolveHandler(self.repository))
         tools.register(
-            ActionCode.A10_FREEZE,
+            ActionCode.A08_FREEZE,
             ResearchFreezeToolHandler(self.repository, freeze_service=self.freeze_service),
         )
         tools.register(
-            ActionCode.A11_REPLAY,
+            ActionCode.A09_REPLAY,
             _TaskAwareReplayHandler(self, task_configs),
         )
         tools.register(
-            ActionCode.A12_EVALUATE_REPORT,
+            ActionCode.A10_EVALUATE_REPORT,
             _TaskAwareEvaluateHandler(self, task_configs),
         )
         from hydro_agent.workflow.handlers import assert_tool_router
@@ -233,7 +233,7 @@ class RealWorkbenchKernel:
             return {
                 "hypothesis": "DATA",
                 "phenomenon": "尚无当前方案，无法诊断",
-                "recommended_action": "A03_VALIDATE_SCHEME",
+                "recommended_action": "A02_VALIDATE_SCHEME",
                 "recommended_strategy_id": None,
                 "metrics": {},
                 "notes": ["no current scheme"],
@@ -388,7 +388,7 @@ class _TaskAwareOptimizeHandler:
         objective = decision.objective
         if not strategy_id or not param_groups or not objective:
             for row in reversed(self.kernel.repository.list_evidence(task_id)):
-                if row.action != ActionCode.A06_DIAGNOSE.value:
+                if row.action != ActionCode.A04_DIAGNOSE.value:
                     continue
                 gates = row.gates_json or {}
                 strategy_id = strategy_id or gates.get("recommended_strategy_id") or None
@@ -424,7 +424,7 @@ class _TaskAwareOptimizeHandler:
             f"calibration_issue={cal_iso}",
             f"calibration_history_end={cal_day.isoformat()}",
             f"development_window={window.start.isoformat()}..{window.end.isoformat()}",
-            "development_evaluated_by=A08_GATE",
+            "development_evaluated_by=A06_GATE",
             "final_test_accessed=false",
         )
         return packet.model_copy(update={"observations": tuple(packet.observations) + extra})
@@ -474,11 +474,11 @@ class _TaskAwareEvaluateHandler:
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
         previous = self.kernel.repository.list_evidence(task_id)
         if any(
-            row.action == ActionCode.A12_EVALUATE_REPORT.value and row.status == "succeeded"
+            row.action == ActionCode.A10_EVALUATE_REPORT.value and row.status == "succeeded"
             for row in previous
         ):
             raise RuntimeError(
-                "final_test already consumed; A12 evaluation is read-only and single-use"
+                "final_test already consumed; A10 evaluation is read-only and single-use"
             )
 
         cfg = self.task_configs.get(task_id) or {}

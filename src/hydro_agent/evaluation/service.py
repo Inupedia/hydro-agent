@@ -268,7 +268,7 @@ class EvaluationService:
 
     def _latest_gate_status(self, task_id: str) -> str | None:
         for row in reversed(self.repository.list_evidence(task_id)):
-            if row.action == "A08_GATE":
+            if row.action == "A06_GATE":
                 return str(row.status)
         return None
 

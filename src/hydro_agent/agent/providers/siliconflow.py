@@ -33,19 +33,19 @@ Do NOT invent continuous XAJ parameters.
 Do NOT choose xaj-hydrologist-manual-v1 in the automatic loop.
 
 Preferred B-phase path:
-A01/A03 -> A05_FORECAST -> A06_DIAGNOSE -> (calibrate if evidence requires it) ->
-A07_OPTIMIZE -> A08_GATE -> A09_RESOLVE -> either re-diagnose or A10_FREEZE,
-then (F) A11_REPLAY -> (E) A12_EVALUATE_REPORT.
+A01/A02 -> A03_FORECAST -> A04_DIAGNOSE -> (calibrate if evidence requires it) ->
+A05_OPTIMIZE -> A06_GATE -> A07_RESOLVE -> either re-diagnose or A08_FREEZE,
+then (F) A09_REPLAY -> (E) A10_EVALUATE_REPORT.
 Adoption and qualification are separate: an adopted candidate may still be unqualified.
 Only qualification evidence may declare an optimized candidate complete.
-A10 is a closeout request: the tool layer freezes only QUALIFIED schemes and otherwise pauses for human handover without consuming final-test evidence.
+A08 is a closeout request: the tool layer freezes only QUALIFIED schemes and otherwise pauses for human handover without consuming final-test evidence.
 
 Return ONLY one JSON object with keys:
 - action: ActionCode string
 - hypothesis: one of {_HYPOTHESES}
-- strategy_id: null, unless action is A07_OPTIMIZE then one of hydro.available_strategies
-- param_groups: null, unless A07_OPTIMIZE then a JSON array subset of hydro.available_param_groups (e.g. ["runoff","routing"])
-- objective: null, unless A07_OPTIMIZE then one of hydro.available_objectives ("nse"|"peak"|"composite")
+- strategy_id: null, unless action is A05_OPTIMIZE then one of hydro.available_strategies
+- param_groups: null, unless A05_OPTIMIZE then a JSON array subset of hydro.available_param_groups (e.g. ["runoff","routing"])
+- objective: null, unless A05_OPTIMIZE then one of hydro.available_objectives ("nse"|"peak"|"composite")
 - rationale_summary: compact technical reason for audit (<= 120 Chinese chars)
 - observation_zh: user-facing Chinese summary of the important evidence you noticed (1 sentence, <= 120 chars)
 - analysis_zh: user-facing hydrologist-style analysis summary explaining what the evidence means and why it matters (1-3 sentences, <= 260 chars)
@@ -57,7 +57,7 @@ JSON field names, ActionCode values, raw arrays, or internal strategy IDs in the
 Write them as normal Chinese a hydrologist or project leader can understand.
 
 Example:
-{{"action":"A07_OPTIMIZE","hypothesis":"MODEL","strategy_id":"xaj-peak-bias-v1","param_groups":["runoff","routing"],"objective":"composite","rationale_summary":"洪峰低估，优先调整产汇流参数并用综合目标验证。","observation_zh":"当前洪峰持续偏低，整体过程线也与观测存在明显偏差。","analysis_zh":"误差更像来自模型参数，而不是资料缺失。应先针对产流和汇流做有限调整，避免无方向地搜索全部参数。","decision_zh":"生成一组有边界的候选参数，再交给独立质量检查判断是否采用。"}}
+{{"action":"A05_OPTIMIZE","hypothesis":"MODEL","strategy_id":"xaj-peak-bias-v1","param_groups":["runoff","routing"],"objective":"composite","rationale_summary":"洪峰低估，优先调整产汇流参数并用综合目标验证。","observation_zh":"当前洪峰持续偏低，整体过程线也与观测存在明显偏差。","analysis_zh":"误差更像来自模型参数，而不是资料缺失。应先针对产流和汇流做有限调整，避免无方向地搜索全部参数。","decision_zh":"生成一组有边界的候选参数，再交给独立质量检查判断是否采用。"}}
 
 No markdown fences. No extra keys. No prose outside JSON.
 """
@@ -97,7 +97,7 @@ class SiliconFlowDecisionProvider:
         *,
         on_delta: Callable[[str], None] | None = None,
     ) -> AgentDecision:
-        skill_block = self.skills.render_activated(view)
+        activated_skill_ids, skill_block = self.skills.activated_for_prompt(view)
         system = SYSTEM_INSTRUCTIONS + "\n\n# Activated Agent Skills\n\n" + skill_block
         completion = self.client.complete_stream(
             [
@@ -138,7 +138,9 @@ class SiliconFlowDecisionProvider:
             # The deterministic scientific guardrail may override the model's proposed next action.
             # Keep the model's observation/analysis, but make the visible decision match what runs.
             payload["decision_zh"] = str(payload.get("rationale_summary") or "")[:240]
-        return AgentDecision.model_validate(payload)
+        return AgentDecision.model_validate(payload).model_copy(
+            update={"activated_skill_ids": activated_skill_ids}
+        )
 
 
 def _diagnosis_nse(view: WorldStateView) -> float | None:
@@ -171,7 +173,7 @@ def _latest_gates(view: WorldStateView, action: ActionCode) -> dict[str, str]:
 
 
 def _optimize_payload(view: WorldStateView, *, rationale: str) -> dict:
-    """Create a legal A07 proposal without novelty-based strategy rotation.
+    """Create a legal A05 proposal without novelty-based strategy rotation.
 
     The provider may pass through the fresh diagnosis recommendation, but the
     execution-semantic strategy is selected later by ExperimentPlan guardrail
@@ -190,7 +192,7 @@ def _optimize_payload(view: WorldStateView, *, rationale: str) -> dict:
     if objective not in {"nse", "peak", "composite"}:
         objective = "nse"
     return {
-        "action": ActionCode.A07_OPTIMIZE.value,
+        "action": ActionCode.A05_OPTIMIZE.value,
         "hypothesis": ProblemHypothesis.MODEL.value,
         "strategy_id": strategy,
         "param_groups": list(groups) if groups else ["runoff", "routing"],
@@ -210,14 +212,14 @@ def _diagnosis_calibration_progress(
     threshold = float(dc_bing_floor) if dc_bing_floor is not None else DEFAULT_GRADE_DC_BING
     actions = [item.action.value for item in view.evidence_summary]
     nse = _diagnosis_nse(view)
-    gate_status = _latest_status(view, ActionCode.A08_GATE.value)
-    resolve_status = _latest_status(view, ActionCode.A09_RESOLVE.value)
-    resolve_gates = _latest_gates(view, ActionCode.A09_RESOLVE)
+    gate_status = _latest_status(view, ActionCode.A06_GATE.value)
+    resolve_status = _latest_status(view, ActionCode.A07_RESOLVE.value)
+    resolve_gates = _latest_gates(view, ActionCode.A07_RESOLVE)
     qualification_status = str(resolve_gates.get("qualification_status") or "")
     resolved_outcome = resolve_status
     if not resolve_gates and resolve_status not in {"ACCEPT", "KEEP", "ROLLBACK"}:
-        # Compatibility for evidence persisted before dual-gate A09 semantics:
-        # older A09 rows used status="succeeded" while A08 carried KEEP/ROLLBACK.
+        # Compatibility for evidence persisted before dual-gate A07 semantics:
+        # older A07 rows used status="succeeded" while A06 carried KEEP/ROLLBACK.
         if gate_status in {"ACCEPT", "KEEP", "ROLLBACK"}:
             resolved_outcome = gate_status
     pending = pending_calibration_action(view)
@@ -230,7 +232,7 @@ def _diagnosis_calibration_progress(
             "objective": None,
             "rationale_summary": (
                 "最新率定候选尚未完成独立 Gate。"
-                if pending == ActionCode.A08_GATE
+                if pending == ActionCode.A06_GATE
                 else f"落实最新 Gate 结果（{gate_status or 'unknown'}）。"
             ),
         }
@@ -239,24 +241,24 @@ def _diagnosis_calibration_progress(
     # calibration complete. Adoption alone is not qualification.
     if (
         qualification_status == "QUALIFIED"
-        and ActionCode.A10_FREEZE.value in safe_actions
-        and ActionCode.A10_FREEZE.value not in actions
+        and ActionCode.A08_FREEZE.value in safe_actions
+        and ActionCode.A08_FREEZE.value not in actions
     ):
         return {
             **payload,
-            "action": ActionCode.A10_FREEZE.value,
+            "action": ActionCode.A08_FREEZE.value,
             "strategy_id": None,
             "param_groups": None,
             "objective": None,
             "rationale_summary": "候选已通过独立资格评价，冻结方案进入回放。",
         }
 
-    # KEEP/ROLLBACK is new evidence. Refresh A06 before selecting another
+    # KEEP/ROLLBACK is new evidence. Refresh A04 before selecting another
     # experiment; never select from a stale pre-Gate diagnosis.
-    if rediagnosis_required(view) and ActionCode.A06_DIAGNOSE.value in safe_actions:
+    if rediagnosis_required(view) and ActionCode.A04_DIAGNOSE.value in safe_actions:
         return {
             **payload,
-            "action": ActionCode.A06_DIAGNOSE.value,
+            "action": ActionCode.A04_DIAGNOSE.value,
             "strategy_id": None,
             "param_groups": None,
             "objective": None,
@@ -282,14 +284,14 @@ def _diagnosis_calibration_progress(
     if (
         not independent_gate_exists
         and (gbt_ok or (nse is not None and nse >= threshold))
-        and ActionCode.A06_DIAGNOSE.value in actions
-        and ActionCode.A10_FREEZE.value in safe_actions
-        and latest_action_index(view, ActionCode.A06_DIAGNOSE)
-        > latest_action_index(view, ActionCode.A07_OPTIMIZE)
+        and ActionCode.A04_DIAGNOSE.value in actions
+        and ActionCode.A08_FREEZE.value in safe_actions
+        and latest_action_index(view, ActionCode.A04_DIAGNOSE)
+        > latest_action_index(view, ActionCode.A05_OPTIMIZE)
     ):
         return {
             **payload,
-            "action": ActionCode.A10_FREEZE.value,
+            "action": ActionCode.A08_FREEZE.value,
             "strategy_id": None,
             "param_groups": None,
             "objective": None,
@@ -299,21 +301,21 @@ def _diagnosis_calibration_progress(
             ),
         }
 
-    # Budget exhaustion requests A10 closeout. The Freeze tool is authoritative:
+    # Budget exhaustion requests A08 closeout. The Freeze tool is authoritative:
     # QUALIFIED schemes freeze; unqualified schemes pause for human handover.
     if (
         resolved_outcome in {"KEEP", "ROLLBACK"}
-        and ActionCode.A10_FREEZE.value in safe_actions
-        and ActionCode.A10_FREEZE.value not in actions
+        and ActionCode.A08_FREEZE.value in safe_actions
+        and ActionCode.A08_FREEZE.value not in actions
         and (
             view.budget.optimization_cycles_remaining <= 0
             or view.budget.agent_rounds_remaining <= CLOSEOUT_RESERVE_ROUNDS
-            or ActionCode.A07_OPTIMIZE.value not in safe_actions
+            or ActionCode.A05_OPTIMIZE.value not in safe_actions
         )
     ):
         return {
             **payload,
-            "action": ActionCode.A10_FREEZE.value,
+            "action": ActionCode.A08_FREEZE.value,
             "strategy_id": None,
             "param_groups": None,
             "objective": None,
@@ -328,10 +330,10 @@ def _diagnosis_calibration_progress(
     # passed. This prevents a high in-sample NSE from bypassing a failed Gate.
     if (
         view.task.allow_optimization
-        and ActionCode.A06_DIAGNOSE.value in actions
-        and latest_action_index(view, ActionCode.A06_DIAGNOSE)
-        > latest_action_index(view, ActionCode.A07_OPTIMIZE)
-        and ActionCode.A07_OPTIMIZE.value in safe_actions
+        and ActionCode.A04_DIAGNOSE.value in actions
+        and latest_action_index(view, ActionCode.A04_DIAGNOSE)
+        > latest_action_index(view, ActionCode.A05_OPTIMIZE)
+        and ActionCode.A05_OPTIMIZE.value in safe_actions
         and view.budget.agent_rounds_remaining > CLOSEOUT_RESERVE_ROUNDS
     ):
         qualification_requires_more = qualification_status in {"UNQUALIFIED", "NOT_EVALUATED"}
@@ -351,7 +353,7 @@ def _diagnosis_calibration_progress(
     # Remap HITL-only manual strategy to a legal automatic proposal. The
     # ExperimentPlan guardrail will still own the execution-semantic strategy.
     if (
-        payload.get("action") == ActionCode.A07_OPTIMIZE.value
+        payload.get("action") == ActionCode.A05_OPTIMIZE.value
         and payload.get("strategy_id") == "xaj-hydrologist-manual-v1"
     ):
         fixed = dict(payload)
@@ -414,21 +416,21 @@ def _fallback_payload(view: WorldStateView, *, raw_text: str) -> dict:
     pending = pending_calibration_action(view)
     if pending is not None and pending.value in safe:
         preferred = pending.value
-    elif rediagnosis_required(view) and ActionCode.A06_DIAGNOSE.value in safe:
-        preferred = ActionCode.A06_DIAGNOSE.value
-    elif "A09_RESOLVE" in actions and "A10_FREEZE" not in actions:
-        # Request A10 closeout; the Freeze tool decides freeze vs handover from qualification.
-        preferred = ActionCode.A10_FREEZE.value
-    elif "A10_FREEZE" in actions and "A11_REPLAY" in safe:
-        preferred = ActionCode.A11_REPLAY.value
-    elif view.task.phase == "E" and "A12_EVALUATE_REPORT" in safe:
-        preferred = ActionCode.A12_EVALUATE_REPORT.value
-    elif "A05_FORECAST" not in actions and "A05_FORECAST" in safe:
-        preferred = ActionCode.A05_FORECAST.value
-    elif "A06_DIAGNOSE" not in actions and "A06_DIAGNOSE" in safe and view.latest_forecast_id:
-        preferred = ActionCode.A06_DIAGNOSE.value
-    elif "A07_OPTIMIZE" in safe:
-        preferred = ActionCode.A07_OPTIMIZE.value
+    elif rediagnosis_required(view) and ActionCode.A04_DIAGNOSE.value in safe:
+        preferred = ActionCode.A04_DIAGNOSE.value
+    elif "A07_RESOLVE" in actions and "A08_FREEZE" not in actions:
+        # Request A08 closeout; the Freeze tool decides freeze vs handover from qualification.
+        preferred = ActionCode.A08_FREEZE.value
+    elif "A08_FREEZE" in actions and "A09_REPLAY" in safe:
+        preferred = ActionCode.A09_REPLAY.value
+    elif view.task.phase == "E" and "A10_EVALUATE_REPORT" in safe:
+        preferred = ActionCode.A10_EVALUATE_REPORT.value
+    elif "A03_FORECAST" not in actions and "A03_FORECAST" in safe:
+        preferred = ActionCode.A03_FORECAST.value
+    elif "A04_DIAGNOSE" not in actions and "A04_DIAGNOSE" in safe and view.latest_forecast_id:
+        preferred = ActionCode.A04_DIAGNOSE.value
+    elif "A05_OPTIMIZE" in safe:
+        preferred = ActionCode.A05_OPTIMIZE.value
     else:
         preferred = next(iter(sorted(safe)), ActionCode.A01_CHECK_DATA.value)
     # If raw text clearly names an action, prefer that when safe.
@@ -439,11 +441,11 @@ def _fallback_payload(view: WorldStateView, *, raw_text: str) -> dict:
     return {
         "action": preferred,
         "hypothesis": "MODEL",
-        "strategy_id": "xaj-bounded-v1" if preferred == ActionCode.A07_OPTIMIZE.value else None,
+        "strategy_id": "xaj-bounded-v1" if preferred == ActionCode.A05_OPTIMIZE.value else None,
         "param_groups": ["evap", "runoff", "routing"]
-        if preferred == ActionCode.A07_OPTIMIZE.value
+        if preferred == ActionCode.A05_OPTIMIZE.value
         else None,
-        "objective": "nse" if preferred == ActionCode.A07_OPTIMIZE.value else None,
+        "objective": "nse" if preferred == ActionCode.A05_OPTIMIZE.value else None,
         "rationale_summary": "模型输出不完整，已按证据状态回退到安全的下一步。",
     }
 
@@ -466,15 +468,15 @@ def normalize_decision_payload(
     if safe_actions and action not in safe_actions:
         # Prefer forward progress when the model invents a disallowed action.
         preferred = (
-            ActionCode.A06_DIAGNOSE.value,
-            ActionCode.A05_FORECAST.value,
-            ActionCode.A03_VALIDATE_SCHEME.value,
-            ActionCode.A07_OPTIMIZE.value,
-            ActionCode.A08_GATE.value,
-            ActionCode.A09_RESOLVE.value,
-            ActionCode.A10_FREEZE.value,
-            ActionCode.A11_REPLAY.value,
-            ActionCode.A12_EVALUATE_REPORT.value,
+            ActionCode.A04_DIAGNOSE.value,
+            ActionCode.A03_FORECAST.value,
+            ActionCode.A02_VALIDATE_SCHEME.value,
+            ActionCode.A05_OPTIMIZE.value,
+            ActionCode.A06_GATE.value,
+            ActionCode.A07_RESOLVE.value,
+            ActionCode.A08_FREEZE.value,
+            ActionCode.A09_REPLAY.value,
+            ActionCode.A10_EVALUATE_REPORT.value,
             ActionCode.A01_CHECK_DATA.value,
         )
         action = next((a for a in preferred if a in safe_actions), sorted(safe_actions)[0])
@@ -487,21 +489,21 @@ def normalize_decision_payload(
             default=-1,
         )
 
-    optimize_index = latest(ActionCode.A07_OPTIMIZE)
-    gate_index = latest(ActionCode.A08_GATE)
-    resolve_index = latest(ActionCode.A09_RESOLVE)
+    optimize_index = latest(ActionCode.A05_OPTIMIZE)
+    gate_index = latest(ActionCode.A06_GATE)
+    resolve_index = latest(ActionCode.A07_RESOLVE)
     if (
         optimize_index > gate_index
-        and action == ActionCode.A05_FORECAST.value
-        and (not safe_actions or ActionCode.A08_GATE.value in safe_actions)
+        and action == ActionCode.A03_FORECAST.value
+        and (not safe_actions or ActionCode.A06_GATE.value in safe_actions)
     ):
-        action = ActionCode.A08_GATE.value
+        action = ActionCode.A06_GATE.value
     if (
         gate_index > resolve_index
-        and action == ActionCode.A05_FORECAST.value
-        and (not safe_actions or ActionCode.A09_RESOLVE.value in safe_actions)
+        and action == ActionCode.A03_FORECAST.value
+        and (not safe_actions or ActionCode.A07_RESOLVE.value in safe_actions)
     ):
-        action = ActionCode.A09_RESOLVE.value
+        action = ActionCode.A07_RESOLVE.value
     data["action"] = action
 
     hypothesis_raw = data.get("hypothesis")
@@ -520,10 +522,10 @@ def normalize_decision_payload(
                 break
         # Prefer MODEL for forecast/optimize/gate style work when unclear.
         if mapped == ProblemHypothesis.UNKNOWN and action in {
-            ActionCode.A05_FORECAST.value,
-            ActionCode.A07_OPTIMIZE.value,
-            ActionCode.A08_GATE.value,
-            ActionCode.A03_VALIDATE_SCHEME.value,
+            ActionCode.A03_FORECAST.value,
+            ActionCode.A05_OPTIMIZE.value,
+            ActionCode.A06_GATE.value,
+            ActionCode.A02_VALIDATE_SCHEME.value,
         }:
             mapped = ProblemHypothesis.MODEL
         hypothesis = mapped.value
@@ -536,17 +538,17 @@ def normalize_decision_payload(
     strategy_id = data.get("strategy_id")
     if strategy_id in ("", "null", "None"):
         strategy_id = None
-    if action == ActionCode.A07_OPTIMIZE.value and not strategy_id:
+    if action == ActionCode.A05_OPTIMIZE.value and not strategy_id:
         strategy_id = "xaj-bounded-v1"
     # Automatic agent loop never uses HITL-only manual strategy.
-    if action == ActionCode.A07_OPTIMIZE.value and strategy_id == "xaj-hydrologist-manual-v1":
+    if action == ActionCode.A05_OPTIMIZE.value and strategy_id == "xaj-hydrologist-manual-v1":
         strategy_id = "xaj-bounded-v1"
-    if action != ActionCode.A07_OPTIMIZE.value:
+    if action != ActionCode.A05_OPTIMIZE.value:
         strategy_id = None
 
     param_groups = data.get("param_groups")
     objective = data.get("objective")
-    if action != ActionCode.A07_OPTIMIZE.value:
+    if action != ActionCode.A05_OPTIMIZE.value:
         param_groups = None
         objective = None
     else:

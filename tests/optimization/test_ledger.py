@@ -16,10 +16,10 @@ def row(evidence_id, action, *, status="succeeded", gates=None, metrics=None, ac
 
 def test_ledger_reconstructs_complete_calibration_cycle():
     rows = [
-        row("ev-06", "A06_DIAGNOSE"),
+        row("ev-06", "A04_DIAGNOSE"),
         row(
             "ev-07",
-            "A07_OPTIMIZE",
+            "A05_OPTIMIZE",
             action_run_id="run-1",
             gates={
                 "strategy_id": "xaj-water-balance-v1",
@@ -36,7 +36,7 @@ def test_ledger_reconstructs_complete_calibration_cycle():
         ),
         row(
             "ev-08",
-            "A08_GATE",
+            "A06_GATE",
             status="ROLLBACK",
             gates={
                 "status": "ROLLBACK",
@@ -50,7 +50,7 @@ def test_ledger_reconstructs_complete_calibration_cycle():
         ),
         row(
             "ev-09",
-            "A09_RESOLVE",
+            "A07_RESOLVE",
             status="ROLLBACK",
             gates={
                 "gate_status": "ROLLBACK",
@@ -86,10 +86,10 @@ def test_ledger_reconstructs_complete_calibration_cycle():
 def test_ledger_prefers_persisted_plan_metadata_when_available():
     ledger = TrialLedgerBuilder().build(
         [
-            row("diag", "A06_DIAGNOSE"),
+            row("diag", "A04_DIAGNOSE"),
             row(
                 "opt",
-                "A07_OPTIMIZE",
+                "A05_OPTIMIZE",
                 gates={
                     "strategy_id": "xaj-broadened-refine-v1",
                     "experiment_plan_id": "plan-explicit",
@@ -112,10 +112,10 @@ def test_ledger_prefers_persisted_plan_metadata_when_available():
 def test_ledger_flushes_incomplete_trial_as_inconclusive():
     ledger = TrialLedgerBuilder().build(
         [
-            row("ev-06", "A06_DIAGNOSE"),
+            row("ev-06", "A04_DIAGNOSE"),
             row(
                 "ev-07",
-                "A07_OPTIMIZE",
+                "A05_OPTIMIZE",
                 gates={"strategy_id": "xaj-bounded-v1", "model_evaluations": "100"},
             ),
         ]
@@ -131,20 +131,20 @@ def test_ledger_flushes_incomplete_trial_as_inconclusive():
 def test_new_a07_flushes_previous_open_trial_without_cross_cycle_gate_leakage():
     ledger = TrialLedgerBuilder().build(
         [
-            row("diag-1", "A06_DIAGNOSE"),
-            row("opt-1", "A07_OPTIMIZE", gates={"strategy_id": "xaj-bounded-v1"}),
-            row("diag-2", "A06_DIAGNOSE"),
-            row("opt-2", "A07_OPTIMIZE", gates={"strategy_id": "xaj-local-refine-v1"}),
+            row("diag-1", "A04_DIAGNOSE"),
+            row("opt-1", "A05_OPTIMIZE", gates={"strategy_id": "xaj-bounded-v1"}),
+            row("diag-2", "A04_DIAGNOSE"),
+            row("opt-2", "A05_OPTIMIZE", gates={"strategy_id": "xaj-local-refine-v1"}),
             row(
                 "gate-2",
-                "A08_GATE",
+                "A06_GATE",
                 status="ACCEPT",
                 gates={"status": "ACCEPT", "adoption_status": "ADOPT"},
                 metrics={"primary_delta": 0.1},
             ),
             row(
                 "resolve-2",
-                "A09_RESOLVE",
+                "A07_RESOLVE",
                 status="KEEP",
                 gates={"gate_status": "ACCEPT", "adoption_status": "ADOPT"},
             ),
@@ -166,7 +166,7 @@ def test_agent_calibration_document_lists_existing_chart_artifacts(tmp_path):
         [
             row(
                 "ev-07",
-                "A07_OPTIMIZE",
+                "A05_OPTIMIZE",
                 gates={"strategy_id": "xaj-water-balance-v1", "parameter_delta_json": '{"K": -0.2}'},
                 metrics={"baseline_nse": -1.0, "candidate_nse": 0.5},
             )

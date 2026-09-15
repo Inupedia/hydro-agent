@@ -150,7 +150,7 @@ def resolve_gate_scheme_ids(repository, task_id: str) -> tuple[str, str]:
     candidate_scheme_id: str | None = None
     optimize_base_id: str | None = None
     for row in reversed(repository.list_evidence(task_id)):
-        if row.action != ActionCode.A07_OPTIMIZE.value:
+        if row.action != ActionCode.A05_OPTIMIZE.value:
             continue
         gates = dict(row.gates_json or {})
         candidate_scheme_id = gates.get("candidate_scheme_id") or None
@@ -163,7 +163,7 @@ def resolve_gate_scheme_ids(repository, task_id: str) -> tuple[str, str]:
         break
 
     if not candidate_scheme_id:
-        raise RuntimeError("gate requires a candidate from the latest A07_OPTIMIZE")
+        raise RuntimeError("gate requires a candidate from the latest A05_OPTIMIZE")
 
     if candidate_scheme_id == base_scheme_id:
         try:
@@ -183,7 +183,7 @@ def resolve_gate_scheme_ids(repository, task_id: str) -> tuple[str, str]:
 
 def latest_candidate_scheme_id(repository, task_id: str) -> str | None:
     for row in reversed(repository.list_evidence(task_id)):
-        if row.action != ActionCode.A07_OPTIMIZE.value:
+        if row.action != ActionCode.A05_OPTIMIZE.value:
             continue
         gates = dict(row.gates_json or {})
         candidate = gates.get("candidate_scheme_id")

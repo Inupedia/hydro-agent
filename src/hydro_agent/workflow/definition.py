@@ -7,8 +7,8 @@ from pathlib import Path
 from hydro_agent.execution.hashing import sha256_bytes
 from hydro_agent.workflow.models import WorkflowDefinition
 
-CURRENT_VERSION = "1.0.0"
-CURRENT_FILENAME = "hydro-agent.v1.json"
+CURRENT_VERSION = "2.0.0"
+CURRENT_FILENAME = "hydro-agent.v2.json"
 
 
 def repo_root() -> Path | None:

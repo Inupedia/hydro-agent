@@ -151,7 +151,7 @@ def apply_calibration_evidence_to_diagnosis(
                     "phenomenon": (
                         f"完整率定期 PBIAS={pbias:.1f}% 显示系统水量偏差，优先处理蒸散发/产流参数"
                     ),
-                    "recommended_action": "A07_OPTIMIZE",
+                    "recommended_action": "A05_OPTIMIZE",
                     "recommended_strategy_id": "xaj-water-balance-v1",
                     "recommended_param_groups": ["evap", "runoff"],
                     "recommended_objective": "composite",
@@ -162,7 +162,7 @@ def apply_calibration_evidence_to_diagnosis(
                 {
                     "hypothesis": "TIMING",
                     "phenomenon": f"完整率定期洪峰错位约 {peak_timing:.0f} 天，优先检查汇流响应",
-                    "recommended_action": "A07_OPTIMIZE",
+                    "recommended_action": "A05_OPTIMIZE",
                     "recommended_strategy_id": "xaj-routing-refine-v1",
                     "recommended_param_groups": ["routing"],
                     "recommended_objective": "composite",
@@ -173,7 +173,7 @@ def apply_calibration_evidence_to_diagnosis(
                 {
                     "hypothesis": "MODEL",
                     "phenomenon": f"完整率定期洪峰比={peak_ratio:.2f}，优先联合产流与汇流过程",
-                    "recommended_action": "A07_OPTIMIZE",
+                    "recommended_action": "A05_OPTIMIZE",
                     "recommended_strategy_id": "xaj-peak-bias-v1",
                     "recommended_param_groups": ["runoff", "routing"],
                     "recommended_objective": "composite",
@@ -184,7 +184,7 @@ def apply_calibration_evidence_to_diagnosis(
                 {
                     "hypothesis": "MODEL",
                     "phenomenon": "完整率定期整体拟合不足，采用受约束综合率定",
-                    "recommended_action": "A07_OPTIMIZE",
+                    "recommended_action": "A05_OPTIMIZE",
                     "recommended_strategy_id": "xaj-hydro-composite-v1",
                     "recommended_param_groups": ["evap", "runoff", "routing"],
                     "recommended_objective": "composite",
@@ -195,7 +195,7 @@ def apply_calibration_evidence_to_diagnosis(
                 {
                     "hypothesis": "MODEL",
                     "phenomenon": "完整率定期多指标达到当前研究阈值，不继续无意义搜索",
-                    "recommended_action": "A10_FREEZE",
+                    "recommended_action": "A08_FREEZE",
                     "recommended_strategy_id": None,
                     "recommended_param_groups": None,
                     "recommended_objective": None,

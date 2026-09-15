@@ -4,9 +4,9 @@ description: 说明何时调用 GB/T 22482—2026 的确定性评定能力以及
 metadata:
   title_zh: "GB/T 22482 精度评定流程"
   purpose_zh: "把规范评定作为确定性 evaluator 使用，并将标准 provenance 与科研 Gate policy 分离。"
-  when_to_use_zh: "候选进入 A08 Gate|冻结后最终评价|需要解释方案精度等级时"
+  when_to_use_zh: "候选进入 A06 Gate|冻结后最终评价|需要解释方案精度等级时"
   required_evidence_zh: "观测/模拟过程|流域面积与评定配置|StandardRepository provenance|科研 Gate policy"
-  recommended_actions: "A08_GATE|A12_EVALUATE_REPORT"
+  recommended_actions: "A06_GATE|A10_EVALUATE_REPORT"
   counterexamples_zh: "不能在 Skill 中硬写甲乙丙阈值|不能让 LLM 临时解释成新的准入条件"
   prompt_references: "references/evaluation-workflow.md"
 ---

@@ -15,7 +15,7 @@ describe('Run timeline', () => {
         occurred_at: '2020-05-01T00:00:00Z',
         label: '正在运行水文模型',
         status: 'running',
-        action: 'A05_FORECAST',
+        action: 'A03_FORECAST',
         evidence_id: 'ev-1',
         details: { action_run_id: 'run-1' },
       },

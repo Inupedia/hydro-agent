@@ -92,7 +92,7 @@ def test_results_are_read_from_persisted_scheme_forecast_gate_report(
         EvidencePacket(
             evidence_id="ev-optimize",
             task_id=task_id,
-            action=ActionCode.A07_OPTIMIZE,
+            action=ActionCode.A05_OPTIMIZE,
             status="succeeded",
             observations=(f"candidate_scheme_id={candidate_id}",),
             gates={
@@ -109,7 +109,7 @@ def test_results_are_read_from_persisted_scheme_forecast_gate_report(
         EvidencePacket(
             evidence_id="ev-gate",
             task_id=task_id,
-            action=ActionCode.A08_GATE,
+            action=ActionCode.A06_GATE,
             status="KEEP",
             observations=("insufficient_primary_delta",),
             gates={"status": "KEEP", "candidate_scheme_id": candidate_id},
@@ -120,7 +120,7 @@ def test_results_are_read_from_persisted_scheme_forecast_gate_report(
         EvidencePacket(
             evidence_id="ev-report",
             task_id=task_id,
-            action=ActionCode.A12_EVALUATE_REPORT,
+            action=ActionCode.A10_EVALUATE_REPORT,
             status="succeeded",
             metrics={"NSE": 0.55, "KGE": 0.44, "MAE": 1.1, "Bias": -0.05},
             artifact_ids=("report.json", "report.md"),

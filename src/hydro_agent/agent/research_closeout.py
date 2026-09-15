@@ -28,7 +28,7 @@ class ResearchFreezeToolHandler:
             workbench=workbench,
         )
         latest_resolve = next(
-            (row for row in reversed(evidence) if row.action == ActionCode.A09_RESOLVE.value),
+            (row for row in reversed(evidence) if row.action == ActionCode.A07_RESOLVE.value),
             None,
         )
         resolve_gates = dict(latest_resolve.gates_json or {}) if latest_resolve else {}
@@ -55,13 +55,13 @@ class ResearchFreezeToolHandler:
             return EvidencePacket(
                 evidence_id=_evidence_id(),
                 task_id=task_id,
-                action=ActionCode.A10_FREEZE,
+                action=ActionCode.A08_FREEZE,
                 status="blocked",
                 observations=observations,
                 metrics=metrics,
                 gates=gates,
                 new_information_hash=information_hash(
-                    action=ActionCode.A10_FREEZE,
+                    action=ActionCode.A08_FREEZE,
                     status="blocked",
                     observations=observations,
                     metrics=metrics,
@@ -106,13 +106,13 @@ class ResearchFreezeToolHandler:
         return EvidencePacket(
             evidence_id=_evidence_id(),
             task_id=task_id,
-            action=ActionCode.A10_FREEZE,
+            action=ActionCode.A08_FREEZE,
             status="succeeded",
             observations=observations,
             metrics=metrics,
             gates=gates,
             new_information_hash=information_hash(
-                action=ActionCode.A10_FREEZE,
+                action=ActionCode.A08_FREEZE,
                 status="succeeded",
                 observations=observations,
                 metrics=metrics,
@@ -121,7 +121,7 @@ class ResearchFreezeToolHandler:
 
 
 def _evidence_id() -> str:
-    # Keep A10 ids compatible with the repository's existing evidence contract
+    # Keep A08 ids compatible with the repository's existing evidence contract
     # without exposing the generic tools module's private helper.
     import uuid
 

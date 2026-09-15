@@ -194,7 +194,7 @@ def diagnose_prevalidation_window(
             f"洪峰比={peak_ratio:.2f}, 峰时差={peak_lag} 天；先保留完整参数组，"
             "由治理后的知识与实验计划决定是否缩小搜索范围"
         ),
-        "suggested_action": "A07_OPTIMIZE",
+        "suggested_action": "A05_OPTIMIZE",
         "suggested_strategy_id": "xaj-hydro-composite-v1",
         "suggested_param_groups": ["evap", "runoff", "routing"],
         "suggested_objective": "composite",

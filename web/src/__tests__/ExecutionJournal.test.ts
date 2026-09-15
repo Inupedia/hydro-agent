@@ -8,22 +8,22 @@ const defaultAgentLog = () => ({
     {
       round_number: 3,
       occurred_at: '2026-09-13T06:00:02Z',
-      action: 'A06_DIAGNOSE',
+      action: 'A04_DIAGNOSE',
       action_zh: '结果诊断',
       hypothesis: 'MODEL',
       hypothesis_zh: '模型参数问题',
       strategy_id: null,
       rationale_summary: '根据当前误差决定继续诊断。',
       llm_output: JSON.stringify({
-        action: 'A06_DIAGNOSE',
+        action: 'A04_DIAGNOSE',
         hypothesis: 'MODEL',
         observation_zh: '当前洪峰持续偏低，过程线与观测仍有明显差距。',
         analysis_zh: '误差更像来自模型参数，而不是资料缺失。应先确认产流和汇流参数是否需要调整。',
         decision_zh: '继续做结果诊断，明确下一轮需要调整的参数范围。',
         rationale_summary: '洪峰低估，需继续诊断。',
       }),
-      input_summary_zh: "第 3 轮 · 阶段 B · 证据 ['A05_FORECAST']",
-      judgment_zh: "发现：阶段B，证据['A05_FORECAST']；依据：{'metrics': {'nse': 0.42}}；决策：A06_DIAGNOSE/MODEL",
+      input_summary_zh: "第 3 轮 · 阶段 B · 证据 ['A03_FORECAST']",
+      judgment_zh: "发现：阶段B，证据['A03_FORECAST']；依据：{'metrics': {'nse': 0.42}}；决策：A04_DIAGNOSE/MODEL",
       input_world_state: {},
       tool_status: 'succeeded',
       tool_status_zh: '已完成',
@@ -57,7 +57,7 @@ describe('ExecutionJournal', () => {
             occurred_at: '2026-09-13T06:00:02Z',
             label: '完成诊断',
             status: 'succeeded',
-            action: 'A06_DIAGNOSE',
+            action: 'A04_DIAGNOSE',
             evidence_id: 'ev-2',
             details: { raw_metric: 0.42 },
           },
@@ -66,7 +66,7 @@ describe('ExecutionJournal', () => {
             occurred_at: '2026-09-13T06:00:01Z',
             label: '完成基础预报',
             status: 'succeeded',
-            action: 'A05_FORECAST',
+            action: 'A03_FORECAST',
             evidence_id: 'ev-1',
             details: { forecast_id: 'fc-1' },
           },
@@ -84,7 +84,7 @@ describe('ExecutionJournal', () => {
     expect(cards[1].text()).toContain('继续做结果诊断')
     expect(cards[1].text()).toContain('洪峰低估；退水段偏慢')
     expect(cards[1].text()).not.toContain('阶段B')
-    expect(cards[1].text()).not.toContain('A06_DIAGNOSE')
+    expect(cards[1].text()).not.toContain('A04_DIAGNOSE')
     expect(cards[1].text()).not.toContain("{'metrics'")
     expect(cards[1].find('.technical-details pre').text()).toContain('raw_metric')
     expect(wrapper.find('.event-index').exists()).toBe(false)
@@ -97,11 +97,11 @@ describe('ExecutionJournal', () => {
       rounds: [
         {
           ...defaultAgentLog().rounds[0],
-          action: 'A08_GATE',
+          action: 'A06_GATE',
           action_zh: '质量把关',
           rationale_summary: '最新候选需要先完成独立质量检查。',
           llm_output: JSON.stringify({
-            action: 'A07_OPTIMIZE',
+            action: 'A05_OPTIMIZE',
             observation_zh: '候选方案已经生成。',
             analysis_zh: '当前最重要的是确认这次调整是否真的改善了结果。',
             decision_zh: '继续调整参数。',
@@ -123,7 +123,7 @@ describe('ExecutionJournal', () => {
             occurred_at: '2026-09-13T06:00:02Z',
             label: '质量把关',
             status: 'succeeded',
-            action: 'A08_GATE',
+            action: 'A06_GATE',
             evidence_id: 'ev-gate',
             details: {},
           },
@@ -152,7 +152,7 @@ describe('ExecutionJournal', () => {
             occurred_at: '2026-09-13T06:00:01Z',
             label: '正在计算',
             status: 'running',
-            action: 'A05_FORECAST',
+            action: 'A03_FORECAST',
             evidence_id: null,
             details: {},
           },
@@ -201,7 +201,7 @@ describe('ExecutionJournal', () => {
           occurred_at: '2026-09-13T06:00:02Z',
           label: '第二步',
           status: 'running',
-          action: 'A03_VALIDATE_SCHEME',
+          action: 'A02_VALIDATE_SCHEME',
           evidence_id: null,
           details: {},
         },

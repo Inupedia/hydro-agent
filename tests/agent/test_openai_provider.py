@@ -20,7 +20,7 @@ class FakeResponsesAPI:
 
         class Response:
             output_parsed = AgentDecision(
-                action=ActionCode.A05_FORECAST,
+                action=ActionCode.A03_FORECAST,
                 hypothesis="MODEL",
                 rationale_summary="Choose a forecast from safe actions.",
             )
@@ -39,7 +39,7 @@ def test_provider_uses_structured_agent_decision():
         task=TaskSummary(task_id="task-1", basin_id="b1", phase="B", forcing_mode="R"),
         model=ModelSummary(model_id="xaj", capabilities=("forecast", "calibrate")),
         scheme=SchemeSummary(scheme_id="scheme-base", status="base", content_hash="h"),
-        permissions=PermissionSummary(safe_actions=(ActionCode.A05_FORECAST,), paused=False),
+        permissions=PermissionSummary(safe_actions=(ActionCode.A03_FORECAST,), paused=False),
         budget=BudgetSummary(
             agent_rounds_remaining=20,
             optimization_cycles_remaining=4,
@@ -49,6 +49,6 @@ def test_provider_uses_structured_agent_decision():
     )
     provider = OpenAIResponsesDecisionProvider(model="test-model", client=fake_openai_client)
     decision = provider.decide(world_view)
-    assert decision.action == ActionCode.A05_FORECAST
+    assert decision.action == ActionCode.A03_FORECAST
     call = fake_openai_client.responses.calls[0]
     assert call["text_format"] is AgentDecision

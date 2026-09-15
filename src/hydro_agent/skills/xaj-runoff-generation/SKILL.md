@@ -6,7 +6,7 @@ metadata:
   purpose_zh: "判断问题是否来自蓄水容量、产流非线性或水源划分，而不是把所有峰值误差归给汇流。"
   when_to_use_zh: "总量基本合理但洪水响应强弱异常|降雨响应阈值或产流形态异常|runoff 参数组被诊断命中"
   required_evidence_zh: "降雨-径流过程|事件量级与峰值|当前 diagnosis|模型状态/水源分量（若可用）"
-  recommended_actions: "A06_DIAGNOSE|A07_OPTIMIZE"
+  recommended_actions: "A04_DIAGNOSE|A05_OPTIMIZE"
   recommended_strategies: "xaj-peak-bias-v1|xaj-hydro-composite-v1"
   counterexamples_zh: "不能把峰现时间问题直接判成产流问题|不能直接生成参数值"
   prompt_references: "references/runoff-generation.md|references/source-partition.md"

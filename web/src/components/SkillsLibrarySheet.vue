@@ -9,7 +9,8 @@ const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
 type EditorTab = 'skill' | 'resource'
-type CreateDraft = { skill_id: string; title_zh: string; description: string }
+type SkillStage = 'data' | 'diagnosis' | 'experiment' | 'gate' | 'report'
+type CreateDraft = { skill_id: string; title_zh: string; description: string; stage: SkillStage }
 
 const skills = ref<SkillSummary[]>([])
 const selectedId = ref<string | null>(null)
@@ -26,7 +27,7 @@ const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
 const creating = ref(false)
 const createError = ref<string | null>(null)
-const createDraft = ref<CreateDraft>({ skill_id: '', title_zh: '', description: '' })
+const createDraft = ref<CreateDraft>({ skill_id: '', title_zh: '', description: '', stage: 'diagnosis' })
 
 const dirty = computed(() => {
   if (!detail.value) return false
@@ -56,6 +57,7 @@ const editableResources = computed(() =>
   (detail.value?.resources || []).filter((item) => item.category !== 'scripts'),
 )
 
+const canEdit = computed(() => detail.value?.source === 'user')
 const canRestore = computed(() => detail.value?.source === 'user')
 
 function close() {
@@ -67,14 +69,24 @@ function skillTemplate(draft: CreateDraft): string {
   const id = draft.skill_id.trim()
   const title = draft.title_zh.trim() || id
   const description = draft.description.trim() || `${title} 的可编辑领域知识。`
+  const activationStages = draft.stage === 'diagnosis' ? 'diagnosis|experiment' : draft.stage
+  const suggestedActions: Record<SkillStage, string> = {
+    data: 'A01_CHECK_DATA|A02_VALIDATE_SCHEME',
+    diagnosis: 'A04_DIAGNOSE|A05_OPTIMIZE',
+    experiment: 'A05_OPTIMIZE',
+    gate: 'A06_GATE|A07_RESOLVE',
+    report: 'A08_FREEZE|A09_REPLAY|A10_EVALUATE_REPORT',
+  }
   return `---
 name: ${id}
-description: ${description}
+description: ${JSON.stringify(description)}
 metadata:
-  title_zh: "${title}"
-  purpose_zh: "${description}"
-  when_to_use_zh: "按需激活"
-  recommended_actions: "A06_DIAGNOSE"
+  title_zh: ${JSON.stringify(title)}
+  purpose_zh: ${JSON.stringify(description)}
+  when_to_use_zh: "${draft.stage === 'diagnosis' ? '预报后诊断与下一实验设计' : '按所选环节激活'}"
+  recommended_actions: "${suggestedActions[draft.stage]}"
+  activation_stages: "${activationStages}"
+  activation_model_ids: "xaj"
 ---
 
 # ${title}
@@ -138,7 +150,7 @@ async function selectSkill(skillId: string) {
 
 async function openResource(resource: SkillResource) {
   if (!detail.value) return
-  if (!resource.editable) {
+  if (resource.category === 'scripts') {
     error.value = 'scripts/ 只读，不能在线编辑可执行文件。'
     return
   }
@@ -175,7 +187,7 @@ function backToSkill() {
 }
 
 async function save() {
-  if (!detail.value || saving.value) return
+  if (!detail.value || saving.value || !canEdit.value) return
   saving.value = true
   error.value = null
   notice.value = null
@@ -183,7 +195,7 @@ async function save() {
     if (tab.value === 'resource' && resourcePath.value) {
       await api.saveSkillResource(detail.value.skill_id, resourcePath.value, resourceDraft.value)
       resourceOriginal.value = resourceDraft.value
-      notice.value = `已保存资源 ${resourcePath.value}（写入用户覆盖层）`
+      notice.value = `已保存资源 ${resourcePath.value}`
       const refreshed = await api.getSkill(detail.value.skill_id)
       detail.value = refreshed
       const listing = await api.listSkills()
@@ -192,7 +204,7 @@ async function save() {
       const updated = await api.saveSkill(detail.value.skill_id, draftMd.value)
       detail.value = updated
       draftMd.value = updated.skill_md
-      notice.value = '已保存 SKILL.md（内置技能会先复制到用户覆盖层）'
+      notice.value = '已保存 SKILL.md'
       const listing = await api.listSkills()
       skills.value = listing.items || []
     }
@@ -206,7 +218,7 @@ async function save() {
 async function restoreBuiltin() {
   if (!detail.value || !canRestore.value || saving.value) return
   const ok = window.confirm(
-    `确认删除「${detail.value.skill_id}」的用户覆盖，并恢复内置版本？`,
+    `确认删除「${detail.value.skill_id}」的用户版本？若存在同名内置技能，将恢复为内置只读版。`,
   )
   if (!ok) return
   saving.value = true
@@ -230,7 +242,7 @@ async function restoreBuiltin() {
 function openCreate() {
   creating.value = true
   createError.value = null
-  createDraft.value = { skill_id: '', title_zh: '', description: '' }
+  createDraft.value = { skill_id: '', title_zh: '', description: '', stage: 'diagnosis' }
 }
 
 function closeCreate() {
@@ -303,27 +315,33 @@ watch(
     </template>
 
     <div class="skills-workbench" data-test="skills-workbench">
-      <aside class="skills-list" aria-label="技能列表">
-        <p v-if="loading && !skills.length" class="muted">正在加载…</p>
-        <p v-else-if="!filtered.length" class="muted">没有匹配的技能</p>
-        <button
-          v-for="skill in filtered"
-          :key="skill.skill_id"
-          type="button"
-          class="skill-row"
-          :class="{ active: skill.skill_id === selectedId }"
-          :data-test="`skill-row-${skill.skill_id}`"
-          @click="selectSkill(skill.skill_id)"
-        >
-          <strong>{{ skill.title_zh || skill.skill_id }}</strong>
-          <small>{{ skill.skill_id }}</small>
-          <span class="source-pill" :data-source="skill.source">
-            {{ skill.source === 'user' ? '用户' : skill.source === 'builtin' ? '内置' : skill.source }}
-          </span>
-        </button>
+      <aside class="skills-list-pane" aria-label="技能列表">
+        <div class="skills-list" data-test="skills-list">
+          <p v-if="loading && !skills.length" class="muted">正在加载…</p>
+          <p v-else-if="!filtered.length" class="muted">没有匹配的技能</p>
+          <button
+            v-for="skill in filtered"
+            :key="skill.skill_id"
+            type="button"
+            class="skill-row"
+            :class="{ active: skill.skill_id === selectedId }"
+            :data-test="`skill-row-${skill.skill_id}`"
+            @click="selectSkill(skill.skill_id)"
+          >
+            <strong>{{ skill.title_zh || skill.skill_id }}</strong>
+            <small>{{ skill.skill_id }}</small>
+            <span class="source-pill" :data-source="skill.source">
+              {{ skill.source === 'user' ? '用户' : skill.source === 'builtin' ? '内置' : skill.source }}
+            </span>
+          </button>
+        </div>
       </aside>
 
-      <section class="skills-editor" aria-label="技能编辑">
+      <section
+        class="skills-editor"
+        :class="{ 'is-readonly': detail && !canEdit }"
+        aria-label="技能编辑"
+      >
         <p v-if="error" class="error-banner" data-test="skills-error">{{ error }}</p>
         <p v-else-if="notice" class="notice-banner" data-test="skills-notice">{{ notice }}</p>
 
@@ -336,8 +354,13 @@ watch(
             <div class="meta-chips">
               <span class="source-pill" :data-source="detail.source">{{ sourceLabel }}</span>
               <span class="chip">{{ detail.resources.length }} 个资源</span>
+              <span v-if="!canEdit" class="chip readonly-chip" data-test="skills-readonly-badge">只读预览</span>
             </div>
           </header>
+
+          <p v-if="!canEdit" class="readonly-hint" data-test="skills-readonly-hint">
+            这是内置技能，界面为预览模式，不能编辑或保存。如需定制，请点「新建」创建用户技能。
+          </p>
 
           <div class="editor-tabs">
             <button
@@ -362,7 +385,10 @@ watch(
             </button>
           </div>
 
-          <label v-if="tab === 'skill'" class="editor-field">
+          <div v-if="!canEdit" class="skill-viewer" data-test="skills-viewer">
+            <pre>{{ tab === 'skill' ? draftMd : resourceDraft }}</pre>
+          </div>
+          <label v-else-if="tab === 'skill'" class="editor-field">
             <span class="sr-only">SKILL.md 内容</span>
             <textarea
               v-model="draftMd"
@@ -381,7 +407,7 @@ watch(
             />
           </label>
         </template>
-        <p v-else-if="!loading" class="muted">选择左侧技能开始查看或编辑。</p>
+        <p v-else-if="!loading" class="muted">选择左侧技能开始查看。</p>
       </section>
     </div>
 
@@ -394,16 +420,20 @@ watch(
           :disabled="!canRestore || saving || loading"
           @click="restoreBuiltin"
         >
-          恢复内置
+          删除用户版
         </button>
         <div class="footer-end">
           <button type="button" class="ghost-button" data-test="skills-close" :disabled="saving" @click="close">
             关闭
           </button>
+          <span v-if="detail && !canEdit" class="readonly-footer" data-test="skills-readonly-footer">
+            内置只读，无法保存
+          </span>
           <RippleButton
+            v-else
             class="primary-button"
             data-test="skills-save"
-            :disabled="!detail || saving || loading"
+            :disabled="!detail || !canEdit || saving || loading"
             @click="save"
           >
             {{ saving ? '保存中…' : '保存' }}
@@ -421,7 +451,7 @@ watch(
     labelled-by="skills-create-title"
     @close="closeCreate"
   >
-    <p>新建技能会写入用户覆盖目录。内置 Standards / Gate 阈值不会被文本覆盖。</p>
+    <p>新建技能会写入用户目录。内置技能保持只读，Standards / Gate 阈值不会被文本覆盖。</p>
     <p v-if="createError" class="error-banner" data-test="skills-create-error">{{ createError }}</p>
     <label class="create-field">
       <span>技能 ID</span>
@@ -439,6 +469,17 @@ watch(
         rows="3"
         placeholder="一句话说明何时使用"
       />
+    </label>
+    <label class="create-field">
+      <span>进入 Agent 的环节</span>
+      <select v-model="createDraft.stage" data-test="skills-create-stage">
+        <option value="data">资料准备</option>
+        <option value="diagnosis">误差诊断与实验设计</option>
+        <option value="experiment">实验设计</option>
+        <option value="gate">候选方案检查</option>
+        <option value="report">收尾与报告</option>
+      </select>
+      <small>保存后，只有运行进入所选环节才会把 Skill 正文加入 Agent 提示。</small>
     </label>
     <template #footer>
       <button type="button" class="ghost-button" :disabled="saving" @click="closeCreate">取消</button>
@@ -461,33 +502,44 @@ watch(
   min-width: 0;
 }
 .search-field input {
-  min-height: 36px;
+  min-height: var(--control-h-sm);
   padding: 0 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
 }
 .skills-workbench {
   display: grid;
   grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
   gap: 12px;
-  flex: 1;
-  min-height: min(52dvh, 480px);
-  height: min(58dvh, 520px);
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-height: 0;
+  height: 100%;
   max-height: 100%;
 }
-.skills-list,
+.skills-list-pane,
 .skills-editor {
   min-width: 0;
   min-height: 0;
+}
+.skills-list-pane {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.skills-list {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 10px;
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-}
-.skills-list {
-  display: grid;
-  align-content: start;
-  gap: 6px;
-  padding-right: 4px;
-  border-right: 1px solid var(--separator);
 }
 .skill-row {
   appearance: none;
@@ -501,10 +553,13 @@ watch(
   text-align: left;
   padding: 10px 12px;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
   cursor: pointer;
+  transition:
+    background 140ms var(--ease),
+    border-color 140ms var(--ease);
 }
 .skill-row strong {
   grid-area: title;
@@ -535,10 +590,27 @@ watch(
   border-color: rgba(0, 122, 255, 0.18);
 }
 .skills-editor {
-  display: grid;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
-  padding-left: 2px;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.skills-editor.is-readonly {
+  background: var(--surface-secondary);
+}
+.editor-meta,
+.readonly-hint,
+.editor-tabs,
+.error-banner,
+.notice-banner {
+  flex-shrink: 0;
 }
 .editor-meta {
   display: flex;
@@ -586,6 +658,53 @@ watch(
   background: var(--success-soft);
   color: var(--success);
 }
+.readonly-chip {
+  background: var(--neutral-soft);
+  color: var(--text-secondary);
+}
+.readonly-hint {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-xs);
+  background: var(--neutral-soft);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.readonly-footer {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-h);
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  background: var(--neutral-soft);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+.skill-viewer {
+  flex: 1 1 0;
+  min-height: 160px;
+  height: auto;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 12px 14px;
+}
+.skill-viewer pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  user-select: text;
+  cursor: default;
+}
 .editor-tabs {
   gap: 6px;
   padding-bottom: 2px;
@@ -605,6 +724,10 @@ watch(
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition:
+    background 140ms var(--ease),
+    border-color 140ms var(--ease),
+    color 140ms var(--ease);
 }
 .tab.active {
   background: var(--accent-soft);
@@ -612,14 +735,17 @@ watch(
   color: var(--accent-text);
 }
 .editor-field {
-  display: grid;
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
   gap: 6px;
   min-height: 0;
 }
 .editor-field textarea {
-  min-height: 280px;
-  height: min(42dvh, 360px);
-  resize: vertical;
+  flex: 1 1 0;
+  min-height: 160px;
+  height: auto;
+  resize: none;
   font-family: var(--mono);
   font-size: 12.5px;
   line-height: 1.55;
@@ -639,7 +765,7 @@ watch(
 .notice-banner {
   margin: 0;
   padding: 8px 10px;
-  border-radius: 10px;
+  border-radius: var(--radius-xs);
   font-size: 12.5px;
 }
 .error-banner {
@@ -664,13 +790,23 @@ watch(
   border: 0;
   cursor: pointer;
   font-weight: 600;
+  transition:
+    background 140ms var(--ease),
+    transform 100ms ease,
+    opacity 140ms var(--ease);
 }
 .ghost-button {
-  min-height: 40px;
+  min-height: var(--control-h);
   padding: 0 14px;
-  border-radius: 12px;
+  border-radius: var(--radius-sm);
   background: var(--neutral-soft);
   color: var(--text-primary);
+}
+.ghost-button:hover:not(:disabled) {
+  background: var(--surface-secondary);
+}
+.ghost-button:active:not(:disabled) {
+  transform: scale(0.98);
 }
 .ghost-button:disabled,
 .primary-button:disabled,
@@ -679,18 +815,32 @@ watch(
   cursor: not-allowed;
 }
 .primary-button {
-  min-height: 40px;
+  min-height: var(--control-h);
   padding: 0 16px;
-  border-radius: 12px;
+  border-radius: var(--radius-sm);
   background: var(--primary-button);
   color: var(--primary-button-text);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.primary-button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.primary-button:active:not(:disabled) {
+  background: var(--accent-pressed);
+  transform: scale(0.98);
 }
 .text-button {
-  min-height: 32px;
+  min-height: var(--control-h-sm);
   padding: 0 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--accent-text);
+}
+.text-button:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+.text-button:active:not(:disabled) {
+  transform: scale(0.98);
 }
 .create-field {
   display: grid;
@@ -715,27 +865,37 @@ watch(
 @media (max-width: 820px) {
   .skills-workbench {
     grid-template-columns: 1fr;
-    height: auto;
+    grid-template-rows: minmax(120px, 28%) minmax(0, 1fr);
+  }
+  .skills-list-pane {
+    max-height: none;
     min-height: 0;
   }
-  .skills-list {
-    border-right: 0;
-    border-bottom: 1px solid var(--separator);
-    max-height: 180px;
-    padding-bottom: 8px;
-  }
-  .editor-field textarea {
-    height: 240px;
+  .skills-editor {
+    min-height: 0;
   }
 }
 @media (max-height: 640px) {
-  .skills-workbench {
-    height: auto;
-    min-height: 0;
+  .skills-list-pane {
+    max-height: none;
   }
+  .skill-viewer,
   .editor-field textarea {
-    min-height: 180px;
-    height: 200px;
+    min-height: 120px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skill-row,
+  .tab,
+  .ghost-button,
+  .primary-button,
+  .text-button {
+    transition: none;
+  }
+  .ghost-button:active:not(:disabled),
+  .primary-button:active:not(:disabled),
+  .text-button:active:not(:disabled) {
+    transform: none;
   }
 }
 </style>

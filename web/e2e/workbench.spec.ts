@@ -39,7 +39,7 @@ test('click first Archify step to input, then run without hash thrash', async ({
         agent_rounds_remaining: 12,
         optimization_cycles_remaining: 3,
         current_scheme_id: 'scheme-frozen',
-        last_action: 'A12_EVALUATE_REPORT',
+        last_action: 'A10_EVALUATE_REPORT',
         last_hypothesis: 'MODEL',
       }),
     })
@@ -55,7 +55,7 @@ test('click first Archify step to input, then run without hash thrash', async ({
           occurred_at: '2020-05-01T00:02:00Z',
           label: '评估报告完成',
           status: 'succeeded',
-          action: 'A12_EVALUATE_REPORT',
+          action: 'A10_EVALUATE_REPORT',
           evidence_id: 'ev-3',
           details: {},
         },

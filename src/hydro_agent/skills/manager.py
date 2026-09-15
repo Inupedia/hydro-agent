@@ -1,8 +1,7 @@
 """Writable management layer for user Agent Skills.
 
-The manager never edits package-owned built-in skills. Editing a built-in skill
-first copies it into the writable user overlay, then updates that copy. Scripts
-are intentionally not writable through this API.
+Package-owned built-in skills are read-only. Creates and edits write only under
+the user overlay. Scripts are intentionally not writable through this API.
 """
 
 from __future__ import annotations
@@ -14,6 +13,8 @@ from hydro_agent.skills import SkillRegistry
 from hydro_agent.skills.loader import LoadedSkill, parse_skill_md, validate_skill_name
 
 _EDITABLE_RESOURCE_ROOTS = {"references", "assets"}
+_BUILTIN_READONLY = "built-in skills are read-only; create a new user skill instead"
+_ACTIVATION_STAGES = {"data", "diagnosis", "experiment", "gate", "report"}
 
 
 class SkillManager:
@@ -51,8 +52,16 @@ class SkillManager:
         validate_skill_name(skill_id)
         if len(skill_md) > self.max_skill_chars:
             raise ValueError(f"SKILL.md exceeds {self.max_skill_chars} characters")
-        parse_skill_md(skill_md, directory_name=skill_id)
-        user_dir = self._ensure_user_copy(skill_id, create=True)
+        parsed = parse_skill_md(skill_md, directory_name=skill_id)
+        unknown_stages = set(parsed.meta_list("activation_stages")) - _ACTIVATION_STAGES
+        if unknown_stages:
+            raise ValueError(f"unknown activation_stages: {', '.join(sorted(unknown_stages))}")
+        source = self._source_or_none(skill_id)
+        if source == "builtin":
+            raise ValueError(_BUILTIN_READONLY)
+        if source == "memory":
+            raise ValueError("in-memory skills are read-only")
+        user_dir = self._ensure_user_dir(skill_id, create=True)
         self._atomic_write(user_dir / "SKILL.md", skill_md)
         self.registry.reload()
         return self.detail_payload(skill_id)
@@ -61,6 +70,7 @@ class SkillManager:
         skill = self._require_loaded(skill_id)
         if skill.root is None:
             return []
+        editable = self._source_or_none(skill_id) == "user"
         rows: list[dict] = []
         for category in ("references", "assets", "scripts"):
             base = skill.root / category
@@ -72,7 +82,7 @@ class SkillManager:
                     {
                         "path": relative,
                         "category": category,
-                        "editable": category in _EDITABLE_RESOURCE_ROOTS,
+                        "editable": editable and category in _EDITABLE_RESOURCE_ROOTS,
                         "size": path.stat().st_size,
                     }
                 )
@@ -89,8 +99,11 @@ class SkillManager:
     def save_resource(self, skill_id: str, relative: str, content: str) -> dict:
         if len(content) > self.max_resource_chars:
             raise ValueError(f"resource exceeds {self.max_resource_chars} characters")
+        source = self._source_or_none(skill_id)
+        if source != "user":
+            raise ValueError(_BUILTIN_READONLY)
         normalized = self._validate_resource_relative(relative, writable=True)
-        user_dir = self._ensure_user_copy(skill_id, create=False)
+        user_dir = self._ensure_user_dir(skill_id, create=False)
         path = (user_dir / normalized).resolve()
         if not path.is_relative_to(user_dir.resolve()):
             raise ValueError("resource path escapes skill root")
@@ -122,15 +135,22 @@ class SkillManager:
     def _summary_payload(self, skill_id: str) -> dict:
         card = self.registry.get(skill_id)
         loaded = self.registry.get_loaded(skill_id)
+        source = self.registry.source(skill_id)
         return {
             "skill_id": card.skill_id,
             "name": loaded.name if loaded is not None else card.skill_id,
             "description": loaded.description if loaded is not None else card.description,
             "title_zh": card.title_zh,
             "purpose_zh": card.purpose_zh,
-            "source": self.registry.source(skill_id),
-            "editable": True,
+            "source": source,
+            "editable": source == "user",
         }
+
+    def _source_or_none(self, skill_id: str) -> str | None:
+        try:
+            return self.registry.source(skill_id)
+        except KeyError:
+            return None
 
     def _require_loaded(self, skill_id: str) -> LoadedSkill:
         loaded = self.registry.get_loaded(skill_id)
@@ -140,20 +160,14 @@ class SkillManager:
             raise KeyError(skill_id)
         return loaded
 
-    def _ensure_user_copy(self, skill_id: str, *, create: bool) -> Path:
+    def _ensure_user_dir(self, skill_id: str, *, create: bool) -> Path:
         user_root = self.registry.user_root
         user_dir = user_root / skill_id
         if user_dir.is_dir():
             return user_dir
-
-        loaded = self.registry.get_loaded(skill_id)
-        if loaded is not None and loaded.root is not None:
-            user_root.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(loaded.root, user_dir)
-            return user_dir
-
         if not create:
             raise KeyError(skill_id)
+        user_root.mkdir(parents=True, exist_ok=True)
         user_dir.mkdir(parents=True, exist_ok=False)
         return user_dir
 

@@ -20,7 +20,7 @@ class ForecastGraphState(TypedDict, total=False):
 
 
 def _attach_experiment_plan(packet: EvidencePacket, decision) -> EvidencePacket:
-    if decision.action != ActionCode.A07_OPTIMIZE or not decision.experiment_plan_id:
+    if decision.action != ActionCode.A05_OPTIMIZE or not decision.experiment_plan_id:
         return packet
     observations = packet.observations + (
         f"experiment_plan_id={decision.experiment_plan_id}",
@@ -103,16 +103,16 @@ def build_forecast_graph(
             )
             # Prefer forward progress over repeating the blocked decision.
             for preferred in (
-                ActionCode.A08_GATE.value,
-                ActionCode.A09_RESOLVE.value,
-                ActionCode.A10_FREEZE.value,
-                ActionCode.A07_OPTIMIZE.value,
-                ActionCode.A06_DIAGNOSE.value,
-                ActionCode.A05_FORECAST.value,
+                ActionCode.A06_GATE.value,
+                ActionCode.A07_RESOLVE.value,
+                ActionCode.A08_FREEZE.value,
+                ActionCode.A05_OPTIMIZE.value,
+                ActionCode.A04_DIAGNOSE.value,
+                ActionCode.A03_FORECAST.value,
             ):
                 if preferred in safe and preferred != decision.action.value:
                     fallback["action"] = preferred
-                    if preferred != ActionCode.A07_OPTIMIZE.value:
+                    if preferred != ActionCode.A05_OPTIMIZE.value:
                         fallback["strategy_id"] = None
                         fallback["param_groups"] = None
                         fallback["objective"] = None
@@ -137,11 +137,11 @@ def build_forecast_graph(
         task_state = repository.get_task_state(task_id)
         rounds_used = task_state.agent_rounds_used + 1
         opt_used = task_state.optimization_cycles_used + (
-            1 if decision.action == ActionCode.A07_OPTIMIZE else 0
+            1 if decision.action == ActionCode.A05_OPTIMIZE else 0
         )
         needs_follow_up = True
         paused = None
-        if decision.action == ActionCode.A12_EVALUATE_REPORT:
+        if decision.action == ActionCode.A10_EVALUATE_REPORT:
             needs_follow_up = False
         elif packet.status == "blocked":
             if "hydrologist_manual_required" in packet.observations:
@@ -151,7 +151,7 @@ def build_forecast_graph(
             else:
                 needs_follow_up = False
         optimize_attempt = sum(
-            1 for item in view.evidence_summary if item.action == ActionCode.A07_OPTIMIZE
+            1 for item in view.evidence_summary if item.action == ActionCode.A05_OPTIMIZE
         )
         update_kwargs = dict(
             agent_rounds_used=rounds_used,

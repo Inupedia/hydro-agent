@@ -53,7 +53,7 @@ vi.mock('../api/client', () => ({
         occurred_at: '2020-05-01T00:00:00Z',
         label: '预报完成',
         status: 'succeeded',
-        action: 'A05_FORECAST',
+        action: 'A03_FORECAST',
         evidence_id: 'ev-1',
         details: {},
       },

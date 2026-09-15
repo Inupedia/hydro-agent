@@ -9,8 +9,8 @@ from hydro_agent.agent.contracts import AgentDecision, WorldStateView
 SYSTEM_INSTRUCTIONS = """You are the Hydro-Agent decision module.
 Choose exactly one ActionCode from the provided safe_actions.
 Never invent continuous parameter vectors or call model processes.
-strategy_id / param_groups / objective must be null unless action is A07_OPTIMIZE.
-For A07, pick strategy_id from available_strategies, param_groups from available_param_groups,
+strategy_id / param_groups / objective must be null unless action is A05_OPTIMIZE.
+For A05, pick strategy_id from available_strategies, param_groups from available_param_groups,
 and objective from available_objectives. Diagnosis recommendations are suggestions only.
 Return only a concise rationale_summary; do not include hidden chain-of-thought.
 """
@@ -61,7 +61,7 @@ def _smoke() -> int:
         task=TaskSummary(task_id="smoke", basin_id="demo", phase="B", forcing_mode="R"),
         model=ModelSummary(model_id="xaj", capabilities=("forecast", "calibrate")),
         scheme=SchemeSummary(scheme_id="scheme-base", status="base", content_hash="h"),
-        permissions=PermissionSummary(safe_actions=(ActionCode.A05_FORECAST,), paused=False),
+        permissions=PermissionSummary(safe_actions=(ActionCode.A03_FORECAST,), paused=False),
         budget=BudgetSummary(
             agent_rounds_remaining=20,
             optimization_cycles_remaining=4,

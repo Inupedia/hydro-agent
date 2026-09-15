@@ -20,7 +20,7 @@ const latestEvent = computed(() => {
   if (!last) return '尚未收到执行事件'
   return last.label || last.action || '已有执行进展'
 })
-const hasJudgment = computed(() => demo.timeline.some((t) => t.action === 'A09_RESOLVE'))
+const hasJudgment = computed(() => demo.timeline.some((t) => t.action === 'A07_RESOLVE'))
 const providerError = computed(() => providerErrorZh(demo.run?.llm_error || demo.error))
 
 const summary = computed(

@@ -151,9 +151,9 @@ class XajFullResearchFlow:
 
     def _build_agent(self) -> AgentRuntime:
         tools = ToolRouter()
-        tools.register(ActionCode.A03_VALIDATE_SCHEME, ValidateSchemeHandler(self.repository))
+        tools.register(ActionCode.A02_VALIDATE_SCHEME, ValidateSchemeHandler(self.repository))
         tools.register(
-            ActionCode.A05_FORECAST,
+            ActionCode.A03_FORECAST,
             ForecastHandler(
                 self.repository,
                 forecast_service=self.forecast,
@@ -162,7 +162,7 @@ class XajFullResearchFlow:
             ),
         )
         tools.register(
-            ActionCode.A07_OPTIMIZE,
+            ActionCode.A05_OPTIMIZE,
             OptimizeHandler(
                 self.repository,
                 calibration_service=self.calibration,
@@ -173,7 +173,7 @@ class XajFullResearchFlow:
             ),
         )
         tools.register(
-            ActionCode.A08_GATE,
+            ActionCode.A06_GATE,
             GateHandler(
                 self.repository,
                 gate_evaluator=self.gate,
@@ -181,13 +181,13 @@ class XajFullResearchFlow:
                 bundle_provider=self._bundle_provider,
             ),
         )
-        tools.register(ActionCode.A09_RESOLVE, ResolveHandler(self.repository))
+        tools.register(ActionCode.A07_RESOLVE, ResolveHandler(self.repository))
         tools.register(
-            ActionCode.A10_FREEZE,
+            ActionCode.A08_FREEZE,
             ResearchFreezeToolHandler(self.repository, freeze_service=self.freeze_service),
         )
         tools.register(
-            ActionCode.A11_REPLAY,
+            ActionCode.A09_REPLAY,
             ReplayToolHandler(
                 self.repository,
                 planner=self.planner,
@@ -197,7 +197,7 @@ class XajFullResearchFlow:
             ),
         )
         tools.register(
-            ActionCode.A12_EVALUATE_REPORT,
+            ActionCode.A10_EVALUATE_REPORT,
             EvaluateReportToolHandler(
                 self.repository,
                 evaluation_service=self.evaluation,
@@ -209,17 +209,17 @@ class XajFullResearchFlow:
         provider = ScriptedDecisionProvider(
             [
                 AgentDecision(
-                    action=ActionCode.A03_VALIDATE_SCHEME,
+                    action=ActionCode.A02_VALIDATE_SCHEME,
                     hypothesis=ProblemHypothesis.MODEL,
                     rationale_summary="Confirm the base scheme is executable before forecasting.",
                 ),
                 AgentDecision(
-                    action=ActionCode.A05_FORECAST,
+                    action=ActionCode.A03_FORECAST,
                     hypothesis=ProblemHypothesis.MODEL,
                     rationale_summary="Run the audited base XAJ forecast.",
                 ),
                 AgentDecision(
-                    action=ActionCode.A07_OPTIMIZE,
+                    action=ActionCode.A05_OPTIMIZE,
                     hypothesis=ProblemHypothesis.MODEL,
                     strategy_id="xaj-bounded-v1",
                     rationale_summary="Bounded calibration produces one candidate scheme.",
@@ -272,17 +272,17 @@ class XajFullResearchFlow:
         runtime.provider.queue(
             [
                 AgentDecision(
-                    action=ActionCode.A08_GATE,
+                    action=ActionCode.A06_GATE,
                     hypothesis=ProblemHypothesis.MODEL,
                     rationale_summary="Compare candidate against base with Gate guardrails.",
                 ),
                 AgentDecision(
-                    action=ActionCode.A09_RESOLVE,
+                    action=ActionCode.A07_RESOLVE,
                     hypothesis=ProblemHypothesis.MODEL,
                     rationale_summary="Apply Gate outcome to the current scheme pointer.",
                 ),
                 AgentDecision(
-                    action=ActionCode.A10_FREEZE,
+                    action=ActionCode.A08_FREEZE,
                     hypothesis=ProblemHypothesis.MODEL,
                     rationale_summary="Freeze the operational scheme for historical replay.",
                 ),
@@ -307,7 +307,7 @@ class XajFullResearchFlow:
         runtime.provider.queue(
             [
                 AgentDecision(
-                    action=ActionCode.A11_REPLAY,
+                    action=ActionCode.A09_REPLAY,
                     hypothesis=ProblemHypothesis.MODEL,
                     rationale_summary="Replay the frozen scheme across legal historical issues.",
                 ),
@@ -337,7 +337,7 @@ class XajFullResearchFlow:
         runtime.provider.queue(
             [
                 AgentDecision(
-                    action=ActionCode.A12_EVALUATE_REPORT,
+                    action=ActionCode.A10_EVALUATE_REPORT,
                     hypothesis=ProblemHypothesis.MODEL,
                     rationale_summary="Read-only E-phase metrics and deterministic report artifacts.",
                 ),

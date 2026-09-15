@@ -48,7 +48,7 @@ def test_real_workbench_binds_a06_to_predevelopment_diagnosis():
         return_value={
             "hypothesis": "MODEL",
             "phenomenon": "fixture",
-            "recommended_action": "A07_OPTIMIZE",
+            "recommended_action": "A05_OPTIMIZE",
             "recommended_strategy_id": "xaj-water-balance-v1",
             "metrics": {},
             "notes": ["diagnostic_truth_strictly_precedes_development=true"],
@@ -84,14 +84,14 @@ def test_gate_failure_changes_the_next_diagnostic_experiment():
     }
     evidence = [
         SimpleNamespace(
-            action="A08_GATE",
+            action="A06_GATE",
             status="KEEP",
             created_at=1,
             gates_json={"reasons": "insufficient_absolute_skill"},
             metrics_json={"candidate_primary": -2.0},
         ),
         SimpleNamespace(
-            action="A09_RESOLVE",
+            action="A07_RESOLVE",
             status="KEEP",
             created_at=2,
             gates_json={"status": "KEEP"},

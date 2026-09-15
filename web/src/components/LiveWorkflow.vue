@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { WORKFLOW, displayNodeFor } from '../generated/workflow'
+import { CURRENT_TO_LEGACY, currentActionId } from '../workflow/legacyActions'
 
 const props = defineProps<{
   action?: string | null
@@ -33,42 +34,42 @@ const PRESENTATION_STAGES: readonly PresentationStage[] = [
     label: '任务准备',
     eyebrow: 'DATA & SCHEME',
     description: '检查本轮资料，并确认基础方案可运行。',
-    actions: ['A01_CHECK_DATA', 'A03_VALIDATE_SCHEME'],
+    actions: ['A01_CHECK_DATA', 'A02_VALIDATE_SCHEME'],
   },
   {
     id: 'forecast',
     label: '执行计算',
     eyebrow: 'FORECAST',
     description: '使用当前方案执行一次流量预测。',
-    actions: ['A05_FORECAST'],
+    actions: ['A03_FORECAST'],
   },
   {
     id: 'diagnose',
     label: '结果诊断',
     eyebrow: 'DIAGNOSE',
     description: '对照观测判断：已经够用，还是需要进入率定。',
-    actions: ['A06_DIAGNOSE'],
+    actions: ['A04_DIAGNOSE'],
   },
   {
     id: 'optimize',
     label: '参数调整',
     eyebrow: 'CALIBRATION',
     description: '仅在诊断需要时执行；Gate 退回后可能再次进入本阶段。',
-    actions: ['A07_OPTIMIZE'],
+    actions: ['A05_OPTIMIZE'],
   },
   {
     id: 'gate',
     label: '质量把关',
     eyebrow: 'GATE',
     description: '候选方案只走一条结论路径；KEEP / ROLLBACK 在预算允许时可回到参数调整。',
-    actions: ['A08_GATE', 'A09_RESOLVE'],
+    actions: ['A06_GATE', 'A07_RESOLVE'],
   },
   {
     id: 'report',
     label: '结果确认',
     eyebrow: 'LOCK & REPORT',
     description: '锁定采用方案，完成历史回放并形成评估报告。',
-    actions: ['A10_FREEZE', 'A11_REPLAY', 'A12_EVALUATE_REPORT'],
+    actions: ['A08_FREEZE', 'A09_REPLAY', 'A10_EVALUATE_REPORT'],
   },
 ]
 
@@ -76,8 +77,18 @@ const ACTION_STAGE: Record<string, StageId> = Object.fromEntries(
   PRESENTATION_STAGES.flatMap((stage) => stage.actions.map((action) => [action, stage.id])),
 ) as Record<string, StageId>
 
-const doneActions = computed(() => new Set(props.completedActions))
-const currentNode = computed(() => displayNodeFor(props.action, props.gateStatus || props.status))
+const isLegacy = computed(() => props.workflowVersion === '1.0.0')
+function normalizeAction(action: string | null | undefined): string | null {
+  if (!action) return null
+  return isLegacy.value ? currentActionId(action) : action
+}
+function actionCodeLabel(action: string): string {
+  const displayed = isLegacy.value ? CURRENT_TO_LEGACY[action] || action : action
+  return displayed.replace('_', '·')
+}
+const currentAction = computed(() => normalizeAction(props.action))
+const doneActions = computed(() => new Set(props.completedActions.map((action) => normalizeAction(action))))
+const currentNode = computed(() => displayNodeFor(currentAction.value, props.gateStatus || props.status))
 const workflowVersionLabel = computed(() => props.workflowVersion || WORKFLOW.version)
 
 function runtimeNode(actionId: string): RuntimeNode | null {
@@ -102,9 +113,9 @@ const stages = computed(() =>
 )
 
 const activeStageId = computed<StageId>(() => {
-  if (props.action && ACTION_STAGE[props.action]) return ACTION_STAGE[props.action]
+  if (currentAction.value && ACTION_STAGE[currentAction.value]) return ACTION_STAGE[currentAction.value]
   for (let index = props.completedActions.length - 1; index >= 0; index -= 1) {
-    const stage = ACTION_STAGE[props.completedActions[index]]
+    const stage = ACTION_STAGE[normalizeAction(props.completedActions[index]) || '']
     if (stage) return stage
   }
   return 'prepare'
@@ -115,12 +126,12 @@ const activeStage = computed(() => stages.value.find((stage) => stage.id === act
 const currentLabel = computed(() => {
   if (props.status === 'failed' || props.status === 'error') return '执行受阻'
   if (props.status === 'paused') return '计算已暂停'
-  const item = props.action ? WORKFLOW.actions[props.action as keyof typeof WORKFLOW.actions] : undefined
+  const item = currentAction.value ? WORKFLOW.actions[currentAction.value as keyof typeof WORKFLOW.actions] : undefined
   return item?.title_running_zh || '等待执行'
 })
 
 function actionState(actionId: string): NodeState {
-  if (props.action === actionId) {
+  if (currentAction.value === actionId) {
     if (props.status === 'failed' || props.status === 'error') return 'blocked'
     if (props.status === 'paused') return 'paused'
     return 'current'
@@ -136,13 +147,13 @@ function stageState(stage: (typeof stages.value)[number]): 'current' | 'visited'
 }
 
 function branchState(id: string): NodeState {
-  const branchNode = displayNodeFor('A09_RESOLVE', props.gateStatus || props.status)
-  if (props.action === 'A09_RESOLVE' && branchNode === id) {
+  const branchNode = displayNodeFor('A07_RESOLVE', props.gateStatus || props.status)
+  if (currentAction.value === 'A07_RESOLVE' && branchNode === id) {
     if (props.status === 'failed' || props.status === 'error') return 'blocked'
     if (props.status === 'paused') return 'paused'
     return 'current'
   }
-  if (doneActions.value.has('A09_RESOLVE') && branchNode === id) return 'visited'
+  if (doneActions.value.has('A07_RESOLVE') && branchNode === id) return 'visited'
   return 'pending'
 }
 </script>
@@ -213,7 +224,7 @@ function branchState(id: string): NodeState {
                   <strong>{{ node.label }}</strong>
                   <span>{{ node.detail }}</span>
                 </div>
-                <span class="action-code">{{ node.action.replace('_', '·') }}</span>
+                <span class="action-code">{{ actionCodeLabel(node.action) }}</span>
               </article>
               <svg v-if="index < activeStage.nodes.length - 1" class="flow-arrow horizontal" viewBox="0 0 72 24" aria-hidden="true">
                 <path d="M2 12 H61" />
@@ -245,7 +256,7 @@ function branchState(id: string): NodeState {
                 <strong>{{ activeStage.nodes[0].label }}</strong>
                 <span>{{ activeStage.nodes[0].detail }}</span>
               </div>
-              <span class="action-code">{{ activeStage.nodes[0].action.replace('_', '·') }}</span>
+              <span class="action-code">{{ actionCodeLabel(activeStage.nodes[0].action) }}</span>
             </article>
             <svg class="flow-arrow horizontal wide" viewBox="0 0 96 24" aria-hidden="true">
               <path d="M2 12 H84" />
@@ -272,7 +283,7 @@ function branchState(id: string): NodeState {
                 <strong>{{ activeStage.nodes[0].label }}</strong>
                 <span>{{ activeStage.nodes[0].detail }}</span>
               </div>
-              <span class="action-code">{{ activeStage.nodes[0].action.replace('_', '·') }}</span>
+              <span class="action-code">{{ actionCodeLabel(activeStage.nodes[0].action) }}</span>
             </article>
 
             <div class="decision-fan" aria-hidden="true">
@@ -321,7 +332,7 @@ function branchState(id: string): NodeState {
                 <strong>{{ activeStage.nodes[0].label }}</strong>
                 <span>{{ activeStage.nodes[0].detail }}</span>
               </div>
-              <span class="action-code">{{ activeStage.nodes[0].action.replace('_', '·') }}</span>
+              <span class="action-code">{{ actionCodeLabel(activeStage.nodes[0].action) }}</span>
             </article>
             <svg class="flow-arrow horizontal wide" viewBox="0 0 96 24" aria-hidden="true">
               <path d="M2 12 H84" />
@@ -351,18 +362,18 @@ function branchState(id: string): NodeState {
             <article
               v-if="activeStage.nodes[0]"
               class="workflow-node hero-node gate-node"
-              :class="`is-${actionState('A08_GATE')}`"
+              :class="`is-${actionState('A06_GATE')}`"
               :data-node-id="activeStage.nodes[0].id"
-              :data-state="actionState('A08_GATE')"
+              :data-state="actionState('A06_GATE')"
               data-test="workflow-node"
-              :aria-current="actionState('A08_GATE') === 'current' ? 'step' : undefined"
+              :aria-current="actionState('A06_GATE') === 'current' ? 'step' : undefined"
             >
               <div class="node-status" aria-hidden="true"><span /></div>
               <div class="node-copy">
                 <strong>{{ activeStage.nodes[0].label }}</strong>
                 <span>{{ activeStage.nodes[0].detail }}</span>
               </div>
-              <span class="action-code">A08·GATE</span>
+              <span class="action-code">{{ actionCodeLabel('A06_GATE') }}</span>
             </article>
 
             <div class="branch-fan" aria-hidden="true">

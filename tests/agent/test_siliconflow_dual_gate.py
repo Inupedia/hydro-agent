@@ -20,13 +20,13 @@ def _resolved_view(
     evidence = (
         EvidenceSummary(
             evidence_id="ev-opt",
-            action=ActionCode.A07_OPTIMIZE,
+            action=ActionCode.A05_OPTIMIZE,
             status="succeeded",
             new_information_hash="h-opt",
         ),
         EvidenceSummary(
             evidence_id="ev-gate",
-            action=ActionCode.A08_GATE,
+            action=ActionCode.A06_GATE,
             status="ACCEPT",
             new_information_hash="h-gate",
             gates={
@@ -37,7 +37,7 @@ def _resolved_view(
         ),
         EvidenceSummary(
             evidence_id="ev-resolve",
-            action=ActionCode.A09_RESOLVE,
+            action=ActionCode.A07_RESOLVE,
             status="KEEP" if qualification_status != "QUALIFIED" else "ACCEPT",
             new_information_hash="h-resolve",
             gates={
@@ -50,7 +50,7 @@ def _resolved_view(
         ),
         EvidenceSummary(
             evidence_id="ev-diagnose",
-            action=ActionCode.A06_DIAGNOSE,
+            action=ActionCode.A04_DIAGNOSE,
             status="succeeded",
             new_information_hash="h-diagnose",
             metrics={"nse": 0.9},
@@ -67,7 +67,7 @@ def _resolved_view(
         model=ModelSummary(model_id="xaj", capabilities=("forecast", "calibrate")),
         scheme=SchemeSummary(scheme_id="scheme-adopted", status="candidate", content_hash="h"),
         permissions=PermissionSummary(
-            safe_actions=(ActionCode.A07_OPTIMIZE, ActionCode.A10_FREEZE), paused=False
+            safe_actions=(ActionCode.A05_OPTIMIZE, ActionCode.A08_FREEZE), paused=False
         ),
         budget=BudgetSummary(
             agent_rounds_remaining=10,
@@ -95,15 +95,15 @@ def test_high_diagnostic_nse_cannot_bypass_unqualified_gate():
     result = _diagnosis_calibration_progress(
         view,
         {
-            "action": "A10_FREEZE",
+            "action": "A08_FREEZE",
             "hypothesis": "MODEL",
             "strategy_id": None,
             "rationale_summary": "NSE is high",
         },
-        safe_actions={"A07_OPTIMIZE", "A10_FREEZE"},
+        safe_actions={"A05_OPTIMIZE", "A08_FREEZE"},
         dc_bing_floor=0.7,
     )
-    assert result["action"] == "A07_OPTIMIZE"
+    assert result["action"] == "A05_OPTIMIZE"
     assert "不能绕过 Gate" in result["rationale_summary"]
 
 
@@ -112,15 +112,15 @@ def test_not_evaluated_gate_also_requires_more_evidence():
     result = _diagnosis_calibration_progress(
         view,
         {
-            "action": "A10_FREEZE",
+            "action": "A08_FREEZE",
             "hypothesis": "MODEL",
             "strategy_id": None,
             "rationale_summary": "NSE is high",
         },
-        safe_actions={"A07_OPTIMIZE", "A10_FREEZE"},
+        safe_actions={"A05_OPTIMIZE", "A08_FREEZE"},
         dc_bing_floor=0.7,
     )
-    assert result["action"] == "A07_OPTIMIZE"
+    assert result["action"] == "A05_OPTIMIZE"
 
 
 def test_qualified_gate_freezes_even_if_llm_requests_more_search():
@@ -128,15 +128,15 @@ def test_qualified_gate_freezes_even_if_llm_requests_more_search():
     result = _diagnosis_calibration_progress(
         view,
         {
-            "action": "A07_OPTIMIZE",
+            "action": "A05_OPTIMIZE",
             "hypothesis": "MODEL",
             "strategy_id": "xaj-bounded-v1",
             "rationale_summary": "search more",
         },
-        safe_actions={"A07_OPTIMIZE", "A10_FREEZE"},
+        safe_actions={"A05_OPTIMIZE", "A08_FREEZE"},
         dc_bing_floor=0.7,
     )
-    assert result["action"] == "A10_FREEZE"
+    assert result["action"] == "A08_FREEZE"
     assert "资格评价" in result["rationale_summary"]
 
 
@@ -145,16 +145,16 @@ def test_unqualified_budget_exhaustion_requests_handover_safe_closeout():
     result = _diagnosis_calibration_progress(
         view,
         {
-            "action": "A10_FREEZE",
+            "action": "A08_FREEZE",
             "hypothesis": "MODEL",
             "strategy_id": None,
             "rationale_summary": "close out",
         },
-        safe_actions={"A10_FREEZE"},
+        safe_actions={"A08_FREEZE"},
         dc_bing_floor=0.7,
     )
 
-    assert result["action"] == "A10_FREEZE"
+    assert result["action"] == "A08_FREEZE"
     assert "请求收尾检查" in result["rationale_summary"]
     assert "不冻结或消费 final-test" in result["rationale_summary"]
     assert "冻结当前工作方案进入回放" not in result["rationale_summary"]

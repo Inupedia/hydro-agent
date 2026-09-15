@@ -13,8 +13,8 @@ const taskId = computed(() => String(route.params.taskId))
 const gateStatus = computed(() => {
   const fromResults = demo.results?.gate?.status
   if (typeof fromResults === 'string') return fromResults
-  const resolve = [...demo.timeline].reverse().find((t) => t.action === 'A09_RESOLVE')
-  const gate = [...demo.timeline].reverse().find((t) => t.action === 'A08_GATE')
+  const resolve = [...demo.timeline].reverse().find((t) => t.action === 'A07_RESOLVE')
+  const gate = [...demo.timeline].reverse().find((t) => t.action === 'A06_GATE')
   return (resolve?.status || gate?.status || null) as string | null
 })
 

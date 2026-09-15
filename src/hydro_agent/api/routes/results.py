@@ -118,7 +118,7 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
         raise HTTPException(status_code=404, detail="task not found") from exc
     evidence_rows = deps.repository.list_evidence(task_id)
     latest_gate_row = next(
-        (row for row in reversed(evidence_rows) if row.action == "A08_GATE"), None
+        (row for row in reversed(evidence_rows) if row.action == "A06_GATE"), None
     )
     candidate_scheme_id = None
     if latest_gate_row is not None:
@@ -131,7 +131,7 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
             (
                 row
                 for row in reversed(evidence_rows)
-                if row.action == "A07_OPTIMIZE"
+                if row.action == "A05_OPTIMIZE"
                 and dict(row.gates_json or {}).get("candidate_scheme_id")
                 == candidate_scheme_id
             ),
@@ -139,7 +139,7 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
         )
     elif latest_gate_row is None:
         matched_optimize_row = next(
-            (row for row in reversed(evidence_rows) if row.action == "A07_OPTIMIZE"), None
+            (row for row in reversed(evidence_rows) if row.action == "A05_OPTIMIZE"), None
         )
         if matched_optimize_row is not None:
             candidate_scheme_id = str(
@@ -266,7 +266,7 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
                 "reason_codes": [c for c in reason_codes.split(",") if c],
                 "metrics": dict(row.metrics_json or {}),
             }
-        if diagnosis is None and row.action == "A06_DIAGNOSE":
+        if diagnosis is None and row.action == "A04_DIAGNOSE":
             diagnosis = {
                 "observations": list(row.observations_json or []),
                 "metrics": dict(row.metrics_json or {}),
@@ -284,7 +284,7 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
         key: deps.metrics_by_task.get(task_id, {}).get(key) for key in ("NSE", "KGE", "MAE", "Bias")
     }
     for row in reversed(deps.repository.list_evidence(task_id)):
-        if row.action == "A12_EVALUATE_REPORT" and row.metrics_json:
+        if row.action == "A10_EVALUATE_REPORT" and row.metrics_json:
             metrics = {
                 k: float(row.metrics_json[k]) if k in row.metrics_json else None
                 for k in ("NSE", "KGE", "MAE", "Bias")
@@ -293,7 +293,7 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
     report_artifacts = deps.report_artifacts.get(task_id, ())
     if not report_artifacts:
         for row in reversed(deps.repository.list_evidence(task_id)):
-            if row.action == "A12_EVALUATE_REPORT" and row.artifact_ids_json:
+            if row.action == "A10_EVALUATE_REPORT" and row.artifact_ids_json:
                 report_artifacts = tuple(row.artifact_ids_json)
                 break
     costs: dict[str, float] = {}

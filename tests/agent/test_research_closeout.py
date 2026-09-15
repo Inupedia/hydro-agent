@@ -77,7 +77,7 @@ def repository(tmp_path):
 
 def _decision() -> AgentDecision:
     return AgentDecision(
-        action=ActionCode.A10_FREEZE,
+        action=ActionCode.A08_FREEZE,
         hypothesis=ProblemHypothesis.MODEL,
         rationale_summary="Close out the preregistered research campaign.",
     )
@@ -95,7 +95,7 @@ def _add_trial(
         EvidencePacket(
             evidence_id="ev-a07",
             task_id="task-1",
-            action=ActionCode.A07_OPTIMIZE,
+            action=ActionCode.A05_OPTIMIZE,
             status="succeeded",
             observations=("final_test_accessed=false",),
             metrics={
@@ -118,7 +118,7 @@ def _add_trial(
         EvidencePacket(
             evidence_id="ev-a08",
             task_id="task-1",
-            action=ActionCode.A08_GATE,
+            action=ActionCode.A06_GATE,
             status="ACCEPT",
             observations=(f"qualification_status={qualification_status}",),
             metrics={
@@ -139,7 +139,7 @@ def _add_trial(
         EvidencePacket(
             evidence_id="ev-a09",
             task_id="task-1",
-            action=ActionCode.A09_RESOLVE,
+            action=ActionCode.A07_RESOLVE,
             status="ACCEPT" if qualification_status == "QUALIFIED" else "KEEP",
             observations=(f"qualification_status={qualification_status}",),
             gates={

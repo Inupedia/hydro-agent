@@ -13,7 +13,7 @@ class StubForecastHandler:
             evidence_id="ev-forecast",
             task_id=task_id,
             action_run_id=None,
-            action=ActionCode.A05_FORECAST,
+            action=ActionCode.A03_FORECAST,
             status="succeeded",
             observations=("forecast_ok",),
             metrics={"lead_1": 1.0},
@@ -27,7 +27,7 @@ class StubOptimizeHandler:
             evidence_id="ev-optimize",
             task_id=task_id,
             action_run_id=None,
-            action=ActionCode.A07_OPTIMIZE,
+            action=ActionCode.A05_OPTIMIZE,
             status="succeeded",
             observations=("optimize_ok",),
             metrics={"objective_value": 0.5},
@@ -52,13 +52,13 @@ def test_new_evidence_changes_next_decision(tmp_path):
     scripted_provider.queue(
         [
             AgentDecision(
-                action=ActionCode.A05_FORECAST,
+                action=ActionCode.A03_FORECAST,
                 hypothesis=ProblemHypothesis.MODEL,
                 strategy_id=None,
                 rationale_summary="Run the base forecast.",
             ),
             AgentDecision(
-                action=ActionCode.A07_OPTIMIZE,
+                action=ActionCode.A05_OPTIMIZE,
                 hypothesis=ProblemHypothesis.MODEL,
                 strategy_id="xaj-bounded-v1",
                 rationale_summary="Forecast evidence supports a bounded model test.",
@@ -66,8 +66,8 @@ def test_new_evidence_changes_next_decision(tmp_path):
         ]
     )
     tools = ToolRouter()
-    tools.register(ActionCode.A05_FORECAST, StubForecastHandler())
-    tools.register(ActionCode.A07_OPTIMIZE, StubOptimizeHandler())
+    tools.register(ActionCode.A03_FORECAST, StubForecastHandler())
+    tools.register(ActionCode.A05_OPTIMIZE, StubOptimizeHandler())
     agent_runtime = AgentRuntime(
         repository,
         provider=scripted_provider,
@@ -77,7 +77,7 @@ def test_new_evidence_changes_next_decision(tmp_path):
     first = agent_runtime.run_round("task-1")
     second = agent_runtime.run_round("task-1")
     assert first.evidence_id != second.evidence_id
-    assert repository.list_evidence("task-1")[-1].action == "A07_OPTIMIZE"
+    assert repository.list_evidence("task-1")[-1].action == "A05_OPTIMIZE"
     assert (
         scripted_provider.seen_views[1].evidence_summary
         != scripted_provider.seen_views[0].evidence_summary

@@ -7,10 +7,10 @@ vi.mock('../api/client', () => ({ api: { getAgentLog: mocks.getAgentLog } }))
 
 function round(action: string, observations: string[], at: string) {
   return {
-    round_number: action === 'A07_OPTIMIZE' ? 7 : 9,
+    round_number: action === 'A05_OPTIMIZE' ? 7 : 9,
     occurred_at: at,
     action,
-    action_zh: action === 'A07_OPTIMIZE' ? '参数率定' : '落实候选',
+    action_zh: action === 'A05_OPTIMIZE' ? '参数率定' : '落实候选',
     hypothesis: 'MODEL',
     hypothesis_zh: '模型参数问题',
     strategy_id: 'xaj-bounded-v1',
@@ -33,12 +33,12 @@ describe('ExecutionJournal calibration scientist state', () => {
       task_id: 'task-cal',
       rounds: [
         round(
-          'A07_OPTIMIZE',
+          'A05_OPTIMIZE',
           ['optimizer=dds', 'evaluation_budget=512', 'model_evaluations=487'],
           '2026-09-13T06:00:07Z',
         ),
         round(
-          'A09_RESOLVE',
+          'A07_RESOLVE',
           [
             'resolve_status=KEEP',
             'adoption_status=ADOPT',
@@ -63,7 +63,7 @@ describe('ExecutionJournal calibration scientist state', () => {
             occurred_at: '2026-09-13T06:00:07Z',
             label: '参数率定',
             status: 'succeeded',
-            action: 'A07_OPTIMIZE',
+            action: 'A05_OPTIMIZE',
             evidence_id: 'ev-opt',
             details: {},
           },
@@ -72,7 +72,7 @@ describe('ExecutionJournal calibration scientist state', () => {
             occurred_at: '2026-09-13T06:00:09Z',
             label: '落实候选',
             status: 'KEEP',
-            action: 'A09_RESOLVE',
+            action: 'A07_RESOLVE',
             evidence_id: 'ev-resolve',
             details: {},
           },

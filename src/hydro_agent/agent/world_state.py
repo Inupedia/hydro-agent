@@ -40,6 +40,14 @@ class WorldStateBuilder:
 
     def build(self, task_id: str) -> WorldStateView:
         task = self.repository.get_task(task_id)
+        from hydro_agent.workflow.definition import CURRENT_VERSION
+
+        if task.workflow_version and task.workflow_version != CURRENT_VERSION:
+            raise ValueError(
+                f"task {task_id} is bound to workflow {task.workflow_version}; "
+                f"current Agent runtime requires {CURRENT_VERSION}. Create a new task "
+                "to use the continuous Action numbering."
+            )
         state = self.repository.ensure_task_state(task_id)
         scheme = self.repository.get_scheme(state.current_scheme_id)
         evidence_rows = self.repository.list_evidence(task_id)
@@ -79,7 +87,7 @@ class WorldStateBuilder:
                     parameter_delta[key] = float(value) - float(current_params[key])
         diagnosis = {}
         for row in reversed(evidence_rows):
-            if row.action == "A06_DIAGNOSE" and row.gates_json:
+            if row.action == "A04_DIAGNOSE" and row.gates_json:
                 diagnosis = dict(row.gates_json)
                 diagnosis["metrics"] = {
                     str(k): float(v) for k, v in dict(row.metrics_json or {}).items()

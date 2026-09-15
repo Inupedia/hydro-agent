@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -174,6 +175,13 @@ def _parse_frontmatter(block: str) -> dict:
 
 
 def _unquote(value: str) -> str:
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+    if len(value) >= 2 and value[0] == value[-1] == '"':
+        if "\\" in value:
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                pass
+        return value[1:-1]
+    if len(value) >= 2 and value[0] == value[-1] == "'":
         return value[1:-1]
     return value

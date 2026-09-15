@@ -98,25 +98,25 @@ def latest_action_index(view: WorldStateView, action: ActionCode) -> int:
 def pending_calibration_action(view: WorldStateView) -> ActionCode | None:
     """Return the mandatory transaction action for a successful calibration cycle."""
 
-    optimize_index = latest_action_index(view, ActionCode.A07_OPTIMIZE)
-    gate_index = latest_action_index(view, ActionCode.A08_GATE)
-    resolve_index = latest_action_index(view, ActionCode.A09_RESOLVE)
+    optimize_index = latest_action_index(view, ActionCode.A05_OPTIMIZE)
+    gate_index = latest_action_index(view, ActionCode.A06_GATE)
+    resolve_index = latest_action_index(view, ActionCode.A07_RESOLVE)
     if optimize_index > gate_index:
-        # A failed/blocked A07 has no candidate to evaluate. It still remains in
-        # the Trial Ledger for budget accounting, but must never manufacture A08.
+        # A failed/blocked A05 has no candidate to evaluate. It still remains in
+        # the Trial Ledger for budget accounting, but must never manufacture A06.
         if view.evidence_summary[optimize_index].status == "succeeded":
-            return ActionCode.A08_GATE
+            return ActionCode.A06_GATE
         return None
     if gate_index > resolve_index:
-        return ActionCode.A09_RESOLVE
+        return ActionCode.A07_RESOLVE
     return None
 
 
 def rediagnosis_required(view: WorldStateView) -> bool:
-    """True when a rejected/kept cycle has not produced fresh A06 evidence."""
+    """True when a rejected/kept cycle has not produced fresh A04 evidence."""
 
-    resolve_index = latest_action_index(view, ActionCode.A09_RESOLVE)
-    diagnose_index = latest_action_index(view, ActionCode.A06_DIAGNOSE)
+    resolve_index = latest_action_index(view, ActionCode.A07_RESOLVE)
+    diagnose_index = latest_action_index(view, ActionCode.A04_DIAGNOSE)
     if resolve_index < 0 or resolve_index <= diagnose_index:
         return False
     status = view.evidence_summary[resolve_index].status
@@ -129,16 +129,16 @@ def closeout_pending(view: WorldStateView) -> bool:
     actions = evidence_actions(view)
     phase = view.task.phase
     if phase == "E":
-        return ActionCode.A12_EVALUATE_REPORT.value not in actions
+        return ActionCode.A10_EVALUATE_REPORT.value not in actions
     if phase == "F":
-        return ActionCode.A11_REPLAY.value not in actions
+        return ActionCode.A09_REPLAY.value not in actions
     if phase == "B":
         if pending_calibration_action(view) is not None:
             return True
-        if ActionCode.A10_FREEZE.value not in actions:
+        if ActionCode.A08_FREEZE.value not in actions:
             if view.hydro.campaign.stop_reason is not None:
                 return True
-            if _legacy_cycle_budget_exhausted(view) and ActionCode.A07_OPTIMIZE.value in actions:
+            if _legacy_cycle_budget_exhausted(view) and ActionCode.A05_OPTIMIZE.value in actions:
                 return True
             if view.budget.agent_rounds_remaining <= CLOSEOUT_RESERVE_ROUNDS:
                 return True
@@ -156,11 +156,11 @@ class PermissionGate:
         campaign_stopped = view.hydro.campaign.stop_reason is not None
 
         if _legacy_cycle_budget_exhausted(view) or campaign_stopped:
-            allowed.discard(ActionCode.A07_OPTIMIZE)
+            allowed.discard(ActionCode.A05_OPTIMIZE)
         if not view.task.allow_optimization:
-            allowed.discard(ActionCode.A07_OPTIMIZE)
+            allowed.discard(ActionCode.A05_OPTIMIZE)
         if "calibrate" not in view.model.capabilities and "adapt" not in view.model.capabilities:
-            allowed.discard(ActionCode.A07_OPTIMIZE)
+            allowed.discard(ActionCode.A05_OPTIMIZE)
 
         # Agent-call limits remain explicit resource caps, never convergence evidence.
         if remaining <= CLOSEOUT_RESERVE_ROUNDS:
@@ -169,38 +169,38 @@ class PermissionGate:
             allowed = set(_closeout_actions() & phase_set & _implemented())
             if view.task.phase == "B":
                 allowed |= {
-                    ActionCode.A08_GATE,
-                    ActionCode.A09_RESOLVE,
-                    ActionCode.A10_FREEZE,
+                    ActionCode.A06_GATE,
+                    ActionCode.A07_RESOLVE,
+                    ActionCode.A08_FREEZE,
                 } & _implemented()
 
         pending = pending_calibration_action(view)
         if view.task.phase == "B" and pending is None:
-            allowed.discard(ActionCode.A08_GATE)
-            allowed.discard(ActionCode.A09_RESOLVE)
+            allowed.discard(ActionCode.A06_GATE)
+            allowed.discard(ActionCode.A07_RESOLVE)
         if view.task.phase == "B" and pending is not None:
-            # A successful A07 transaction must finish Gate/Resolve before any stop.
+            # A successful A05 transaction must finish Gate/Resolve before any stop.
             allowed = {pending} if pending in _implemented() else set()
         elif view.task.phase == "B" and campaign_stopped:
-            allowed = {ActionCode.A10_FREEZE} & _implemented()
+            allowed = {ActionCode.A08_FREEZE} & _implemented()
         elif view.task.phase == "B" and rediagnosis_required(view):
-            allowed = {ActionCode.A10_FREEZE} & _implemented()
+            allowed = {ActionCode.A08_FREEZE} & _implemented()
             cycle_budget_available = not _legacy_cycle_budget_exhausted(view)
             if cycle_budget_available and remaining > CLOSEOUT_RESERVE_ROUNDS:
-                allowed |= {ActionCode.A06_DIAGNOSE} & _implemented()
+                allowed |= {ActionCode.A04_DIAGNOSE} & _implemented()
 
         return tuple(sorted(allowed, key=lambda item: item.value))
 
     def authorize(self, view: WorldStateView, decision: AgentDecision) -> None:
-        if view.task.phase == "B" and decision.action == ActionCode.A12_EVALUATE_REPORT:
+        if view.task.phase == "B" and decision.action == ActionCode.A10_EVALUATE_REPORT:
             raise PermissionDenied("phase forbids evaluate")
-        if view.task.phase in ("F", "E") and decision.action == ActionCode.A07_OPTIMIZE:
+        if view.task.phase in ("F", "E") and decision.action == ActionCode.A05_OPTIMIZE:
             raise PermissionDenied("phase forbids optimize")
         if decision.action not in self.safe_actions(view):
             raise PermissionDenied(f"action {decision.action} is not safe")
-        if decision.action == ActionCode.A07_OPTIMIZE and decision.strategy_id is None:
+        if decision.action == ActionCode.A05_OPTIMIZE and decision.strategy_id is None:
             raise PermissionDenied("optimize requires strategy_id")
-        if decision.action == ActionCode.A07_OPTIMIZE:
+        if decision.action == ActionCode.A05_OPTIMIZE:
             allowed_groups = set(view.hydro.available_param_groups or ("evap", "runoff", "routing"))
             if decision.param_groups:
                 unknown = [g for g in decision.param_groups if g not in allowed_groups]
@@ -210,10 +210,10 @@ class PermissionGate:
                 view.hydro.available_objectives or ("nse", "peak", "composite")
             ):
                 raise PermissionDenied(f"unknown objective: {decision.objective}")
-        if decision.action == ActionCode.A06_DIAGNOSE and view.latest_forecast_id is None:
+        if decision.action == ActionCode.A04_DIAGNOSE and view.latest_forecast_id is None:
             raise PermissionDenied("diagnose requires a forecast first")
         optimize_attempt = sum(
-            1 for item in view.evidence_summary if item.action == ActionCode.A07_OPTIMIZE
+            1 for item in view.evidence_summary if item.action == ActionCode.A05_OPTIMIZE
         )
         fingerprint = decision_fingerprint(
             decision, view.scheme.scheme_id, optimize_attempt=optimize_attempt

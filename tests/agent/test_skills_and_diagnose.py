@@ -29,9 +29,9 @@ def test_skills_registry_exposes_focused_hydrology_cards():
     assert "data-check" not in ids
     assert "forecast-diagnose" not in ids
     diagnose = skills.get("hydro-error-diagnosis")
-    assert "A06_DIAGNOSE" in diagnose.recommended_actions
+    assert "A04_DIAGNOSE" in diagnose.recommended_actions
     cal = skills.get("xaj-calibration")
-    assert "A07_OPTIMIZE" in cal.recommended_actions
+    assert "A05_OPTIMIZE" in cal.recommended_actions
     standards = StandardRepository()
     assert standards.grade_dc_bing() == 0.5
     assert skills.min_scheme_grade() == "丙"

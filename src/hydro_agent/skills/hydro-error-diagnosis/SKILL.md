@@ -6,7 +6,7 @@ metadata:
   purpose_zh: "先解释误差模式，再决定应该检查数据、产流、蒸散发还是汇流。"
   when_to_use_zh: "已有基线预报后|每轮 Gate/Resolve 后重新诊断|候选没有稳定改进时"
   required_evidence_zh: "观测与模拟过程|NSE/KGE/PBIAS 等指标|峰值/时序/水量特征|上一轮实验结果"
-  recommended_actions: "A06_DIAGNOSE|A07_OPTIMIZE"
+  recommended_actions: "A04_DIAGNOSE|A05_OPTIMIZE"
   counterexamples_zh: "单一指标不能直接推出具体参数|诊断结论不能替代独立验证"
   prompt_references: "references/metric-patterns.md|references/diagnosis-routing.md"
 ---

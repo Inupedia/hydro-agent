@@ -57,4 +57,4 @@ def test_delete_task_removes_persisted_case(client):
 
 
 def test_no_browser_endpoint_executes_arbitrary_action(client):
-    assert client.post("/api/tasks/task-1/actions/A07_OPTIMIZE").status_code == 404
+    assert client.post("/api/tasks/task-1/actions/A05_OPTIMIZE").status_code == 404

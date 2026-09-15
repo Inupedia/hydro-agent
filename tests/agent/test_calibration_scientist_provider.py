@@ -35,13 +35,13 @@ def _view(
         scheme=SchemeSummary(scheme_id="scheme-base", status="validated", content_hash="abc"),
         permissions=PermissionSummary(
             safe_actions=(
-                ActionCode.A03_VALIDATE_SCHEME,
-                ActionCode.A05_FORECAST,
-                ActionCode.A06_DIAGNOSE,
-                ActionCode.A07_OPTIMIZE,
-                ActionCode.A08_GATE,
-                ActionCode.A09_RESOLVE,
-                ActionCode.A10_FREEZE,
+                ActionCode.A02_VALIDATE_SCHEME,
+                ActionCode.A03_FORECAST,
+                ActionCode.A04_DIAGNOSE,
+                ActionCode.A05_OPTIMIZE,
+                ActionCode.A06_GATE,
+                ActionCode.A07_RESOLVE,
+                ActionCode.A08_FREEZE,
             )
         ),
         budget=BudgetSummary(
@@ -70,7 +70,7 @@ def test_provider_turns_diagnosis_into_group_level_dds_experiment():
         diagnosis={
             "hypothesis": "MODEL",
             "phenomenon": "PBIAS=18%",
-            "recommended_action": "A07_OPTIMIZE",
+            "recommended_action": "A05_OPTIMIZE",
             "recommended_strategy_id": "xaj-water-balance-v1",
             "recommended_param_groups": "evap,runoff",
             "recommended_objective": "composite",
@@ -78,10 +78,10 @@ def test_provider_turns_diagnosis_into_group_level_dds_experiment():
         }
     )
     decision = CalibrationScientistDecisionProvider().decide(
-        _view(latest_action=ActionCode.A06_DIAGNOSE, latest_status="succeeded", hydro=hydro)
+        _view(latest_action=ActionCode.A04_DIAGNOSE, latest_status="succeeded", hydro=hydro)
     )
 
-    assert decision.action == ActionCode.A07_OPTIMIZE
+    assert decision.action == ActionCode.A05_OPTIMIZE
     assert decision.strategy_id == "xaj-water-balance-v1"
     assert decision.param_groups == ("evap", "runoff")
     assert decision.objective == "nse"
@@ -91,7 +91,7 @@ def test_provider_only_uses_unverified_seed_prior_when_campaign_opts_in():
     diagnosis = {
         "hypothesis": "MODEL",
         "phenomenon": "PBIAS=18%",
-        "recommended_action": "A07_OPTIMIZE",
+        "recommended_action": "A05_OPTIMIZE",
         "recommended_strategy_id": "xaj-bounded-v1",
         "recommended_param_groups": "evap,runoff,routing",
         "recommended_objective": "nse",
@@ -101,14 +101,14 @@ def test_provider_only_uses_unverified_seed_prior_when_campaign_opts_in():
 
     disabled = provider.decide(
         _view(
-            latest_action=ActionCode.A06_DIAGNOSE,
+            latest_action=ActionCode.A04_DIAGNOSE,
             latest_status="succeeded",
             hydro=HydroContext(diagnosis=diagnosis),
         )
     )
     enabled = provider.decide(
         _view(
-            latest_action=ActionCode.A06_DIAGNOSE,
+            latest_action=ActionCode.A04_DIAGNOSE,
             latest_status="succeeded",
             hydro=HydroContext(
                 diagnosis=diagnosis,
@@ -130,7 +130,7 @@ def _resolved_hydro(*, campaign: CampaignSnapshot | None = None) -> HydroContext
 
 def test_provider_reflects_rollback_into_rediagnosis_while_campaign_running():
     view = _view(
-        latest_action=ActionCode.A09_RESOLVE,
+        latest_action=ActionCode.A07_RESOLVE,
         latest_status="ROLLBACK",
         latest_gates={
             "status": "ROLLBACK",
@@ -142,13 +142,13 @@ def test_provider_reflects_rollback_into_rediagnosis_while_campaign_running():
         hydro=_resolved_hydro(),
     )
     decision = CalibrationScientistDecisionProvider().decide(view)
-    assert decision.action == ActionCode.A06_DIAGNOSE
+    assert decision.action == ActionCode.A04_DIAGNOSE
     assert "Campaign 尚无停止证据" in decision.rationale_summary
 
 
 def test_provider_continues_after_adoption_when_candidate_is_unqualified():
     view = _view(
-        latest_action=ActionCode.A09_RESOLVE,
+        latest_action=ActionCode.A07_RESOLVE,
         latest_status="KEEP",
         latest_gates={
             "status": "KEEP",
@@ -160,13 +160,13 @@ def test_provider_continues_after_adoption_when_candidate_is_unqualified():
         hydro=_resolved_hydro(),
     )
     decision = CalibrationScientistDecisionProvider().decide(view)
-    assert decision.action == ActionCode.A06_DIAGNOSE
+    assert decision.action == ActionCode.A04_DIAGNOSE
     assert "已采用改进候选" in decision.rationale_summary
 
 
 def test_convergence_mode_keeps_searching_after_qualification_until_campaign_stops():
     view = _view(
-        latest_action=ActionCode.A09_RESOLVE,
+        latest_action=ActionCode.A07_RESOLVE,
         latest_status="ACCEPT",
         latest_gates={
             "status": "ACCEPT",
@@ -184,13 +184,13 @@ def test_convergence_mode_keeps_searching_after_qualification_until_campaign_sto
         ),
     )
     decision = CalibrationScientistDecisionProvider().decide(view)
-    assert decision.action == ActionCode.A06_DIAGNOSE
+    assert decision.action == ActionCode.A04_DIAGNOSE
     assert "Campaign 尚无停止证据" in decision.rationale_summary
 
 
 def test_provider_closes_out_only_when_campaign_has_explicit_stop_reason():
     view = _view(
-        latest_action=ActionCode.A09_RESOLVE,
+        latest_action=ActionCode.A07_RESOLVE,
         latest_status="KEEP",
         latest_gates={
             "status": "KEEP",
@@ -211,32 +211,32 @@ def test_provider_closes_out_only_when_campaign_has_explicit_stop_reason():
         ),
     )
     decision = CalibrationScientistDecisionProvider().decide(view)
-    assert decision.action == ActionCode.A10_FREEZE
+    assert decision.action == ActionCode.A08_FREEZE
     assert "Campaign stop=BUDGET_EXHAUSTED" in decision.rationale_summary
     assert "converged=false" in decision.rationale_summary
 
 
 def test_failed_optimize_is_rediagnosed_without_gate():
     view = _view(
-        latest_action=ActionCode.A07_OPTIMIZE,
+        latest_action=ActionCode.A05_OPTIMIZE,
         latest_status="failed",
         hydro=HydroContext(),
     )
-    assert CalibrationScientistDecisionProvider().decide(view).action == ActionCode.A06_DIAGNOSE
+    assert CalibrationScientistDecisionProvider().decide(view).action == ActionCode.A04_DIAGNOSE
 
 
 @pytest.mark.parametrize("mode", ["convergence", "target_quality"])
-@pytest.mark.parametrize("latest_action", [ActionCode.A06_DIAGNOSE, ActionCode.A09_RESOLVE])
+@pytest.mark.parametrize("latest_action", [ActionCode.A04_DIAGNOSE, ActionCode.A07_RESOLVE])
 def test_research_modes_ignore_legacy_cycle_count(mode, latest_action):
     view = _view(
         latest_action=latest_action,
-        latest_status="succeeded" if latest_action == ActionCode.A06_DIAGNOSE else "KEEP",
+        latest_status="succeeded" if latest_action == ActionCode.A04_DIAGNOSE else "KEEP",
         hydro=HydroContext(campaign=CampaignSnapshot(mode=mode)),
         optimization_cycles_remaining=0,
     )
     expected = (
-        ActionCode.A07_OPTIMIZE
-        if latest_action == ActionCode.A06_DIAGNOSE
-        else ActionCode.A06_DIAGNOSE
+        ActionCode.A05_OPTIMIZE
+        if latest_action == ActionCode.A04_DIAGNOSE
+        else ActionCode.A04_DIAGNOSE
     )
     assert CalibrationScientistDecisionProvider().decide(view).action == expected

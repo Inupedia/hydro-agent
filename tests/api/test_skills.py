@@ -24,7 +24,7 @@ metadata:
     return skill_dir
 
 
-def test_skill_api_override_and_restore(app_dependencies, tmp_path: Path):
+def test_skill_api_builtin_readonly_and_user_crud(app_dependencies, tmp_path: Path):
     builtin_root = tmp_path / "builtin-skills"
     user_root = tmp_path / "user-skills"
     builtin = _write_skill(builtin_root, "demo-skill", "builtin description")
@@ -35,39 +35,52 @@ def test_skill_api_override_and_restore(app_dependencies, tmp_path: Path):
     with TestClient(app) as client:
         listing = client.get("/api/skills")
         assert listing.status_code == 200
-        assert listing.json()["items"][0]["source"] == "builtin"
+        item = listing.json()["items"][0]
+        assert item["source"] == "builtin"
+        assert item["editable"] is False
 
-        updated = """---
+        blocked = client.put(
+            "/api/skills/demo-skill",
+            json={
+                "skill_md": """---
 name: demo-skill
-description: API managed override
-metadata:
-  title_zh: "API 覆盖"
+description: should fail
 ---
 
-# Updated body
+# Nope
 """
-        response = client.put("/api/skills/demo-skill", json={"skill_md": updated})
-        assert response.status_code == 200
-        assert response.json()["source"] == "user"
-        assert response.json()["description"] == "API managed override"
+            },
+        )
+        assert blocked.status_code == 422
+        assert "read-only" in blocked.json()["detail"]
         assert (builtin / "SKILL.md").read_text(encoding="utf-8") == original
 
-        detail = client.get("/api/skills/demo-skill")
-        assert detail.status_code == 200
-        assert detail.json()["skill_md"] == updated
+        created = """---
+name: custom-skill
+description: API managed user skill
+metadata:
+  title_zh: "自定义"
+---
 
-        restored = client.delete("/api/skills/demo-skill/override")
-        assert restored.status_code == 200
-        assert restored.json()["restored_builtin"] is True
+# Custom
+"""
+        response = client.put("/api/skills/custom-skill", json={"skill_md": created})
+        assert response.status_code == 200
+        assert response.json()["source"] == "user"
+        assert response.json()["editable"] is True
 
-        detail = client.get("/api/skills/demo-skill")
+        detail = client.get("/api/skills/custom-skill")
         assert detail.status_code == 200
-        assert detail.json()["source"] == "builtin"
-        assert detail.json()["description"] == "builtin description"
+        assert detail.json()["skill_md"] == created
+
+        deleted = client.delete("/api/skills/custom-skill/override")
+        assert deleted.status_code == 200
+        assert deleted.json()["active"] is False
+        assert deleted.json()["restored_builtin"] is False
     app.state.executor.shutdown()
 
 
-def test_skill_api_resource_write_and_script_guard(app_dependencies, tmp_path: Path):
+def test_skill_api_resource_write_requires_user_skill(app_dependencies, tmp_path: Path):
     builtin_root = tmp_path / "builtin-skills"
     user_root = tmp_path / "user-skills"
     _write_skill(builtin_root, "demo-skill", "builtin description")
@@ -75,21 +88,40 @@ def test_skill_api_resource_write_and_script_guard(app_dependencies, tmp_path: P
 
     app = create_app(app_dependencies)
     with TestClient(app) as client:
-        response = client.put(
+        blocked = client.put(
             "/api/skills/demo-skill/resources/references/notes.md",
+            json={"content": "# Notes\nhello\n"},
+        )
+        assert blocked.status_code == 422
+        assert "read-only" in blocked.json()["detail"]
+
+        client.put(
+            "/api/skills/custom-skill",
+            json={
+                "skill_md": """---
+name: custom-skill
+description: writable user skill
+---
+
+# Custom
+"""
+            },
+        )
+        response = client.put(
+            "/api/skills/custom-skill/resources/references/notes.md",
             json={"content": "# Notes\nhello\n"},
         )
         assert response.status_code == 200
         assert response.json()["source"] == "user"
 
-        resource = client.get("/api/skills/demo-skill/resources/references/notes.md")
+        resource = client.get("/api/skills/custom-skill/resources/references/notes.md")
         assert resource.status_code == 200
         assert resource.json()["content"] == "# Notes\nhello\n"
 
-        blocked = client.put(
-            "/api/skills/demo-skill/resources/scripts/run.py",
+        script_blocked = client.put(
+            "/api/skills/custom-skill/resources/scripts/run.py",
             json={"content": "print('blocked')\n"},
         )
-        assert blocked.status_code == 422
-        assert "read-only" in blocked.json()["detail"]
+        assert script_blocked.status_code == 422
+        assert "read-only" in script_blocked.json()["detail"]
     app.state.executor.shutdown()

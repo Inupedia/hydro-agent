@@ -107,7 +107,7 @@ def spy_forecast_service():
 @pytest.fixture
 def forecast_decision():
     return AgentDecision(
-        action=ActionCode.A05_FORECAST,
+        action=ActionCode.A03_FORECAST,
         hypothesis=ProblemHypothesis.MODEL,
         rationale_summary="Run the base forecast.",
     )
@@ -116,7 +116,7 @@ def forecast_decision():
 @pytest.fixture
 def optimize_decision():
     return AgentDecision(
-        action=ActionCode.A07_OPTIMIZE,
+        action=ActionCode.A05_OPTIMIZE,
         hypothesis=ProblemHypothesis.MODEL,
         strategy_id="xaj-bounded-v1",
         param_groups=("evap",),
@@ -129,7 +129,7 @@ def optimize_decision():
 def tool_router(repository, spy_forecast_service):
     router = ToolRouter()
     router.register(
-        ActionCode.A05_FORECAST,
+        ActionCode.A03_FORECAST,
         ForecastHandler(
             repository,
             forecast_service=spy_forecast_service,
@@ -145,13 +145,13 @@ def test_forecast_action_calls_forecast_service_not_sandbox_directly(
 ):
     evidence = tool_router.execute("task-1", forecast_decision)
     assert spy_forecast_service.calls == 1
-    assert evidence.action == ActionCode.A05_FORECAST
+    assert evidence.action == ActionCode.A03_FORECAST
     assert evidence.status == "succeeded"
 
 
 def test_unregistered_action_raises_tool_unavailable(tool_router):
     decision = AgentDecision(
-        action=ActionCode.A06_DIAGNOSE,
+        action=ActionCode.A04_DIAGNOSE,
         hypothesis=ProblemHypothesis.UNKNOWN,
         rationale_summary="Diagnose without a registered tool.",
     )

@@ -39,7 +39,7 @@ def world_view():
 @pytest.fixture
 def evaluate_decision():
     return AgentDecision(
-        action=ActionCode.A12_EVALUATE_REPORT,
+        action=ActionCode.A10_EVALUATE_REPORT,
         hypothesis=ProblemHypothesis.UNKNOWN,
         rationale_summary="Evaluate the frozen scheme.",
     )
@@ -48,7 +48,7 @@ def evaluate_decision():
 @pytest.fixture
 def repeated_decision():
     return AgentDecision(
-        action=ActionCode.A05_FORECAST,
+        action=ActionCode.A03_FORECAST,
         hypothesis=ProblemHypothesis.MODEL,
         rationale_summary="Repeat the same forecast without new evidence.",
     )
@@ -66,7 +66,7 @@ def no_progress_view(world_view, repeated_decision):
             "evidence_summary": (
                 EvidenceSummary(
                     evidence_id="ev-1",
-                    action=ActionCode.A05_FORECAST,
+                    action=ActionCode.A03_FORECAST,
                     status="succeeded",
                     new_information_hash="same-hash",
                 ),
@@ -86,7 +86,7 @@ def test_agent_cannot_optimize_after_budget_exhausted(world_view):
             )
         }
     )
-    assert ActionCode.A07_OPTIMIZE not in PermissionGate().safe_actions(exhausted)
+    assert ActionCode.A05_OPTIMIZE not in PermissionGate().safe_actions(exhausted)
 
 
 def test_allow_optimization_false_removes_optimize(world_view):
@@ -94,8 +94,8 @@ def test_allow_optimization_false_removes_optimize(world_view):
         update={"task": world_view.task.model_copy(update={"allow_optimization": False})}
     )
     safe = PermissionGate().safe_actions(view)
-    assert ActionCode.A07_OPTIMIZE not in safe
-    assert ActionCode.A05_FORECAST in safe
+    assert ActionCode.A05_OPTIMIZE not in safe
+    assert ActionCode.A03_FORECAST in safe
 
 
 def test_reserve_rounds_strips_exploratory_actions(world_view):
@@ -107,9 +107,9 @@ def test_reserve_rounds_strips_exploratory_actions(world_view):
         }
     )
     safe = PermissionGate().safe_actions(view)
-    assert ActionCode.A07_OPTIMIZE not in safe
-    assert ActionCode.A05_FORECAST not in safe
-    assert ActionCode.A10_FREEZE in safe
+    assert ActionCode.A05_OPTIMIZE not in safe
+    assert ActionCode.A03_FORECAST not in safe
+    assert ActionCode.A08_FREEZE in safe
 
 
 def test_zero_rounds_still_allows_evaluate_in_phase_e(world_view):
@@ -120,7 +120,7 @@ def test_zero_rounds_still_allows_evaluate_in_phase_e(world_view):
         }
     )
     safe = PermissionGate().safe_actions(view)
-    assert safe == (ActionCode.A12_EVALUATE_REPORT,)
+    assert safe == (ActionCode.A10_EVALUATE_REPORT,)
     assert closeout_pending(view) is True
 
 
@@ -135,19 +135,19 @@ def test_zero_rounds_still_allows_freeze_in_phase_b(world_view):
             "evidence_summary": (
                 EvidenceSummary(
                     evidence_id="ev-opt",
-                    action=ActionCode.A07_OPTIMIZE,
+                    action=ActionCode.A05_OPTIMIZE,
                     status="succeeded",
                     new_information_hash="h-opt",
                 ),
                 EvidenceSummary(
                     evidence_id="ev-gate",
-                    action=ActionCode.A08_GATE,
+                    action=ActionCode.A06_GATE,
                     status="succeeded",
                     new_information_hash="h-gate",
                 ),
                 EvidenceSummary(
                     evidence_id="ev-resolve",
-                    action=ActionCode.A09_RESOLVE,
+                    action=ActionCode.A07_RESOLVE,
                     status="succeeded",
                     new_information_hash="h-resolve",
                 ),
@@ -155,8 +155,8 @@ def test_zero_rounds_still_allows_freeze_in_phase_b(world_view):
         }
     )
     safe = PermissionGate().safe_actions(view)
-    assert ActionCode.A10_FREEZE in safe
-    assert ActionCode.A07_OPTIMIZE not in safe
+    assert ActionCode.A08_FREEZE in safe
+    assert ActionCode.A05_OPTIMIZE not in safe
     assert closeout_pending(view) is True
 
 
@@ -182,16 +182,16 @@ def test_new_optimize_must_use_a_new_gate_even_when_old_cycle_exists(world_view)
         )
         for index, (action, status) in enumerate(
             (
-                (ActionCode.A07_OPTIMIZE, "succeeded"),
-                (ActionCode.A08_GATE, "KEEP"),
-                (ActionCode.A09_RESOLVE, "KEEP"),
-                (ActionCode.A06_DIAGNOSE, "succeeded"),
-                (ActionCode.A07_OPTIMIZE, "succeeded"),
+                (ActionCode.A05_OPTIMIZE, "succeeded"),
+                (ActionCode.A06_GATE, "KEEP"),
+                (ActionCode.A07_RESOLVE, "KEEP"),
+                (ActionCode.A04_DIAGNOSE, "succeeded"),
+                (ActionCode.A05_OPTIMIZE, "succeeded"),
             )
         )
     )
     view = world_view.model_copy(update={"evidence_summary": evidence})
-    assert PermissionGate().safe_actions(view) == (ActionCode.A08_GATE,)
+    assert PermissionGate().safe_actions(view) == (ActionCode.A06_GATE,)
 
 
 def test_resolved_cycle_requires_diagnosis_before_retry_but_allows_freeze(world_view):
@@ -206,14 +206,14 @@ def test_resolved_cycle_requires_diagnosis_before_retry_but_allows_freeze(world_
         )
         for index, (action, status) in enumerate(
             (
-                (ActionCode.A06_DIAGNOSE, "succeeded"),
-                (ActionCode.A07_OPTIMIZE, "succeeded"),
-                (ActionCode.A08_GATE, "KEEP"),
-                (ActionCode.A09_RESOLVE, "KEEP"),
+                (ActionCode.A04_DIAGNOSE, "succeeded"),
+                (ActionCode.A05_OPTIMIZE, "succeeded"),
+                (ActionCode.A06_GATE, "KEEP"),
+                (ActionCode.A07_RESOLVE, "KEEP"),
             )
         )
     )
     view = world_view.model_copy(update={"evidence_summary": evidence})
     safe = PermissionGate().safe_actions(view)
-    assert safe == (ActionCode.A06_DIAGNOSE, ActionCode.A10_FREEZE)
-    assert ActionCode.A07_OPTIMIZE not in safe
+    assert safe == (ActionCode.A04_DIAGNOSE, ActionCode.A08_FREEZE)
+    assert ActionCode.A05_OPTIMIZE not in safe

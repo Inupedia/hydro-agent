@@ -103,12 +103,12 @@ class ValidateSchemeHandler:
         return EvidencePacket(
             evidence_id=_evidence_id(),
             task_id=task_id,
-            action=ActionCode.A03_VALIDATE_SCHEME,
+            action=ActionCode.A02_VALIDATE_SCHEME,
             status=status,
             observations=observations,
             metrics=metrics,
             new_information_hash=information_hash(
-                action=ActionCode.A03_VALIDATE_SCHEME,
+                action=ActionCode.A02_VALIDATE_SCHEME,
                 status=status,
                 observations=observations,
                 metrics=metrics,
@@ -117,7 +117,7 @@ class ValidateSchemeHandler:
 
 
 class DiagnoseHandler:
-    """A06: evidence-grounded diagnosis using domain skills + forecast/obs errors."""
+    """A04: evidence-grounded diagnosis using domain skills + forecast/obs errors."""
 
     def __init__(self, repository, *, diagnose_fn):
         self.repository = repository
@@ -130,7 +130,7 @@ class DiagnoseHandler:
         # not to the forecast residual calculation itself. Carry it into the next
         # diagnosis so expert priors can decide whether a local window may widen.
         for row in reversed(self.repository.list_evidence(task_id)):
-            if row.action != ActionCode.A07_OPTIMIZE.value:
+            if row.action != ActionCode.A05_OPTIMIZE.value:
                 continue
             previous = dict(row.gates_json or {})
             local_hits = str(previous.get("local_boundary_hits") or "").strip()
@@ -196,13 +196,13 @@ class DiagnoseHandler:
         return EvidencePacket(
             evidence_id=_evidence_id(),
             task_id=task_id,
-            action=ActionCode.A06_DIAGNOSE,
+            action=ActionCode.A04_DIAGNOSE,
             status="succeeded",
             observations=observations,
             metrics=metrics,
             gates=gates,
             new_information_hash=information_hash(
-                action=ActionCode.A06_DIAGNOSE,
+                action=ActionCode.A04_DIAGNOSE,
                 status="succeeded",
                 observations=observations,
                 metrics=metrics,
@@ -234,13 +234,13 @@ class ForecastHandler:
             evidence_id=_evidence_id(),
             task_id=task_id,
             action_run_id=record.action_run_id,
-            action=ActionCode.A05_FORECAST,
+            action=ActionCode.A03_FORECAST,
             status="succeeded",
             observations=observations,
             metrics=metrics,
             artifact_ids=tuple(record.artifact_ids),
             new_information_hash=information_hash(
-                action=ActionCode.A05_FORECAST,
+                action=ActionCode.A03_FORECAST,
                 status="succeeded",
                 observations=observations,
                 metrics=metrics,
@@ -263,7 +263,7 @@ class OptimizeHandler:
         self.calibration_service = calibration_service
         self.candidate_service = candidate_service
         self.calibration_snapshot_id = calibration_snapshot_id
-        # Source-compatibility edge only. A07 never stores, resolves or forwards
+        # Source-compatibility edge only. A05 never stores, resolves or forwards
         # a development/validation snapshot into CalibrationService.
         _ = validation_snapshot_id
         self.policy = policy
@@ -279,7 +279,7 @@ class OptimizeHandler:
                 evidence_id=_evidence_id(),
                 task_id=task_id,
                 action_run_id=None,
-                action=ActionCode.A07_OPTIMIZE,
+                action=ActionCode.A05_OPTIMIZE,
                 status="blocked",
                 observations=observations,
                 metrics={},
@@ -289,7 +289,7 @@ class OptimizeHandler:
                 },
                 artifact_ids=(),
                 new_information_hash=information_hash(
-                    action=ActionCode.A07_OPTIMIZE,
+                    action=ActionCode.A05_OPTIMIZE,
                     status="blocked",
                     observations=observations,
                     metrics={},
@@ -345,14 +345,14 @@ class OptimizeHandler:
                 evidence_id=_evidence_id(),
                 task_id=task_id,
                 action_run_id=exc.action_run_id,
-                action=ActionCode.A07_OPTIMIZE,
+                action=ActionCode.A05_OPTIMIZE,
                 status="failed",
                 observations=observations,
                 metrics=metrics,
                 gates=gates,
                 artifact_ids=(),
                 new_information_hash=information_hash(
-                    action=ActionCode.A07_OPTIMIZE,
+                    action=ActionCode.A05_OPTIMIZE,
                     status="failed",
                     observations=observations,
                     metrics=metrics,
@@ -465,14 +465,14 @@ class OptimizeHandler:
             evidence_id=_evidence_id(),
             task_id=task_id,
             action_run_id=outcome.action_run_id,
-            action=ActionCode.A07_OPTIMIZE,
+            action=ActionCode.A05_OPTIMIZE,
             status="succeeded",
             observations=observations,
             metrics=metrics,
             gates=gates,
             artifact_ids=tuple(outcome.artifact_ids),
             new_information_hash=information_hash(
-                action=ActionCode.A07_OPTIMIZE,
+                action=ActionCode.A05_OPTIMIZE,
                 status="succeeded",
                 observations=observations,
                 metrics=metrics,
@@ -551,13 +551,13 @@ class GateHandler:
         return EvidencePacket(
             evidence_id=_evidence_id(),
             task_id=task_id,
-            action=ActionCode.A08_GATE,
+            action=ActionCode.A06_GATE,
             status=result.status,
             observations=observations,
             metrics=metrics,
             gates=gates,
             new_information_hash=information_hash(
-                action=ActionCode.A08_GATE,
+                action=ActionCode.A06_GATE,
                 status=result.status,
                 observations=observations,
                 metrics=metrics,
@@ -572,7 +572,7 @@ class ResolveHandler:
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
         evidence = self.repository.list_evidence(task_id)
         gate = next(
-            (row for row in reversed(evidence) if row.action == ActionCode.A08_GATE.value), None
+            (row for row in reversed(evidence) if row.action == ActionCode.A06_GATE.value), None
         )
         gate_status = "KEEP"
         adoption_status = "KEEP"
@@ -595,8 +595,8 @@ class ResolveHandler:
                     task_id, current_scheme_id=state.current_scheme_id
                 )
 
-        # A09 records the Gate transaction only. Qualification can produce ACCEPT,
-        # but A10 research closeout is separately governed by Campaign stop state.
+        # A07 records the Gate transaction only. Qualification can produce ACCEPT,
+        # but A08 research closeout is separately governed by Campaign stop state.
         if candidate_adopted and qualification_status == "QUALIFIED":
             resolve_status = "ACCEPT"
         elif gate_status == "ROLLBACK":
@@ -624,13 +624,13 @@ class ResolveHandler:
         return EvidencePacket(
             evidence_id=_evidence_id(),
             task_id=task_id,
-            action=ActionCode.A09_RESOLVE,
+            action=ActionCode.A07_RESOLVE,
             status=resolve_status,
             observations=observations,
             metrics=metrics,
             gates=gates,
             new_information_hash=information_hash(
-                action=ActionCode.A09_RESOLVE,
+                action=ActionCode.A07_RESOLVE,
                 status=resolve_status,
                 observations=observations,
                 metrics=metrics,
@@ -661,13 +661,13 @@ class ReplayToolHandler:
         return EvidencePacket(
             evidence_id=_evidence_id(),
             task_id=task_id,
-            action=ActionCode.A11_REPLAY,
+            action=ActionCode.A09_REPLAY,
             status="succeeded",
             observations=observations,
             metrics=metrics,
             artifact_ids=tuple(f.forecast_id for f in forecasts),
             new_information_hash=information_hash(
-                action=ActionCode.A11_REPLAY,
+                action=ActionCode.A09_REPLAY,
                 status="succeeded",
                 observations=observations,
                 metrics=metrics,
@@ -737,13 +737,13 @@ class EvaluateReportToolHandler:
         return EvidencePacket(
             evidence_id=_evidence_id(),
             task_id=task_id,
-            action=ActionCode.A12_EVALUATE_REPORT,
+            action=ActionCode.A10_EVALUATE_REPORT,
             status="succeeded",
             observations=observations,
             metrics=dict(evaluation.metrics),
             artifact_ids=tuple(artifacts),
             new_information_hash=information_hash(
-                action=ActionCode.A12_EVALUATE_REPORT,
+                action=ActionCode.A10_EVALUATE_REPORT,
                 status="succeeded",
                 observations=observations,
                 metrics=dict(evaluation.metrics),

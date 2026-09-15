@@ -6,7 +6,7 @@ metadata:
   purpose_zh: "区分蒸散发、蓄水与产流总量问题，避免用汇流参数补偿水量偏差。"
   when_to_use_zh: "PBIAS 或总径流量异常|模拟长期偏湿/偏旱|流域画像与模拟水量不一致"
   required_evidence_zh: "P/PET或蒸发语义/Q|PBIAS与总量比|流域面积|预热后水量统计"
-  recommended_actions: "A06_DIAGNOSE|A07_OPTIMIZE"
+  recommended_actions: "A04_DIAGNOSE|A05_OPTIMIZE"
   recommended_strategies: "xaj-water-balance-v1|xaj-hydro-composite-v1"
   counterexamples_zh: "不能用本 Skill 覆盖 Validator 参数边界|不能把流域画像当作真值"
   prompt_references: "references/water-balance.md|references/evap-runoff-semantics.md"

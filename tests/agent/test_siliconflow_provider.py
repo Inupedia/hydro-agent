@@ -19,6 +19,8 @@ from hydro_agent.agent.providers.siliconflow import (
 )
 from hydro_agent.llm.client import Completion
 from hydro_agent.llm.settings import LLMSettings
+from hydro_agent.skills import SkillRegistry
+from hydro_agent.skills.manager import SkillManager
 
 
 class FakeClient:
@@ -50,7 +52,7 @@ def _view() -> WorldStateView:
         task=TaskSummary(task_id="task-1", basin_id="camels_13235000", phase="B", forcing_mode="R"),
         model=ModelSummary(model_id="xaj", capabilities=("forecast", "calibrate")),
         scheme=SchemeSummary(scheme_id="scheme-base", status="base", content_hash="h"),
-        permissions=PermissionSummary(safe_actions=(ActionCode.A05_FORECAST,), paused=False),
+        permissions=PermissionSummary(safe_actions=(ActionCode.A03_FORECAST,), paused=False),
         budget=BudgetSummary(
             agent_rounds_remaining=20,
             optimization_cycles_remaining=4,
@@ -63,32 +65,32 @@ def _view() -> WorldStateView:
 def test_extract_json_repairs_truncated_object():
     text = (
         "[thinking]\nnext gate\n[/thinking]\n"
-        '{"action":"A08_GATE","hypothesis":"MODEL","strategy_id":null,'
+        '{"action":"A06_GATE","hypothesis":"MODEL","strategy_id":null,'
         '"rationale_summary":"候选已生成，进入独立验证 Gate。'
     )
     payload = _extract_json(text)
-    assert payload["action"] == "A08_GATE"
+    assert payload["action"] == "A06_GATE"
     assert payload["hypothesis"] == "MODEL"
 
 
 def test_normalize_does_not_force_freeze_after_resolve():
     payload = normalize_decision_payload(
         {
-            "action": "A07_OPTIMIZE",
+            "action": "A05_OPTIMIZE",
             "hypothesis": "MODEL",
             "strategy_id": "xaj-peak-bias-v1",
             "rationale_summary": "Gate KEEP 后继续按诊断策略再试一轮",
         },
         safe_actions={
-            "A06_DIAGNOSE",
-            "A07_OPTIMIZE",
-            "A08_GATE",
-            "A09_RESOLVE",
-            "A10_FREEZE",
+            "A04_DIAGNOSE",
+            "A05_OPTIMIZE",
+            "A06_GATE",
+            "A07_RESOLVE",
+            "A08_FREEZE",
         },
-        evidence_actions=("A08_GATE", "A09_RESOLVE"),
+        evidence_actions=("A06_GATE", "A07_RESOLVE"),
     )
-    assert payload["action"] == "A07_OPTIMIZE"
+    assert payload["action"] == "A05_OPTIMIZE"
     assert payload["strategy_id"] == "xaj-peak-bias-v1"
     payload = normalize_decision_payload(
         {
@@ -111,12 +113,12 @@ def test_normalize_does_not_force_freeze_after_resolve():
 def test_normalize_remaps_hydrologist_manual_to_bounded():
     payload = normalize_decision_payload(
         {
-            "action": "A07_OPTIMIZE",
+            "action": "A05_OPTIMIZE",
             "hypothesis": "MODEL",
             "strategy_id": "xaj-hydrologist-manual-v1",
             "rationale_summary": "try manual",
         },
-        safe_actions={"A07_OPTIMIZE"},
+        safe_actions={"A05_OPTIMIZE"},
     )
     assert payload["strategy_id"] == "xaj-bounded-v1"
 
@@ -128,17 +130,17 @@ def test_nse_progress_calibrates_when_nse_poor():
         update={
             "permissions": PermissionSummary(
                 safe_actions=(
-                    ActionCode.A06_DIAGNOSE,
-                    ActionCode.A07_OPTIMIZE,
-                    ActionCode.A08_GATE,
-                    ActionCode.A10_FREEZE,
+                    ActionCode.A04_DIAGNOSE,
+                    ActionCode.A05_OPTIMIZE,
+                    ActionCode.A06_GATE,
+                    ActionCode.A08_FREEZE,
                 ),
                 paused=False,
             ),
             "evidence_summary": (
                 EvidenceSummary(
                     evidence_id="ev-1",
-                    action=ActionCode.A06_DIAGNOSE,
+                    action=ActionCode.A04_DIAGNOSE,
                     status="succeeded",
                     new_information_hash="h1",
                     metrics={"nse": -1.2},
@@ -147,7 +149,7 @@ def test_nse_progress_calibrates_when_nse_poor():
             "hydro": HydroContext(
                 diagnosis={
                     "hypothesis": "MODEL",
-                    "recommended_action": "A07_OPTIMIZE",
+                    "recommended_action": "A05_OPTIMIZE",
                     "recommended_strategy_id": "xaj-peak-bias-v1",
                     "metrics": {"nse": -1.2},
                 }
@@ -157,14 +159,14 @@ def test_nse_progress_calibrates_when_nse_poor():
     out = _diagnosis_calibration_progress(
         view,
         {
-            "action": "A10_FREEZE",
+            "action": "A08_FREEZE",
             "hypothesis": "MODEL",
             "strategy_id": None,
             "rationale_summary": "looks ok",
         },
-        safe_actions={"A07_OPTIMIZE", "A10_FREEZE", "A08_GATE"},
+        safe_actions={"A05_OPTIMIZE", "A08_FREEZE", "A06_GATE"},
     )
-    assert out["action"] == "A07_OPTIMIZE"
+    assert out["action"] == "A05_OPTIMIZE"
     assert out["strategy_id"] == "xaj-peak-bias-v1"
 
 
@@ -174,13 +176,13 @@ def test_diagnosis_progress_freezes_when_dc_bing_floor_met():
     view = _view().model_copy(
         update={
             "permissions": PermissionSummary(
-                safe_actions=(ActionCode.A07_OPTIMIZE, ActionCode.A10_FREEZE),
+                safe_actions=(ActionCode.A05_OPTIMIZE, ActionCode.A08_FREEZE),
                 paused=False,
             ),
             "evidence_summary": (
                 EvidenceSummary(
                     evidence_id="ev-1",
-                    action=ActionCode.A06_DIAGNOSE,
+                    action=ActionCode.A04_DIAGNOSE,
                     status="succeeded",
                     new_information_hash="h1",
                     metrics={"nse": 0.72},
@@ -192,14 +194,14 @@ def test_diagnosis_progress_freezes_when_dc_bing_floor_met():
     out = _diagnosis_calibration_progress(
         view,
         {
-            "action": "A07_OPTIMIZE",
+            "action": "A05_OPTIMIZE",
             "hypothesis": "MODEL",
             "strategy_id": "xaj-bounded-v1",
             "rationale_summary": "x",
         },
-        safe_actions={"A07_OPTIMIZE", "A10_FREEZE"},
+        safe_actions={"A05_OPTIMIZE", "A08_FREEZE"},
     )
-    assert out["action"] == "A10_FREEZE"
+    assert out["action"] == "A08_FREEZE"
 
 
 def test_nse_progress_respects_custom_threshold():
@@ -208,13 +210,13 @@ def test_nse_progress_respects_custom_threshold():
     view = _view().model_copy(
         update={
             "permissions": PermissionSummary(
-                safe_actions=(ActionCode.A07_OPTIMIZE, ActionCode.A10_FREEZE),
+                safe_actions=(ActionCode.A05_OPTIMIZE, ActionCode.A08_FREEZE),
                 paused=False,
             ),
             "evidence_summary": (
                 EvidenceSummary(
                     evidence_id="ev-1",
-                    action=ActionCode.A06_DIAGNOSE,
+                    action=ActionCode.A04_DIAGNOSE,
                     status="succeeded",
                     new_information_hash="h1",
                     metrics={"nse": 0.45},
@@ -227,28 +229,28 @@ def test_nse_progress_respects_custom_threshold():
     out_low = _diagnosis_calibration_progress(
         view,
         {
-            "action": "A10_FREEZE",
+            "action": "A08_FREEZE",
             "hypothesis": "MODEL",
             "strategy_id": None,
             "rationale_summary": "x",
         },
-        safe_actions={"A07_OPTIMIZE", "A10_FREEZE"},
+        safe_actions={"A05_OPTIMIZE", "A08_FREEZE"},
         dc_bing_floor=0.5,
     )
-    assert out_low["action"] == "A07_OPTIMIZE"
+    assert out_low["action"] == "A05_OPTIMIZE"
     # 0.45 >= 0.4 → freeze when threshold lowered
     out_high = _diagnosis_calibration_progress(
         view,
         {
-            "action": "A07_OPTIMIZE",
+            "action": "A05_OPTIMIZE",
             "hypothesis": "MODEL",
             "strategy_id": "xaj-bounded-v1",
             "rationale_summary": "x",
         },
-        safe_actions={"A07_OPTIMIZE", "A10_FREEZE"},
+        safe_actions={"A05_OPTIMIZE", "A08_FREEZE"},
         dc_bing_floor=0.4,
     )
-    assert out_high["action"] == "A10_FREEZE"
+    assert out_high["action"] == "A08_FREEZE"
 
 
 def test_nse_progress_freezes_when_opt_budget_exhausted_after_keep():
@@ -263,25 +265,25 @@ def test_nse_progress_freezes_when_opt_budget_exhausted_after_keep():
                 max_optimization_cycles=4,
             ),
             "permissions": PermissionSummary(
-                safe_actions=(ActionCode.A07_OPTIMIZE, ActionCode.A10_FREEZE, ActionCode.A08_GATE),
+                safe_actions=(ActionCode.A05_OPTIMIZE, ActionCode.A08_FREEZE, ActionCode.A06_GATE),
                 paused=False,
             ),
             "evidence_summary": (
                 EvidenceSummary(
                     evidence_id="ev-opt",
-                    action=ActionCode.A07_OPTIMIZE,
+                    action=ActionCode.A05_OPTIMIZE,
                     status="succeeded",
                     new_information_hash="h-opt",
                 ),
                 EvidenceSummary(
                     evidence_id="ev-gate",
-                    action=ActionCode.A08_GATE,
+                    action=ActionCode.A06_GATE,
                     status="KEEP",
                     new_information_hash="h-gate",
                 ),
                 EvidenceSummary(
                     evidence_id="ev-resolve",
-                    action=ActionCode.A09_RESOLVE,
+                    action=ActionCode.A07_RESOLVE,
                     status="succeeded",
                     new_information_hash="h-resolve",
                 ),
@@ -297,10 +299,10 @@ def test_nse_progress_freezes_when_opt_budget_exhausted_after_keep():
             "strategy_id": None,
             "rationale_summary": "wander",
         },
-        # A07 not safe once opt cycles are gone — mirrors PermissionGate.
-        safe_actions={"A10_FREEZE", "A08_GATE"},
+        # A05 not safe once opt cycles are gone — mirrors PermissionGate.
+        safe_actions={"A08_FREEZE", "A06_GATE"},
     )
-    assert out["action"] == "A10_FREEZE"
+    assert out["action"] == "A08_FREEZE"
 
 
 def test_nse_progress_freezes_when_round_reserve_hit_after_keep():
@@ -315,19 +317,19 @@ def test_nse_progress_freezes_when_round_reserve_hit_after_keep():
                 max_optimization_cycles=4,
             ),
             "permissions": PermissionSummary(
-                safe_actions=(ActionCode.A10_FREEZE, ActionCode.A08_GATE, ActionCode.A09_RESOLVE),
+                safe_actions=(ActionCode.A08_FREEZE, ActionCode.A06_GATE, ActionCode.A07_RESOLVE),
                 paused=False,
             ),
             "evidence_summary": (
                 EvidenceSummary(
                     evidence_id="ev-gate",
-                    action=ActionCode.A08_GATE,
+                    action=ActionCode.A06_GATE,
                     status="KEEP",
                     new_information_hash="h-gate",
                 ),
                 EvidenceSummary(
                     evidence_id="ev-resolve",
-                    action=ActionCode.A09_RESOLVE,
+                    action=ActionCode.A07_RESOLVE,
                     status="succeeded",
                     new_information_hash="h-resolve",
                 ),
@@ -338,14 +340,14 @@ def test_nse_progress_freezes_when_round_reserve_hit_after_keep():
     out = _diagnosis_calibration_progress(
         view,
         {
-            "action": "A10_FREEZE",
+            "action": "A08_FREEZE",
             "hypothesis": "MODEL",
             "strategy_id": None,
             "rationale_summary": "x",
         },
-        safe_actions={"A10_FREEZE", "A08_GATE", "A09_RESOLVE"},
+        safe_actions={"A08_FREEZE", "A06_GATE", "A07_RESOLVE"},
     )
-    assert out["action"] == "A10_FREEZE"
+    assert out["action"] == "A08_FREEZE"
 
 
 def test_nse_progress_closes_the_latest_cycle_not_any_old_cycle():
@@ -360,21 +362,21 @@ def test_nse_progress_closes_the_latest_cycle_not_any_old_cycle():
         )
         for index, (action, status) in enumerate(
             (
-                (ActionCode.A07_OPTIMIZE, "succeeded"),
-                (ActionCode.A08_GATE, "KEEP"),
-                (ActionCode.A09_RESOLVE, "KEEP"),
-                (ActionCode.A06_DIAGNOSE, "succeeded"),
-                (ActionCode.A07_OPTIMIZE, "succeeded"),
+                (ActionCode.A05_OPTIMIZE, "succeeded"),
+                (ActionCode.A06_GATE, "KEEP"),
+                (ActionCode.A07_RESOLVE, "KEEP"),
+                (ActionCode.A04_DIAGNOSE, "succeeded"),
+                (ActionCode.A05_OPTIMIZE, "succeeded"),
             )
         )
     )
     view = _view().model_copy(update={"evidence_summary": evidence})
     out = _diagnosis_calibration_progress(
         view,
-        {"action": "A10_FREEZE", "hypothesis": "MODEL", "rationale_summary": "x"},
-        safe_actions={"A08_GATE"},
+        {"action": "A08_FREEZE", "hypothesis": "MODEL", "rationale_summary": "x"},
+        safe_actions={"A06_GATE"},
     )
-    assert out["action"] == "A08_GATE"
+    assert out["action"] == "A06_GATE"
 
 
 def test_nse_progress_rediagnoses_after_keep():
@@ -389,20 +391,20 @@ def test_nse_progress_rediagnoses_after_keep():
         )
         for index, (action, status) in enumerate(
             (
-                (ActionCode.A06_DIAGNOSE, "succeeded"),
-                (ActionCode.A07_OPTIMIZE, "succeeded"),
-                (ActionCode.A08_GATE, "KEEP"),
-                (ActionCode.A09_RESOLVE, "KEEP"),
+                (ActionCode.A04_DIAGNOSE, "succeeded"),
+                (ActionCode.A05_OPTIMIZE, "succeeded"),
+                (ActionCode.A06_GATE, "KEEP"),
+                (ActionCode.A07_RESOLVE, "KEEP"),
             )
         )
     )
     view = _view().model_copy(update={"evidence_summary": evidence})
     out = _diagnosis_calibration_progress(
         view,
-        {"action": "A07_OPTIMIZE", "hypothesis": "MODEL", "rationale_summary": "x"},
-        safe_actions={"A06_DIAGNOSE"},
+        {"action": "A05_OPTIMIZE", "hypothesis": "MODEL", "rationale_summary": "x"},
+        safe_actions={"A04_DIAGNOSE"},
     )
-    assert out["action"] == "A06_DIAGNOSE"
+    assert out["action"] == "A04_DIAGNOSE"
 
 
 def test_siliconflow_provider_injects_activated_skills():
@@ -412,17 +414,50 @@ def test_siliconflow_provider_injects_activated_skills():
         base_url="https://api.siliconflow.cn/v1",
     )
     text = (
-        '{"action":"A05_FORECAST","hypothesis":"MODEL","strategy_id":null,'
+        '{"action":"A03_FORECAST","hypothesis":"MODEL","strategy_id":null,'
         '"rationale_summary":"Run audited base forecast."}'
     )
     fake = FakeClient(text)
     provider = SiliconFlowDecisionProvider(client=fake, settings=settings)
-    provider.decide(_view())
+    decision = provider.decide(_view())
     system = fake.calls[0]["messages"][0]["content"]
     assert "Activated Agent Skills" in system
     assert "hydro-data-readiness" in system
+    assert "hydro-data-readiness" in decision.activated_skill_ids
     assert "data-check" not in system
     assert "forecast-diagnose" not in system
+
+
+def test_created_user_skill_reaches_live_decision_prompt(tmp_path):
+    settings = LLMSettings(
+        api_key=SecretStr("test-key"),
+        model="zai-org/GLM-5.3",
+        base_url="https://api.siliconflow.cn/v1",
+    )
+    registry = SkillRegistry(user_root=tmp_path / "user")
+    SkillManager(registry).save_skill(
+        "hydro-peak-timing",
+        """---
+name: hydro-peak-timing
+description: Guide peak timing diagnosis.
+metadata:
+  activation_stages: "diagnosis|experiment"
+  activation_model_ids: "xaj"
+---
+
+# Check peak timing against the full observed hydrograph.
+""",
+    )
+    fake = FakeClient(
+        '{"action":"A03_FORECAST","hypothesis":"MODEL","strategy_id":null,'
+        '"rationale_summary":"Run audited base forecast."}'
+    )
+    provider = SiliconFlowDecisionProvider(client=fake, settings=settings, skills=registry)
+    view = _view().model_copy(update={"latest_forecast_id": "forecast-1"})
+    decision = provider.decide(view)
+    system = fake.calls[0]["messages"][0]["content"]
+    assert "hydro-peak-timing" in decision.activated_skill_ids
+    assert "# Check peak timing against the full observed hydrograph." in system
 
 
 def test_siliconflow_provider_streams_deltas():
@@ -432,7 +467,7 @@ def test_siliconflow_provider_streams_deltas():
         base_url="https://api.siliconflow.cn/v1",
     )
     text = (
-        '{"action":"A05_FORECAST","hypothesis":"MODEL","strategy_id":null,'
+        '{"action":"A03_FORECAST","hypothesis":"MODEL","strategy_id":null,'
         '"rationale_summary":"Run audited base forecast."}'
     )
     fake = FakeClient(text)
@@ -440,9 +475,10 @@ def test_siliconflow_provider_streams_deltas():
     seen = []
     decision = provider.decide(_view(), on_delta=seen.append)
     assert decision == AgentDecision(
-        action=ActionCode.A05_FORECAST,
+        action=ActionCode.A03_FORECAST,
         hypothesis=ProblemHypothesis.MODEL,
         strategy_id=None,
         rationale_summary="Run audited base forecast.",
+        activated_skill_ids=("hydro-data-readiness",),
     )
     assert "".join(seen) == text

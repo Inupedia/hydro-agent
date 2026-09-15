@@ -62,13 +62,28 @@ def test_world_state_contains_only_decision_relevant_projection(seeded_repositor
     assert not hasattr(view, "filesystem_root")
 
 
+def test_v1_task_cannot_be_reinterpreted_by_v2_agent_runtime(database):
+    repo = HydroRepository(database)
+    repo.create_task(
+        task_id="legacy-task",
+        basin_id="b",
+        phase="B",
+        forcing_mode="R",
+        workflow_id="hydro-agent-calibration",
+        workflow_version="1.0.0",
+        workflow_hash="sha256:historical",
+    )
+    with pytest.raises(ValueError, match="bound to workflow 1.0.0"):
+        WorldStateBuilder(repo).build("legacy-task")
+
+
 def test_world_state_surfaces_audited_basin_prior_from_diagnosis(seeded_repository):
     seeded_repository.ensure_task_state("task-1", current_scheme_id="scheme-base")
     seeded_repository.add_evidence(
         EvidencePacket(
             evidence_id="ev-diagnosis-1",
             task_id="task-1",
-            action=ActionCode.A06_DIAGNOSE,
+            action=ActionCode.A04_DIAGNOSE,
             status="succeeded",
             observations=(
                 'basin_attributes_json={"aridity": 0.62, "runoff_ratio": 0.41}',
@@ -76,7 +91,7 @@ def test_world_state_surfaces_audited_basin_prior_from_diagnosis(seeded_reposito
             metrics={"nse": 0.2},
             gates={
                 "hypothesis": "MODEL",
-                "recommended_action": "A07_OPTIMIZE",
+                "recommended_action": "A05_OPTIMIZE",
                 "recommended_strategy_id": "xaj-bounded-v1",
             },
             new_information_hash="hash-diagnosis-1",

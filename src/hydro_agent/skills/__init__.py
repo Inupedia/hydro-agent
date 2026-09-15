@@ -33,6 +33,7 @@ EXPERIMENT_DESIGN_SKILL_ID = "hydro-experiment-design"
 CALIBRATION_SKILL_ID = "xaj-calibration"
 GBT_SKILL_ID = "gbt-22482-accuracy"
 SkillSource = Literal["builtin", "user", "memory"]
+ActivationStage = Literal["data", "diagnosis", "experiment", "gate", "report"]
 
 
 class SkillCard(FrozenModel):
@@ -182,19 +183,19 @@ class SkillRegistry:
         """
 
         actions = [item.action.value for item in view.evidence_summary]
-        has_forecast = bool(view.latest_forecast_id) or "A05_FORECAST" in actions
-        has_diagnose = "A06_DIAGNOSE" in actions
+        has_forecast = bool(view.latest_forecast_id) or "A03_FORECAST" in actions
+        has_diagnose = "A04_DIAGNOSE" in actions
         diagnosis = dict(view.hydro.diagnosis or {})
         hypothesis = str(diagnosis.get("hypothesis") or "").upper()
         groups = set(_name_list(diagnosis.get("recommended_param_groups")))
         has_candidate = bool(view.hydro.candidate_parameters)
-        need_gate = "A07_OPTIMIZE" in actions and "A08_GATE" not in actions
+        need_gate = "A05_OPTIMIZE" in actions and "A06_GATE" not in actions
         in_calibration_flow = (
             has_diagnose
             or has_candidate
-            or "A07_OPTIMIZE" in actions
-            or "A08_GATE" in actions
-            or "A09_RESOLVE" in actions
+            or "A05_OPTIMIZE" in actions
+            or "A06_GATE" in actions
+            or "A07_RESOLVE" in actions
         )
 
         selected: list[str] = []
@@ -221,18 +222,51 @@ class SkillRegistry:
             if view.task.allow_optimization and in_calibration_flow:
                 selected.extend((CALIBRATION_SKILL_ID, EXPERIMENT_DESIGN_SKILL_ID))
 
-        if need_gate or "A08_GATE" in actions or "A12_EVALUATE_REPORT" in actions:
+        if need_gate or "A06_GATE" in actions or "A10_EVALUATE_REPORT" in actions:
             selected.append(GBT_SKILL_ID)
 
         output: list[str] = []
         for skill_id in selected:
             if skill_id in self._cards and skill_id not in output:
                 output.append(skill_id)
+        stage = self.activation_stage(view)
+        for skill_id in sorted(self._loaded):
+            if self._sources.get(skill_id) != "user" or skill_id in output:
+                continue
+            skill = self._loaded[skill_id]
+            stages = skill.meta_list("activation_stages")
+            models = skill.meta_list("activation_model_ids")
+            if stage in stages and (not models or view.model.model_id in models):
+                output.append(skill_id)
         if not output and DATA_READINESS_SKILL_ID in self._cards:
             output.append(DATA_READINESS_SKILL_ID)
         return tuple(output)
 
-    def render_activated(self, view: WorldStateView) -> str:
+    @staticmethod
+    def activation_stage(view: WorldStateView) -> ActivationStage:
+        if view.task.phase in {"F", "E"}:
+            return "report"
+        from hydro_agent.agent.contracts import ActionCode
+        from hydro_agent.agent.permissions import (
+            latest_action_index,
+            pending_calibration_action,
+        )
+
+        if pending_calibration_action(view) is not None:
+            return "gate"
+        if view.hydro.campaign.stop_reason is not None:
+            return "report"
+        if latest_action_index(view, ActionCode.A07_RESOLVE) > latest_action_index(
+            view, ActionCode.A04_DIAGNOSE
+        ):
+            return "diagnosis"
+        if view.hydro.diagnosis or latest_action_index(view, ActionCode.A04_DIAGNOSE) >= 0:
+            return "experiment"
+        if view.latest_forecast_id or latest_action_index(view, ActionCode.A03_FORECAST) >= 0:
+            return "diagnosis"
+        return "data"
+
+    def activated_for_prompt(self, view: WorldStateView) -> tuple[tuple[str, ...], str]:
         self.reload()
         skill_ids = self.activate_for_view(view)
         chunks = [self.activate(skill_id) for skill_id in skill_ids]
@@ -244,7 +278,10 @@ class SkillRegistry:
             f"min_scheme_grade={self.min_scheme_grade()} "
             f"(standard={provenance['standard_id']}; policy={provenance['policy_id']}).\n\n"
         )
-        return header + "\n\n====\n\n".join(chunks)
+        return skill_ids, header + "\n\n====\n\n".join(chunks)
+
+    def render_activated(self, view: WorldStateView) -> str:
+        return self.activated_for_prompt(view)[1]
 
 
 def _name_list(raw: object) -> tuple[str, ...]:

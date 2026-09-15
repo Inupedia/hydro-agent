@@ -6,7 +6,7 @@ metadata:
   purpose_zh: "先确认资料、时间、单位、forcing 与状态语义可信，再允许模型实验。"
   when_to_use_zh: "首次运行前|模型技能为负且怀疑数据问题|数据源或时间窗口变化后"
   required_evidence_zh: "DataSnapshot|forcing/flow 时间范围|单位与 available_at|数据质量结果"
-  recommended_actions: "A03_VALIDATE_SCHEME|A05_FORECAST|A06_DIAGNOSE"
+  recommended_actions: "A02_VALIDATE_SCHEME|A03_FORECAST|A04_DIAGNOSE"
   counterexamples_zh: "不能因为 NSE 低就自动认定参数错误|不能读取 final-test 数据帮助率定"
   prompt_references: "references/data-semantics.md|references/leakage-checks.md"
 ---

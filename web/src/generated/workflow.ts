@@ -1,8 +1,8 @@
 /** Generated from workflow/hydro-agent.v*.json. Do not edit. */
 export const WORKFLOW = {
   "workflow_id": "hydro-agent-calibration",
-  "version": "1.0.0",
-  "hash": "sha256:a0aa0ee0be8cf8c095e5a15f341fed064dcbc7cad44e54d5494a21d91362306d",
+  "version": "2.0.0",
+  "hash": "sha256:011d87de0583ab26ffa1bec4ddf30b8cd7847f0ffdd9ace0fc9ebf9d03f50520",
   "display_stages": [
     {
       "id": "data",
@@ -23,15 +23,15 @@ export const WORKFLOW = {
   ],
   "step_order": [
     "A01_CHECK_DATA",
-    "A03_VALIDATE_SCHEME",
-    "A05_FORECAST",
-    "A06_DIAGNOSE",
-    "A07_OPTIMIZE",
-    "A08_GATE",
-    "A09_RESOLVE",
-    "A10_FREEZE",
-    "A11_REPLAY",
-    "A12_EVALUATE_REPORT"
+    "A02_VALIDATE_SCHEME",
+    "A03_FORECAST",
+    "A04_DIAGNOSE",
+    "A05_OPTIMIZE",
+    "A06_GATE",
+    "A07_RESOLVE",
+    "A08_FREEZE",
+    "A09_REPLAY",
+    "A10_EVALUATE_REPORT"
   ],
   "actions": {
     "M01_CHECK_MATERIALS": {
@@ -100,18 +100,7 @@ export const WORKFLOW = {
       "display_node": "check_data",
       "display_node_by_status": {}
     },
-    "A02_REPAIR_DATA": {
-      "kind": "runtime",
-      "enabled": false,
-      "label_zh": "资料修复",
-      "title_running_zh": "正在修复资料",
-      "title_done_zh": "修复了资料",
-      "explain_zh": "在资料检查失败后尝试修复；当前版本尚未启用。",
-      "display_stage": "data",
-      "display_node": "check_data",
-      "display_node_by_status": {}
-    },
-    "A03_VALIDATE_SCHEME": {
+    "A02_VALIDATE_SCHEME": {
       "kind": "runtime",
       "enabled": true,
       "label_zh": "方案校验",
@@ -122,18 +111,7 @@ export const WORKFLOW = {
       "display_node": "validate_scheme",
       "display_node_by_status": {}
     },
-    "A04_REBUILD_STATE": {
-      "kind": "runtime",
-      "enabled": false,
-      "label_zh": "重建状态",
-      "title_running_zh": "正在重建状态",
-      "title_done_zh": "重建了状态",
-      "explain_zh": "在状态假设成立时重建暖机状态；当前版本尚未启用。",
-      "display_stage": "forecast",
-      "display_node": "forecast",
-      "display_node_by_status": {}
-    },
-    "A05_FORECAST": {
+    "A03_FORECAST": {
       "kind": "runtime",
       "enabled": true,
       "label_zh": "基础预报",
@@ -144,7 +122,7 @@ export const WORKFLOW = {
       "display_node": "forecast",
       "display_node_by_status": {}
     },
-    "A06_DIAGNOSE": {
+    "A04_DIAGNOSE": {
       "kind": "runtime",
       "enabled": true,
       "label_zh": "预报诊断",
@@ -155,7 +133,7 @@ export const WORKFLOW = {
       "display_node": "diagnose",
       "display_node_by_status": {}
     },
-    "A07_OPTIMIZE": {
+    "A05_OPTIMIZE": {
       "kind": "runtime",
       "enabled": true,
       "label_zh": "有限调参",
@@ -166,7 +144,7 @@ export const WORKFLOW = {
       "display_node": "optimize",
       "display_node_by_status": {}
     },
-    "A08_GATE": {
+    "A06_GATE": {
       "kind": "runtime",
       "enabled": true,
       "label_zh": "把关 Gate",
@@ -177,7 +155,7 @@ export const WORKFLOW = {
       "display_node": "gate",
       "display_node_by_status": {}
     },
-    "A09_RESOLVE": {
+    "A07_RESOLVE": {
       "kind": "runtime",
       "enabled": true,
       "label_zh": "落实 Gate 结论",
@@ -194,7 +172,7 @@ export const WORKFLOW = {
         "failed": "blocked"
       }
     },
-    "A10_FREEZE": {
+    "A08_FREEZE": {
       "kind": "runtime",
       "enabled": true,
       "label_zh": "冻结方案",
@@ -205,7 +183,7 @@ export const WORKFLOW = {
       "display_node": "freeze",
       "display_node_by_status": {}
     },
-    "A11_REPLAY": {
+    "A09_REPLAY": {
       "kind": "runtime",
       "enabled": true,
       "label_zh": "历史回放",
@@ -216,7 +194,7 @@ export const WORKFLOW = {
       "display_node": "replay",
       "display_node_by_status": {}
     },
-    "A12_EVALUATE_REPORT": {
+    "A10_EVALUATE_REPORT": {
       "kind": "runtime",
       "enabled": true,
       "label_zh": "评估报告",

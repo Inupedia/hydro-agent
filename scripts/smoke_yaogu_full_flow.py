@@ -92,13 +92,13 @@ def write_case_memory(repository, task_id: str) -> list[CalibrationCase]:
     pending_opt = None
     case_index = 0
     for row in rows:
-        if row.action == ActionCode.A06_DIAGNOSE.value:
+        if row.action == ActionCode.A04_DIAGNOSE.value:
             last_diagnosis = row
             continue
-        if row.action == ActionCode.A07_OPTIMIZE.value:
+        if row.action == ActionCode.A05_OPTIMIZE.value:
             pending_opt = (row, last_diagnosis)
             continue
-        if row.action != ActionCode.A08_GATE.value or pending_opt is None:
+        if row.action != ActionCode.A06_GATE.value or pending_opt is None:
             continue
         opt, diagnosis = pending_opt
         case_index += 1
@@ -284,7 +284,6 @@ def main() -> int:
         )
 
         packets = []
-        terminal_packet = None
         for _ in range(20):
             packet = runtime.run_round(task_id)
             packets.append(packet)
@@ -303,11 +302,9 @@ def main() -> int:
                 ),
                 flush=True,
             )
-            if packet.action == ActionCode.A12_EVALUATE_REPORT and packet.status == "succeeded":
-                terminal_packet = packet
+            if packet.action == ActionCode.A10_EVALUATE_REPORT and packet.status == "succeeded":
                 break
-            if packet.action == ActionCode.A10_FREEZE and packet.status == "blocked":
-                terminal_packet = packet
+            if packet.action == ActionCode.A08_FREEZE and packet.status == "blocked":
                 break
         else:
             raise RuntimeError("calibration scientist did not close out within smoke resource limit")
@@ -316,17 +313,17 @@ def main() -> int:
         state = repository.ensure_task_state(task_id)
         campaign = world_state.build(task_id).hydro.campaign
         evidence = repository.list_evidence(task_id)
-        gate_packets = [packet for packet in packets if packet.action == ActionCode.A08_GATE]
+        gate_packets = [packet for packet in packets if packet.action == ActionCode.A06_GATE]
         cases = write_case_memory(repository, task_id)
         standards = StandardRepository()
         standard = standards.standard()
         policy = standards.policy()
         area_km2 = float(plan["area_km2"]) if plan.get("area_km2") is not None else None
-        diagnoses = [packet for packet in packets if packet.action == ActionCode.A06_DIAGNOSE]
-        optimizations = [packet for packet in packets if packet.action == ActionCode.A07_OPTIMIZE]
-        freeze_packets = [packet for packet in packets if packet.action == ActionCode.A10_FREEZE]
-        replay_packets = [packet for packet in packets if packet.action == ActionCode.A11_REPLAY]
-        eval_packets = [packet for packet in packets if packet.action == ActionCode.A12_EVALUATE_REPORT]
+        diagnoses = [packet for packet in packets if packet.action == ActionCode.A04_DIAGNOSE]
+        optimizations = [packet for packet in packets if packet.action == ActionCode.A05_OPTIMIZE]
+        freeze_packets = [packet for packet in packets if packet.action == ActionCode.A08_FREEZE]
+        replay_packets = [packet for packet in packets if packet.action == ActionCode.A09_REPLAY]
+        eval_packets = [packet for packet in packets if packet.action == ActionCode.A10_EVALUATE_REPORT]
         strict_predevelopment = all(
             any(
                 "diagnostic_truth_strictly_precedes_development=true" in obs
@@ -342,7 +339,7 @@ def main() -> int:
         )
         optimization_protocol_safe = bool(optimizations) and all(
             _has_observation(packet, "development_window=2000-05-05..2000-05-07")
-            and _has_observation(packet, "development_evaluated_by=A08_GATE")
+            and _has_observation(packet, "development_evaluated_by=A06_GATE")
             and _has_observation(packet, "final_test_accessed=false")
             for packet in optimizations
         )

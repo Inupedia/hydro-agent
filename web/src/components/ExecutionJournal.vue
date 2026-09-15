@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { api } from '../api/client'
 import { actionTitle } from '../demo/stages'
 import { WORKFLOW } from '../generated/workflow'
+import { currentActionId } from '../workflow/legacyActions'
 import type { AgentRoundLogItem, TimelineItem } from '../types/api'
 
 const props = defineProps<{
@@ -148,7 +149,7 @@ function observationValue(round: AgentRoundLogItem | null, key: string) {
 
 function workflowExplain(action: string | null) {
   if (!action) return ''
-  const item = WORKFLOW.actions[action as keyof typeof WORKFLOW.actions]
+  const item = WORKFLOW.actions[currentActionId(action) as keyof typeof WORKFLOW.actions]
   return item?.explain_zh || ''
 }
 
@@ -197,7 +198,7 @@ function optimizerLabel(value: string) {
 function calibrationTags(event: TimelineItem) {
   const round = matchingRound(event)
   const tags: string[] = []
-  if (event.action === 'A07_OPTIMIZE') {
+  if (event.action === 'A05_OPTIMIZE') {
     const optimizer = observationValue(round, 'optimizer')
     const budget = observationValue(round, 'evaluation_budget')
     const evaluations = observationValue(round, 'model_evaluations')
@@ -205,7 +206,7 @@ function calibrationTags(event: TimelineItem) {
     if (budget && budget !== '0') tags.push(`预算 ${budget}`)
     if (evaluations && evaluations !== '0') tags.push(`模型运行 ${evaluations}`)
   }
-  if (event.action === 'A08_GATE' || event.action === 'A09_RESOLVE') {
+  if (event.action === 'A06_GATE' || event.action === 'A07_RESOLVE') {
     const adoption = observationValue(round, 'adoption_status')
     const qualification = observationValue(round, 'qualification_status')
     const adopted = observationValue(round, 'candidate_adopted')
@@ -221,7 +222,7 @@ function calibrationTags(event: TimelineItem) {
 
 function eventStatus(event: TimelineItem) {
   const round = matchingRound(event)
-  if (event.action === 'A09_RESOLVE' && observationValue(round, 'candidate_adopted') === 'true') {
+  if (event.action === 'A07_RESOLVE' && observationValue(round, 'candidate_adopted') === 'true') {
     return observationValue(round, 'qualification_status') === 'QUALIFIED' ? '采用并达标' : '采用并继续率定'
   }
   return STATUS_LABELS[event.status] || event.status || '执行记录'
@@ -233,18 +234,18 @@ function toolResult(event: TimelineItem, round: AgentRoundLogItem | null) {
   const qualification = observationValue(round, 'qualification_status')
   const adopted = observationValue(round, 'candidate_adopted') === 'true'
   if (status === 'RUNNING') return '工具正在执行，完成后会自动更新结果。'
-  if (event.action === 'A07_OPTIMIZE') {
+  if (event.action === 'A05_OPTIMIZE') {
     const optimizer = optimizerLabel(observationValue(round, 'optimizer'))
     const evaluations = observationValue(round, 'model_evaluations')
     if (optimizer && evaluations && evaluations !== '0') return `${optimizer} 完成 ${evaluations} 次有效模型运行并生成候选方案。`
   }
-  if (event.action === 'A08_GATE') {
+  if (event.action === 'A06_GATE') {
     if (adoption === 'ADOPT' && qualification === 'QUALIFIED') return '候选优于当前方案，并且已经达到资格条件。'
     if (adoption === 'ADOPT') return '候选值得采用为新的工作基线，但尚未达到最终资格条件。'
     if (adoption === 'REJECT') return '候选触发保护条件，本轮实验被拒绝。'
     if (adoption === 'KEEP') return '候选改善幅度不足，当前工作方案保持不变。'
   }
-  if (event.action === 'A09_RESOLVE' && adopted) {
+  if (event.action === 'A07_RESOLVE' && adopted) {
     return qualification === 'QUALIFIED'
       ? '候选已成为当前方案并达到资格条件，可以进入冻结与回放。'
       : '候选已成为新的当前方案，但尚未达标；下一轮将基于新基线重新诊断。'
@@ -299,7 +300,7 @@ function journalCopy(event: TimelineItem): JournalCopy {
 function displayTitle(event: TimelineItem) {
   const status = String(event.status || '').toUpperCase()
   const round = matchingRound(event)
-  if (event.action === 'A09_RESOLVE') {
+  if (currentActionId(event.action) === 'A07_RESOLVE') {
     const adopted = observationValue(round, 'candidate_adopted') === 'true'
     const qualification = observationValue(round, 'qualification_status')
     if (adopted && qualification === 'QUALIFIED') return '采用候选并通过资格评价'
@@ -308,7 +309,7 @@ function displayTitle(event: TimelineItem) {
     if (status === 'KEEP') return '保持当前方案'
     if (status === 'ACCEPT') return '采用候选方案'
   }
-  if (event.action === 'A08_GATE') return '候选采用与资格评价'
+  if (currentActionId(event.action) === 'A06_GATE') return '候选采用与资格评价'
   return event.label || actionTitle(event.action)
 }
 </script>

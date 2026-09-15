@@ -65,14 +65,14 @@ class CalibrationScientistDecisionProvider:
         latest = self._latest(view)
 
         if view.task.phase == "F":
-            action = self._fallback(view, ActionCode.A11_REPLAY)
+            action = self._fallback(view, ActionCode.A09_REPLAY)
             return AgentDecision(
                 action=action,
                 hypothesis=ProblemHypothesis.MODEL,
                 rationale_summary="冻结方案进入历史起报回放，率定参数不再变化。",
             )
         if view.task.phase == "E":
-            action = self._fallback(view, ActionCode.A12_EVALUATE_REPORT)
+            action = self._fallback(view, ActionCode.A10_EVALUATE_REPORT)
             return AgentDecision(
                 action=action,
                 hypothesis=ProblemHypothesis.MODEL,
@@ -80,34 +80,34 @@ class CalibrationScientistDecisionProvider:
             )
 
         if latest is None:
-            action = self._fallback(view, ActionCode.A03_VALIDATE_SCHEME)
+            action = self._fallback(view, ActionCode.A02_VALIDATE_SCHEME)
             return AgentDecision(
                 action=action,
                 hypothesis=ProblemHypothesis.MODEL,
                 rationale_summary="先验证 XAJ 方案与参数契约，再进行任何预报或率定。",
             )
 
-        if latest.action == ActionCode.A03_VALIDATE_SCHEME:
-            action = self._fallback(view, ActionCode.A05_FORECAST)
+        if latest.action == ActionCode.A02_VALIDATE_SCHEME:
+            action = self._fallback(view, ActionCode.A03_FORECAST)
             return AgentDecision(
                 action=action,
                 hypothesis=ProblemHypothesis.MODEL,
                 rationale_summary="运行当前基线方案，形成可诊断的真实模型输出。",
             )
 
-        if latest.action == ActionCode.A05_FORECAST:
-            action = self._fallback(view, ActionCode.A06_DIAGNOSE)
+        if latest.action == ActionCode.A03_FORECAST:
+            action = self._fallback(view, ActionCode.A04_DIAGNOSE)
             return AgentDecision(
                 action=action,
                 hypothesis=ProblemHypothesis.UNKNOWN,
                 rationale_summary="先基于验证期之前的多日历史误差形成水文诊断，不直接调参。",
             )
 
-        if latest.action == ActionCode.A06_DIAGNOSE:
+        if latest.action == ActionCode.A04_DIAGNOSE:
             diagnosis = self._diagnosis(view)
             hypothesis = self._hypothesis(diagnosis.get("hypothesis"))
             if view.hydro.campaign.stop_reason is not None:
-                action = self._fallback(view, ActionCode.A10_FREEZE)
+                action = self._fallback(view, ActionCode.A08_FREEZE)
                 return AgentDecision(
                     action=action,
                     hypothesis=hypothesis,
@@ -120,7 +120,7 @@ class CalibrationScientistDecisionProvider:
                 view.hydro.campaign.mode == "smoke"
                 and view.budget.optimization_cycles_remaining <= 0
             ):
-                action = self._fallback(view, ActionCode.A10_FREEZE)
+                action = self._fallback(view, ActionCode.A08_FREEZE)
                 return AgentDecision(
                     action=action,
                     hypothesis=ProblemHypothesis.RESOURCE,
@@ -135,47 +135,47 @@ class CalibrationScientistDecisionProvider:
                 campaign_objective=view.hydro.campaign_objective,
                 knowledge_context=self._skill_context(view),
             )
-            action = self._fallback(view, ActionCode.A07_OPTIMIZE)
+            action = self._fallback(view, ActionCode.A05_OPTIMIZE)
             return AgentDecision(
                 action=action,
                 hypothesis=hypothesis,
-                strategy_id=plan.strategy_id if action == ActionCode.A07_OPTIMIZE else None,
-                param_groups=(plan.parameter_groups if action == ActionCode.A07_OPTIMIZE else None),
-                objective=plan.objective if action == ActionCode.A07_OPTIMIZE else None,
+                strategy_id=plan.strategy_id if action == ActionCode.A05_OPTIMIZE else None,
+                param_groups=(plan.parameter_groups if action == ActionCode.A05_OPTIMIZE else None),
+                objective=plan.objective if action == ActionCode.A05_OPTIMIZE else None,
                 rationale_summary=plan.rationale[:600],
             )
 
-        if latest.action == ActionCode.A07_OPTIMIZE:
+        if latest.action == ActionCode.A05_OPTIMIZE:
             if latest.status != "succeeded":
-                action = self._fallback(view, ActionCode.A06_DIAGNOSE)
+                action = self._fallback(view, ActionCode.A04_DIAGNOSE)
                 return AgentDecision(
                     action=action,
                     hypothesis=ProblemHypothesis.RESOURCE,
                     rationale_summary="率定执行失败且没有可评估候选；重新诊断执行证据，不进入 Gate。",
                 )
-            action = self._fallback(view, ActionCode.A08_GATE)
+            action = self._fallback(view, ActionCode.A06_GATE)
             return AgentDecision(
                 action=action,
                 hypothesis=ProblemHypothesis.MODEL,
                 rationale_summary="数值优化只产生候选；必须进入独立验证 Gate，不能由率定期指标宣布成功。",
             )
 
-        if latest.action == ActionCode.A08_GATE:
-            action = self._fallback(view, ActionCode.A09_RESOLVE)
+        if latest.action == ActionCode.A06_GATE:
+            action = self._fallback(view, ActionCode.A07_RESOLVE)
             return AgentDecision(
                 action=action,
                 hypothesis=ProblemHypothesis.MODEL,
                 rationale_summary="按 Gate 结果执行接受、保持或回滚，禁止绕过独立验证。",
             )
 
-        if latest.action == ActionCode.A09_RESOLVE:
+        if latest.action == ActionCode.A07_RESOLVE:
             campaign = view.hydro.campaign
             gate_status = str(latest.gates.get("gate_status") or latest.status)
             qualification_status = str(latest.gates.get("qualification_status") or "")
             candidate_adopted = str(latest.gates.get("candidate_adopted") or "").lower() == "true"
 
             if campaign.stop_reason is not None:
-                action = self._fallback(view, ActionCode.A10_FREEZE)
+                action = self._fallback(view, ActionCode.A08_FREEZE)
                 return AgentDecision(
                     action=action,
                     hypothesis=ProblemHypothesis.MODEL,
@@ -189,7 +189,7 @@ class CalibrationScientistDecisionProvider:
                 view.hydro.campaign.mode == "smoke"
                 and view.budget.optimization_cycles_remaining <= 0
             ):
-                action = self._fallback(view, ActionCode.A10_FREEZE)
+                action = self._fallback(view, ActionCode.A08_FREEZE)
                 return AgentDecision(
                     action=action,
                     hypothesis=ProblemHypothesis.RESOURCE,
@@ -200,7 +200,7 @@ class CalibrationScientistDecisionProvider:
                     ),
                 )
 
-            action = self._fallback(view, ActionCode.A06_DIAGNOSE)
+            action = self._fallback(view, ActionCode.A04_DIAGNOSE)
             adopted_note = "已采用改进候选" if candidate_adopted else "候选未采用"
             plateau_note = (
                 " 当前为 plateau candidate，但尚未满足预注册重启检查，继续搜索。"
@@ -217,22 +217,22 @@ class CalibrationScientistDecisionProvider:
                 )[:600],
             )
 
-        if latest.action == ActionCode.A10_FREEZE:
-            action = self._fallback(view, ActionCode.A11_REPLAY)
+        if latest.action == ActionCode.A08_FREEZE:
+            action = self._fallback(view, ActionCode.A09_REPLAY)
             return AgentDecision(
                 action=action,
                 hypothesis=ProblemHypothesis.MODEL,
                 rationale_summary="冻结后执行历史起报回放。",
             )
-        if latest.action == ActionCode.A11_REPLAY:
-            action = self._fallback(view, ActionCode.A12_EVALUATE_REPORT)
+        if latest.action == ActionCode.A09_REPLAY:
+            action = self._fallback(view, ActionCode.A10_EVALUATE_REPORT)
             return AgentDecision(
                 action=action,
                 hypothesis=ProblemHypothesis.MODEL,
                 rationale_summary="回放完成后进入只读最终评价。",
             )
 
-        action = self._fallback(view, ActionCode.A06_DIAGNOSE)
+        action = self._fallback(view, ActionCode.A04_DIAGNOSE)
         return AgentDecision(
             action=action,
             hypothesis=ProblemHypothesis.UNKNOWN,

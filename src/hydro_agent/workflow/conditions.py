@@ -49,7 +49,7 @@ def always(_view: WorldStateView) -> bool:
 def forecast_done(view: WorldStateView) -> bool:
     return (
         view.latest_forecast_id is not None
-        or ActionCode.A05_FORECAST.value in _evidence_actions(view)
+        or ActionCode.A03_FORECAST.value in _evidence_actions(view)
     )
 
 
@@ -62,7 +62,7 @@ def needs_calibration(view: WorldStateView) -> bool:
 
     if not view.task.allow_optimization:
         return False
-    if ActionCode.A06_DIAGNOSE.value not in _evidence_actions(view):
+    if ActionCode.A04_DIAGNOSE.value not in _evidence_actions(view):
         return False
     if view.hydro.campaign.stop_reason is not None or not view.hydro.campaign.can_continue_search:
         return False
@@ -80,24 +80,24 @@ def calibration_good_enough(view: WorldStateView) -> bool:
     contains no NSE/GB-T/Skill threshold logic.
     """
 
-    if ActionCode.A06_DIAGNOSE.value not in _evidence_actions(view):
+    if ActionCode.A04_DIAGNOSE.value not in _evidence_actions(view):
         return False
-    if latest_action_index(view, ActionCode.A06_DIAGNOSE) <= latest_action_index(
-        view, ActionCode.A07_OPTIMIZE
+    if latest_action_index(view, ActionCode.A04_DIAGNOSE) <= latest_action_index(
+        view, ActionCode.A05_OPTIMIZE
     ):
         return False
     return _campaign_closeout_required(view) or not view.task.allow_optimization
 
 
 def candidate_ready(view: WorldStateView) -> bool:
-    return pending_calibration_action(view) == ActionCode.A08_GATE
+    return pending_calibration_action(view) == ActionCode.A06_GATE
 
 
 def gate_retry_allowed(view: WorldStateView) -> bool:
     """Compatibility predicate for the v1 diagram.
 
     The current calibration-scientist runtime does not jump directly from
-    Resolve to Optimize: it re-enters A06 diagnosis first.  Returning False here
+    Resolve to Optimize: it re-enters A04 diagnosis first.  Returning False here
     prevents the legacy diagram condition from authorizing a blind retry while
     the JSON transition is migrated separately.
     """
@@ -107,8 +107,8 @@ def gate_retry_allowed(view: WorldStateView) -> bool:
 
 
 def gate_accept_or_stop(view: WorldStateView) -> bool:
-    status = _latest_status(view, ActionCode.A09_RESOLVE.value) or _latest_status(
-        view, ActionCode.A08_GATE.value
+    status = _latest_status(view, ActionCode.A07_RESOLVE.value) or _latest_status(
+        view, ActionCode.A06_GATE.value
     )
     if status not in {"ACCEPT", "KEEP", "ROLLBACK"}:
         return False

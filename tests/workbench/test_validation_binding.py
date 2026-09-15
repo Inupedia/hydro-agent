@@ -68,7 +68,7 @@ def _add_optimize_evidence(
         EvidencePacket(
             evidence_id=evidence_id,
             task_id=task_id,
-            action=ActionCode.A07_OPTIMIZE,
+            action=ActionCode.A05_OPTIMIZE,
             status="succeeded",
             observations=(
                 f"candidate_scheme_id={candidate_scheme_id}",

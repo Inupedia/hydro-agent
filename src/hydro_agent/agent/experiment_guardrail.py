@@ -1,4 +1,4 @@
-"""Deterministic ExperimentPlan guardrail for A07 decisions."""
+"""Deterministic ExperimentPlan guardrail for A05 decisions."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from hydro_agent.optimization.ledger import TrialLedgerBuilder
 
 def _latest_diagnosis(view: WorldStateView):
     for item in reversed(view.evidence_summary):
-        if item.action == ActionCode.A06_DIAGNOSE:
+        if item.action == ActionCode.A04_DIAGNOSE:
             return item
     return None
 
@@ -24,16 +24,16 @@ def apply_experiment_plan_guardrail(
     *,
     planner: ExperimentPlanner | None = None,
 ) -> AgentDecision:
-    """Replace novelty-based A07 choices with an evidence-conditioned registered plan.
+    """Replace novelty-based A05 choices with an evidence-conditioned registered plan.
 
-    The LLM still decides whether optimization is warranted. Once A07 is chosen,
+    The LLM still decides whether optimization is warranted. Once A05 is chosen,
     however, strategy/groups are selected from persisted diagnosis and prior trial
     outcomes while the objective is fixed by the campaign workbench contract. If
     planning context is unavailable, the original legal decision is retained rather
     than inventing evidence.
     """
 
-    if decision.action != ActionCode.A07_OPTIMIZE:
+    if decision.action != ActionCode.A05_OPTIMIZE:
         return decision
     available = tuple(view.hydro.available_strategies)
     if not available:

@@ -6,17 +6,15 @@ from hydro_agent.workflow.models import WorkflowDefinition
 
 HANDLER_TO_ACTION = {
     "check_data": ActionCode.A01_CHECK_DATA,
-    "repair_data": ActionCode.A02_REPAIR_DATA,
-    "validate_scheme": ActionCode.A03_VALIDATE_SCHEME,
-    "rebuild_state": ActionCode.A04_REBUILD_STATE,
-    "forecast": ActionCode.A05_FORECAST,
-    "diagnose": ActionCode.A06_DIAGNOSE,
-    "optimize": ActionCode.A07_OPTIMIZE,
-    "gate": ActionCode.A08_GATE,
-    "resolve": ActionCode.A09_RESOLVE,
-    "freeze": ActionCode.A10_FREEZE,
-    "replay": ActionCode.A11_REPLAY,
-    "evaluate": ActionCode.A12_EVALUATE_REPORT,
+    "validate_scheme": ActionCode.A02_VALIDATE_SCHEME,
+    "forecast": ActionCode.A03_FORECAST,
+    "diagnose": ActionCode.A04_DIAGNOSE,
+    "optimize": ActionCode.A05_OPTIMIZE,
+    "gate": ActionCode.A06_GATE,
+    "resolve": ActionCode.A07_RESOLVE,
+    "freeze": ActionCode.A08_FREEZE,
+    "replay": ActionCode.A09_REPLAY,
+    "evaluate": ActionCode.A10_EVALUATE_REPORT,
 }
 
 

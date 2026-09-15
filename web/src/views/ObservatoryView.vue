@@ -316,7 +316,7 @@ const completedActions = computed(() =>
 const gateStatus = computed(() => {
   const fromResults = demo.results?.gate?.status
   if (typeof fromResults === 'string') return fromResults
-  const gate = [...demo.timeline].reverse().find((t) => t.action === 'A08_GATE' || t.action === 'A09_RESOLVE')
+  const gate = [...demo.timeline].reverse().find((t) => t.action === 'A06_GATE' || t.action === 'A07_RESOLVE')
   return typeof gate?.status === 'string' ? gate.status : null
 })
 const showTuning = computed(

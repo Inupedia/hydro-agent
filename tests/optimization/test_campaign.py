@@ -177,7 +177,7 @@ def test_budget_exhaustion_while_still_improving_is_not_convergence():
 def test_campaign_resume_rebuilds_identical_state_from_persisted_evidence():
     rows = [
         SimpleNamespace(
-            action="A07_OPTIMIZE",
+            action="A05_OPTIMIZE",
             evidence_id="ev-07",
             action_run_id="run-07",
             gates_json={
@@ -190,7 +190,7 @@ def test_campaign_resume_rebuilds_identical_state_from_persisted_evidence():
             metrics_json={"objective_value": 0.55, "model_evaluations": 512.0},
         ),
         SimpleNamespace(
-            action="A08_GATE",
+            action="A06_GATE",
             evidence_id="ev-08",
             status="ACCEPT",
             gates_json={
@@ -205,7 +205,7 @@ def test_campaign_resume_rebuilds_identical_state_from_persisted_evidence():
             },
         ),
         SimpleNamespace(
-            action="A09_RESOLVE",
+            action="A07_RESOLVE",
             evidence_id="ev-09",
             status="KEEP",
             gates_json={

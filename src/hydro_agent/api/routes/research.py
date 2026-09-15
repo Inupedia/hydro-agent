@@ -45,7 +45,7 @@ def _protocol(workbench: dict[str, Any]) -> dict[str, Any]:
 
 
 def _latest_experiment_plan(evidence_rows) -> dict[str, Any] | None:
-    row = next((item for item in reversed(evidence_rows) if item.action == "A07_OPTIMIZE"), None)
+    row = next((item for item in reversed(evidence_rows) if item.action == "A05_OPTIMIZE"), None)
     if row is None:
         return None
     gates = dict(row.gates_json or {})
@@ -92,7 +92,7 @@ def _load_final_test_evidence(report_root: Path | None, task_id: str) -> dict[st
     if report_root is None:
         return None
 
-    # New tasks persist the exact A12 evidence bundle. This is the canonical
+    # New tasks persist the exact A10 evidence bundle. This is the canonical
     # source for Web/report/benchmark consumers and avoids metric drift.
     persisted = _read_json(_task_report_path(report_root, task_id, "research-evidence.json"))
     if persisted:
@@ -150,7 +150,7 @@ def _load_final_test_evidence(report_root: Path | None, task_id: str) -> dict[st
 
 def _final_test_audit(evidence_rows) -> dict[str, Any]:
     evaluation = next(
-        (item for item in reversed(evidence_rows) if item.action == "A12_EVALUATE_REPORT"),
+        (item for item in reversed(evidence_rows) if item.action == "A10_EVALUATE_REPORT"),
         None,
     )
     observations = list(evaluation.observations_json or []) if evaluation is not None else []

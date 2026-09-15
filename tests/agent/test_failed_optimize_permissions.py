@@ -30,7 +30,7 @@ def test_failed_a07_consumes_ledger_budget_without_requiring_gate():
         evidence_summary=(
             EvidenceSummary(
                 evidence_id="ev-a07-failed",
-                action=ActionCode.A07_OPTIMIZE,
+                action=ActionCode.A05_OPTIMIZE,
                 status="failed",
                 new_information_hash="failed-hash",
                 metrics={"model_evaluations": 53.0},
@@ -44,6 +44,6 @@ def test_failed_a07_consumes_ledger_budget_without_requiring_gate():
 
     assert pending_calibration_action(view) is None
     safe = PermissionGate().safe_actions(view)
-    assert ActionCode.A08_GATE not in safe
-    assert ActionCode.A07_OPTIMIZE in safe
+    assert ActionCode.A06_GATE not in safe
+    assert ActionCode.A05_OPTIMIZE in safe
     assert closeout_pending(view) is False

@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from hydro_agent.agent.contracts import ActionCode, EvidencePacket
+from hydro_agent.api.timeline import timeline_label
 
 CREATE_BODY = {
     "basin_id": "camels_13235000",
@@ -13,6 +14,26 @@ CREATE_BODY = {
     "max_agent_decision_rounds": 20,
     "max_optimization_cycles": 4,
 }
+
+
+def test_historical_v1_timeline_labels_keep_their_meaning():
+    assert timeline_label("A05_FORECAST", "succeeded") == "预报完成"
+    assert timeline_label("A08_GATE", "KEEP") == "候选有变化，但未达到采用条件"
+
+
+def test_historical_v1_task_is_rejected_before_enqueuing(client, repository):
+    repository.create_task(
+        task_id="legacy-task",
+        basin_id="b",
+        phase="B",
+        forcing_mode="R",
+        workflow_id="hydro-agent-calibration",
+        workflow_version="1.0.0",
+        workflow_hash="sha256:historical",
+    )
+    response = client.post("/api/tasks/legacy-task/run")
+    assert response.status_code == 409
+    assert "连续的 Action 编号" in response.json()["detail"]
 
 
 def test_run_pause_resume_endpoints(client):
@@ -45,7 +66,7 @@ def test_timeline_uses_business_language_and_keeps_ids_in_details(client, reposi
             evidence_id="ev-forecast",
             task_id=task_id,
             action_run_id="run-1",
-            action=ActionCode.A05_FORECAST,
+            action=ActionCode.A03_FORECAST,
             status="succeeded",
             observations=("forecast_ok",),
             metrics={"lead_1": 1.0},
@@ -56,7 +77,7 @@ def test_timeline_uses_business_language_and_keeps_ids_in_details(client, reposi
         EvidencePacket(
             evidence_id="ev-gate",
             task_id=task_id,
-            action=ActionCode.A08_GATE,
+            action=ActionCode.A06_GATE,
             status="ROLLBACK",
             observations=("gate_status=ROLLBACK", "lead_guardrail"),
             gates={"status": "ROLLBACK"},

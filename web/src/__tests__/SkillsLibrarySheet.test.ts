@@ -30,59 +30,104 @@ describe('SkillsLibrarySheet', () => {
           title_zh: '误差诊断',
           purpose_zh: '解释误差模式',
           source: 'builtin',
+          editable: false,
+        },
+        {
+          skill_id: 'hydro-peak-timing',
+          name: 'hydro-peak-timing',
+          description: '洪峰时滞',
+          title_zh: '洪峰时滞',
+          purpose_zh: '洪峰时滞',
+          source: 'user',
           editable: true,
         },
       ],
     })
-    vi.mocked(api.getSkill).mockResolvedValue({
-      skill_id: 'hydro-error-diagnosis',
-      name: 'hydro-error-diagnosis',
-      description: '诊断',
-      title_zh: '误差诊断',
-      purpose_zh: '解释误差模式',
-      source: 'builtin',
-      editable: true,
-      skill_md: '---\nname: hydro-error-diagnosis\ndescription: 诊断\n---\n\n# body\n',
-      body: '# body',
-      metadata: { title_zh: '误差诊断' },
-      resources: [
-        {
-          path: 'references/metric-patterns.md',
-          category: 'references',
+    vi.mocked(api.getSkill).mockImplementation(async (skillId: string) => {
+      if (skillId === 'hydro-peak-timing') {
+        return {
+          skill_id: 'hydro-peak-timing',
+          name: 'hydro-peak-timing',
+          description: '洪峰时滞',
+          title_zh: '洪峰时滞',
+          purpose_zh: '洪峰时滞',
+          source: 'user',
           editable: true,
-          size: 12,
-        },
-      ],
+          skill_md: '---\nname: hydro-peak-timing\ndescription: 洪峰时滞\n---\n\n# body\n',
+          body: '# body',
+          metadata: { title_zh: '洪峰时滞' },
+          resources: [],
+        }
+      }
+      return {
+        skill_id: 'hydro-error-diagnosis',
+        name: 'hydro-error-diagnosis',
+        description: '诊断',
+        title_zh: '误差诊断',
+        purpose_zh: '解释误差模式',
+        source: 'builtin',
+        editable: false,
+        skill_md: '---\nname: hydro-error-diagnosis\ndescription: 诊断\n---\n\n# body\n',
+        body: '# body',
+        metadata: { title_zh: '误差诊断' },
+        resources: [
+          {
+            path: 'references/metric-patterns.md',
+            category: 'references',
+            editable: false,
+            size: 12,
+          },
+        ],
+      }
     })
     vi.mocked(api.saveSkill).mockImplementation(async (_id, skill_md) => ({
-      skill_id: 'hydro-error-diagnosis',
-      name: 'hydro-error-diagnosis',
-      description: '诊断',
-      title_zh: '误差诊断',
-      purpose_zh: '解释误差模式',
+      skill_id: 'hydro-peak-timing',
+      name: 'hydro-peak-timing',
+      description: '洪峰时滞',
+      title_zh: '洪峰时滞',
+      purpose_zh: '洪峰时滞',
       source: 'user',
       editable: true,
       skill_md,
       body: 'updated',
-      metadata: { title_zh: '误差诊断' },
+      metadata: { title_zh: '洪峰时滞' },
       resources: [],
     }))
   })
 
-  it('lists skills and saves SKILL.md override', async () => {
+  it('frames the skill list and shows builtin skills as a viewer', async () => {
     mount(SkillsLibrarySheet, { props: { open: true } })
     await flushPromises()
 
     const sheet = portal('skills-library')
-    expect(sheet).toBeTruthy()
-    expect(sheet?.textContent).toContain('误差诊断')
+    expect(sheet?.querySelector('[data-test="skills-list"]')).toBeTruthy()
+    expect(sheet?.querySelector('.skills-list-pane')).toBeTruthy()
+    expect(portal('skills-readonly-hint')?.textContent).toContain('预览模式')
+    expect(portal('skills-readonly-badge')?.textContent).toContain('只读预览')
+    expect(portal('skills-viewer')?.textContent).toContain('hydro-error-diagnosis')
+    expect(sheet?.querySelector('[data-test="skills-md-editor"]')).toBeNull()
+    expect(portal('skills-save')).toBeNull()
+    expect(portal('skills-readonly-footer')?.textContent).toContain('无法保存')
+    expect(api.saveSkill).not.toHaveBeenCalled()
+  })
 
+  it('saves edits for user skills with a real editor', async () => {
+    mount(SkillsLibrarySheet, { props: { open: true } })
+    await flushPromises()
+
+    const sheet = portal('skills-library')
+    ;(sheet?.querySelector('[data-test="skill-row-hydro-peak-timing"]') as HTMLButtonElement).click()
+    await flushPromises()
+
+    expect(portal('skills-readonly-hint')).toBeNull()
+    expect(portal('skills-viewer')).toBeNull()
     const editor = sheet?.querySelector('[data-test="skills-md-editor"]') as HTMLTextAreaElement
-    expect(editor.value).toContain('hydro-error-diagnosis')
+    expect(editor).toBeTruthy()
     editor.value = `${editor.value}\nextra note\n`
     editor.dispatchEvent(new Event('input'))
 
     const save = sheet?.querySelector('[data-test="skills-save"]') as HTMLButtonElement
+    expect(save.disabled).toBe(false)
     save.click()
     await flushPromises()
 
@@ -92,63 +137,27 @@ describe('SkillsLibrarySheet', () => {
 
   it('creates a new skill from the create dialog', async () => {
     vi.mocked(api.saveSkill).mockResolvedValueOnce({
-      skill_id: 'hydro-peak-timing',
-      name: 'hydro-peak-timing',
-      description: '洪峰时滞',
-      title_zh: '洪峰时滞',
-      purpose_zh: '洪峰时滞',
+      skill_id: 'hydro-new-skill',
+      name: 'hydro-new-skill',
+      description: '新技能',
+      title_zh: '新技能',
+      purpose_zh: '新技能',
       source: 'user',
       editable: true,
-      skill_md: '---\nname: hydro-peak-timing\ndescription: 洪峰时滞\n---\n',
+      skill_md: '---\nname: hydro-new-skill\ndescription: 新技能\n---\n',
       body: '',
       metadata: {},
       resources: [],
     })
-    vi.mocked(api.listSkills)
-      .mockResolvedValueOnce({
-        items: [
-          {
-            skill_id: 'hydro-error-diagnosis',
-            name: 'hydro-error-diagnosis',
-            description: '诊断',
-            title_zh: '误差诊断',
-            purpose_zh: '解释误差模式',
-            source: 'builtin',
-            editable: true,
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        items: [
-          {
-            skill_id: 'hydro-error-diagnosis',
-            name: 'hydro-error-diagnosis',
-            description: '诊断',
-            title_zh: '误差诊断',
-            purpose_zh: '解释误差模式',
-            source: 'builtin',
-            editable: true,
-          },
-          {
-            skill_id: 'hydro-peak-timing',
-            name: 'hydro-peak-timing',
-            description: '洪峰时滞',
-            title_zh: '洪峰时滞',
-            purpose_zh: '洪峰时滞',
-            source: 'user',
-            editable: true,
-          },
-        ],
-      })
     vi.mocked(api.getSkill).mockResolvedValue({
-      skill_id: 'hydro-peak-timing',
-      name: 'hydro-peak-timing',
-      description: '洪峰时滞',
-      title_zh: '洪峰时滞',
-      purpose_zh: '洪峰时滞',
+      skill_id: 'hydro-new-skill',
+      name: 'hydro-new-skill',
+      description: '新技能',
+      title_zh: '新技能',
+      purpose_zh: '新技能',
       source: 'user',
       editable: true,
-      skill_md: '---\nname: hydro-peak-timing\ndescription: 洪峰时滞\n---\n',
+      skill_md: '---\nname: hydro-new-skill\ndescription: 新技能\n---\n',
       body: '',
       metadata: {},
       resources: [],
@@ -160,19 +169,21 @@ describe('SkillsLibrarySheet', () => {
     await flushPromises()
 
     const create = portal('skills-create-dialog')
-    expect(create).toBeTruthy()
     const id = create?.querySelector('[data-test="skills-create-id"]') as HTMLInputElement
     const title = create?.querySelector('[data-test="skills-create-title"]') as HTMLInputElement
-    id.value = 'hydro-peak-timing'
+    id.value = 'hydro-new-skill'
     id.dispatchEvent(new Event('input'))
-    title.value = '洪峰时滞'
+    title.value = '新技能'
     title.dispatchEvent(new Event('input'))
     ;(create?.querySelector('[data-test="skills-create-submit"]') as HTMLButtonElement).click()
     await flushPromises()
 
     expect(api.saveSkill).toHaveBeenCalledWith(
-      'hydro-peak-timing',
-      expect.stringContaining('name: hydro-peak-timing'),
+      'hydro-new-skill',
+      expect.stringContaining('name: hydro-new-skill'),
     )
+    const saved = vi.mocked(api.saveSkill).mock.calls.at(-1)?.[1] || ''
+    expect(saved).toContain('activation_stages: "diagnosis|experiment"')
+    expect(saved).toContain('activation_model_ids: "xaj"')
   })
 })

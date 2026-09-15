@@ -15,15 +15,15 @@
         M04_BUILD_INPUTS: "inputs",
         M05_VALIDATE_PLAN: "plan",
         A01_CHECK_DATA: "check_data",
-        A03_VALIDATE_SCHEME: "validate_scheme",
-        A05_FORECAST: "forecast",
-        A06_DIAGNOSE: "diagnose",
-        A07_OPTIMIZE: "optimize",
-        A08_GATE: "gate",
-        A09_RESOLVE: "keep",
-        A10_FREEZE: "freeze",
-        A11_REPLAY: "replay",
-        A12_EVALUATE_REPORT: "report",
+        A02_VALIDATE_SCHEME: "validate_scheme",
+        A03_FORECAST: "forecast",
+        A04_DIAGNOSE: "diagnose",
+        A05_OPTIMIZE: "optimize",
+        A06_GATE: "gate",
+        A07_RESOLVE: "keep",
+        A08_FREEZE: "freeze",
+        A09_REPLAY: "replay",
+        A10_EVALUATE_REPORT: "report",
       };
 
   const ACTION_TITLE = META
@@ -32,29 +32,29 @@
       )
     : {
         A01_CHECK_DATA: "资料检查",
-        A03_VALIDATE_SCHEME: "校验方案",
-        A05_FORECAST: "基础预报（XAJ）",
-        A06_DIAGNOSE: "预报诊断",
-        A07_OPTIMIZE: "有限参数优化（XAJ）",
-        A08_GATE: "Gate 把关",
-        A09_RESOLVE: "落实 Gate 结论",
-        A10_FREEZE: "冻结方案",
-        A11_REPLAY: "历史回放（XAJ）",
-        A12_EVALUATE_REPORT: "评估与报告",
+        A02_VALIDATE_SCHEME: "校验方案",
+        A03_FORECAST: "基础预报（XAJ）",
+        A04_DIAGNOSE: "预报诊断",
+        A05_OPTIMIZE: "有限参数优化（XAJ）",
+        A06_GATE: "Gate 把关",
+        A07_RESOLVE: "落实 Gate 结论",
+        A08_FREEZE: "冻结方案",
+        A09_REPLAY: "历史回放（XAJ）",
+        A10_EVALUATE_REPORT: "评估与报告",
       };
 
   const STEP_ORDER =
     (META && META.step_order) || [
       "A01_CHECK_DATA",
-      "A03_VALIDATE_SCHEME",
-      "A05_FORECAST",
-      "A06_DIAGNOSE",
-      "A07_OPTIMIZE",
-      "A08_GATE",
-      "A09_RESOLVE",
-      "A10_FREEZE",
-      "A11_REPLAY",
-      "A12_EVALUATE_REPORT",
+      "A02_VALIDATE_SCHEME",
+      "A03_FORECAST",
+      "A04_DIAGNOSE",
+      "A05_OPTIMIZE",
+      "A06_GATE",
+      "A07_RESOLVE",
+      "A08_FREEZE",
+      "A09_REPLAY",
+      "A10_EVALUATE_REPORT",
     ];
 
   function displayNode(action, status) {
@@ -513,7 +513,7 @@
             detail: `任务 ${taskId} · 右侧为评估结果`,
             busy: false,
             phase: "已完成",
-            steps: buildStepList(timeline, "A12_EVALUATE_REPORT", false),
+            steps: buildStepList(timeline, "A10_EVALUATE_REPORT", false),
             llmText: run.llm_text || "",
             llmStreaming: false,
           });

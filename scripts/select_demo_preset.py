@@ -30,7 +30,7 @@ from hydro_agent.workbench.calibration_scientist import CalibrationScientistWork
 
 def rank_demo_candidate(row: dict) -> tuple:
     """Prefer all-ACCEPT gates, then development NSE. Final-test must not rank."""
-    gates = [action for action in row.get("actions") or [] if action.get("action") == "A08_GATE"]
+    gates = [action for action in row.get("actions") or [] if action.get("action") == "A06_GATE"]
     score = row.get("development_score")
     return (
         bool(gates) and all(action.get("status") == "ACCEPT" for action in gates),
@@ -144,9 +144,9 @@ def main():
                         break
                     packet = runtime.run_round(task_id)
                     if packet.action in (
-                        ActionCode.A10_FREEZE,
-                        ActionCode.A11_REPLAY,
-                        ActionCode.A12_EVALUATE_REPORT,
+                        ActionCode.A08_FREEZE,
+                        ActionCode.A09_REPLAY,
+                        ActionCode.A10_EVALUATE_REPORT,
                     ):
                         raise RuntimeError("selection must stop before final-test closeout")
                     row["actions"].append(
@@ -197,7 +197,7 @@ def main():
         if args.closeout_only:
             task_id = winner["task_id"]
             if any(
-                r.action == ActionCode.A12_EVALUATE_REPORT.value
+                r.action == ActionCode.A10_EVALUATE_REPORT.value
                 for r in repo.list_evidence(task_id)
             ):
                 raise RuntimeError("final-test was already consumed; do not run it twice")

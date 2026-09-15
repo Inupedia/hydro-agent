@@ -1,6 +1,6 @@
 """Rebuild calibration trials from the append-only Evidence table.
 
-No second database state is introduced. A07/A08/A09 evidence rows remain the
+No second database state is introduced. A05/A06/A07 evidence rows remain the
 source of truth and the Trial Ledger is a deterministic research view over those
 facts. This makes old tasks auditable and restartable without a schema migration.
 """
@@ -125,7 +125,7 @@ def agent_calibration_document(
 
 
 class TrialLedgerBuilder:
-    """Convert persisted A06→A07→A08→A09 cycles into structured trial records."""
+    """Convert persisted A04→A05→A06→A07 cycles into structured trial records."""
 
     def build(self, rows: Sequence[object]) -> TrialLedger:
         ledger = TrialLedger()
@@ -248,18 +248,18 @@ class TrialLedgerBuilder:
 
         for row in rows:
             action = _action(row)
-            if action == ActionCode.A06_DIAGNOSE.value:
+            if action == ActionCode.A04_DIAGNOSE.value:
                 latest_diagnosis_id = _evidence_id(row) or latest_diagnosis_id
                 continue
-            if action == ActionCode.A07_OPTIMIZE.value:
+            if action == ActionCode.A05_OPTIMIZE.value:
                 flush()
                 current = {"a07": row, "diagnosis_id": latest_diagnosis_id}
                 continue
             if current is None:
                 continue
-            if action == ActionCode.A08_GATE.value and current.get("a08") is None:
+            if action == ActionCode.A06_GATE.value and current.get("a08") is None:
                 current["a08"] = row
-            elif action == ActionCode.A09_RESOLVE.value and current.get("a09") is None:
+            elif action == ActionCode.A07_RESOLVE.value and current.get("a09") is None:
                 current["a09"] = row
                 flush()
 

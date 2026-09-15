@@ -13,7 +13,7 @@ class StubForecastHandler:
             evidence_id="ev-forecast",
             task_id=task_id,
             action_run_id=None,
-            action=ActionCode.A05_FORECAST,
+            action=ActionCode.A03_FORECAST,
             status="succeeded",
             observations=("forecast_ok",),
             metrics={"lead_1": 1.0},
@@ -41,20 +41,20 @@ def test_runtime_persists_decision_and_evidence(tmp_path):
     provider = ScriptedDecisionProvider(
         [
             AgentDecision(
-                action=ActionCode.A05_FORECAST,
+                action=ActionCode.A03_FORECAST,
                 hypothesis=ProblemHypothesis.MODEL,
                 rationale_summary="Run the base forecast.",
             )
         ]
     )
     router = ToolRouter()
-    router.register(ActionCode.A05_FORECAST, StubForecastHandler())
+    router.register(ActionCode.A03_FORECAST, StubForecastHandler())
     runtime = AgentRuntime(
         repo, provider=provider, tools=router, world_state=WorldStateBuilder(repo)
     )
     packet = runtime.run_round("task-1")
     assert packet.evidence_id == "ev-forecast"
-    assert repo.list_evidence("task-1")[-1].action == "A05_FORECAST"
+    assert repo.list_evidence("task-1")[-1].action == "A03_FORECAST"
     state = repo.get_task_state("task-1")
     assert state.agent_rounds_used == 1
     assert state.last_information_hash == "hash-forecast"

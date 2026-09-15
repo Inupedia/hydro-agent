@@ -26,14 +26,14 @@ def test_xaj_full_research_path_one_task(tmp_path):
     assert set(result["eval_metrics"]) >= {"NSE", "KGE", "MAE", "Bias"}
     assert result["report_paths"] == ["report.json", "report.md"]
     assert result["evidence_actions"] == [
-        "A03_VALIDATE_SCHEME",
-        "A05_FORECAST",
-        "A07_OPTIMIZE",
-        "A08_GATE",
-        "A09_RESOLVE",
-        "A10_FREEZE",
-        "A11_REPLAY",
-        "A12_EVALUATE_REPORT",
+        "A02_VALIDATE_SCHEME",
+        "A03_FORECAST",
+        "A05_OPTIMIZE",
+        "A06_GATE",
+        "A07_RESOLVE",
+        "A08_FREEZE",
+        "A09_REPLAY",
+        "A10_EVALUATE_REPORT",
     ]
     assert result["frozen_id"].startswith(f"{TASK_ID}--frozen-")
     assert result["gate_status"] in {"ACCEPT", "KEEP", "ROLLBACK"}
