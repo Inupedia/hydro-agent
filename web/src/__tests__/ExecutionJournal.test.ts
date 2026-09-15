@@ -212,4 +212,62 @@ describe('ExecutionJournal', () => {
     expect(list.scrollTop).toBe(900)
     expect(wrapper.findAll('.journal-event-card').at(-1)?.classes()).toContain('is-latest')
   })
+
+  it('labels activated agent skills above the skill chips', async () => {
+    mocks.getAgentLog.mockResolvedValueOnce({
+      task_id: 'task-skills',
+      rounds: [
+        {
+          round_number: 1,
+          occurred_at: '2026-09-13T06:00:01Z',
+          action: 'A04_DIAGNOSE',
+          action_zh: '结果诊断',
+          hypothesis: 'MODEL',
+          hypothesis_zh: '模型参数问题',
+          strategy_id: null,
+          rationale_summary: '继续诊断。',
+          llm_output: '',
+          input_summary_zh: '',
+          judgment_zh: '',
+          input_world_state: {},
+          tool_status: 'succeeded',
+          tool_status_zh: '已完成',
+          tool_observations: [],
+          tool_metrics: {},
+          activated_skill_ids: ['hydro-error-diagnosis', 'xaj-water-balance'],
+          error: null,
+        },
+      ],
+    })
+
+    const wrapper = mount(ExecutionJournal, {
+      props: {
+        taskId: 'task-skills',
+        running: false,
+        completed: true,
+        failed: false,
+        elapsed: '已结束',
+        events: [
+          {
+            id: 'diag',
+            occurred_at: '2026-09-13T06:00:01Z',
+            label: '完成诊断',
+            status: 'succeeded',
+            action: 'A04_DIAGNOSE',
+            evidence_id: 'ev-1',
+            details: {},
+          },
+        ],
+      },
+    })
+    await flushPromises()
+
+    const skills = wrapper.find('[data-test="activated-skills"]')
+    expect(skills.exists()).toBe(true)
+    expect(skills.text()).toContain('Agent Skills')
+    expect(skills.text()).toContain('本轮使用技能')
+    expect(skills.text()).toContain('hydro-error-diagnosis')
+    expect(skills.text()).toContain('xaj-water-balance')
+    expect(skills.findAll('.skill-chip-list li')).toHaveLength(2)
+  })
 })

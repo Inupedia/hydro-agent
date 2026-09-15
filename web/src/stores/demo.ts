@@ -240,14 +240,18 @@ export const useDemoStore = defineStore('demo', () => {
       throw new Error('任务正在运行，无法删除')
     }
 
-    const deleteResults = await Promise.allSettled(unique.map((task) => api.deleteTask(task.task_id)))
+    // Delete sequentially: SQLite immutability triggers are process-wide and
+    // concurrent deletes used to race so only one case was removed.
     const deletedIds = new Set<string>()
     const failedIds: string[] = []
-    deleteResults.forEach((result, index) => {
-      const id = unique[index].task_id
-      if (result.status === 'fulfilled') deletedIds.add(id)
-      else failedIds.push(id)
-    })
+    for (const task of unique) {
+      try {
+        await api.deleteTask(task.task_id)
+        deletedIds.add(task.task_id)
+      } catch {
+        failedIds.push(task.task_id)
+      }
+    }
 
     if (taskId.value && deletedIds.has(taskId.value)) resetSession()
     await loadCaseLibrary()

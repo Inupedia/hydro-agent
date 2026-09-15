@@ -365,11 +365,17 @@ function displayTitle(event: TimelineItem) {
           </div>
           <div
             v-if="activatedSkills(event).length"
-            class="calibration-tags"
+            class="skill-block"
             data-test="activated-skills"
-            aria-label="本轮激活技能"
+            aria-label="本轮激活的 Agent Skills"
           >
-            <span v-for="skillId in activatedSkills(event)" :key="skillId">{{ skillId }}</span>
+            <div class="skill-block-head">
+              <span class="skill-block-overline">Agent Skills</span>
+              <span class="skill-block-title">本轮使用技能</span>
+            </div>
+            <ul class="skill-chip-list">
+              <li v-for="skillId in activatedSkills(event)" :key="skillId">{{ skillId }}</li>
+            </ul>
           </div>
           <p class="event-subtitle">{{ journalCopy(event).analysis }}</p>
           <p v-if="journalCopy(event).observation" class="event-support"><span>观察</span>{{ journalCopy(event).observation }}</p>
@@ -411,7 +417,64 @@ function displayTitle(event: TimelineItem) {
 .event-title-row h3 { min-width: 0; margin: 4px 0 0; color: var(--text-primary); font-size: 14px; font-weight: 650; line-height: 1.4; overflow-wrap: anywhere; }
 .event-title-row time { flex: 0 0 auto; color: var(--text-tertiary); font-size: 10px; font-variant-numeric: tabular-nums; }
 .calibration-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
-.calibration-tags span { border: 1px solid var(--separator); border-radius: 999px; background: var(--surface-secondary); padding: 2px 7px; color: var(--text-secondary); font-size: 9px; font-weight: 650; line-height: 1.4; }
+.calibration-tags span {
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-xs, 6px);
+  background: var(--surface-secondary);
+  padding: 2px 7px;
+  color: var(--text-secondary);
+  font-size: 9px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+.skill-block {
+  margin-top: 9px;
+  border: 1px solid rgba(0, 122, 255, 0.12);
+  border-radius: var(--radius-sm, 10px);
+  background: var(--accent-soft);
+  padding: 8px 9px 9px;
+}
+.skill-block-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+  margin-bottom: 6px;
+}
+.skill-block-overline {
+  color: var(--accent-text);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.skill-block-title {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.skill-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.skill-chip-list li {
+  max-width: 100%;
+  border: 1px solid rgba(0, 122, 255, 0.16);
+  border-radius: var(--radius-xs, 6px);
+  background: rgba(255, 255, 255, 0.78);
+  padding: 3px 7px;
+  color: var(--accent-text);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 560;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
 .event-subtitle { margin: 7px 0 0; color: var(--text-primary); font-size: 12px; font-weight: 560; line-height: 1.65; overflow-wrap: anywhere; }
 .event-support { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 6px; margin: 7px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
 .event-support span { color: var(--text-tertiary); font-size: 10px; font-weight: 700; }

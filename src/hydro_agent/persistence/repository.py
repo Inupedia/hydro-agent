@@ -1,5 +1,6 @@
 from datetime import timezone
 from pathlib import PurePosixPath
+from threading import Lock
 
 from pydantic import AwareDatetime, TypeAdapter
 from sqlalchemy import delete, select, text, update
@@ -33,6 +34,9 @@ def timestamp(value):
 class HydroRepository:
     def __init__(self, database: Database) -> None:
         self.database = database
+        # delete_task drops/recreates process-wide immutability triggers; serialize
+        # so concurrent bulk deletes cannot race and leave only one task removed.
+        self._delete_lock = Lock()
 
     def _create(self, row):
         with self.database.session() as session:
@@ -73,6 +77,10 @@ class HydroRepository:
             return list(session.scalars(select(Task).order_by(Task.created_at, Task.task_id)))
 
     def delete_task(self, task_id: str) -> None:
+        with self._delete_lock:
+            self._delete_task_locked(task_id)
+
+    def _delete_task_locked(self, task_id: str) -> None:
         with self.database.session() as session:
             task = session.get(Task, task_id)
             if task is None:

@@ -56,5 +56,37 @@ def test_delete_task_removes_persisted_case(client):
     assert client.get(f"/api/tasks/{task_id}").status_code == 404
 
 
+def test_delete_multiple_tasks_removes_all_cases(client):
+    payload = {
+        "basin_id": "yaogu",
+        "model_id": "xaj",
+        "start_date": "2025-05-01",
+        "end_date": "2025-05-10",
+        "forcing_mode": "R",
+        "base_scheme_id": "scheme-base",
+        "allow_optimization": True,
+        "max_agent_decision_rounds": 20,
+        "max_optimization_cycles": 4,
+    }
+    ids = []
+    for offset in range(3):
+        body = {
+            **payload,
+            "start_date": f"2025-0{offset + 1}-01",
+            "end_date": f"2025-0{offset + 1}-10",
+            "name": f"case-{offset}",
+        }
+        created = client.post("/api/tasks", json=body)
+        assert created.status_code == 201
+        ids.append(created.json()["task_id"])
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        results = list(pool.map(lambda task_id: client.delete(f"/api/tasks/{task_id}"), ids))
+    assert [response.status_code for response in results] == [204, 204, 204]
+    assert client.get("/api/tasks").json() == []
+
+
 def test_no_browser_endpoint_executes_arbitrary_action(client):
     assert client.post("/api/tasks/task-1/actions/A05_OPTIMIZE").status_code == 404
