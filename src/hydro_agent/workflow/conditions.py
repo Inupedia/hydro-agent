@@ -9,7 +9,6 @@ from hydro_agent.agent.permissions import (
     CLOSEOUT_RESERVE_ROUNDS,
     latest_action_index,
     pending_calibration_action,
-    rediagnosis_required,
 )
 
 ConditionFn = Callable[[WorldStateView], bool]
