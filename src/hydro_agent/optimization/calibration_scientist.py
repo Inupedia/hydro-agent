@@ -12,9 +12,9 @@ from typing import Any, Literal
 from pydantic import Field
 
 from hydro_agent.execution.contracts import FrozenModel
-from hydro_agent.knowledge.expert import ExpertPriorEngine
-from hydro_agent.knowledge.governance import KnowledgeQueryContext
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
+from hydro_agent.skills.expert import ExpertPriorEngine
+from hydro_agent.skills.governance import KnowledgeQueryContext
 
 ParameterGroup = Literal["evap", "runoff", "routing"]
 ObjectiveName = Literal["nse", "peak", "composite"]
@@ -46,15 +46,12 @@ class CalibrationPlan(FrozenModel):
 
     @property
     def tunes_raw_parameter_vector(self) -> bool:
-        """Audit/UI guard: plans select groups, never raw parameter vectors."""
         return False
 
 
 class CalibrationReflection(FrozenModel):
     gate_status: Literal["ACCEPT", "KEEP", "ROLLBACK"]
-    qualification_status: Literal["QUALIFIED", "UNQUALIFIED", "NOT_EVALUATED"] = (
-        "NOT_EVALUATED"
-    )
+    qualification_status: Literal["QUALIFIED", "UNQUALIFIED", "NOT_EVALUATED"] = "NOT_EVALUATED"
     conclusion: str = Field(min_length=1)
     next_step: Literal["freeze", "re-diagnose", "rollback", "handover"]
     evidence: tuple[str, ...] = ()
@@ -82,8 +79,6 @@ def _name_list(raw: object) -> tuple[str, ...]:
 
 
 def _search_adjustment(diagnosis: dict[str, Any]) -> SearchAdjustment:
-    """Resolve search-window behavior only from registered experiment evidence."""
-
     if _name_list(diagnosis.get("absolute_boundary_hits")):
         return "hold_absolute_bounds"
     if _name_list(diagnosis.get("local_boundary_hits")):
@@ -98,17 +93,8 @@ def _progressive_strategy(
     adjustment: str | None,
     registry: CalibrationStrategyRegistry,
 ) -> str:
-    """Translate bounded search evidence into deterministic progression.
-
-    A fresh diagnosis owns the scientific strategy unless the latest numerical
-    experiment explicitly shows a local-window boundary hit. Only then do we
-    inspect the previous strategy and widen toward the existing teacher/kernel
-    absolute bounds. Absolute bounds themselves are never widened here.
-    """
-
     if adjustment != "broaden_within_absolute_bounds":
         return recommended_strategy_id
-
     source_strategy_id = previous_strategy_id or recommended_strategy_id
     if source_strategy_id == "xaj-broadened-refine-v1":
         return "xaj-bounded-v1"
@@ -139,21 +125,10 @@ def plan_from_diagnosis(
     campaign_objective: ObjectiveName | None = None,
     knowledge_context: KnowledgeQueryContext | None = None,
 ) -> CalibrationPlan:
-    """Translate a diagnosis into an auditable optimization experiment.
-
-    Evidence is primary. Governed expert priors may refine parameter groups and
-    objective suggestions, but remain advisory metadata and never alter Gate
-    rules, search-boundary safety, or teacher/kernel absolute parameter limits.
-    Unverified expert priors are inactive unless a campaign supplies an explicit
-    governed query context that permits them. When the campaign objective is
-    supplied (directly or as ``diagnosis['campaign_objective']``), it is immutable
-    for this plan and expert/diagnosis objective suggestions are ignored.
-    """
+    """Translate diagnosis into an auditable experiment using governed Skill priors."""
 
     registry = strategies or CalibrationStrategyRegistry()
-    recommended_strategy_id = str(
-        diagnosis.get("recommended_strategy_id") or "xaj-bounded-v1"
-    )
+    recommended_strategy_id = str(diagnosis.get("recommended_strategy_id") or "xaj-bounded-v1")
     try:
         strategy = registry.get(recommended_strategy_id)
     except KeyError:
@@ -163,7 +138,6 @@ def plan_from_diagnosis(
     groups = _normalize_groups(
         diagnosis.get("recommended_param_groups"), tuple(strategy.param_groups)
     )
-
     objective = str(diagnosis.get("recommended_objective") or strategy.objective)
     if objective not in {"nse", "peak", "composite"}:
         objective = strategy.objective
@@ -272,8 +246,6 @@ def reflect_on_gate(
     qualification_status: str = "NOT_EVALUATED",
     reasons: tuple[str, ...] = (),
 ) -> CalibrationReflection:
-    """Turn independent validation into the next scientific decision."""
-
     status = gate_status if gate_status in {"ACCEPT", "KEEP", "ROLLBACK"} else "KEEP"
     qualification = (
         qualification_status
