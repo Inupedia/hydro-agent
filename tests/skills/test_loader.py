@@ -1,16 +1,6 @@
 from pathlib import Path
 
-from hydro_agent.agent.contracts import (
-    ActionCode,
-    BudgetSummary,
-    EvidenceSummary,
-    HydroContext,
-    ModelSummary,
-    PermissionSummary,
-    SchemeSummary,
-    TaskSummary,
-    WorldStateView,
-)
+from hydro_agent.agent import contracts
 from hydro_agent.skills import SkillRegistry
 from hydro_agent.skills.loader import load_skills, parse_skill_md
 
@@ -40,43 +30,43 @@ def test_load_default_skills_from_disk():
 
 
 def test_activate_for_view_uses_process_skills_without_nse_stop_threshold():
-    view = WorldStateView(
-        task=TaskSummary(
+    view = contracts.WorldStateView(
+        task=contracts.TaskSummary(
             task_id="t1",
             basin_id="b",
             phase="B",
             forcing_mode="R",
             allow_optimization=True,
         ),
-        model=ModelSummary(model_id="xaj", capabilities=("forecast", "calibrate")),
-        scheme=SchemeSummary(scheme_id="s", status="base", content_hash="h"),
-        permissions=PermissionSummary(
-            safe_actions=(ActionCode.A07_OPTIMIZE, ActionCode.A10_FREEZE),
+        model=contracts.ModelSummary(model_id="xaj", capabilities=("forecast", "calibrate")),
+        scheme=contracts.SchemeSummary(scheme_id="s", status="base", content_hash="h"),
+        permissions=contracts.PermissionSummary(
+            safe_actions=(contracts.ActionCode.A07_OPTIMIZE, contracts.ActionCode.A10_FREEZE),
             paused=False,
         ),
-        budget=BudgetSummary(
+        budget=contracts.BudgetSummary(
             agent_rounds_remaining=10,
             optimization_cycles_remaining=2,
             max_agent_rounds=10,
             max_optimization_cycles=2,
         ),
         evidence_summary=(
-            EvidenceSummary(
+            contracts.EvidenceSummary(
                 evidence_id="e1",
-                action=ActionCode.A05_FORECAST,
+                action=contracts.ActionCode.A05_FORECAST,
                 status="succeeded",
                 new_information_hash="h1",
             ),
-            EvidenceSummary(
+            contracts.EvidenceSummary(
                 evidence_id="e2",
-                action=ActionCode.A06_DIAGNOSE,
+                action=contracts.ActionCode.A06_DIAGNOSE,
                 status="succeeded",
                 new_information_hash="h2",
                 metrics={"nse": 0.8},
             ),
         ),
         latest_forecast_id="f1",
-        hydro=HydroContext(
+        hydro=contracts.HydroContext(
             diagnosis={
                 "hypothesis": "TIMING",
                 "metrics": {"nse": 0.8},

@@ -5,8 +5,13 @@
   "received_on": "2026-09-13",
   "status": "atomized_governed_pending_verification",
   "authority": "advisory_only",
-  "governed_catalog": "knowledge/data/governed/xaj-skill-v3-2026-09-13-claims.json",
-  "activation_policy": "The source remains non-authoritative. Selected claims have been atomized into governed entries, but Agent planning receives only entries that pass authority, human-review, experimental-verification, applicability, exposure and dataset-provenance filters. Unverified diagnostic priors require explicit opt-in; constraint, benchmark and policy claims remain non-planning evidence.",
+  "governed_catalogs": [
+    "skills/xaj-water-balance/assets/governed/xaj-v3-water-balance-claims.json",
+    "skills/xaj-routing-diagnosis/assets/governed/xaj-v3-routing-claims.json",
+    "skills/hydro-experiment-design/assets/governed/xaj-v3-experiment-claims.json",
+    "skills/xaj-calibration/assets/governed/xaj-v3-calibration-claims.json"
+  ],
+  "activation_policy": "The source remains non-authoritative. Claims are split into focused Agent Skill packages by domain. Agent planning receives only advisory entries that pass authority, human-review, experimental-verification, applicability, exposure and dataset-provenance filters. Unverified diagnostic priors require explicit opt-in; constraint, benchmark and policy claims remain non-planning evidence.",
   "review_items": [
     {
       "claim_id": "xaj-v3-kg-ki-boundary",
@@ -38,7 +43,7 @@
       "source_locator": "skill_v3.md#6.2-6.3",
       "claim": "The material proposes Yaogu-specific water-balance and recession-shape diagnostic actions.",
       "disposition": "atomized_as_reviewed_unverified_advisory_priors",
-      "notes": "These priors require explicit allow_unverified_expert_priors opt-in, exact applicability match and no same-dataset leakage conflict before they can enter planning context."
+      "notes": "These priors are now owned by focused water-balance/routing Skill packages. They require explicit allow_unverified_expert_priors opt-in, exact applicability match and no same-dataset leakage conflict before entering planning context."
     },
     {
       "claim_id": "xaj-v3-validation-thresholds",
