@@ -1,9 +1,4 @@
-"""Deterministic calibration-scientist policy for reproducible research runs.
-
-This is deliberately not presented as an LLM. It implements the same scientific
-contract an LLM provider must satisfy so CI and O/P/A experiments can separate
-Agent architecture value from model-provider variance.
-"""
+"""Deterministic calibration-scientist policy for reproducible research runs."""
 
 from __future__ import annotations
 
@@ -15,17 +10,12 @@ from hydro_agent.agent.contracts import (
     ProblemHypothesis,
     WorldStateView,
 )
-from hydro_agent.knowledge.governance import KnowledgeQueryContext
 from hydro_agent.optimization.calibration_scientist import plan_from_diagnosis
+from hydro_agent.skills.governance import KnowledgeQueryContext
 
 
 class CalibrationScientistDecisionProvider:
-    """Evidence-conditioned Observe→Diagnose→Plan→Gate→Reflect policy.
-
-    Scientific stopping comes from the Campaign snapshot, never from a fixed
-    experiment count. ``max_experiments`` is accepted only as a deprecated
-    compatibility argument for old callers and has no effect on decisions.
-    """
+    """Evidence-conditioned Observe→Diagnose→Plan→Gate→Reflect policy."""
 
     def __init__(self, *, max_experiments: int | None = None) -> None:
         _ = max_experiments
@@ -50,7 +40,7 @@ class CalibrationScientistDecisionProvider:
         return diagnosis
 
     @staticmethod
-    def _knowledge_context(view: WorldStateView) -> KnowledgeQueryContext:
+    def _skill_context(view: WorldStateView) -> KnowledgeQueryContext:
         return KnowledgeQueryContext(
             model_id=str(view.model.model_id),
             basin_id=view.task.basin_id,
@@ -116,8 +106,6 @@ class CalibrationScientistDecisionProvider:
         if latest.action == ActionCode.A06_DIAGNOSE:
             diagnosis = self._diagnosis(view)
             hypothesis = self._hypothesis(diagnosis.get("hypothesis"))
-            # A diagnostic stop suggestion is evidence, not a Campaign stop.
-            # Only a preregistered Campaign condition may end automatic search.
             if view.hydro.campaign.stop_reason is not None:
                 action = self._fallback(view, ActionCode.A10_FREEZE)
                 return AgentDecision(
@@ -145,16 +133,14 @@ class CalibrationScientistDecisionProvider:
             plan = plan_from_diagnosis(
                 diagnosis,
                 campaign_objective=view.hydro.campaign_objective,
-                knowledge_context=self._knowledge_context(view),
+                knowledge_context=self._skill_context(view),
             )
             action = self._fallback(view, ActionCode.A07_OPTIMIZE)
             return AgentDecision(
                 action=action,
                 hypothesis=hypothesis,
                 strategy_id=plan.strategy_id if action == ActionCode.A07_OPTIMIZE else None,
-                param_groups=(
-                    plan.parameter_groups if action == ActionCode.A07_OPTIMIZE else None
-                ),
+                param_groups=(plan.parameter_groups if action == ActionCode.A07_OPTIMIZE else None),
                 objective=plan.objective if action == ActionCode.A07_OPTIMIZE else None,
                 rationale_summary=plan.rationale[:600],
             )
@@ -186,9 +172,7 @@ class CalibrationScientistDecisionProvider:
             campaign = view.hydro.campaign
             gate_status = str(latest.gates.get("gate_status") or latest.status)
             qualification_status = str(latest.gates.get("qualification_status") or "")
-            candidate_adopted = (
-                str(latest.gates.get("candidate_adopted") or "").lower() == "true"
-            )
+            candidate_adopted = str(latest.gates.get("candidate_adopted") or "").lower() == "true"
 
             if campaign.stop_reason is not None:
                 action = self._fallback(view, ActionCode.A10_FREEZE)
@@ -233,8 +217,6 @@ class CalibrationScientistDecisionProvider:
                 )[:600],
             )
 
-        # A10 changes phase synchronously only after the closeout tool accepts it;
-        # a blocked handover pauses before this provider is called again.
         if latest.action == ActionCode.A10_FREEZE:
             action = self._fallback(view, ActionCode.A11_REPLAY)
             return AgentDecision(
