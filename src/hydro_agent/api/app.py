@@ -16,9 +16,11 @@ from hydro_agent.api.routes import (
     research,
     results,
     runs,
-    skills as skill_routes,
     tasks,
     workflow,
+)
+from hydro_agent.api.routes import (
+    skills as skill_routes,
 )
 from hydro_agent.skills import SkillRegistry
 from hydro_agent.skills.manager import SkillManager
