@@ -1,0 +1,17 @@
+{
+  "policy_id": "hydro-agent-research-v1",
+  "type": "research_policy",
+  "purpose": "Hydro-Agent 单流域科研实验的候选方案 Gate 策略；不等价于正式水文预报发布准入。",
+  "standard_ref": "GB/T 22482-2026",
+  "allow_pre_effective_standard": true,
+  "notes": [
+    "GB/T 22482—2026 已发布但 2027-02-01 才实施，本课题提前作为目标规范和结构化知识来源使用。",
+    "标准知识负责定义评定方法和等级；项目策略负责决定科研候选何时 ACCEPT/KEEP/ROLLBACK。",
+    "当标准评定报告缺失时，不允许用单一 NSE 阈值替代标准知识直接 ACCEPT。"
+  ],
+  "gate": {
+    "min_scheme_grade": "丙",
+    "require_gbt_grade": true,
+    "fallback_without_standard_report": "KEEP"
+  }
+}
