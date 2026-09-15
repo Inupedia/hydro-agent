@@ -28,15 +28,11 @@ from hydro_agent.agent.world_state import WorldStateBuilder
 from hydro_agent.api.deps import AppDependencies
 from hydro_agent.api.schemas import TaskCreateRequest
 from hydro_agent.api.services import create_workbench_task
-from hydro_agent.knowledge import (
-    CalibrationCase,
-    CalibrationCaseMemory,
-    KnowledgeRepository,
-    lesson_from_gate,
-)
 from hydro_agent.modeling.plans import ModelPlanService, PlanRequest, bundled_academy_root
 from hydro_agent.persistence.database import Database
 from hydro_agent.persistence.repository import HydroRepository
+from hydro_agent.research import CalibrationCase, CalibrationCaseMemory, lesson_from_gate
+from hydro_agent.standards import StandardRepository
 from hydro_agent.workbench.calibration_scientist import CalibrationScientistWorkbenchKernel
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,7 +41,7 @@ PLAN_ROOT = OUT / "model-plans"
 DB_PATH = OUT / "hydro.db"
 REPORT_ROOT = OUT / "reports"
 WORK_ROOT = OUT / "runtime"
-CASE_PATH = OUT / "knowledge" / "calibration-cases.jsonl"
+CASE_PATH = OUT / "research" / "calibration-cases.jsonl"
 
 
 def wait_plan(service: ModelPlanService, plan_id: str, *, timeout: float = 900.0) -> dict:
@@ -322,9 +318,9 @@ def main() -> int:
         evidence = repository.list_evidence(task_id)
         gate_packets = [packet for packet in packets if packet.action == ActionCode.A08_GATE]
         cases = write_case_memory(repository, task_id)
-        knowledge = KnowledgeRepository()
-        standard = knowledge.standard()
-        policy = knowledge.policy()
+        standards = StandardRepository()
+        standard = standards.standard()
+        policy = standards.policy()
         area_km2 = float(plan["area_km2"]) if plan.get("area_km2") is not None else None
         diagnoses = [packet for packet in packets if packet.action == ActionCode.A06_DIAGNOSE]
         optimizations = [packet for packet in packets if packet.action == ActionCode.A07_OPTIMIZE]
@@ -479,8 +475,8 @@ def main() -> int:
                 "standard_effective_from": standard["effective_from"],
                 "policy_id": policy["policy_id"],
                 "policy_gate": policy["gate"],
-                "profile": knowledge.gbt_accuracy_metadata(area_km2=area_km2),
-                "provenance": knowledge.provenance(),
+                "profile": standards.gbt_accuracy_metadata(area_km2=area_km2),
+                "provenance": standards.provenance(),
             },
         }
         summary_path = OUT / "summary.json"
