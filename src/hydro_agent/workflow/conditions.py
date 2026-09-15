@@ -11,7 +11,6 @@ from hydro_agent.agent.permissions import (
     pending_calibration_action,
     rediagnosis_required,
 )
-from hydro_agent.skills import DEFAULT_NSE_GOOD_ENOUGH
 
 ConditionFn = Callable[[WorldStateView], bool]
 
@@ -27,30 +26,21 @@ def _latest_status(view: WorldStateView, action: str) -> str | None:
     return None
 
 
-def _diagnosis_nse(view: WorldStateView) -> float | None:
-    diagnosis = dict(view.hydro.diagnosis or {})
-    metrics = diagnosis.get("metrics") if isinstance(diagnosis.get("metrics"), dict) else {}
-    raw = metrics.get("nse")
-    if raw is None:
-        raw = diagnosis.get("nse")
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return None
-    if value != value:
-        return None
-    return value
+def _campaign_closeout_required(view: WorldStateView) -> bool:
+    """Return whether the current research loop must close out.
 
+    Scientific stopping is owned by the preregistered Campaign policy.  The
+    smoke-mode optimization-cycle guard is only a runtime safety handover and
+    must never be interpreted as convergence or target quality.
+    """
 
-def _gbt_ok(view: WorldStateView) -> bool:
-    diagnosis = dict(view.hydro.diagnosis or {})
-    metrics = diagnosis.get("metrics") if isinstance(diagnosis.get("metrics"), dict) else {}
-    if "scheme_grade_rank" not in metrics:
-        return False
-    try:
-        return float(metrics["scheme_grade_rank"]) >= 1.0
-    except (TypeError, ValueError):
-        return False
+    if view.hydro.campaign.stop_reason is not None:
+        return True
+    if view.hydro.campaign.mode == "smoke" and view.budget.optimization_cycles_remaining <= 0:
+        return True
+    if view.budget.agent_rounds_remaining <= CLOSEOUT_RESERVE_ROUNDS:
+        return True
+    return False
 
 
 def always(_view: WorldStateView) -> bool:
@@ -65,27 +55,39 @@ def forecast_done(view: WorldStateView) -> bool:
 
 
 def needs_calibration(view: WorldStateView) -> bool:
+    """Legacy workflow name: continue the Campaign with another experiment.
+
+    This no longer means "NSE below a Skill threshold".  The runtime provider
+    and this predicate both defer stopping to Campaign state and hard budgets.
+    """
+
     if not view.task.allow_optimization:
+        return False
+    if ActionCode.A06_DIAGNOSE.value not in _evidence_actions(view):
+        return False
+    if view.hydro.campaign.stop_reason is not None or not view.hydro.campaign.can_continue_search:
         return False
     if view.budget.optimization_cycles_remaining <= 0:
         return False
     if view.budget.agent_rounds_remaining <= CLOSEOUT_RESERVE_ROUNDS:
         return False
-    if ActionCode.A06_DIAGNOSE.value not in _evidence_actions(view):
-        return False
-    nse = _diagnosis_nse(view)
-    return not (_gbt_ok(view) or (nse is not None and nse >= DEFAULT_NSE_GOOD_ENOUGH))
+    return True
 
 
 def calibration_good_enough(view: WorldStateView) -> bool:
+    """Legacy workflow name: Campaign has reached closeout/handover.
+
+    Kept as a named transition for the v1 workflow definition.  It deliberately
+    contains no NSE/GB-T/Skill threshold logic.
+    """
+
     if ActionCode.A06_DIAGNOSE.value not in _evidence_actions(view):
         return False
     if latest_action_index(view, ActionCode.A06_DIAGNOSE) <= latest_action_index(
         view, ActionCode.A07_OPTIMIZE
     ):
         return False
-    nse = _diagnosis_nse(view)
-    return _gbt_ok(view) or (nse is not None and nse >= DEFAULT_NSE_GOOD_ENOUGH)
+    return _campaign_closeout_required(view) or not view.task.allow_optimization
 
 
 def candidate_ready(view: WorldStateView) -> bool:
@@ -93,40 +95,25 @@ def candidate_ready(view: WorldStateView) -> bool:
 
 
 def gate_retry_allowed(view: WorldStateView) -> bool:
-    status = _latest_status(view, ActionCode.A08_GATE.value) or _latest_status(
-        view, ActionCode.A09_RESOLVE.value
-    )
-    if status not in {"KEEP", "ROLLBACK"}:
-        return False
-    if not view.task.allow_optimization:
-        return False
-    if view.budget.optimization_cycles_remaining <= 0:
-        return False
-    return (
-        view.budget.agent_rounds_remaining > CLOSEOUT_RESERVE_ROUNDS
-        and not rediagnosis_required(view)
-        and latest_action_index(view, ActionCode.A06_DIAGNOSE)
-        > latest_action_index(view, ActionCode.A09_RESOLVE)
-    )
+    """Compatibility predicate for the v1 diagram.
+
+    The current calibration-scientist runtime does not jump directly from
+    Resolve to Optimize: it re-enters A06 diagnosis first.  Returning False here
+    prevents the legacy diagram condition from authorizing a blind retry while
+    the JSON transition is migrated separately.
+    """
+
+    _ = view
+    return False
 
 
 def gate_accept_or_stop(view: WorldStateView) -> bool:
     status = _latest_status(view, ActionCode.A09_RESOLVE.value) or _latest_status(
         view, ActionCode.A08_GATE.value
     )
-    if status == "ACCEPT":
-        return True
-    if status in {"KEEP", "ROLLBACK"}:
-        can_rediagnose = (
-            rediagnosis_required(view)
-            and view.task.allow_optimization
-            and view.budget.optimization_cycles_remaining > 0
-            and view.budget.agent_rounds_remaining > CLOSEOUT_RESERVE_ROUNDS
-        )
-        if can_rediagnose:
-            return False
-        return not gate_retry_allowed(view)
-    return False
+    if status not in {"ACCEPT", "KEEP", "ROLLBACK"}:
+        return False
+    return _campaign_closeout_required(view)
 
 
 def blocked(view: WorldStateView) -> bool:
