@@ -8,7 +8,7 @@ const props = withDefaults(
     title: string
     testId?: string
     labelledBy?: string
-    size?: 'default' | 'wide'
+    size?: 'default' | 'wide' | 'workbench'
     closeOnBackdrop?: boolean
   }>(),
   { size: 'default', closeOnBackdrop: true },
@@ -100,7 +100,11 @@ onUnmounted(() => {
       <section
         ref="panel"
         class="glass-dialog-panel glass-pane"
-        :class="{ 'has-toolbar': !!$slots.toolbar, 'size-wide': size === 'wide' }"
+        :class="{
+          'has-toolbar': !!$slots.toolbar,
+          'size-wide': size === 'wide',
+          'size-workbench': size === 'workbench',
+        }"
         role="dialog"
         aria-modal="true"
         :aria-labelledby="labelledBy || 'glass-dialog-title'"
@@ -156,6 +160,15 @@ onUnmounted(() => {
 }
 .glass-dialog-panel.size-wide {
   width: min(720px, 100%);
+}
+.glass-dialog-panel.size-workbench {
+  width: min(1100px, calc(100vw - 32px));
+  max-height: min(88dvh, 860px);
+}
+.glass-dialog-panel.size-workbench .glass-dialog-body {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 .glass-dialog-panel.has-toolbar {
   grid-template-rows: auto auto minmax(0, 1fr) auto;

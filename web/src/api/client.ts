@@ -9,6 +9,12 @@ import type {
   TimelineItem,
 } from '../types/api'
 import type { ResearchSummary } from '../types/research'
+import type {
+  SkillDetail,
+  SkillOverrideDeleteResult,
+  SkillResourceContent,
+  SkillSummary,
+} from '../types/skills'
 
 export type { BasinInfo, ModelPlan }
 
@@ -154,5 +160,53 @@ export const api = {
   },
   getResearch(taskId: string) {
     return request<ResearchSummary>(`/api/tasks/${taskId}/research`)
+  },
+  listSkills() {
+    return request<{ items: SkillSummary[] }>('/api/skills')
+  },
+  getSkill(skillId: string) {
+    return request<SkillDetail>(`/api/skills/${encodeURIComponent(skillId)}`)
+  },
+  saveSkill(skillId: string, skill_md: string) {
+    return request<SkillDetail>(`/api/skills/${encodeURIComponent(skillId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ skill_md }),
+    })
+  },
+  deleteSkillOverride(skillId: string) {
+    return request<SkillOverrideDeleteResult>(
+      `/api/skills/${encodeURIComponent(skillId)}/override`,
+      { method: 'DELETE' },
+    )
+  },
+  reloadSkills() {
+    return request<{ skill_ids: string[]; count: number }>('/api/skills/reload', {
+      method: 'POST',
+    })
+  },
+  listSkillResources(skillId: string) {
+    return request<{ items: SkillDetail['resources'] }>(
+      `/api/skills/${encodeURIComponent(skillId)}/resources`,
+    )
+  },
+  readSkillResource(skillId: string, resourcePath: string) {
+    return request<SkillResourceContent>(
+      `/api/skills/${encodeURIComponent(skillId)}/resources/${resourcePath
+        .split('/')
+        .map(encodeURIComponent)
+        .join('/')}`,
+    )
+  },
+  saveSkillResource(skillId: string, resourcePath: string, content: string) {
+    return request<SkillResourceContent & { source: string }>(
+      `/api/skills/${encodeURIComponent(skillId)}/resources/${resourcePath
+        .split('/')
+        .map(encodeURIComponent)
+        .join('/')}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ content }),
+      },
+    )
   },
 }

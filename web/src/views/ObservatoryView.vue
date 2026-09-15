@@ -9,6 +9,7 @@ import GlassSelect from '../components/GlassSelect.vue'
 import ObservatoryResultsStack from '../components/ObservatoryResultsStack.vue'
 import GlassDialog from '../components/GlassDialog.vue'
 import RenameDialog from '../components/RenameDialog.vue'
+import SkillsLibrarySheet from '../components/SkillsLibrarySheet.vue'
 import { RippleButton } from '../components/ui'
 import { useDemoStore } from '../stores/demo'
 import { DEMO_PRESET } from '../demo/preset'
@@ -188,6 +189,7 @@ const forecastSurface = ref<HTMLElement | null>(null)
 const tuningMount = ref<HTMLElement | null>(null)
 const desktopResultsStack = ref<{ forecastSurface: HTMLElement | null; tuningMount: HTMLElement | null } | null>(null)
 const caseManagerOpen = ref(false)
+const skillsLibraryOpen = ref(false)
 const selectedCaseIds = ref<string[]>([])
 const renameCaseTarget = ref<{ task_id: string; name?: string | null; start_date?: string | null; basin_id: string } | null>(null)
 const renameCaseBusy = ref(false)
@@ -413,6 +415,12 @@ function closeCaseManager() {
   caseManagerOpen.value = false
   selectedCaseIds.value = []
 }
+function openSkillsLibrary() {
+  skillsLibraryOpen.value = true
+}
+function closeSkillsLibrary() {
+  skillsLibraryOpen.value = false
+}
 function toggleAllCases() {
   selectedCaseIds.value = allCasesSelected.value
     ? []
@@ -610,6 +618,14 @@ onUnmounted(() => {
       <a href="/" class="observatory-brand"><span class="brand-symbol" aria-hidden="true">≈</span><span>Hydro<span class="brand-light">Agent</span><small>水文智能体 · 课题工作台</small></span></a>
       <div class="header-caption">{{ headerCaption }}</div>
       <div class="header-end">
+        <button
+          type="button"
+          class="manage-button"
+          data-test="header-skills-library"
+          @click="openSkillsLibrary"
+        >
+          知识库
+        </button>
         <div v-if="showResultsStage" class="header-actions">
           <label class="header-case-picker">已有案例
             <GlassSelect
@@ -627,6 +643,8 @@ onUnmounted(() => {
         <div class="connection"><i :class="{ online: connected }" />{{ mode }}</div>
       </div>
     </header>
+
+    <SkillsLibrarySheet :open="skillsLibraryOpen" @close="closeSkillsLibrary" />
 
     <GlassDialog
       :open="!!runNotice"
