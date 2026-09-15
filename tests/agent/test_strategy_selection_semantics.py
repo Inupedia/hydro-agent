@@ -9,7 +9,7 @@ from hydro_agent.agent.contracts import (
     TaskSummary,
     WorldStateView,
 )
-from hydro_agent.agent.providers.siliconflow import _nse_calibration_progress
+from hydro_agent.agent.providers.siliconflow import _diagnosis_calibration_progress
 
 
 def test_fresh_diagnosis_recommendation_is_not_rotated_for_novelty():
@@ -60,7 +60,7 @@ def test_fresh_diagnosis_recommendation_is_not_rotated_for_novelty():
         ),
     )
 
-    payload = _nse_calibration_progress(
+    payload = _diagnosis_calibration_progress(
         view,
         {
             "action": "A10_FREEZE",
@@ -69,7 +69,7 @@ def test_fresh_diagnosis_recommendation_is_not_rotated_for_novelty():
             "rationale_summary": "model proposed freeze",
         },
         safe_actions={"A07_OPTIMIZE", "A10_FREEZE"},
-        nse_good_enough=0.5,
+        dc_bing_floor=0.5,
     )
 
     assert payload["action"] == "A07_OPTIMIZE"

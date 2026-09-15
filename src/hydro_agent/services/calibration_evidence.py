@@ -96,10 +96,15 @@ def apply_calibration_evidence_to_diagnosis(
     rolling_diagnosis: dict[str, Any],
     calibration_evidence: dict[str, object],
     *,
-    nse_good_enough: float,
+    dc_bing_floor: float,
     water_balance_threshold: float = 10.0,
 ) -> dict[str, Any]:
-    """Make full calibration evidence primary and rolling forecasts supplemental."""
+    """Make full calibration evidence primary and rolling forecasts supplemental.
+
+    ``dc_bing_floor`` is the normative GB/T DC 丙 threshold from Standards. It
+    guides the next experiment hypothesis only; Campaign stopping remains owned
+    by Campaign/ConvergencePolicy.
+    """
 
     result = dict(rolling_diagnosis)
     rolling_metrics = dict(result.get("metrics") or {})
@@ -144,8 +149,7 @@ def apply_calibration_evidence_to_diagnosis(
                 {
                     "hypothesis": "MODEL",
                     "phenomenon": (
-                        f"完整率定期 PBIAS={pbias:.1f}% 显示系统水量偏差，"
-                        "优先处理蒸散发/产流参数"
+                        f"完整率定期 PBIAS={pbias:.1f}% 显示系统水量偏差，优先处理蒸散发/产流参数"
                     ),
                     "recommended_action": "A07_OPTIMIZE",
                     "recommended_strategy_id": "xaj-water-balance-v1",
@@ -175,7 +179,7 @@ def apply_calibration_evidence_to_diagnosis(
                     "recommended_objective": "composite",
                 }
             )
-        elif full_nse is None or full_nse < nse_good_enough:
+        elif full_nse is None or full_nse < dc_bing_floor:
             result.update(
                 {
                     "hypothesis": "MODEL",

@@ -84,7 +84,7 @@ class EvaluationService:
         gbt_payload: dict = {}
         try:
             from hydro_agent.evaluation.gbt22482 import HydroSeries, build_gbt_accuracy_report
-            from hydro_agent.skills import SkillRegistry
+            from hydro_agent.standards import StandardRepository
 
             obs_all: list[float] = []
             sim_all: list[float] = []
@@ -92,7 +92,7 @@ class EvaluationService:
                 obs_all.extend(lead_obs[lead])
                 sim_all.extend(lead_sim[lead])
             if len(obs_all) >= 2:
-                cfg = SkillRegistry().gbt_accuracy_config()
+                cfg = StandardRepository().gbt_accuracy_config()
                 report = build_gbt_accuracy_report(
                     HydroSeries(obs=tuple(obs_all), sim=tuple(sim_all)),
                     cfg,
@@ -348,10 +348,7 @@ class EvaluationService:
                 rows = list(csv.DictReader(handle))
             dates = [date_cls.fromisoformat(row["date"]) for row in rows]
             array = np.asarray(
-                [
-                    [float(row["precipitation_mm_day"]), float(row["pet_mm_day"])]
-                    for row in rows
-                ]
+                [[float(row["precipitation_mm_day"]), float(row["pet_mm_day"])] for row in rows]
             )
             if len(dates) < xaj.warmup_days + 2:
                 return None
@@ -411,9 +408,7 @@ class EvaluationService:
                 warmup_days=effective_warmup_days,
                 evaluated_window="final_test",
                 baseline=(
-                    [float(v) for v in baseline_values]
-                    if baseline_values is not None
-                    else None
+                    [float(v) for v in baseline_values] if baseline_values is not None else None
                 ),
                 frozen=[float(v) for v in values],
                 gate_status=gate_status,

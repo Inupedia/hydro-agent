@@ -7,6 +7,7 @@ from typing import Any
 DEFAULT_STANDARD_ID = "GB/T 22482-2026"
 DEFAULT_POLICY_ID = "hydro-agent-research-v1"
 DEFAULT_PROFILE_ID = "flood_forecast_discharge"
+DEFAULT_GRADE_DC_BING = 0.5
 
 
 class StandardRepository:
@@ -97,6 +98,24 @@ class StandardRepository:
         if not isinstance(gate, dict):
             raise ValueError(f"invalid Gate policy: {policy_id}")
         return dict(gate)
+
+    def grade_dc_bing(self, *, area_km2: float | None = None) -> float:
+        """Normative GB/T DC 丙 floor from Standards, never from editable Skills."""
+
+        meta = self.gbt_accuracy_metadata(area_km2=area_km2)
+        return float(meta.get("grade_dc_bing", DEFAULT_GRADE_DC_BING))
+
+    def min_scheme_grade(self, policy_id: str = DEFAULT_POLICY_ID) -> str:
+        grade = str(self.gate_defaults(policy_id).get("min_scheme_grade") or "丙").strip()
+        if grade not in {"甲", "乙", "丙"}:
+            raise ValueError(f"invalid standard policy min_scheme_grade: {grade}")
+        return grade
+
+    def gbt_accuracy_config(self, *, area_km2: float | None = None):
+        from hydro_agent.evaluation.gbt22482 import GbtAccuracyConfig
+
+        meta = self.gbt_accuracy_metadata(area_km2=area_km2)
+        return GbtAccuracyConfig.from_metadata(meta, area_km2=area_km2)
 
     def provenance(
         self,

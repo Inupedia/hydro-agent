@@ -13,8 +13,8 @@ from hydro_agent.agent.contracts import (
 )
 from hydro_agent.agent.providers.siliconflow import (
     SiliconFlowDecisionProvider,
+    _diagnosis_calibration_progress,
     _extract_json,
-    _nse_calibration_progress,
     normalize_decision_payload,
 )
 from hydro_agent.llm.client import Completion
@@ -62,7 +62,7 @@ def _view() -> WorldStateView:
 
 def test_extract_json_repairs_truncated_object():
     text = (
-        '[thinking]\nnext gate\n[/thinking]\n'
+        "[thinking]\nnext gate\n[/thinking]\n"
         '{"action":"A08_GATE","hypothesis":"MODEL","strategy_id":null,'
         '"rationale_summary":"候选已生成，进入独立验证 Gate。'
     )
@@ -99,7 +99,10 @@ def test_normalize_does_not_force_freeze_after_resolve():
         }
     )
     assert payload["hypothesis"] in {h.value for h in ProblemHypothesis}
-    assert payload["hypothesis"] != "Verifying forcing and observation availability has been recorded yet."
+    assert (
+        payload["hypothesis"]
+        != "Verifying forcing and observation availability has been recorded yet."
+    )
     assert "Verifying forcing" in payload["rationale_summary"]
     decision = AgentDecision.model_validate(payload)
     assert decision.hypothesis in ProblemHypothesis
@@ -151,7 +154,7 @@ def test_nse_progress_calibrates_when_nse_poor():
             ),
         }
     )
-    out = _nse_calibration_progress(
+    out = _diagnosis_calibration_progress(
         view,
         {
             "action": "A10_FREEZE",
@@ -165,7 +168,7 @@ def test_nse_progress_calibrates_when_nse_poor():
     assert out["strategy_id"] == "xaj-peak-bias-v1"
 
 
-def test_nse_progress_freezes_when_nse_good_enough():
+def test_diagnosis_progress_freezes_when_dc_bing_floor_met():
     from hydro_agent.agent.contracts import EvidenceSummary, HydroContext
 
     view = _view().model_copy(
@@ -186,9 +189,14 @@ def test_nse_progress_freezes_when_nse_good_enough():
             "hydro": HydroContext(diagnosis={"metrics": {"nse": 0.72}}),
         }
     )
-    out = _nse_calibration_progress(
+    out = _diagnosis_calibration_progress(
         view,
-        {"action": "A07_OPTIMIZE", "hypothesis": "MODEL", "strategy_id": "xaj-bounded-v1", "rationale_summary": "x"},
+        {
+            "action": "A07_OPTIMIZE",
+            "hypothesis": "MODEL",
+            "strategy_id": "xaj-bounded-v1",
+            "rationale_summary": "x",
+        },
         safe_actions={"A07_OPTIMIZE", "A10_FREEZE"},
     )
     assert out["action"] == "A10_FREEZE"
@@ -216,19 +224,29 @@ def test_nse_progress_respects_custom_threshold():
         }
     )
     # 0.45 < 0.5 → still calibrate
-    out_low = _nse_calibration_progress(
+    out_low = _diagnosis_calibration_progress(
         view,
-        {"action": "A10_FREEZE", "hypothesis": "MODEL", "strategy_id": None, "rationale_summary": "x"},
+        {
+            "action": "A10_FREEZE",
+            "hypothesis": "MODEL",
+            "strategy_id": None,
+            "rationale_summary": "x",
+        },
         safe_actions={"A07_OPTIMIZE", "A10_FREEZE"},
-        nse_good_enough=0.5,
+        dc_bing_floor=0.5,
     )
     assert out_low["action"] == "A07_OPTIMIZE"
     # 0.45 >= 0.4 → freeze when threshold lowered
-    out_high = _nse_calibration_progress(
+    out_high = _diagnosis_calibration_progress(
         view,
-        {"action": "A07_OPTIMIZE", "hypothesis": "MODEL", "strategy_id": "xaj-bounded-v1", "rationale_summary": "x"},
+        {
+            "action": "A07_OPTIMIZE",
+            "hypothesis": "MODEL",
+            "strategy_id": "xaj-bounded-v1",
+            "rationale_summary": "x",
+        },
         safe_actions={"A07_OPTIMIZE", "A10_FREEZE"},
-        nse_good_enough=0.4,
+        dc_bing_floor=0.4,
     )
     assert out_high["action"] == "A10_FREEZE"
 
@@ -271,7 +289,7 @@ def test_nse_progress_freezes_when_opt_budget_exhausted_after_keep():
             "hydro": HydroContext(diagnosis={"metrics": {"nse": 0.1}}),
         }
     )
-    out = _nse_calibration_progress(
+    out = _diagnosis_calibration_progress(
         view,
         {
             "action": "A01_CHECK_DATA",
@@ -317,9 +335,14 @@ def test_nse_progress_freezes_when_round_reserve_hit_after_keep():
             "hydro": HydroContext(diagnosis={"metrics": {"nse": 0.05}}),
         }
     )
-    out = _nse_calibration_progress(
+    out = _diagnosis_calibration_progress(
         view,
-        {"action": "A10_FREEZE", "hypothesis": "MODEL", "strategy_id": None, "rationale_summary": "x"},
+        {
+            "action": "A10_FREEZE",
+            "hypothesis": "MODEL",
+            "strategy_id": None,
+            "rationale_summary": "x",
+        },
         safe_actions={"A10_FREEZE", "A08_GATE", "A09_RESOLVE"},
     )
     assert out["action"] == "A10_FREEZE"
@@ -346,7 +369,7 @@ def test_nse_progress_closes_the_latest_cycle_not_any_old_cycle():
         )
     )
     view = _view().model_copy(update={"evidence_summary": evidence})
-    out = _nse_calibration_progress(
+    out = _diagnosis_calibration_progress(
         view,
         {"action": "A10_FREEZE", "hypothesis": "MODEL", "rationale_summary": "x"},
         safe_actions={"A08_GATE"},
@@ -374,7 +397,7 @@ def test_nse_progress_rediagnoses_after_keep():
         )
     )
     view = _view().model_copy(update={"evidence_summary": evidence})
-    out = _nse_calibration_progress(
+    out = _diagnosis_calibration_progress(
         view,
         {"action": "A07_OPTIMIZE", "hypothesis": "MODEL", "rationale_summary": "x"},
         safe_actions={"A06_DIAGNOSE"},
@@ -397,7 +420,9 @@ def test_siliconflow_provider_injects_activated_skills():
     provider.decide(_view())
     system = fake.calls[0]["messages"][0]["content"]
     assert "Activated Agent Skills" in system
-    assert "data-check" in system
+    assert "hydro-data-readiness" in system
+    assert "data-check" not in system
+    assert "forecast-diagnose" not in system
 
 
 def test_siliconflow_provider_streams_deltas():

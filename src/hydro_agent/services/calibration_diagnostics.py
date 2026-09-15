@@ -54,7 +54,6 @@ def diagnose_prevalidation_window(
     task_id: str,
     scheme_id: str,
     validation_start: date,
-    nse_good_enough: float,
     lookback_issue_days: int = DIAGNOSTIC_LOOKBACK_ISSUE_DAYS,
 ) -> dict[str, Any]:
     """Measure pre-development model behavior without applying expert policy.
@@ -65,12 +64,10 @@ def diagnose_prevalidation_window(
     diagnostic issue is ``development_start - 4 days`` so lead-3 truth ends on
     ``development_start - 1 day``.
 
-    ``nse_good_enough`` is retained only for call-site compatibility. Diagnostics
-    do not use it to stop a Campaign: they emit observable evidence and a
-    falsifiable next hypothesis. Campaign/ConvergencePolicy owns stopping.
+    Diagnostics emit observable evidence and a falsifiable next hypothesis.
+    Campaign/ConvergencePolicy owns stopping; this function never stops a Campaign.
     """
 
-    _ = nse_good_enough
     if lookback_issue_days < 4:
         raise ValueError("lookback_issue_days must be >= 4")
 
