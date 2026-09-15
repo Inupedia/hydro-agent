@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from hydro_agent.agent.contracts import ActionCode, AgentDecision, ProblemHypothesis
+from hydro_agent.agent.contracts import ActionCode, AgentDecision, EvidencePacket, ProblemHypothesis
 from hydro_agent.agent.tools import ForecastHandler, OptimizeHandler, ToolRouter, ToolUnavailable
 from hydro_agent.persistence.database import Database
 from hydro_agent.persistence.repository import HydroRepository
@@ -59,6 +59,19 @@ class FakeCalibrationService:
         )
 
 
+class RecordingCalibrationService(FakeCalibrationService):
+    def __init__(self):
+        self.calls = []
+
+    def calibrate(self, **kwargs):
+        self.calls.append(kwargs)
+        outcome = super().calibrate(**kwargs)
+        budget = kwargs["evaluation_budget_override"]
+        payload = dict(outcome.result_payload)
+        payload.update({"evaluation_budget": budget, "model_evaluations": budget})
+        return SimpleNamespace(**{**vars(outcome), "result_payload": payload})
+
+
 class FailedCalibrationService:
     def calibrate(self, **kwargs):
         raise CalibrationExecutionFailed(
@@ -92,7 +105,7 @@ def repository(tmp_path):
         task_id="task-1",
         model_id="xaj",
         status="base",
-        config={"parameters": {"K": 0.7}},
+        config={"parameters": {"K": 0.7}, "workbench": {"campaign_max_model_evaluations": 400}},
         content_hash="h",
     )
     repo.ensure_task_state("task-1", current_scheme_id="scheme-base")
@@ -181,6 +194,63 @@ def test_optimize_evidence_exposes_resume_audit_fields(repository, optimize_deci
     assert "resumed_from_workspace=true" in packet.observations
     assert candidates.payload["resume_attempts"] == 1
     assert candidates.payload["resumed_from_workspace"] is True
+
+
+def test_optimizer_receives_only_remaining_campaign_budget(repository, optimize_decision):
+    repository.add_evidence(
+        EvidencePacket(
+            evidence_id="ev-prior-optimize",
+            task_id="task-1",
+            action=ActionCode.A05_OPTIMIZE,
+            status="succeeded",
+            metrics={"model_evaluations": 366.0},
+            gates={"model_evaluations": "366", "strategy_id": "xaj-bounded-v1"},
+            new_information_hash="prior-optimize",
+        )
+    )
+    service = RecordingCalibrationService()
+    handler = OptimizeHandler(
+        repository,
+        calibration_service=service,
+        candidate_service=FakeCandidateService(),
+        calibration_snapshot_id="snap-cal",
+        validation_snapshot_id=None,
+        policy=object(),
+    )
+
+    packet = handler.execute("task-1", optimize_decision)
+
+    assert service.calls[0]["evaluation_budget_override"] == 34
+    assert packet.metrics["model_evaluations"] == 34.0
+    assert 366 + packet.metrics["model_evaluations"] == 400
+
+
+def test_optimizer_does_not_start_with_one_evaluation_left(repository, optimize_decision):
+    repository.add_evidence(
+        EvidencePacket(
+            evidence_id="ev-almost-exhausted",
+            task_id="task-1",
+            action=ActionCode.A05_OPTIMIZE,
+            status="succeeded",
+            gates={"model_evaluations": "399"},
+            new_information_hash="almost-exhausted",
+        )
+    )
+    service = RecordingCalibrationService()
+    handler = OptimizeHandler(
+        repository,
+        calibration_service=service,
+        candidate_service=FakeCandidateService(),
+        calibration_snapshot_id="snap-cal",
+        validation_snapshot_id=None,
+        policy=object(),
+    )
+
+    packet = handler.execute("task-1", optimize_decision)
+
+    assert packet.status == "blocked"
+    assert packet.gates["reason"] == "campaign_budget_exhausted"
+    assert service.calls == []
 
 
 def test_failed_optimize_records_spent_budget_without_registering_candidate(

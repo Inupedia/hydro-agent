@@ -89,6 +89,7 @@ export type AgentRoundLogItem = {
   tool_status_zh: string
   tool_observations: string[]
   tool_metrics: Record<string, number>
+  activated_skill_ids?: string[]
   error?: string | null
 }
 

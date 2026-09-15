@@ -1,0 +1,40 @@
+{
+  "knowledge_id": "xaj-routing-diagnosis-priors-v1",
+  "knowledge_type": "expert_prior",
+  "status": "seed_prior",
+  "authority": "advisory_only",
+  "description": "XAJ 汇流与退水诊断先验；在时序/形态主导时优先 routing 组。",
+  "governance": {
+    "revision": 1,
+    "category": "expert_diagnostic_prior",
+    "review_status": "approved",
+    "verification_status": "unverified",
+    "applicability": {"model_ids": ["xaj"]},
+    "exposure_tags": [],
+    "evidence_dataset_ids": [],
+    "evidence_refs": ["source.hydrologist_calibration_priors.v1"]
+  },
+  "rules": [
+    {
+      "rule_id": "expert.routing_when_peak_lag_large",
+      "signal": "peak_lag_hours_abs_gte",
+      "threshold": 1.0,
+      "priority": 110,
+      "recommendation": {
+        "parameter_groups": ["routing"],
+        "objective": "peak_timing",
+        "message": "峰现时差显著时优先检验汇流记忆与退水，确认总量大致合理后再动 routing。"
+      }
+    },
+    {
+      "rule_id": "expert.routing_shape_not_volume",
+      "signal": "nse_lt",
+      "threshold": 0.4,
+      "priority": 65,
+      "recommendation": {
+        "parameter_groups": ["routing"],
+        "message": "若水量接近但过程形状差，优先设计 routing 可证伪实验，避免扩大产流边界掩盖时序问题。"
+      }
+    }
+  ]
+}

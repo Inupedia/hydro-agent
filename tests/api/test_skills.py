@@ -125,3 +125,26 @@ description: writable user skill
         assert script_blocked.status_code == 422
         assert "read-only" in script_blocked.json()["detail"]
     app.state.executor.shutdown()
+
+
+def test_skill_api_copy_from_builtin(app_dependencies, tmp_path: Path):
+    builtin_root = tmp_path / "builtin-skills"
+    user_root = tmp_path / "user-skills"
+    builtin = _write_skill(builtin_root, "demo-skill", "builtin description")
+    (builtin / "references").mkdir()
+    (builtin / "references" / "notes.md").write_text("# Notes\n", encoding="utf-8")
+    app_dependencies.skills = SkillRegistry(builtin_root=builtin_root, user_root=user_root)
+
+    app = create_app(app_dependencies)
+    with TestClient(app) as client:
+        response = client.post("/api/skills/demo-skill/copy-from-builtin")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["source"] == "user"
+        assert payload["editable"] is True
+        assert (user_root / "demo-skill" / "SKILL.md").is_file()
+
+        again = client.post("/api/skills/demo-skill/copy-from-builtin")
+        assert again.status_code == 422
+        assert "already exists" in again.json()["detail"]
+    app.state.executor.shutdown()

@@ -1,0 +1,40 @@
+{
+  "knowledge_id": "xaj-runoff-generation-priors-v1",
+  "knowledge_type": "expert_prior",
+  "status": "seed_prior",
+  "authority": "advisory_only",
+  "description": "XAJ 产流诊断先验；在总量大致合理时优先检验产流非线性与水源划分。",
+  "governance": {
+    "revision": 1,
+    "category": "expert_diagnostic_prior",
+    "review_status": "approved",
+    "verification_status": "unverified",
+    "applicability": {"model_ids": ["xaj"]},
+    "exposure_tags": [],
+    "evidence_dataset_ids": [],
+    "evidence_refs": ["source.hydrologist_calibration_priors.v1"]
+  },
+  "rules": [
+    {
+      "rule_id": "expert.runoff_when_volume_ok_skill_weak",
+      "signal": "nse_lt",
+      "threshold": 0.5,
+      "priority": 90,
+      "recommendation": {
+        "parameter_groups": ["runoff"],
+        "objective": "composite",
+        "message": "水量不明显失衡但过程技能偏弱时，优先检验蓄水容量、产流阈值与水源划分，而不是先精调汇流。"
+      }
+    },
+    {
+      "rule_id": "expert.runoff_avoid_routing_compensation",
+      "signal": "abs_pbias_percent_gte",
+      "threshold": 5.0,
+      "priority": 70,
+      "recommendation": {
+        "parameter_groups": ["runoff", "evap"],
+        "message": "中等水量偏差可能来自产流能力或蒸散发，不要用汇流参数补偿总量。"
+      }
+    }
+  ]
+}

@@ -115,3 +115,16 @@ def test_dds_calibration_is_deterministic(calibration_workspace):
         (calibration_workspace.parent / "a" / "output" / "calibration-metrics.json").read_text()
     )
     assert metrics["kind"] == "calibration"
+
+
+def test_runtime_respects_remaining_campaign_evaluation_budget(calibration_workspace):
+    manifest = calibration_workspace / "execution-manifest.json"
+    request = json.loads(manifest.read_text(encoding="utf-8"))
+    request["parameters"]["evaluation_budget"] = 34
+    manifest.write_text(json.dumps(request), encoding="utf-8")
+
+    result = run_calibration_copy(calibration_workspace, "remaining-budget")
+
+    assert result["evaluation_budget"] == 34
+    assert result["requested_candidates"] == 34
+    assert 0 < result["model_evaluations"] <= 34

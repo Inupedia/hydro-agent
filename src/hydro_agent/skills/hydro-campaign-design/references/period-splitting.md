@@ -1,7 +1,9 @@
-# 时段分区
+# 时段划分
 
-- calibration 用于数值搜索和参数选择。
-- development 用于候选与基线的独立比较，可多轮使用，因此不是最终未见数据。
-- final-test 只在冻结后使用，用于最终资格评价和科研报告。
+创建 Campaign 前固定：
 
-分区需要考虑 warmup、资料代表性和水文情势，但一旦数据暴露给调参过程，不得重新定义成 final-test。
+- [ ] calibration / development / final-test 角色与日历边界
+- [ ] 预热期不占用检验证据
+- [ ] 变更目标时开新 Campaign，不改正在跑的分区
+
+反例：边跑边把失败时段挪出检验集；用已看过的 final-test 调参。

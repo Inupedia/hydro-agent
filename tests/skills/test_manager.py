@@ -56,6 +56,24 @@ metadata:
     assert (builtin / "SKILL.md").read_text(encoding="utf-8") == original
 
 
+def test_copy_builtin_skill_to_user_overlay(tmp_path: Path):
+    builtin_root = tmp_path / "builtin"
+    user_root = tmp_path / "user"
+    builtin = _write_skill(builtin_root, "demo-skill", "builtin description", body="# Builtin")
+    (builtin / "references").mkdir()
+    (builtin / "references" / "guide.md").write_text("guide\n", encoding="utf-8")
+
+    registry = SkillRegistry(builtin_root=builtin_root, user_root=user_root)
+    manager = SkillManager(registry)
+    detail = manager.copy_from_builtin("demo-skill")
+    assert detail["source"] == "user"
+    assert detail["editable"] is True
+    assert (user_root / "demo-skill" / "SKILL.md").is_file()
+    assert manager.read_resource("demo-skill", "references/guide.md") == "guide\n"
+    with pytest.raises(ValueError, match="already exists"):
+        manager.copy_from_builtin("demo-skill")
+
+
 def test_user_skill_edit_and_delete_restores_builtin(tmp_path: Path):
     builtin_root = tmp_path / "builtin"
     user_root = tmp_path / "user"

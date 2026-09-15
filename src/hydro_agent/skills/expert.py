@@ -188,6 +188,12 @@ class ExpertPriorEngine:
 
         pbias = self._metric(diagnosis, "pbias_percent", "pbias")
         nse = self._metric(diagnosis, "nse")
+        peak_lag = self._metric(
+            diagnosis,
+            "peak_lag_hours",
+            "peak_time_error_hours",
+            "peak_timing_error_hours",
+        )
         profile = self.basin_profile(basin_attributes)
         matches: list[_ExpertPriorRule] = []
         for candidate_id, rule in self._rules.values():
@@ -199,6 +205,12 @@ class ExpertPriorEngine:
                 matched = abs(pbias) >= threshold
             elif rule.signal == "nse_lt" and nse is not None and threshold is not None:
                 matched = nse < threshold
+            elif (
+                rule.signal == "peak_lag_hours_abs_gte"
+                and peak_lag is not None
+                and threshold is not None
+            ):
+                matched = abs(peak_lag) >= threshold
             elif rule.signal == "basin_attributes_available":
                 matched = profile.available
             if matched:

@@ -144,7 +144,31 @@ class SkillManager:
             "purpose_zh": card.purpose_zh,
             "source": source,
             "editable": source == "user",
+            "activation_stages": list(loaded.meta_list("activation_stages")) if loaded else [],
+            "activation_model_ids": list(loaded.meta_list("activation_model_ids")) if loaded else [],
+            "recommended_actions": list(card.recommended_actions),
         }
+
+    def copy_from_builtin(self, skill_id: str) -> dict:
+        """Copy a package-owned skill into the writable user overlay for customization."""
+        validate_skill_name(skill_id)
+        user_root = self.registry.user_root
+        user_dir = user_root / skill_id
+        if user_dir.exists():
+            raise ValueError(f"user skill already exists: {skill_id}")
+        source = self._source_or_none(skill_id)
+        if source != "builtin":
+            raise ValueError("only built-in skills can be copied into the user overlay")
+        builtin_root = self.registry.builtin_root
+        if builtin_root is None:
+            raise ValueError("no built-in skill root configured")
+        src = (builtin_root / skill_id).resolve()
+        if not (src / "SKILL.md").is_file():
+            raise KeyError(skill_id)
+        user_root.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(src, user_dir)
+        self.registry.reload()
+        return self.detail_payload(skill_id)
 
     def _source_or_none(self, skill_id: str) -> str | None:
         try:

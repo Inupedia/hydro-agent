@@ -379,6 +379,7 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
                     "llm_output": decision.rationale_summary,
                     "input_summary_zh": f"第 {decision.round_number} 轮决策（仅存档摘要）",
                     "input_world_state": {},
+                    "activated_skill_ids": list(getattr(decision, "activated_skill_ids", ()) or ()),
                     "tool_status": ev.status if ev else None,
                     "tool_observations": list(ev.observations_json or []) if ev else [],
                     "tool_metrics": dict(ev.metrics_json or {}) if ev else {},
@@ -389,6 +390,9 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
     for row in rows:
         action = row.get("action")
         tool_status = row.get("tool_status")
+        activated = row.get("activated_skill_ids") or []
+        if isinstance(activated, str):
+            activated = [item.strip() for item in activated.split(",") if item.strip()]
         rounds.append(
             AgentRoundLogItem(
                 round_number=int(row.get("round_number") or 0),
@@ -403,6 +407,7 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
                 input_summary_zh=str(row.get("input_summary_zh") or ""),
                 judgment_zh=str(row.get("judgment_zh") or ""),
                 input_world_state=dict(row.get("input_world_state") or {}),
+                activated_skill_ids=tuple(str(item) for item in activated),
                 tool_status=tool_status,
                 tool_status_zh=status_zh(tool_status),
                 tool_observations=tuple(row.get("tool_observations") or ()),

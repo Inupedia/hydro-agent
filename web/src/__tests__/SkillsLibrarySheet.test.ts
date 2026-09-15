@@ -9,6 +9,7 @@ vi.mock('../api/client', () => ({
     getSkill: vi.fn(),
     saveSkill: vi.fn(),
     deleteSkillOverride: vi.fn(),
+    copySkillFromBuiltin: vi.fn(),
     readSkillResource: vi.fn(),
     saveSkillResource: vi.fn(),
   },
@@ -185,5 +186,73 @@ describe('SkillsLibrarySheet', () => {
     const saved = vi.mocked(api.saveSkill).mock.calls.at(-1)?.[1] || ''
     expect(saved).toContain('activation_stages: "diagnosis|experiment"')
     expect(saved).toContain('activation_model_ids: "xaj"')
+  })
+
+  it('copies a builtin skill into the user overlay', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.mocked(api.copySkillFromBuiltin).mockResolvedValue({
+      skill_id: 'hydro-error-diagnosis',
+      name: 'hydro-error-diagnosis',
+      description: '诊断',
+      title_zh: '误差诊断',
+      purpose_zh: '解释误差模式',
+      source: 'user',
+      editable: true,
+      skill_md: '---\nname: hydro-error-diagnosis\ndescription: 诊断\n---\n\n# body\n',
+      body: '# body',
+      metadata: { title_zh: '误差诊断' },
+      resources: [],
+    })
+    vi.mocked(api.listSkills)
+      .mockResolvedValueOnce({
+        items: [
+          {
+            skill_id: 'hydro-error-diagnosis',
+            name: 'hydro-error-diagnosis',
+            description: '诊断',
+            title_zh: '误差诊断',
+            purpose_zh: '解释误差模式',
+            source: 'builtin',
+            editable: false,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            skill_id: 'hydro-error-diagnosis',
+            name: 'hydro-error-diagnosis',
+            description: '诊断',
+            title_zh: '误差诊断',
+            purpose_zh: '解释误差模式',
+            source: 'user',
+            editable: true,
+          },
+        ],
+      })
+
+    mount(SkillsLibrarySheet, { props: { open: true } })
+    await flushPromises()
+
+    const copy = portal('skills-copy-builtin') as HTMLButtonElement
+    expect(copy.disabled).toBe(false)
+    vi.mocked(api.getSkill).mockResolvedValue({
+      skill_id: 'hydro-error-diagnosis',
+      name: 'hydro-error-diagnosis',
+      description: '诊断',
+      title_zh: '误差诊断',
+      purpose_zh: '解释误差模式',
+      source: 'user',
+      editable: true,
+      skill_md: '---\nname: hydro-error-diagnosis\ndescription: 诊断\n---\n\n# body\n',
+      body: '# body',
+      metadata: { title_zh: '误差诊断' },
+      resources: [],
+    })
+    copy.click()
+    await flushPromises()
+
+    expect(api.copySkillFromBuiltin).toHaveBeenCalledWith('hydro-error-diagnosis')
+    expect(portal('skills-notice')?.textContent).toContain('已复制为用户版')
   })
 })

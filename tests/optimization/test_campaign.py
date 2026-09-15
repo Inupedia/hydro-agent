@@ -51,6 +51,18 @@ def test_smoke_policy_defaults_to_model_evaluation_budget_not_trial_count():
     assert not hasattr(policy, "smoke_max_trials")
 
 
+def test_campaign_stops_when_only_one_model_evaluation_remains():
+    snapshot = rebuild_campaign(
+        (_trial(1, search_score=0.4, base_primary=0.1, selected_primary=0.2, evaluations=399),),
+        current_scheme_id="scheme-1",
+        policy=CampaignPolicy(mode="smoke", max_model_evaluations=400),
+    )
+
+    assert snapshot.total_model_evaluations == 399
+    assert snapshot.stop_reason == "BUDGET_EXHAUSTED"
+    assert any("optimizer minimum" in note for note in snapshot.notes)
+
+
 def test_campaign_separates_search_selected_and_release_best():
     records = (
         _trial(

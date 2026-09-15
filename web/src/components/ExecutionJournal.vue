@@ -297,6 +297,11 @@ function journalCopy(event: TimelineItem): JournalCopy {
   }
 }
 
+function activatedSkills(event: TimelineItem): string[] {
+  const round = matchingRound(event)
+  return (round?.activated_skill_ids || []).filter(Boolean)
+}
+
 function displayTitle(event: TimelineItem) {
   const status = String(event.status || '').toUpperCase()
   const round = matchingRound(event)
@@ -357,6 +362,14 @@ function displayTitle(event: TimelineItem) {
           </div>
           <div v-if="calibrationTags(event).length" class="calibration-tags" aria-label="率定实验状态">
             <span v-for="tag in calibrationTags(event)" :key="tag">{{ tag }}</span>
+          </div>
+          <div
+            v-if="activatedSkills(event).length"
+            class="calibration-tags"
+            data-test="activated-skills"
+            aria-label="本轮激活技能"
+          >
+            <span v-for="skillId in activatedSkills(event)" :key="skillId">{{ skillId }}</span>
           </div>
           <p class="event-subtitle">{{ journalCopy(event).analysis }}</p>
           <p v-if="journalCopy(event).observation" class="event-support"><span>观察</span>{{ journalCopy(event).observation }}</p>

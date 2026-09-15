@@ -59,6 +59,16 @@ const editableResources = computed(() =>
 
 const canEdit = computed(() => detail.value?.source === 'user')
 const canRestore = computed(() => detail.value?.source === 'user')
+const canCopyBuiltin = computed(() => detail.value?.source === 'builtin')
+
+function activationLabel(skill: SkillSummary): string {
+  const stages = skill.activation_stages || []
+  const models = skill.activation_model_ids || []
+  const parts: string[] = []
+  if (stages.length) parts.push(stages.join('/'))
+  if (models.length) parts.push(models.join('/'))
+  return parts.join(' · ')
+}
 
 function close() {
   if (saving.value) return
@@ -239,6 +249,26 @@ async function restoreBuiltin() {
   }
 }
 
+async function copyFromBuiltin() {
+  if (!detail.value || !canCopyBuiltin.value || saving.value) return
+  const ok = window.confirm(
+    `将把「${detail.value.skill_id}」复制为可编辑用户版。内置原件保持只读。继续？`,
+  )
+  if (!ok) return
+  saving.value = true
+  error.value = null
+  notice.value = null
+  try {
+    const copied = await api.copySkillFromBuiltin(detail.value.skill_id)
+    notice.value = `已复制为用户版 ${copied.skill_id}`
+    await loadList(copied.skill_id)
+  } catch (err) {
+    error.value = String((err as Error).message || err)
+  } finally {
+    saving.value = false
+  }
+}
+
 function openCreate() {
   creating.value = true
   createError.value = null
@@ -330,6 +360,7 @@ watch(
           >
             <strong>{{ skill.title_zh || skill.skill_id }}</strong>
             <small>{{ skill.skill_id }}</small>
+            <span v-if="activationLabel(skill)" class="activation-meta">{{ activationLabel(skill) }}</span>
             <span class="source-pill" :data-source="skill.source">
               {{ skill.source === 'user' ? '用户' : skill.source === 'builtin' ? '内置' : skill.source }}
             </span>
@@ -354,6 +385,20 @@ watch(
             <div class="meta-chips">
               <span class="source-pill" :data-source="detail.source">{{ sourceLabel }}</span>
               <span class="chip">{{ detail.resources.length }} 个资源</span>
+              <span
+                v-if="(detail.activation_stages || []).length"
+                class="chip"
+                data-test="skills-activation-stages"
+              >
+                {{ (detail.activation_stages || []).join(' / ') }}
+              </span>
+              <span
+                v-if="(detail.activation_model_ids || []).length"
+                class="chip"
+                data-test="skills-activation-models"
+              >
+                {{ (detail.activation_model_ids || []).join(' / ') }}
+              </span>
               <span v-if="!canEdit" class="chip readonly-chip" data-test="skills-readonly-badge">只读预览</span>
             </div>
           </header>
@@ -413,6 +458,15 @@ watch(
 
     <template #footer>
       <div class="skills-footer">
+        <button
+          type="button"
+          class="ghost-button"
+          data-test="skills-copy-builtin"
+          :disabled="!canCopyBuiltin || saving || loading"
+          @click="copyFromBuiltin"
+        >
+          复制为用户版
+        </button>
         <button
           type="button"
           class="ghost-button"
@@ -548,7 +602,8 @@ watch(
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
     'title pill'
-    'id pill';
+    'id pill'
+    'meta pill';
   gap: 2px 8px;
   text-align: left;
   padding: 10px 12px;
@@ -574,6 +629,15 @@ watch(
   color: var(--text-tertiary);
   font-size: 11px;
   font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-row .activation-meta {
+  grid-area: meta;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

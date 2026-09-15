@@ -273,6 +273,17 @@ function onSubmit() {
                 @change="emit('update:allowOptimization', ($event.target as HTMLInputElement).checked)"
               />
             </label>
+            <label class="field">模型评估预算
+              <input
+                :value="campaignBudget"
+                data-test="campaign-budget"
+                type="number"
+                min="1"
+                required
+                @input="emit('update:campaignBudget', Number(($event.target as HTMLInputElement).value))"
+              />
+              <small>本次率定最多运行多少次模型；预算越大，搜索可能更充分，也更耗时。</small>
+            </label>
             <button class="text-button" data-test="runtime-settings" type="button" :aria-expanded="advanced" @click="advanced = !advanced">
               {{ advanced ? '收起运行设置 −' : '运行设置 +' }}
             </button>
@@ -334,17 +345,9 @@ function onSubmit() {
                 />
                 <small>连通验证只按模型评估预算停止，不宣称收敛或发布合格。</small>
               </label>
-              <label class="field">模型评估预算
-                <input
-                  :value="campaignBudget"
-                  data-test="campaign-budget"
-                  type="number"
-                  min="1"
-                  required
-                  @input="emit('update:campaignBudget', Number(($event.target as HTMLInputElement).value))"
-                />
-                <small>实验之间的停止阈值，不会中途截断单次优化器。</small>
-              </label>
+              <p class="campaign-skill-tip" data-test="campaign-skill-tip">
+                开跑前请先在知识库阅读「水文率定 Campaign 设计」：固定校准/检验分区、目标与预算，中途不要改 locked 规则。
+              </p>
             </div>
           </fieldset>
         </section>
@@ -687,10 +690,22 @@ function onSubmit() {
   margin-top: 4px;
 }
 
-.advanced-fields small {
+.setup-page label small {
+  display: block;
+  margin-top: 4px;
   color: var(--text-secondary);
   font-size: 11px;
   font-weight: 400;
+  line-height: 1.5;
+}
+
+.campaign-skill-tip {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-xs);
+  background: var(--neutral-soft);
+  color: var(--text-secondary);
+  font-size: 12px;
   line-height: 1.5;
 }
 

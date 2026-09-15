@@ -203,6 +203,28 @@ def test_budget_stopped_unqualified_result_enters_research_final_test_without_re
     assert repository.get_task("task-1").phase == "F"
 
 
+def test_smoke_cycle_exhaustion_auto_freezes_without_human_pause(repository):
+    _add_trial(
+        repository,
+        model_evaluations=10,
+        qualification_status="UNQUALIFIED",
+        adopted=False,
+    )
+    repository.update_task_state("task-1", optimization_cycles_used=4)
+    freeze = SpyFreezeService()
+
+    packet = ResearchFreezeToolHandler(repository, freeze_service=freeze).execute(
+        "task-1", _decision()
+    )
+
+    assert packet.status == "succeeded"
+    assert packet.gates["campaign_stop_reason"] == "BUDGET_EXHAUSTED"
+    assert packet.gates["release_approved"] == "false"
+    assert "runtime_closeout=smoke_optimization_cycles" in packet.observations
+    assert freeze.calls == 1
+    assert repository.get_task("task-1").phase == "F"
+
+
 def test_stopped_selected_qualified_candidate_is_release_approved(repository):
     _add_trial(
         repository,

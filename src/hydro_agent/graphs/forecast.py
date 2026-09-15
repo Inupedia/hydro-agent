@@ -148,6 +148,10 @@ def build_forecast_graph(
                 # Pause for notebook-style HITL; user submits candidate then resumes.
                 paused = True
                 needs_follow_up = True
+            elif "campaign_stop_required_before_research_freeze" in packet.observations:
+                # Premature freeze is not a terminal human handoff — keep the loop
+                # so the next decide can re-diagnose or wait for a real Campaign stop.
+                needs_follow_up = True
             else:
                 needs_follow_up = False
         optimize_attempt = sum(

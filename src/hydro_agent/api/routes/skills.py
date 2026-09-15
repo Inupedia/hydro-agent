@@ -62,6 +62,16 @@ def delete_skill_override(skill_id: str, request: Request):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@router.post("/{skill_id}/copy-from-builtin")
+def copy_skill_from_builtin(skill_id: str, request: Request):
+    try:
+        return _manager(request).copy_from_builtin(skill_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="skill not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get("/{skill_id}/resources")
 def list_skill_resources(skill_id: str, request: Request):
     try:

@@ -165,6 +165,9 @@ def run(workspace: Path) -> dict:
     strategy = CalibrationStrategyRegistry().get(strategy_id)
     if strategy.optimizer == "manual":
         raise ValueError("manual strategy must not enter numerical calibration runtime")
+    evaluation_budget = int(request.parameters.get("evaluation_budget") or strategy.evaluation_budget)
+    if not 2 <= evaluation_budget <= strategy.evaluation_budget:
+        raise ValueError("calibration evaluation budget must be between 2 and strategy limit")
 
     objective = str(request.parameters.get("objective") or strategy.objective)
     if objective not in {"nse", "peak", "composite"}:
@@ -209,6 +212,8 @@ def run(workspace: Path) -> dict:
         cached = cache.get(key)
         if cached is not None:
             return cached[0]
+        if len(cache) >= evaluation_budget:
+            return None
 
         try:
             candidate_scheme = XajScheme(
@@ -265,6 +270,9 @@ def run(workspace: Path) -> dict:
         return persisted_score
 
     initial_tunable = {name: base_parameters[name] for name in tunable_names}
+    # Reserve the baseline in the physical evaluation cache before screening or
+    # optimizer calls consume the last available model run.
+    evaluate(initial_tunable)
     active_names = tunable_names
     sensitivity_evidence: dict[str, object] = {
         "method": strategy.sensitivity_method,
@@ -283,7 +291,7 @@ def run(workspace: Path) -> dict:
         trajectories = _screening_trajectories(
             requested=strategy.sensitivity_trajectories,
             dimension=len(tunable_names),
-            evaluation_budget=strategy.evaluation_budget,
+            evaluation_budget=evaluation_budget,
         )
         if trajectories > 0:
             persisted_screening = load_screening_result(workspace)
@@ -328,7 +336,7 @@ def run(workspace: Path) -> dict:
 
     active_bounds = {name: bounds[name] for name in active_names}
     initial_active = {name: base_parameters[name] for name in active_names}
-    optimizer_budget = strategy.evaluation_budget - screening_model_evaluations
+    optimizer_budget = evaluation_budget - screening_model_evaluations
     if optimizer_budget < 1:
         raise ValueError("sensitivity screening exhausted calibration evaluation budget")
 
@@ -416,9 +424,9 @@ def run(workspace: Path) -> dict:
     _, baseline_full, _ = baseline_cached
 
     model_evaluations = len(cache)
-    if model_evaluations > strategy.evaluation_budget:
+    if model_evaluations > evaluation_budget:
         raise RuntimeError(
-            f"calibration exceeded hard evaluation budget: {model_evaluations}>{strategy.evaluation_budget}"
+            f"calibration exceeded hard evaluation budget: {model_evaluations}>{evaluation_budget}"
         )
 
     absolute_bounds = {name: tuple(float(v) for v in ranges[name]) for name in active_names}
@@ -458,7 +466,7 @@ def run(workspace: Path) -> dict:
         "screened_out_parameters": list(screened_out),
         "sensitivity_method": strategy.sensitivity_method,
         "sensitivity_evidence": sensitivity_evidence,
-        "evaluation_budget": strategy.evaluation_budget,
+        "evaluation_budget": evaluation_budget,
         "screening_model_evaluations": screening_model_evaluations,
         "optimizer_budget": optimizer_budget,
         "search_boundary_evidence": boundary_evidence.as_dict(),
@@ -470,7 +478,7 @@ def run(workspace: Path) -> dict:
         "data_snapshot_id": request.data_snapshot_id,
         "strategy_id": strategy.strategy_id,
         "optimizer": strategy.optimizer,
-        "evaluation_budget": strategy.evaluation_budget,
+        "evaluation_budget": evaluation_budget,
         "optimizer_budget": optimizer_budget,
         "optimizer_calls": optimizer_calls,
         "screening_score_calls": screening_score_calls,
@@ -482,7 +490,7 @@ def run(workspace: Path) -> dict:
         "dds_resumed": dds_resume,
         # Backward-compatible aliases used by existing reports/tests.
         "evaluated_candidates": model_evaluations,
-        "requested_candidates": strategy.evaluation_budget,
+        "requested_candidates": evaluation_budget,
         "model_version": MODEL_VERSION,
         "model_source_sha256": MODEL_SHA256,
         "selected_candidate_index": 0 if not calibrated else -1,

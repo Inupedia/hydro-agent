@@ -7,7 +7,8 @@ from typing import Protocol
 
 from hydro_agent.agent.contracts import ActionCode, AgentDecision, EvidencePacket
 from hydro_agent.execution.hashing import sha256_bytes
-from hydro_agent.optimization.ledger import agent_calibration_document
+from hydro_agent.optimization.campaign import policy_from_workbench
+from hydro_agent.optimization.ledger import TrialLedgerBuilder, agent_calibration_document
 from hydro_agent.services.calibration import CalibrationExecutionFailed
 
 
@@ -296,6 +297,38 @@ class OptimizeHandler:
                 ),
             )
         state = self.repository.ensure_task_state(task_id)
+        scheme = self.repository.get_scheme(state.current_scheme_id)
+        workbench = dict((scheme.config_json or {}).get("workbench") or {})
+        campaign_budget = policy_from_workbench(workbench).max_model_evaluations
+        remaining_budget = None
+        if campaign_budget is not None:
+            prior_trials = TrialLedgerBuilder().build(self.repository.list_evidence(task_id)).records
+            spent = sum(trial.model_evaluations for trial in prior_trials)
+            remaining_budget = campaign_budget - spent
+            if remaining_budget < 2:
+                observations = (
+                    f"campaign_budget={campaign_budget}",
+                    f"model_evaluations_spent={spent}",
+                    "remaining_budget_too_small_for_optimizer",
+                )
+                metrics = {"remaining_model_evaluations": float(max(0, remaining_budget))}
+                return EvidencePacket(
+                    evidence_id=_evidence_id(),
+                    task_id=task_id,
+                    action_run_id=None,
+                    action=ActionCode.A05_OPTIMIZE,
+                    status="blocked",
+                    observations=observations,
+                    metrics=metrics,
+                    gates={"reason": "campaign_budget_exhausted"},
+                    artifact_ids=(),
+                    new_information_hash=information_hash(
+                        action=ActionCode.A05_OPTIMIZE,
+                        status="blocked",
+                        observations=observations,
+                        metrics=metrics,
+                    ),
+                )
         try:
             outcome = self.calibration_service.calibrate(
                 task_id=task_id,
@@ -305,6 +338,7 @@ class OptimizeHandler:
                 policy=self.policy,
                 param_groups=decision.param_groups,
                 objective=decision.objective,
+                evaluation_budget_override=remaining_budget,
             )
         except CalibrationExecutionFailed as exc:
             groups_text = ",".join(decision.param_groups or ())

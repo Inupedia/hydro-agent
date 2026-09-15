@@ -179,6 +179,12 @@ export const api = {
       { method: 'DELETE' },
     )
   },
+  copySkillFromBuiltin(skillId: string) {
+    return request<SkillDetail>(
+      `/api/skills/${encodeURIComponent(skillId)}/copy-from-builtin`,
+      { method: 'POST' },
+    )
+  },
   reloadSkills() {
     return request<{ skill_ids: string[]; count: number }>('/api/skills/reload', {
       method: 'POST',

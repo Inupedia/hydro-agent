@@ -6,7 +6,8 @@ metadata:
   purpose_zh: "把一次率定任务预注册成可比较、可复现、不会边跑边改规则的研究协议。"
   when_to_use_zh: "创建新 Campaign|变更研究目标需开启新 Campaign|设计 O/P/A 对照实验"
   required_evidence_zh: "可用历史时段|研究目标|模型与数据版本|计算预算|评价需求"
-  recommended_actions: ""
+  recommended_actions: "M01_CHECK_MATERIALS|A02_VALIDATE_SCHEME"
+  activation_stages: "data"
   counterexamples_zh: "运行中不能用 Skill 改 locked objective|不能把已暴露数据改成 final-test"
   prompt_references: "references/period-splitting.md|references/objective-locking.md|references/convergence-policy.md"
 ---

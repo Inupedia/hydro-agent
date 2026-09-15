@@ -18,6 +18,10 @@ _LEGACY_TO_CURRENT = {
 def timeline_label(action: str | None, status: str) -> str:
     action = _LEGACY_TO_CURRENT.get(action or "", action)
     if status == "blocked" or status == "BLOCK":
+        if action == ActionCode.A08_FREEZE.value:
+            return "收口条件未满足，继续自动循环"
+        if action == ActionCode.A05_OPTIMIZE.value:
+            return "优化步骤被阻断，等待下一轮决策"
         return "当前任务受阻，需要人工处理"
     mapping = {
         (ActionCode.A01_CHECK_DATA.value, "succeeded"): "资料检查完成",

@@ -32,6 +32,9 @@ CAMPAIGN_DESIGN_SKILL_ID = "hydro-campaign-design"
 EXPERIMENT_DESIGN_SKILL_ID = "hydro-experiment-design"
 CALIBRATION_SKILL_ID = "xaj-calibration"
 GBT_SKILL_ID = "gbt-22482-accuracy"
+MODELING_PREP_SKILL_ID = "hydro-modeling-prep"
+REPORT_CLOSEOUT_SKILL_ID = "hydro-report-closeout"
+OPENHYDRONET_DIAGNOSIS_SKILL_ID = "openhydronet-diagnosis"
 SkillSource = Literal["builtin", "user", "memory"]
 ActivationStage = Literal["data", "diagnosis", "experiment", "gate", "report"]
 
@@ -200,30 +203,60 @@ class SkillRegistry:
 
         selected: list[str] = []
         if not has_forecast:
-            selected.append(DATA_READINESS_SKILL_ID)
+            selected.extend(
+                (
+                    DATA_READINESS_SKILL_ID,
+                    MODELING_PREP_SKILL_ID,
+                    CAMPAIGN_DESIGN_SKILL_ID,
+                )
+            )
         elif not has_diagnose:
             selected.append(ERROR_DIAGNOSIS_SKILL_ID)
+            if view.model.model_id == "openhydronet":
+                selected.append(OPENHYDRONET_DIAGNOSIS_SKILL_ID)
         else:
             selected.append(ERROR_DIAGNOSIS_SKILL_ID)
-            if "evap" in groups:
-                selected.append(WATER_BALANCE_SKILL_ID)
-            if "runoff" in groups:
-                selected.extend((WATER_BALANCE_SKILL_ID, RUNOFF_GENERATION_SKILL_ID))
-            if "routing" in groups or hypothesis == "TIMING":
-                selected.append(ROUTING_DIAGNOSIS_SKILL_ID)
-            if not groups and hypothesis in {"MODEL", "UNKNOWN", ""}:
-                selected.extend(
-                    (
-                        WATER_BALANCE_SKILL_ID,
-                        RUNOFF_GENERATION_SKILL_ID,
-                        ROUTING_DIAGNOSIS_SKILL_ID,
+            if view.model.model_id == "openhydronet":
+                selected.append(OPENHYDRONET_DIAGNOSIS_SKILL_ID)
+            else:
+                if "evap" in groups:
+                    selected.append(WATER_BALANCE_SKILL_ID)
+                if "runoff" in groups:
+                    selected.extend((WATER_BALANCE_SKILL_ID, RUNOFF_GENERATION_SKILL_ID))
+                if "routing" in groups or hypothesis == "TIMING":
+                    selected.append(ROUTING_DIAGNOSIS_SKILL_ID)
+                if not groups and hypothesis in {"MODEL", "UNKNOWN", ""}:
+                    metrics = dict(diagnosis.get("metrics") or {})
+                    pbias = metrics.get("pbias_percent", metrics.get("pbias"))
+                    peak_lag = metrics.get(
+                        "peak_lag_hours",
+                        metrics.get("peak_time_error_hours", metrics.get("peak_timing_error_hours")),
                     )
-                )
+                    selected.append(WATER_BALANCE_SKILL_ID)
+                    try:
+                        lag_value = abs(float(peak_lag)) if peak_lag is not None else None
+                    except (TypeError, ValueError):
+                        lag_value = None
+                    try:
+                        pbias_value = abs(float(pbias)) if pbias is not None else None
+                    except (TypeError, ValueError):
+                        pbias_value = None
+                    if lag_value is not None and lag_value >= 1.0:
+                        selected.append(ROUTING_DIAGNOSIS_SKILL_ID)
+                    elif pbias_value is not None and pbias_value < 10.0:
+                        selected.append(RUNOFF_GENERATION_SKILL_ID)
             if view.task.allow_optimization and in_calibration_flow:
                 selected.extend((CALIBRATION_SKILL_ID, EXPERIMENT_DESIGN_SKILL_ID))
 
         if need_gate or "A06_GATE" in actions or "A10_EVALUATE_REPORT" in actions:
             selected.append(GBT_SKILL_ID)
+        if (
+            view.task.phase in {"F", "E"}
+            or view.hydro.campaign.stop_reason is not None
+            or "A08_FREEZE" in actions
+            or "A10_EVALUATE_REPORT" in actions
+        ):
+            selected.append(REPORT_CLOSEOUT_SKILL_ID)
 
         output: list[str] = []
         for skill_id in selected:

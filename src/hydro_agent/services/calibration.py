@@ -104,6 +104,7 @@ class CalibrationService:
         policy,
         param_groups: tuple[str, ...] | None = None,
         objective: str | None = None,
+        evaluation_budget_override: int | None = None,
     ) -> CalibrationOutcome:
         """Search parameters using calibration data only.
 
@@ -123,6 +124,11 @@ class CalibrationService:
         if task.phase in ("F", "E"):
             raise ValueError("optimization forbidden in F/E")
         strategy = self.strategies.get(strategy_id)
+        evaluation_budget = strategy.evaluation_budget
+        if evaluation_budget_override is not None:
+            if evaluation_budget_override < 2:
+                raise ValueError("remaining calibration evaluation budget must be >= 2")
+            evaluation_budget = min(evaluation_budget, evaluation_budget_override)
         base = self.repository.get_scheme(base_scheme_id)
         cal_snap = self.repository.get_snapshot(calibration_snapshot_id)
         if base.task_id != task_id or cal_snap.task_id != task_id:
@@ -147,6 +153,7 @@ class CalibrationService:
                 "strategy_id": strategy.strategy_id,
                 "param_groups": list(resolved_groups),
                 "objective": resolved_objective,
+                "evaluation_budget": evaluation_budget,
             },
             policy,
         )
@@ -188,7 +195,7 @@ class CalibrationService:
                 result.status,
                 result.error_code,
                 model_evaluations=evaluation_count(workspace),
-                evaluation_budget=strategy.evaluation_budget,
+                evaluation_budget=evaluation_budget,
                 execution_attempts=int(payload.get("execution_attempts") or 1),
                 resume_attempts=int(payload.get("resume_attempts") or 0),
             )

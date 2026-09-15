@@ -99,6 +99,22 @@ def test_calibration_service_returns_payload_without_registering_candidate(calib
     assert repository.list_schemes(status="candidate") == []
 
 
+def test_calibration_service_passes_remaining_budget_to_runtime(calibration_service):
+    _, service = calibration_service
+
+    outcome = service.calibrate(
+        task_id="task-1",
+        base_scheme_id="scheme-base",
+        calibration_snapshot_id="snap-cal",
+        strategy_id="xaj-bounded-v1",
+        policy=cpu_policy,
+        evaluation_budget_override=34,
+    )
+
+    assert outcome.result_payload["evaluation_budget"] == 34
+    assert 0 < outcome.result_payload["model_evaluations"] <= 34
+
+
 class ResumeRunner:
     def __init__(self, root: Path):
         self.workspaces = SimpleNamespace(root=root)

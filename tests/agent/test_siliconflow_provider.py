@@ -424,6 +424,8 @@ def test_siliconflow_provider_injects_activated_skills():
     assert "Activated Agent Skills" in system
     assert "hydro-data-readiness" in system
     assert "hydro-data-readiness" in decision.activated_skill_ids
+    assert "hydro-modeling-prep" in decision.activated_skill_ids
+    assert "hydro-campaign-design" in decision.activated_skill_ids
     assert "data-check" not in system
     assert "forecast-diagnose" not in system
 
@@ -479,6 +481,10 @@ def test_siliconflow_provider_streams_deltas():
         hypothesis=ProblemHypothesis.MODEL,
         strategy_id=None,
         rationale_summary="Run audited base forecast.",
-        activated_skill_ids=("hydro-data-readiness",),
+        activated_skill_ids=(
+            "hydro-data-readiness",
+            "hydro-modeling-prep",
+            "hydro-campaign-design",
+        ),
     )
     assert "".join(seen) == text

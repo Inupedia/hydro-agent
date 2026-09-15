@@ -88,16 +88,19 @@ skills/
 │
 ├── xaj-runoff-generation/
 │   ├── SKILL.md
-│   └── references/
-│       ├── runoff-generation.md
-│       └── source-partition.md
+│   ├── references/
+│   │   ├── runoff-generation.md
+│   │   └── source-partition.md
+│   └── assets/expert/
 │
 ├── xaj-routing-diagnosis/
 │   ├── SKILL.md
 │   ├── references/
 │   │   ├── routing.md
 │   │   └── recession-and-lag.md
-│   └── assets/governed/
+│   └── assets/
+│       ├── expert/
+│       └── governed/
 │
 ├── hydro-campaign-design/
 │   ├── SKILL.md
@@ -105,6 +108,11 @@ skills/
 │       ├── period-splitting.md
 │       ├── objective-locking.md
 │       └── convergence-policy.md
+│
+├── hydro-modeling-prep/
+│   ├── SKILL.md
+│   └── references/
+│       └── modeling-checklist.md
 │
 ├── hydro-experiment-design/
 │   ├── SKILL.md
@@ -126,6 +134,16 @@ skills/
 │   └── assets/
 │       ├── governed/
 │       └── review/
+│
+├── openhydronet-diagnosis/
+│   ├── SKILL.md
+│   └── references/
+│       └── openhydronet-diagnosis.md
+│
+├── hydro-report-closeout/
+│   ├── SKILL.md
+│   └── references/
+│       └── report-checklist.md
 │
 └── gbt-22482-accuracy/
     ├── SKILL.md

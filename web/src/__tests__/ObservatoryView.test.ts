@@ -299,6 +299,8 @@ describe("single page observatory", () => {
 
   it("submits development and final-test windows with backend budget limits", async () => {
     const { wrapper } = await setup();
+    expect(wrapper.find('[data-test="campaign-budget"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="campaign-budget"]').element.parentElement?.textContent).toContain("本次率定最多运行多少次模型");
     await wrapper.find('[data-test="runtime-settings"]').trigger("click");
     const development = wrapper.find('[data-test="development-days"]');
     const finalTest = wrapper.find('[data-test="final-test-days"]');

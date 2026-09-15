@@ -777,6 +777,7 @@ onUnmounted(() => {
                     <GlassSelect v-model="demo.draft.forcing_mode" aria-label="气象资料" :options="forcingSelectOptions" />
                   </label>
                   <label class="toggle-row"><span>允许尝试改进方案</span><input v-model="demo.draft.allow_optimization" type="checkbox" role="switch" /></label>
+                  <label>模型评估预算<input v-model.number="demo.draft.campaign_max_model_evaluations" data-test="campaign-budget" type="number" min="1" required /><small>本次率定最多运行多少次模型；预算越大，搜索可能更充分，也更耗时。</small></label>
                   <button class="text-button" data-test="runtime-settings" type="button" :aria-expanded="advanced" @click="advanced = !advanced">{{ advanced ? '收起运行设置 −' : '运行设置 +' }}</button>
                   <div v-if="advanced" class="advanced-fields">
                     <label>基础方案<input v-model="demo.draft.base_scheme_id" required /></label>
@@ -788,7 +789,6 @@ onUnmounted(() => {
                       <GlassSelect v-model="campaignMode" data-test="campaign-mode" aria-label="停止策略" :options="campaignSelectOptions" />
                       <small>连通验证只按模型评估预算停止，不宣称收敛或发布合格。</small>
                     </label>
-                    <label>模型评估预算<input v-model.number="demo.draft.campaign_max_model_evaluations" data-test="campaign-budget" type="number" min="1" required /><small>实验之间的停止阈值，不会中途截断单次优化器。</small></label>
                   </div>
                 </fieldset>
               </div>
@@ -893,7 +893,9 @@ onUnmounted(() => {
 
 <style src="../observatory.css"></style>
 <style scoped>
-.advanced-fields small {
+.pane-form label small {
+  display: block;
+  margin-top: 4px;
   color: var(--text-secondary);
   font-size: 11px;
   font-weight: 400;

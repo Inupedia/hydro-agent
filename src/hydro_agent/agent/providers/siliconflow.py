@@ -302,7 +302,8 @@ def _diagnosis_calibration_progress(
         }
 
     # Budget exhaustion requests A08 closeout. The Freeze tool is authoritative:
-    # QUALIFIED schemes freeze; unqualified schemes pause for human handover.
+    # QUALIFIED schemes freeze with release approval; unqualified schemes still
+    # freeze into read-only research final evaluation (no human pause).
     if (
         resolved_outcome in {"KEEP", "ROLLBACK"}
         and ActionCode.A08_FREEZE.value in safe_actions
@@ -321,7 +322,8 @@ def _diagnosis_calibration_progress(
             "objective": None,
             "rationale_summary": (
                 f"Resolve={resolved_outcome} / Qualification={qualification_status or 'UNKNOWN'}，"
-                "优化或收尾预算已耗尽；请求收尾检查。未通过资格时转人工复核，不冻结或消费 final-test。"
+                "优化或收尾预算已耗尽；自动进入研究收口。"
+                "不合格方案仍可冻结并回放/出报告，但不放行发布。"
             ),
         }
 

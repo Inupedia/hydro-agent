@@ -58,6 +58,7 @@ def test_user_focused_skill_assets_drive_expert_priors(monkeypatch, tmp_path: Pa
 
     registry = SkillRegistry(builtin_root=builtin_root, user_root=user_root)
     manager = SkillManager(registry)
+    manager.copy_from_builtin("xaj-water-balance")
     payload["rules"][0]["threshold"] = 25.0
     manager.save_resource(
         "xaj-water-balance",
@@ -69,12 +70,16 @@ def test_user_focused_skill_assets_drive_expert_priors(monkeypatch, tmp_path: Pa
     context = KnowledgeQueryContext(model_id="xaj", allow_unverified_expert_priors=True)
     assert (
         engine.advise(
-            {"metrics": {"pbias_percent": 20.0}}, governance_context=context
+            {"metrics": {"pbias_percent": 20.0}},
+            source_id="xaj-water-balance-priors-v1",
+            governance_context=context,
         ).matched_prior_refs
         == ()
     )
     assert engine.advise(
-        {"metrics": {"pbias_percent": 30.0}}, governance_context=context
+        {"metrics": {"pbias_percent": 30.0}},
+        source_id="xaj-water-balance-priors-v1",
+        governance_context=context,
     ).matched_prior_refs == ("expert.water_balance_first@1",)
 
 
@@ -102,6 +107,7 @@ def test_user_focused_skill_assets_drive_governed_catalog(monkeypatch, tmp_path:
 
     registry = SkillRegistry(builtin_root=builtin_root, user_root=user_root)
     manager = SkillManager(registry)
+    manager.copy_from_builtin("xaj-routing-diagnosis")
     claim.update(revision=2, claim="user claim", source_id="user", source_hash="sha256:user")
     manager.save_resource(
         "xaj-routing-diagnosis",
@@ -111,6 +117,17 @@ def test_user_focused_skill_assets_drive_governed_catalog(monkeypatch, tmp_path:
 
     repository = GovernedKnowledgeRepository()
     assert repository.entry("expert.example", 2).claim == "user claim"
+
+
+def test_builtin_routing_prior_matches_peak_lag_hours():
+    engine = ExpertPriorEngine()
+    context = KnowledgeQueryContext(model_id="xaj", allow_unverified_expert_priors=True)
+    advice = engine.advise(
+        {"metrics": {"peak_lag_hours": 2.5, "nse": 0.55, "pbias_percent": 4.0}},
+        governance_context=context,
+    )
+    assert "expert.routing_when_peak_lag_large@1" in advice.matched_prior_refs
+    assert advice.recommended_param_groups == ("routing",)
 
 
 def test_builtin_governed_claims_are_split_by_domain():

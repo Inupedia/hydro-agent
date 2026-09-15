@@ -14,6 +14,9 @@ EXPECTED_SKILLS = {
     "hydro-experiment-design",
     "xaj-calibration",
     "gbt-22482-accuracy",
+    "hydro-modeling-prep",
+    "hydro-report-closeout",
+    "openhydronet-diagnosis",
 }
 
 
@@ -84,6 +87,75 @@ def test_activate_for_view_uses_process_skills_without_nse_stop_threshold():
     assert "campaign_stop_reason=none" in rendered
     assert "nse_good_enough" not in rendered
     assert "standard=GB/T 22482-2026" in rendered
+
+
+def test_data_stage_activates_campaign_and_modeling_skills():
+    view = contracts.WorldStateView(
+        task=contracts.TaskSummary(task_id="t1", basin_id="b", phase="B", forcing_mode="R"),
+        model=contracts.ModelSummary(model_id="xaj", capabilities=("forecast", "calibrate")),
+        scheme=contracts.SchemeSummary(scheme_id="s", status="base", content_hash="h"),
+        permissions=contracts.PermissionSummary(safe_actions=(contracts.ActionCode.A02_VALIDATE_SCHEME,)),
+        budget=contracts.BudgetSummary(
+            agent_rounds_remaining=10,
+            optimization_cycles_remaining=2,
+            max_agent_rounds=10,
+            max_optimization_cycles=2,
+        ),
+    )
+    activated = SkillRegistry().activate_for_view(view)
+    assert "hydro-data-readiness" in activated
+    assert "hydro-campaign-design" in activated
+    assert "hydro-modeling-prep" in activated
+
+
+def test_unknown_hypothesis_prefers_water_balance_over_full_fanout():
+    view = contracts.WorldStateView(
+        task=contracts.TaskSummary(
+            task_id="t1",
+            basin_id="b",
+            phase="B",
+            forcing_mode="R",
+            allow_optimization=True,
+        ),
+        model=contracts.ModelSummary(model_id="xaj", capabilities=("forecast", "calibrate")),
+        scheme=contracts.SchemeSummary(scheme_id="s", status="base", content_hash="h"),
+        permissions=contracts.PermissionSummary(
+            safe_actions=(contracts.ActionCode.A05_OPTIMIZE,),
+            paused=False,
+        ),
+        budget=contracts.BudgetSummary(
+            agent_rounds_remaining=10,
+            optimization_cycles_remaining=2,
+            max_agent_rounds=10,
+            max_optimization_cycles=2,
+        ),
+        evidence_summary=(
+            contracts.EvidenceSummary(
+                evidence_id="e1",
+                action=contracts.ActionCode.A03_FORECAST,
+                status="succeeded",
+                new_information_hash="h1",
+            ),
+            contracts.EvidenceSummary(
+                evidence_id="e2",
+                action=contracts.ActionCode.A04_DIAGNOSE,
+                status="succeeded",
+                new_information_hash="h2",
+            ),
+        ),
+        latest_forecast_id="f1",
+        hydro=contracts.HydroContext(
+            diagnosis={
+                "hypothesis": "UNKNOWN",
+                "metrics": {"nse": 0.2, "pbias_percent": 3.0},
+                "recommended_param_groups": [],
+            }
+        ),
+    )
+    activated = SkillRegistry().activate_for_view(view)
+    assert "xaj-water-balance" in activated
+    assert "xaj-runoff-generation" in activated
+    assert "xaj-routing-diagnosis" not in activated
 
 
 def test_user_skill_activates_only_in_declared_stage_and_model(tmp_path: Path):

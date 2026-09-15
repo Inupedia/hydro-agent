@@ -8,6 +8,9 @@ export type SkillSummary = {
   purpose_zh: string
   source: SkillSource
   editable: boolean
+  activation_stages?: string[]
+  activation_model_ids?: string[]
+  recommended_actions?: string[]
 }
 
 export type SkillResource = {

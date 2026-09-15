@@ -84,6 +84,11 @@ def policy_from_workbench(workbench: Mapping[str, object] | None) -> CampaignPol
     max_evaluations = _optional_int(raw.get("campaign_max_model_evaluations"))
     if mode == "smoke" and max_evaluations is None:
         max_evaluations = DEFAULT_SMOKE_MAX_MODEL_EVALUATIONS
+    max_no_gain = _optional_int(raw.get("campaign_max_no_gain_gates"))
+    # Smoke defaults to a small no-gain handoff so repeated failed development
+    # Gates close out automatically (freeze → replay → report) without pausing.
+    if mode == "smoke" and max_no_gain is None:
+        max_no_gain = 2
     return CampaignPolicy(
         mode=mode,  # type: ignore[arg-type]
         max_model_evaluations=max_evaluations,
@@ -91,7 +96,7 @@ def policy_from_workbench(workbench: Mapping[str, object] | None) -> CampaignPol
         plateau_window=_optional_int(raw.get("campaign_plateau_window")),
         plateau_abs_epsilon=_optional_float(raw.get("campaign_plateau_abs_epsilon")),
         restart_distinct_strategies=int(raw.get("campaign_restart_distinct_strategies") or 2),
-        max_no_gain_gates=_optional_int(raw.get("campaign_max_no_gain_gates")),
+        max_no_gain_gates=max_no_gain,
     )
 
 
@@ -197,13 +202,15 @@ def rebuild_campaign(
         stop_reason = "HUMAN_HANDOVER"
         notes.append(
             "repeated development Gate checks produced no selected-best improvement; "
-            "this does not prove the target is unsatisfiable"
+            "automatic research closeout (freeze without release approval)"
         )
     elif (
         policy.max_model_evaluations is not None
-        and total_evaluations >= policy.max_model_evaluations
+        and policy.max_model_evaluations - total_evaluations < 2
     ):
         stop_reason = "BUDGET_EXHAUSTED"
+        if total_evaluations < policy.max_model_evaluations:
+            notes.append("one model evaluation remains, below the optimizer minimum of two")
         if plateau_candidate and not restart_check_satisfied:
             notes.append("budget exhausted before preregistered restart check was satisfied")
         elif policy.mode == "convergence":
