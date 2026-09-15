@@ -9,7 +9,7 @@ from hydro_agent.agent.contracts import (
     TaskSummary,
     WorldStateView,
 )
-from hydro_agent.agent.providers.siliconflow import _nse_calibration_progress
+from hydro_agent.agent.providers.siliconflow import _diagnosis_calibration_progress
 
 
 def _resolved_view(
@@ -92,7 +92,7 @@ def _resolved_view(
 
 def test_high_diagnostic_nse_cannot_bypass_unqualified_gate():
     view = _resolved_view("UNQUALIFIED")
-    result = _nse_calibration_progress(
+    result = _diagnosis_calibration_progress(
         view,
         {
             "action": "A10_FREEZE",
@@ -101,7 +101,7 @@ def test_high_diagnostic_nse_cannot_bypass_unqualified_gate():
             "rationale_summary": "NSE is high",
         },
         safe_actions={"A07_OPTIMIZE", "A10_FREEZE"},
-        nse_good_enough=0.7,
+        dc_bing_floor=0.7,
     )
     assert result["action"] == "A07_OPTIMIZE"
     assert "不能绕过 Gate" in result["rationale_summary"]
@@ -109,7 +109,7 @@ def test_high_diagnostic_nse_cannot_bypass_unqualified_gate():
 
 def test_not_evaluated_gate_also_requires_more_evidence():
     view = _resolved_view("NOT_EVALUATED")
-    result = _nse_calibration_progress(
+    result = _diagnosis_calibration_progress(
         view,
         {
             "action": "A10_FREEZE",
@@ -118,14 +118,14 @@ def test_not_evaluated_gate_also_requires_more_evidence():
             "rationale_summary": "NSE is high",
         },
         safe_actions={"A07_OPTIMIZE", "A10_FREEZE"},
-        nse_good_enough=0.7,
+        dc_bing_floor=0.7,
     )
     assert result["action"] == "A07_OPTIMIZE"
 
 
 def test_qualified_gate_freezes_even_if_llm_requests_more_search():
     view = _resolved_view("QUALIFIED")
-    result = _nse_calibration_progress(
+    result = _diagnosis_calibration_progress(
         view,
         {
             "action": "A07_OPTIMIZE",
@@ -134,7 +134,7 @@ def test_qualified_gate_freezes_even_if_llm_requests_more_search():
             "rationale_summary": "search more",
         },
         safe_actions={"A07_OPTIMIZE", "A10_FREEZE"},
-        nse_good_enough=0.7,
+        dc_bing_floor=0.7,
     )
     assert result["action"] == "A10_FREEZE"
     assert "资格评价" in result["rationale_summary"]
@@ -142,7 +142,7 @@ def test_qualified_gate_freezes_even_if_llm_requests_more_search():
 
 def test_unqualified_budget_exhaustion_requests_handover_safe_closeout():
     view = _resolved_view("UNQUALIFIED", optimization_cycles_remaining=0)
-    result = _nse_calibration_progress(
+    result = _diagnosis_calibration_progress(
         view,
         {
             "action": "A10_FREEZE",
@@ -151,7 +151,7 @@ def test_unqualified_budget_exhaustion_requests_handover_safe_closeout():
             "rationale_summary": "close out",
         },
         safe_actions={"A10_FREEZE"},
-        nse_good_enough=0.7,
+        dc_bing_floor=0.7,
     )
 
     assert result["action"] == "A10_FREEZE"

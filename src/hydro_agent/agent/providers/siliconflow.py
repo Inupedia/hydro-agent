@@ -18,7 +18,8 @@ from hydro_agent.agent.permissions import (
 )
 from hydro_agent.llm.client import SiliconFlowClient
 from hydro_agent.llm.settings import LLMSettings
-from hydro_agent.skills import DEFAULT_NSE_GOOD_ENOUGH, SkillRegistry
+from hydro_agent.skills import SkillRegistry
+from hydro_agent.standards import DEFAULT_GRADE_DC_BING
 
 _HYPOTHESES = tuple(h.value for h in ProblemHypothesis)
 _ACTIONS = tuple(a.value for a in ActionCode)
@@ -26,8 +27,9 @@ _ACTIONS = tuple(a.value for a in ActionCode)
 SYSTEM_INSTRUCTIONS = f"""You are the Hydro-Agent decision module for a hydrologist-style research loop.
 Choose exactly one ActionCode from permissions.safe_actions.
 Never invent continuous parameter vectors or call model processes directly.
-Follow activated Agent Skills below for calibration/diagnosis methods and thresholds
-(especially nse_good_enough from xaj-calibration). Do NOT invent continuous XAJ parameters.
+Follow activated Agent Skills below for diagnosis and experiment design guidance.
+Normative thresholds (GB/T DC floors, Gate policy) come from Standards, not Skills.
+Do NOT invent continuous XAJ parameters.
 Do NOT choose xaj-hydrologist-manual-v1 in the automatic loop.
 
 Preferred B-phase path:
@@ -83,6 +85,7 @@ class SiliconFlowDecisionProvider:
         self.settings = settings or LLMSettings.from_env()
         self.client = client or SiliconFlowClient(self.settings)
         self.skills = skills or SkillRegistry()
+        self.standards = self.skills.standards
 
     @property
     def model(self) -> str:
@@ -125,11 +128,11 @@ class SiliconFlowDecisionProvider:
             evidence_actions=evidence_actions,
         )
         original_action = str(payload.get("action") or "")
-        payload = _nse_calibration_progress(
+        payload = _diagnosis_calibration_progress(
             view,
             payload,
             safe_actions=safe,
-            nse_good_enough=self.skills.nse_good_enough(),
+            dc_bing_floor=self.standards.grade_dc_bing(),
         )
         if str(payload.get("action") or "") != original_action:
             # The deterministic scientific guardrail may override the model's proposed next action.
@@ -196,19 +199,15 @@ def _optimize_payload(view: WorldStateView, *, rationale: str) -> dict:
     }
 
 
-def _nse_calibration_progress(
+def _diagnosis_calibration_progress(
     view: WorldStateView,
     payload: dict,
     *,
     safe_actions: set[str],
-    nse_good_enough: float | None = None,
+    dc_bing_floor: float | None = None,
 ) -> dict:
     """Deterministic scientific guardrail around the live LLM calibration loop."""
-    threshold = (
-        float(nse_good_enough)
-        if nse_good_enough is not None
-        else DEFAULT_NSE_GOOD_ENOUGH
-    )
+    threshold = float(dc_bing_floor) if dc_bing_floor is not None else DEFAULT_GRADE_DC_BING
     actions = [item.action.value for item in view.evidence_summary]
     nse = _diagnosis_nse(view)
     gate_status = _latest_status(view, ActionCode.A08_GATE.value)
@@ -345,7 +344,7 @@ def _nse_calibration_progress(
             else:
                 rationale = (
                     f"模拟与观测对比 NSE={nse if nse is not None else 'n/a'} "
-                    f"< {threshold}（skill nse_good_enough），启动有界参数率定。"
+                    f"< {threshold}（standard grade_dc_bing），启动有界参数率定。"
                 )
             return _optimize_payload(view, rationale=rationale)
 

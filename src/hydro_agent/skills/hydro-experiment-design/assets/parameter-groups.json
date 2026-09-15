@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "model_id": "xaj",
+  "purpose": "Agent-facing conceptual parameter groups. This asset intentionally contains no numeric bounds.",
+  "groups": [
+    {"group_id": "evap", "meaning": "蒸散发与上层蓄水相关过程"},
+    {"group_id": "runoff", "meaning": "产流形成、水源划分及径流量级相关过程"},
+    {"group_id": "routing", "meaning": "汇流、滞后、过程形状与退水相关过程"}
+  ],
+  "authority_note": "Concrete parameter membership, read-only flags, absolute ranges and cross-parameter constraints are owned by the model registry/validator, not this editable Skill asset."
+}

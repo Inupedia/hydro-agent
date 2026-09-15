@@ -1,0 +1,35 @@
+{
+  "catalog_id": "xaj-v3-calibration-claims",
+  "source_id": "xaj-skill-v3-2026-09-13",
+  "entries": [
+    {
+      "knowledge_id": "constraint.xaj.kg-ki-boundary.external-v3",
+      "revision": 1,
+      "category": "model_constraint_evidence",
+      "authority": "validator_evidence",
+      "claim": "The supplied expert material states the implementation constraint as 0 < KG + KI <= 1.",
+      "source_id": "xaj-skill-v3-2026-09-13",
+      "source_hash": "sha256:783000ae7f04195a4d9a82651bae08295ce99d4bffc5994453f799a827664495",
+      "source_locator": "skill_v3.md#1.7-implementation-constraints",
+      "applicability": {"model_ids": ["xaj"]},
+      "verification_status": "disputed",
+      "review_status": "approved",
+      "evidence_refs": ["skill_v3.md#1.7", "skill_v3.md#13"],
+      "conflicts_with": ["legacy-skill-kg-ki-strict-less-than-one"]
+    },
+    {
+      "knowledge_id": "method.xaj.v3-physical-estimation",
+      "revision": 1,
+      "category": "policy_suggestion",
+      "authority": "runtime_prohibited",
+      "claim": "Section 5 proposes physical parameter-estimation and regionalization heuristics, but the source explicitly says they were not experimentally verified in the teaching package.",
+      "source_id": "xaj-skill-v3-2026-09-13",
+      "source_hash": "sha256:783000ae7f04195a4d9a82651bae08295ce99d4bffc5994453f799a827664495",
+      "source_locator": "skill_v3.md#5-physical-estimation",
+      "applicability": {"model_ids": ["xaj"]},
+      "verification_status": "unverified",
+      "review_status": "pending",
+      "evidence_refs": ["skill_v3.md#5", "skill_v3.md#13-unverified-parts"]
+    }
+  ]
+}

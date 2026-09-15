@@ -34,7 +34,8 @@ def test_real_workbench_binds_a06_to_predevelopment_diagnosis():
     kernel._task_configs = {"task-1": {"allow_optimization": True}}
     kernel.forecast = object()
     kernel.source = _Source(flow_rows=(_FlowRow(True), _FlowRow(False)))
-    kernel.skills = SimpleNamespace(nse_good_enough=lambda: 0.5)
+    kernel.skills = SimpleNamespace()
+    kernel.standards = SimpleNamespace(grade_dc_bing=lambda: 0.5)
     kernel.validation_gate = SimpleNamespace(
         window_for=lambda _task_id: SimpleNamespace(
             start=date(2000, 5, 1),
@@ -59,7 +60,7 @@ def test_real_workbench_binds_a06_to_predevelopment_diagnosis():
     assert kwargs["task_id"] == "task-1"
     assert kwargs["scheme_id"] == "scheme-base"
     assert kwargs["validation_start"] == date(2000, 5, 1)
-    assert kwargs["nse_good_enough"] == 0.5
+    assert "nse_good_enough" not in kwargs
     assert len(kwargs["source"].flow_rows) == 1
     assert kwargs["source"].flow_rows[0].eligible_for_scoring is True
     assert "diagnostic_truth_strictly_precedes_development=true" in result["notes"]

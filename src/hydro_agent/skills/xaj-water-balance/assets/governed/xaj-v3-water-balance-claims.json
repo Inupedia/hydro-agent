@@ -1,0 +1,22 @@
+{
+  "catalog_id": "xaj-v3-water-balance-claims",
+  "source_id": "xaj-skill-v3-2026-09-13",
+  "entries": [
+    {
+      "knowledge_id": "expert.yaogu.xaj.water-balance-kc",
+      "revision": 1,
+      "category": "expert_diagnostic_prior",
+      "authority": "advisory_only",
+      "claim": "For the Yaogu daily lumped teaching case, when total simulated volume or runoff coefficient is too high, test the evaporation/runoff mechanism through KC first; WUM/WLM are secondary checks and WM should not be relied on alone.",
+      "source_id": "xaj-skill-v3-2026-09-13",
+      "source_hash": "sha256:783000ae7f04195a4d9a82651bae08295ce99d4bffc5994453f799a827664495",
+      "source_locator": "skill_v3.md#6.3-water-balance-and-baseflow",
+      "applicability": {"model_ids": ["xaj"], "basin_ids": ["yaogu"], "execution_representations": ["lumped"], "timesteps": ["1d"]},
+      "verification_status": "unverified",
+      "review_status": "approved",
+      "exposure_tags": ["development"],
+      "evidence_dataset_ids": ["yaogu-academy-1989-2003"],
+      "evidence_refs": ["skill_v3.md#6.3", "skill_v3.md#2.2"]
+    }
+  ]
+}

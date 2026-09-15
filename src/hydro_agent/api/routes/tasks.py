@@ -4,7 +4,11 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 
 from hydro_agent.api.schemas import RenameTaskBody, TaskCreateRequest, TaskSummary
-from hydro_agent.api.services import build_task_summary, create_workbench_task, rename_workbench_task
+from hydro_agent.api.services import (
+    build_task_summary,
+    create_workbench_task,
+    rename_workbench_task,
+)
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 

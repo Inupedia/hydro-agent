@@ -13,13 +13,13 @@ from hydro_agent.evaluation.gbt22482 import (
 from hydro_agent.graphs.gbt_accuracy import build_gbt_accuracy_graph, run_gbt_accuracy
 from hydro_agent.optimization.contracts import EvaluationBundle, GatePolicy, LeadMetrics
 from hydro_agent.optimization.gate import GateEvaluator
-from hydro_agent.skills import SkillRegistry
+from hydro_agent.standards import StandardRepository
 
 
 def _cfg() -> GbtAccuracyConfig:
-    # Production-style tests consume the versioned knowledge profile instead of
+    # Production-style tests consume the versioned standard profile instead of
     # treating dataclass defaults as the source of the technical standard.
-    return SkillRegistry().gbt_accuracy_config()
+    return StandardRepository().gbt_accuracy_config()
 
 
 def _good_series() -> HydroSeries:
@@ -114,13 +114,13 @@ def _bundle(scheme_id, nses):
 
 
 def _gbt_policy() -> GatePolicy:
-    knowledge = SkillRegistry()
+    standards = StandardRepository()
     return GatePolicy(
         min_primary_delta=0.01,
         max_single_lead_drop=0.02,
         max_high_flow_mae_relative_increase=0.05,
-        accept_primary_floor=0.5,  # legacy field; ignored for require_gbt_grade=True
-        min_scheme_grade=knowledge.min_scheme_grade(),
+        accept_primary_floor=standards.grade_dc_bing(),
+        min_scheme_grade=standards.min_scheme_grade(),  # type: ignore[arg-type]
         require_gbt_grade=True,
     )
 

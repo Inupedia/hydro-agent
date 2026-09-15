@@ -32,9 +32,9 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
-      - name: Calibration scientist, knowledge and teacher-XAJ runtime
+      - name: Calibration scientist, Skills, standards and teacher-XAJ runtime
         run: uv sync --frozen --extra dev --extra xaj-dem --extra api
-      - name: Calibration scientist, expert knowledge and teacher-kernel tests
+      - name: Calibration scientist, advisory Skills and teacher-kernel tests
         run: >-
           uv run --frozen pytest -q
           tests/agent/test_calibration_scientist_provider.py
@@ -46,9 +46,11 @@ jobs:
           tests/optimization/test_sceua.py
           tests/optimization/test_calibration_scientist.py
           tests/optimization/test_search_boundary_expertise.py
-          tests/knowledge/test_cases.py
-          tests/knowledge/test_expert.py
-          tests/knowledge/test_repository.py
+          tests/research/test_cases.py
+          tests/skills/test_governance.py
+          tests/skills/test_knowledge_assets.py
+          tests/skills/test_loader.py
+          tests/standards/test_repository.py
           tests/evaluation/test_gbt22482.py
           tests/models/xaj/test_teacher_kernel.py
           tests/models/xaj/test_calibrate_runtime.py

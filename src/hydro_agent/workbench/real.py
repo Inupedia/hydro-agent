@@ -49,6 +49,7 @@ from hydro_agent.services.forecast import ForecastService
 from hydro_agent.services.snapshots import SnapshotResolver
 from hydro_agent.services.workspace import MaterializingWorkspaceManager
 from hydro_agent.skills import SkillRegistry
+from hydro_agent.standards import StandardRepository
 from hydro_agent.workbench.validation_gate import RealValidationGate
 
 POLICY = ExecutionPolicy(
@@ -56,21 +57,21 @@ POLICY = ExecutionPolicy(
 )
 
 
-def gate_policy_from_skills(skills: SkillRegistry | None = None) -> GatePolicy:
-    registry = skills or SkillRegistry()
-    grade = registry.min_scheme_grade()
+def gate_policy_from_standards(standards: StandardRepository | None = None) -> GatePolicy:
+    repository = standards or StandardRepository()
+    grade = repository.min_scheme_grade()
     return GatePolicy(
         min_primary_delta=0.01,
         max_single_lead_drop=0.02,
         max_high_flow_mae_relative_increase=0.05,
         min_candidate_primary=0.0,
-        accept_primary_floor=registry.nse_good_enough(),
+        accept_primary_floor=repository.grade_dc_bing(),
         min_scheme_grade=grade,  # type: ignore[arg-type]
         require_gbt_grade=True,
     )
 
 
-GATE_POLICY = gate_policy_from_skills()
+GATE_POLICY = gate_policy_from_standards()
 
 
 class RealWorkbenchKernel:
@@ -94,8 +95,9 @@ class RealWorkbenchKernel:
         self.scheme_template["warmup_days"] = warmup_days
         self.scheme_template.setdefault("model_id", "xaj")
         self.skills = SkillRegistry()
+        self.standards = self.skills.standards
         self.strategies = CalibrationStrategyRegistry()
-        self.gate_policy = gate_policy_from_skills(self.skills)
+        self.gate_policy = gate_policy_from_standards(self.standards)
         self._task_configs: dict = {}
 
         self.snapshot_root = self.work_root / "snapshots"
@@ -249,7 +251,6 @@ class RealWorkbenchKernel:
             task_id=task_id,
             scheme_id=scheme_id,
             validation_start=window.start,
-            nse_good_enough=self.skills.nse_good_enough(),
         )
 
         cfg = self._workbench_config(task_id)
@@ -269,7 +270,7 @@ class RealWorkbenchKernel:
                 result = apply_calibration_evidence_to_diagnosis(
                     result,
                     full_evidence,
-                    nse_good_enough=self.skills.nse_good_enough(),
+                    dc_bing_floor=self.standards.grade_dc_bing(),
                 )
             except (KeyError, ValueError) as exc:
                 notes = list(result.get("notes") or [])

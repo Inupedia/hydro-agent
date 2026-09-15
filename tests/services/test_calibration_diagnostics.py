@@ -56,7 +56,6 @@ def test_diagnosis_uses_only_truth_before_development_and_stays_policy_neutral()
         task_id="task-1",
         scheme_id="scheme-base",
         validation_start=development_start,
-        nse_good_enough=0.5,
     )
 
     # A06 records observable error evidence but does not silently apply the

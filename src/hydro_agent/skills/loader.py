@@ -1,4 +1,4 @@
-"""Load agentskills.io SKILL.md packages from disk (stdlib frontmatter parser)."""
+"""Load agentskills.io SKILL.md packages from disk."""
 
 from __future__ import annotations
 
@@ -6,8 +6,9 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from hydro_agent.skill_paths import builtin_skills_root, user_skills_root
+
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?(.*)\Z", re.DOTALL)
-_DEFAULT_NSE_GOOD_ENOUGH = 0.6
 
 
 @dataclass(frozen=True)
@@ -17,7 +18,11 @@ class LoadedSkill:
     description: str
     body: str
     metadata: dict[str, str] = field(default_factory=dict)
+    license: str = ""
+    compatibility: str = ""
+    allowed_tools: str = ""
     root: Path | None = None
+    raw_text: str = ""
 
     def meta(self, key: str, default: str = "") -> str:
         return str(self.metadata.get(key, default) or default)
@@ -34,7 +39,11 @@ class LoadedSkill:
 
 
 def default_skills_root() -> Path:
-    return Path(__file__).resolve().parent
+    return builtin_skills_root()
+
+
+def default_user_skills_root() -> Path:
+    return user_skills_root()
 
 
 def parse_skill_md(text: str, *, directory_name: str, root: Path | None = None) -> LoadedSkill:
@@ -47,27 +56,34 @@ def parse_skill_md(text: str, *, directory_name: str, root: Path | None = None) 
     description = str(flat.get("description") or "").strip()
     if not name or not description:
         raise ValueError(f"SKILL.md requires name and description: {directory_name}")
+    if len(description) > 1024:
+        raise ValueError(f"skill description exceeds 1024 characters: {directory_name}")
     if name != directory_name:
         raise ValueError(f"skill name {name!r} must match directory {directory_name!r}")
-    _validate_skill_name(name)
-    metadata = {
-        str(k): str(v)
-        for k, v in flat.items()
-        if k not in {"name", "description", "license", "compatibility", "allowed-tools"}
-        and not str(k).startswith("_")
-    }
-    # Nested metadata: keys may be prefixed as metadata.foo from parser
+    validate_skill_name(name)
+
+    license_name = str(flat.get("license") or "").strip()
+    compatibility = str(flat.get("compatibility") or "").strip()
+    if compatibility and len(compatibility) > 500:
+        raise ValueError(f"skill compatibility exceeds 500 characters: {directory_name}")
+    allowed_tools = str(flat.get("allowed-tools") or "").strip()
+
+    metadata = {}
     nested = flat.get("_metadata")
     if isinstance(nested, dict):
-        for k, v in nested.items():
-            metadata[str(k)] = str(v)
+        metadata = {str(k): str(v) for k, v in nested.items()}
+
     return LoadedSkill(
         skill_id=name,
         name=name,
         description=description,
         body=body,
         metadata=metadata,
+        license=license_name,
+        compatibility=compatibility,
+        allowed_tools=allowed_tools,
         root=root,
+        raw_text=text,
     )
 
 
@@ -91,8 +107,9 @@ def load_skills(root: Path | None = None) -> dict[str, LoadedSkill]:
 def read_reference(skill: LoadedSkill, relative: str, *, max_chars: int = 4000) -> str:
     if skill.root is None:
         return ""
+    base = skill.root.resolve()
     path = (skill.root / relative).resolve()
-    if not str(path).startswith(str(skill.root.resolve())):
+    if not path.is_relative_to(base):
         raise ValueError("reference path escapes skill root")
     if not path.is_file():
         return ""
@@ -102,18 +119,7 @@ def read_reference(skill: LoadedSkill, relative: str, *, max_chars: int = 4000) 
     return text
 
 
-def parse_nse_good_enough(metadata: dict[str, str], *, default: float = _DEFAULT_NSE_GOOD_ENOUGH) -> float:
-    raw = metadata.get("nse_good_enough", "")
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return default
-    if value != value:  # NaN
-        return default
-    return value
-
-
-def _validate_skill_name(name: str) -> None:
+def validate_skill_name(name: str) -> None:
     if not (1 <= len(name) <= 64):
         raise ValueError(f"invalid skill name length: {name!r}")
     if name[0] == "-" or name[-1] == "-":
@@ -125,7 +131,7 @@ def _validate_skill_name(name: str) -> None:
 
 
 def _parse_frontmatter(block: str) -> dict:
-    """Minimal YAML subset: top-level scalars + one-level metadata map."""
+    """Minimal YAML subset required by the current Hydro-Agent skill catalog."""
     result: dict = {}
     lines = block.splitlines()
     i = 0
@@ -164,10 +170,6 @@ def _parse_frontmatter(block: str) -> dict:
             continue
         result[key] = _unquote(rest)
         i += 1
-    # Flatten metadata into result for convenience
-    if "_metadata" in result and isinstance(result["_metadata"], dict):
-        for k, v in result["_metadata"].items():
-            result.setdefault(k, v)
     return result
 
 

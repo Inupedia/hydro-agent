@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from hydro_agent.agent.contracts import ActionCode
-from hydro_agent.evaluation.metrics import build_evaluation_bundle, mae, nse
+from hydro_agent.evaluation.metrics import build_evaluation_bundle
 from hydro_agent.execution.contracts import ExecutionPolicy
 
 
@@ -39,9 +39,7 @@ def truth_from_source(flow_rows) -> dict[date, float]:
     """Return only observations that are explicitly eligible for formal scoring."""
 
     return {
-        row.valid_date: float(row.discharge_m3s)
-        for row in flow_rows
-        if _eligible_for_scoring(row)
+        row.valid_date: float(row.discharge_m3s) for row in flow_rows if _eligible_for_scoring(row)
     }
 
 
@@ -135,7 +133,9 @@ def collect_aligned_lead_series(
 def require_enough_pairs(series: dict[int, tuple[list[float], list[float]]]) -> tuple[int, ...]:
     """Require at least one scoreable lead without borrowing out-of-window truth."""
 
-    available = tuple(lead for lead, (obs, sim) in series.items() if len(obs) >= 2 and len(obs) == len(sim))
+    available = tuple(
+        lead for lead, (obs, sim) in series.items() if len(obs) >= 2 and len(obs) == len(sim)
+    )
     if not available:
         raise RuntimeError("development window has no lead with >=2 legal target pairs")
     return available
@@ -193,88 +193,6 @@ def latest_candidate_scheme_id(repository, task_id: str) -> str | None:
             if str(obs).startswith("candidate_scheme_id="):
                 return str(obs).split("=", 1)[1]
     return None
-
-
-def diagnose_forecast_errors(
-    *,
-    truth: dict[date, float],
-    lead_values: dict[int, float],
-    issue_day: date,
-    nse_good_enough: float | None = None,
-) -> dict[str, Any]:
-    """Legacy one-issue diagnostic retained for compatibility.
-
-    The research workbench uses ``calibration_diagnostics`` for A06. This helper
-    remains leakage-neutral and is intentionally not used as the evidence source
-    for formal experiment selection.
-    """
-
-    from hydro_agent.skills import DEFAULT_NSE_GOOD_ENOUGH
-
-    threshold = (
-        float(nse_good_enough)
-        if nse_good_enough is not None
-        else DEFAULT_NSE_GOOD_ENOUGH
-    )
-    obs: list[float] = []
-    sim: list[float] = []
-    for lead, value in sorted(lead_values.items()):
-        target = issue_day + timedelta(days=int(lead))
-        if target not in truth:
-            continue
-        obs.append(float(truth[target]))
-        sim.append(float(value))
-    if len(obs) < 2:
-        return {
-            "hypothesis": "UNKNOWN",
-            "phenomenon": "观测不足以诊断",
-            "recommended_action": "A01_CHECK_DATA",
-            "recommended_strategy_id": None,
-            "recommended_param_groups": None,
-            "recommended_objective": None,
-            "hypotheses": [],
-            "metrics": {},
-            "notes": ["need >=2 lead observations"],
-        }
-
-    err_mae = mae(obs, sim)
-    try:
-        err_nse = nse(obs, sim)
-    except ValueError:
-        err_nse = float("nan")
-    peak_obs = max(obs)
-    peak_sim = max(sim)
-    mean_bias = (sum(sim) - sum(obs)) / max(sum(obs), 1e-9)
-    peak_ratio = float(peak_sim / peak_obs) if peak_obs else 0.0
-    metrics = {
-        "mae": float(err_mae),
-        "nse": float(err_nse) if err_nse == err_nse else 0.0,
-        "mean_bias": float(mean_bias),
-        "peak_ratio": peak_ratio,
-    }
-    if err_nse == err_nse and err_nse >= threshold and abs(mean_bias) < 0.05:
-        return {
-            "hypothesis": "MODEL",
-            "phenomenon": f"NSE≥{threshold} 且整体偏差较小，可冻结进入回放评估",
-            "recommended_action": "A10_FREEZE",
-            "recommended_strategy_id": None,
-            "recommended_param_groups": None,
-            "recommended_objective": None,
-            "hypotheses": [],
-            "metrics": metrics,
-            "notes": ["legacy_single_issue_diagnostic=true"],
-        }
-    return {
-        "hypothesis": "MODEL",
-        "phenomenon": "单次起报误差仍明显，建议进入正式 A06 多尺度诊断",
-        "recommended_action": "A06_DIAGNOSE",
-        "recommended_strategy_id": None,
-        "recommended_param_groups": None,
-        "recommended_objective": None,
-        "hypotheses": [],
-        "metrics": metrics,
-        "notes": ["legacy_single_issue_diagnostic=true"],
-    }
 
 
 class RealValidationGate:
