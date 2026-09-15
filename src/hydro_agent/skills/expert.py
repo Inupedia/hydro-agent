@@ -1,9 +1,10 @@
-"""Executable advisory priors packaged with Agent Skills."""
+"""Executable advisory priors packaged with focused Agent Skills."""
 
 from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,13 @@ from hydro_agent.skills.governance import (
     KnowledgeEntry,
     KnowledgeQueryContext,
     select_knowledge_entries,
+)
+
+_EXPERT_SKILL_IDS = (
+    "hydro-data-readiness",
+    "xaj-water-balance",
+    "xaj-runoff-generation",
+    "xaj-routing-diagnosis",
 )
 
 
@@ -43,68 +51,80 @@ class ExpertPriorAdvice(FrozenModel):
 
 
 class ExpertPriorEngine:
-    """Evaluate advisory priors after strict Skill-claim governance filtering."""
+    """Aggregate advisory priors from active focused Skill packages."""
 
-    def __init__(self, root: Path | None = None):
-        self.root = (
-            Path(root)
-            if root is not None
-            else active_skill_root("xaj-calibration") / "assets" / "expert"
-        )
+    def __init__(
+        self,
+        root: Path | None = None,
+        *,
+        roots: Iterable[Path] | None = None,
+    ):
+        if root is not None and roots is not None:
+            raise ValueError("provide root or roots, not both")
+        if root is not None:
+            self.roots = (Path(root),)
+        elif roots is not None:
+            self.roots = tuple(Path(item) for item in roots)
+        else:
+            self.roots = tuple(
+                active_skill_root(skill_id) / "assets" / "expert"
+                for skill_id in _EXPERT_SKILL_IDS
+            )
         self._sources: dict[str, dict[str, Any]] = {}
         self._rules: dict[str, tuple[str, _ExpertPriorRule]] = {}
         self._entries: dict[str, KnowledgeEntry] = {}
         self._load()
 
     def _load(self) -> None:
-        if not self.root.exists():
-            return
-        for path in sorted(self.root.glob("*.json")):
-            source_bytes = path.read_bytes()
-            payload = json.loads(source_bytes.decode("utf-8"))
-            if not isinstance(payload, dict):
-                raise ValueError(f"expert prior Skill asset must contain an object: {path}")
-            source_id = str(payload.get("knowledge_id") or "").strip()
-            if not source_id:
-                raise ValueError(f"expert prior source missing knowledge_id: {path}")
-            if source_id in self._sources:
-                raise ValueError(f"duplicate expert prior source: {source_id}")
-            self._sources[source_id] = payload
+        for root in self.roots:
+            if not root.exists():
+                continue
+            for path in sorted(root.glob("*.json")):
+                source_bytes = path.read_bytes()
+                payload = json.loads(source_bytes.decode("utf-8"))
+                if not isinstance(payload, dict):
+                    raise ValueError(f"expert prior Skill asset must contain an object: {path}")
+                source_id = str(payload.get("knowledge_id") or "").strip()
+                if not source_id:
+                    raise ValueError(f"expert prior source missing knowledge_id: {path}")
+                if source_id in self._sources:
+                    raise ValueError(f"duplicate expert prior source: {source_id}")
+                self._sources[source_id] = payload
 
-            governance = dict(payload.get("governance") or {})
-            applicability = KnowledgeApplicability.model_validate(
-                governance.get("applicability") or {}
-            )
-            source_hash = f"sha256:{hashlib.sha256(source_bytes).hexdigest()}"
-            for raw in payload.get("rules") or []:
-                rule = _ExpertPriorRule.model_validate(raw)
-                if rule.rule_id in self._rules:
-                    raise ValueError(f"duplicate expert prior rule: {rule.rule_id}")
-                recommendation = dict(rule.recommendation)
-                claim = str(
-                    recommendation.get("message")
-                    or f"{rule.signal} -> {json.dumps(recommendation, ensure_ascii=False)}"
+                governance = dict(payload.get("governance") or {})
+                applicability = KnowledgeApplicability.model_validate(
+                    governance.get("applicability") or {}
                 )
-                entry = KnowledgeEntry(
-                    knowledge_id=rule.rule_id,
-                    revision=int(governance.get("revision") or 1),
-                    category=governance.get("category") or "expert_diagnostic_prior",
-                    authority=payload.get("authority") or "advisory_only",
-                    claim=claim,
-                    source_id=source_id,
-                    source_hash=source_hash,
-                    source_locator=f"{path.name}#rule={rule.rule_id}",
-                    applicability=applicability,
-                    verification_status=governance.get("verification_status") or "unverified",
-                    review_status=governance.get("review_status") or "pending",
-                    exposure_tags=tuple(governance.get("exposure_tags") or ()),
-                    evidence_dataset_ids=tuple(governance.get("evidence_dataset_ids") or ()),
-                    evidence_refs=tuple(governance.get("evidence_refs") or ()),
-                )
-                self._rules[rule.rule_id] = (source_id, rule)
-                self._entries[rule.rule_id] = entry
+                source_hash = f"sha256:{hashlib.sha256(source_bytes).hexdigest()}"
+                for raw in payload.get("rules") or []:
+                    rule = _ExpertPriorRule.model_validate(raw)
+                    if rule.rule_id in self._rules:
+                        raise ValueError(f"duplicate expert prior rule: {rule.rule_id}")
+                    recommendation = dict(rule.recommendation)
+                    claim = str(
+                        recommendation.get("message")
+                        or f"{rule.signal} -> {json.dumps(recommendation, ensure_ascii=False)}"
+                    )
+                    entry = KnowledgeEntry(
+                        knowledge_id=rule.rule_id,
+                        revision=int(governance.get("revision") or 1),
+                        category=governance.get("category") or "expert_diagnostic_prior",
+                        authority=payload.get("authority") or "advisory_only",
+                        claim=claim,
+                        source_id=source_id,
+                        source_hash=source_hash,
+                        source_locator=f"{path.name}#rule={rule.rule_id}",
+                        applicability=applicability,
+                        verification_status=governance.get("verification_status") or "unverified",
+                        review_status=governance.get("review_status") or "pending",
+                        exposure_tags=tuple(governance.get("exposure_tags") or ()),
+                        evidence_dataset_ids=tuple(governance.get("evidence_dataset_ids") or ()),
+                        evidence_refs=tuple(governance.get("evidence_refs") or ()),
+                    )
+                    self._rules[rule.rule_id] = (source_id, rule)
+                    self._entries[rule.rule_id] = entry
 
-    def source(self, source_id: str = "hydrologist-calibration-priors-v1") -> dict[str, Any]:
+    def source(self, source_id: str) -> dict[str, Any]:
         try:
             return dict(self._sources[source_id])
         except KeyError as exc:
@@ -152,14 +172,14 @@ class ExpertPriorEngine:
         diagnosis: dict[str, Any],
         *,
         basin_attributes: dict[str, Any] | None = None,
-        source_id: str = "hydrologist-calibration-priors-v1",
+        source_id: str | None = None,
         governance_context: KnowledgeQueryContext | None = None,
     ) -> ExpertPriorAdvice:
-        source = self.source(source_id)
+        source_ids = {source_id} if source_id is not None else set(self._sources)
         source_entries = tuple(
             self._entries[rule_id]
             for rule_id, (candidate_id, _) in self._rules.items()
-            if candidate_id == source_id
+            if candidate_id in source_ids
         )
         eligible_rule_ids: set[str] = set()
         if governance_context is not None:
@@ -171,7 +191,7 @@ class ExpertPriorEngine:
         profile = self.basin_profile(basin_attributes)
         matches: list[_ExpertPriorRule] = []
         for candidate_id, rule in self._rules.values():
-            if candidate_id != source_id or rule.rule_id not in eligible_rule_ids:
+            if candidate_id not in source_ids or rule.rule_id not in eligible_rule_ids:
                 continue
             threshold = float(rule.threshold) if rule.threshold is not None else None
             matched = False
@@ -209,9 +229,9 @@ class ExpertPriorEngine:
                 notes.append("流域画像先验: " + ", ".join(summary))
 
         return ExpertPriorAdvice(
-            source_id=source_id,
-            status=str(source.get("status") or "seed_prior"),
-            authority=str(source.get("authority") or "advisory_only"),
+            source_id=source_id or "active-skill-priors",
+            status="aggregated" if source_id is None else str(self._sources[source_id].get("status") or "seed_prior"),
+            authority="advisory_only",
             matched_prior_refs=tuple(
                 f"{rule.rule_id}@{self._entries[rule.rule_id].revision}" for rule in matches
             ),

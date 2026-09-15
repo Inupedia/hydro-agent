@@ -8,30 +8,30 @@ from hydro_agent.skills.governance import KnowledgeQueryContext
 from hydro_agent.skills.manager import SkillManager
 
 
-def _write_skill(root: Path) -> Path:
-    skill_dir = root / "xaj-calibration"
+def _write_skill(root: Path, name: str) -> Path:
+    skill_dir = root / name
     skill_dir.mkdir(parents=True, exist_ok=True)
     (skill_dir / "SKILL.md").write_text(
-        """---
-name: xaj-calibration
-description: XAJ calibration skill
+        f"""---
+name: {name}
+description: {name} skill
 ---
 
-# XAJ
+# {name}
 """,
         encoding="utf-8",
     )
     return skill_dir
 
 
-def test_user_skill_assets_drive_expert_priors(monkeypatch, tmp_path: Path):
+def test_user_focused_skill_assets_drive_expert_priors(monkeypatch, tmp_path: Path):
     builtin_root = tmp_path / "builtin"
     user_root = tmp_path / "user"
-    builtin = _write_skill(builtin_root)
+    builtin = _write_skill(builtin_root, "xaj-water-balance")
     expert_dir = builtin / "assets" / "expert"
     expert_dir.mkdir(parents=True)
     payload = {
-        "knowledge_id": "hydrologist-calibration-priors-v1",
+        "knowledge_id": "xaj-water-balance-priors-v1",
         "status": "seed_prior",
         "authority": "advisory_only",
         "governance": {
@@ -51,7 +51,7 @@ def test_user_skill_assets_drive_expert_priors(monkeypatch, tmp_path: Path):
             }
         ],
     }
-    (expert_dir / "hydrologist-calibration-priors-v1.json").write_text(
+    (expert_dir / "xaj-water-balance-priors-v1.json").write_text(
         json.dumps(payload), encoding="utf-8"
     )
     monkeypatch.setenv("HYDRO_AGENT_SKILLS_DIR", str(user_root))
@@ -60,8 +60,8 @@ def test_user_skill_assets_drive_expert_priors(monkeypatch, tmp_path: Path):
     manager = SkillManager(registry)
     payload["rules"][0]["threshold"] = 25.0
     manager.save_resource(
-        "xaj-calibration",
-        "assets/expert/hydrologist-calibration-priors-v1.json",
+        "xaj-water-balance",
+        "assets/expert/xaj-water-balance-priors-v1.json",
         json.dumps(payload),
     )
 
@@ -75,10 +75,10 @@ def test_user_skill_assets_drive_expert_priors(monkeypatch, tmp_path: Path):
     ).matched_prior_refs == ("expert.water_balance_first@1",)
 
 
-def test_user_skill_assets_drive_governed_catalog(monkeypatch, tmp_path: Path):
+def test_user_focused_skill_assets_drive_governed_catalog(monkeypatch, tmp_path: Path):
     builtin_root = tmp_path / "builtin"
     user_root = tmp_path / "user"
-    builtin = _write_skill(builtin_root)
+    builtin = _write_skill(builtin_root, "xaj-routing-diagnosis")
     governed_dir = builtin / "assets" / "governed"
     governed_dir.mkdir(parents=True)
     claim = {
@@ -103,8 +103,19 @@ def test_user_skill_assets_drive_governed_catalog(monkeypatch, tmp_path: Path):
     manager = SkillManager(registry)
     claim.update(revision=2, claim="user claim", source_id="user", source_hash="sha256:user")
     manager.save_resource(
-        "xaj-calibration", "assets/governed/claims.json", json.dumps({"entries": [claim]})
+        "xaj-routing-diagnosis",
+        "assets/governed/claims.json",
+        json.dumps({"entries": [claim]}),
     )
 
     repository = GovernedKnowledgeRepository()
     assert repository.entry("expert.example", 2).claim == "user claim"
+
+
+def test_builtin_governed_claims_are_split_by_domain():
+    repository = GovernedKnowledgeRepository()
+    ids = {entry.knowledge_id for entry in repository.entries()}
+    assert "expert.yaogu.xaj.water-balance-kc" in ids
+    assert "expert.yaogu.xaj.recession-routing-dp1" in ids
+    assert "case.yaogu.xaj.local-sensitivity-ranking" in ids
+    assert "constraint.xaj.kg-ki-boundary.external-v3" in ids

@@ -20,8 +20,13 @@ build-backend = "hatchling.build"
 packages = ["src/hydro_agent"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/hydro_agent/skills/data-check" = "hydro_agent/skills/data-check"
-"src/hydro_agent/skills/forecast-diagnose" = "hydro_agent/skills/forecast-diagnose"
+"src/hydro_agent/skills/hydro-data-readiness" = "hydro_agent/skills/hydro-data-readiness"
+"src/hydro_agent/skills/hydro-error-diagnosis" = "hydro_agent/skills/hydro-error-diagnosis"
+"src/hydro_agent/skills/xaj-water-balance" = "hydro_agent/skills/xaj-water-balance"
+"src/hydro_agent/skills/xaj-runoff-generation" = "hydro_agent/skills/xaj-runoff-generation"
+"src/hydro_agent/skills/xaj-routing-diagnosis" = "hydro_agent/skills/xaj-routing-diagnosis"
+"src/hydro_agent/skills/hydro-campaign-design" = "hydro_agent/skills/hydro-campaign-design"
+"src/hydro_agent/skills/hydro-experiment-design" = "hydro_agent/skills/hydro-experiment-design"
 "src/hydro_agent/skills/xaj-calibration" = "hydro_agent/skills/xaj-calibration"
 "src/hydro_agent/skills/gbt-22482-accuracy" = "hydro_agent/skills/gbt-22482-accuracy"
 "src/hydro_agent/standards/data" = "hydro_agent/standards/data"

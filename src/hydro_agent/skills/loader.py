@@ -9,7 +9,6 @@ from pathlib import Path
 from hydro_agent.skill_paths import builtin_skills_root, user_skills_root
 
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?(.*)\Z", re.DOTALL)
-_DEFAULT_NSE_GOOD_ENOUGH = 0.6
 
 
 @dataclass(frozen=True)
@@ -40,12 +39,10 @@ class LoadedSkill:
 
 
 def default_skills_root() -> Path:
-    """Built-in, package-owned skills shipped with Hydro-Agent."""
     return builtin_skills_root()
 
 
 def default_user_skills_root() -> Path:
-    """Writable Agent Skills overlay."""
     return user_skills_root()
 
 
@@ -120,19 +117,6 @@ def read_reference(skill: LoadedSkill, relative: str, *, max_chars: int = 4000) 
     if len(text) > max_chars:
         return text[: max_chars - 20] + "\n\n…(truncated)…"
     return text
-
-
-def parse_nse_good_enough(
-    metadata: dict[str, str], *, default: float = _DEFAULT_NSE_GOOD_ENOUGH
-) -> float:
-    raw = metadata.get("nse_good_enough", "")
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return default
-    if value != value:  # NaN
-        return default
-    return value
 
 
 def validate_skill_name(name: str) -> None:

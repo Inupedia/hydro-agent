@@ -2,7 +2,7 @@
 
 Built-ins ship with the package; HYDRO_AGENT_SKILLS_DIR provides a writable
 overlay. Skills may guide diagnosis and experiment planning, but normative
-standards, protocol locks, model constraints and Gate decisions live elsewhere.
+standards, Campaign locks, model constraints and Gate decisions live elsewhere.
 """
 
 from __future__ import annotations
@@ -23,9 +23,15 @@ from hydro_agent.standards import StandardRepository
 if TYPE_CHECKING:
     from hydro_agent.agent.contracts import WorldStateView
 
+DATA_READINESS_SKILL_ID = "hydro-data-readiness"
+ERROR_DIAGNOSIS_SKILL_ID = "hydro-error-diagnosis"
+WATER_BALANCE_SKILL_ID = "xaj-water-balance"
+RUNOFF_GENERATION_SKILL_ID = "xaj-runoff-generation"
+ROUTING_DIAGNOSIS_SKILL_ID = "xaj-routing-diagnosis"
+CAMPAIGN_DESIGN_SKILL_ID = "hydro-campaign-design"
+EXPERIMENT_DESIGN_SKILL_ID = "hydro-experiment-design"
 CALIBRATION_SKILL_ID = "xaj-calibration"
 GBT_SKILL_ID = "gbt-22482-accuracy"
-DEFAULT_NSE_GOOD_ENOUGH = float(StandardRepository().gbt_accuracy_metadata()["grade_dc_bing"])
 SkillSource = Literal["builtin", "user", "memory"]
 
 
@@ -40,17 +46,9 @@ class SkillCard(FrozenModel):
     stop_conditions_zh: tuple[str, ...] = ()
     counterexamples_zh: tuple[str, ...] = ()
     description: str = ""
-    nse_good_enough: float | None = None
 
 
 def _card_from_loaded(skill: LoadedSkill) -> SkillCard:
-    nse = None
-    raw_nse = skill.metadata.get("nse_good_enough")
-    if raw_nse is not None:
-        try:
-            nse = float(raw_nse)
-        except (TypeError, ValueError):
-            nse = None
     return SkillCard(
         skill_id=skill.skill_id,
         title_zh=skill.meta("title_zh", skill.name),
@@ -62,7 +60,6 @@ def _card_from_loaded(skill: LoadedSkill) -> SkillCard:
         stop_conditions_zh=skill.meta_list("stop_conditions_zh"),
         counterexamples_zh=skill.meta_list("counterexamples_zh"),
         description=skill.description,
-        nse_good_enough=nse,
     )
 
 
@@ -83,15 +80,21 @@ class SkillRegistry:
             self._builtin_root: Path | None = None
             self._user_root = Path(root)
         else:
-            self._builtin_root = Path(builtin_root) if builtin_root is not None else default_skills_root()
-            self._user_root = Path(user_root) if user_root is not None else default_user_skills_root()
+            self._builtin_root = (
+                Path(builtin_root) if builtin_root is not None else default_skills_root()
+            )
+            self._user_root = (
+                Path(user_root) if user_root is not None else default_user_skills_root()
+            )
         self._loaded: dict[str, LoadedSkill] = {}
         self._sources: dict[str, SkillSource] = {}
         self._cards: dict[str, SkillCard] = {}
         if loaded is not None:
             self._loaded = dict(loaded)
             self._sources = {skill_id: "memory" for skill_id in self._loaded}
-            self._cards = {sid: _card_from_loaded(skill) for sid, skill in self._loaded.items()}
+            self._cards = {
+                sid: _card_from_loaded(skill) for sid, skill in self._loaded.items()
+            }
         elif skills is not None:
             self._cards = {skill.skill_id: skill for skill in skills}
             self._sources = {skill_id: "memory" for skill_id in self._cards}
@@ -144,9 +147,6 @@ class SkillRegistry:
     def cards_for_prompt(self) -> list[dict]:
         return [skill.model_dump(mode="json") for skill in self.list()]
 
-    def nse_good_enough(self) -> float:
-        return float(self._standards.gbt_accuracy_metadata()["grade_dc_bing"])
-
     def min_scheme_grade(self) -> str:
         grade = str(self._standards.gate_defaults().get("min_scheme_grade") or "丙").strip()
         if grade not in {"甲", "乙", "丙"}:
@@ -162,7 +162,7 @@ class SkillRegistry:
     def standard_provenance(self) -> dict:
         return self._standards.provenance()
 
-    def activate(self, skill_id: str, *, include_param_reference: bool = False) -> str:
+    def activate(self, skill_id: str, *, include_references: bool = True) -> str:
         skill = self._loaded.get(skill_id)
         if skill is None:
             card = self._cards.get(skill_id)
@@ -170,74 +170,90 @@ class SkillRegistry:
                 raise KeyError(skill_id)
             return f"# {card.title_zh}\n\n{card.purpose_zh}\n"
         parts = [f"# Skill: {skill.name}\n\n{skill.description}\n\n{skill.body}"]
-        if include_param_reference:
-            reference = read_reference(skill, "references/xaj-parameters.md")
-            if reference:
-                parts.append("\n\n---\n\n" + reference)
+        if include_references:
+            for relative in skill.meta_list("prompt_references"):
+                reference = read_reference(skill, relative)
+                if reference:
+                    parts.append(f"\n\n---\n\n{reference}")
         return "\n".join(parts)
 
     def activate_for_view(self, view: WorldStateView) -> tuple[str, ...]:
+        """Select advisory Skills from state without encoding scientific stop rules.
+
+        Stopping is intentionally absent here. A Skill may help explain evidence
+        or design the next trial, but only the Campaign/ConvergencePolicy owns a
+        scientific stop decision.
+        """
+
         actions = [item.action.value for item in view.evidence_summary]
         has_forecast = bool(view.latest_forecast_id) or "A05_FORECAST" in actions
         has_diagnose = "A06_DIAGNOSE" in actions
-        nse = _diagnosis_nse(view)
         diagnosis = dict(view.hydro.diagnosis or {})
-        hypothesis = str(diagnosis.get("hypothesis") or "")
+        hypothesis = str(diagnosis.get("hypothesis") or "").upper()
+        groups = set(_name_list(diagnosis.get("recommended_param_groups")))
         has_candidate = bool(view.hydro.candidate_parameters)
         need_gate = "A07_OPTIMIZE" in actions and "A08_GATE" not in actions
-        in_calibrate_flow = need_gate or has_candidate or "A08_GATE" in actions or "A07_OPTIMIZE" in actions
-        nse_poor = nse is None or nse < self.nse_good_enough()
+        in_calibration_flow = (
+            has_diagnose
+            or has_candidate
+            or "A07_OPTIMIZE" in actions
+            or "A08_GATE" in actions
+            or "A09_RESOLVE" in actions
+        )
+
         selected: list[str] = []
         if not has_forecast:
-            selected.append("data-check")
+            selected.append(DATA_READINESS_SKILL_ID)
         elif not has_diagnose:
-            selected.append("forecast-diagnose")
+            selected.append(ERROR_DIAGNOSIS_SKILL_ID)
         else:
-            selected.append("forecast-diagnose")
-            if in_calibrate_flow or (
-                view.task.allow_optimization
-                and nse_poor
-                and (hypothesis in {"", "MODEL", "UNKNOWN", "TIMING"} or nse is not None)
-            ):
-                selected.extend(("xaj-calibration", "gbt-22482-accuracy"))
-            if "A08_GATE" in actions or "A12_EVALUATE_REPORT" in actions or need_gate:
-                if "gbt-22482-accuracy" not in selected:
-                    selected.append("gbt-22482-accuracy")
+            selected.append(ERROR_DIAGNOSIS_SKILL_ID)
+            if "evap" in groups:
+                selected.append(WATER_BALANCE_SKILL_ID)
+            if "runoff" in groups:
+                selected.extend((WATER_BALANCE_SKILL_ID, RUNOFF_GENERATION_SKILL_ID))
+            if "routing" in groups or hypothesis == "TIMING":
+                selected.append(ROUTING_DIAGNOSIS_SKILL_ID)
+            if not groups and hypothesis in {"MODEL", "UNKNOWN", ""}:
+                selected.extend(
+                    (
+                        WATER_BALANCE_SKILL_ID,
+                        RUNOFF_GENERATION_SKILL_ID,
+                        ROUTING_DIAGNOSIS_SKILL_ID,
+                    )
+                )
+            if view.task.allow_optimization and in_calibration_flow:
+                selected.extend((CALIBRATION_SKILL_ID, EXPERIMENT_DESIGN_SKILL_ID))
+
+        if need_gate or "A08_GATE" in actions or "A12_EVALUATE_REPORT" in actions:
+            selected.append(GBT_SKILL_ID)
+
         output: list[str] = []
         for skill_id in selected:
             if skill_id in self._cards and skill_id not in output:
                 output.append(skill_id)
-        if not output and "data-check" in self._cards:
-            output.append("data-check")
+        if not output and DATA_READINESS_SKILL_ID in self._cards:
+            output.append(DATA_READINESS_SKILL_ID)
         return tuple(output)
 
     def render_activated(self, view: WorldStateView) -> str:
         self.reload()
         skill_ids = self.activate_for_view(view)
-        chunks = [
-            self.activate(skill_id, include_param_reference=(skill_id == "xaj-calibration"))
-            for skill_id in skill_ids
-        ]
+        chunks = [self.activate(skill_id) for skill_id in skill_ids]
         provenance = self.standard_provenance()
+        stop_reason = view.hydro.campaign.stop_reason
         header = (
             f"Activated skills: {', '.join(skill_ids)}. "
-            f"nse_good_enough/DC_bing={self.nse_good_enough():.3f}; "
+            f"campaign_stop_reason={stop_reason or 'none'}; "
             f"min_scheme_grade={self.min_scheme_grade()} "
             f"(standard={provenance['standard_id']}; policy={provenance['policy_id']}).\n\n"
         )
         return header + "\n\n====\n\n".join(chunks)
 
 
-def _diagnosis_nse(view: WorldStateView) -> float | None:
-    diagnosis = dict(view.hydro.diagnosis or {})
-    metrics = diagnosis.get("metrics") if isinstance(diagnosis.get("metrics"), dict) else {}
-    raw = metrics.get("nse")
-    if raw is None:
-        raw = diagnosis.get("nse")
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return None
-    if value != value:
-        return None
-    return value
+def _name_list(raw: object) -> tuple[str, ...]:
+    if isinstance(raw, str):
+        return tuple(item.strip() for item in raw.split(",") if item.strip())
+    if isinstance(raw, (list, tuple)):
+        return tuple(str(item).strip() for item in raw if str(item).strip())
+    return ()
