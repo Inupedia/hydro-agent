@@ -32,6 +32,9 @@ CAMPAIGN_DESIGN_SKILL_ID = "hydro-campaign-design"
 EXPERIMENT_DESIGN_SKILL_ID = "hydro-experiment-design"
 CALIBRATION_SKILL_ID = "xaj-calibration"
 GBT_SKILL_ID = "gbt-22482-accuracy"
+# Compatibility export for older runtime/provider imports.  It is not Skill
+# metadata and must never be used as a scientific Campaign stop condition.
+DEFAULT_NSE_GOOD_ENOUGH = 0.5
 SkillSource = Literal["builtin", "user", "memory"]
 
 
@@ -146,6 +149,17 @@ class SkillRegistry:
 
     def cards_for_prompt(self) -> list[dict]:
         return [skill.model_dump(mode="json") for skill in self.list()]
+
+    def nse_good_enough(self) -> float:
+        """Compatibility view of the normative GB/T DC 丙 threshold.
+
+        This value comes from StandardRepository, never editable Skill metadata.
+        It may support legacy Gate/provider compatibility, but Campaign stopping
+        must use Campaign.stop_reason / ConvergencePolicy instead.
+        """
+
+        meta = self._standards.gbt_accuracy_metadata()
+        return float(meta.get("grade_dc_bing", DEFAULT_NSE_GOOD_ENOUGH))
 
     def min_scheme_grade(self) -> str:
         grade = str(self._standards.gate_defaults().get("min_scheme_grade") or "丙").strip()
