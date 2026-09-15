@@ -267,9 +267,14 @@ watch(
     center / 12px 8px no-repeat;
   pointer-events: none;
 }
-.is-open .glass-select-trigger {
+.glass-select-trigger:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.is-open .glass-select-trigger,
+.glass-select-trigger:focus-visible {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--focus-ring);
+  box-shadow: inset 0 0 0 2px var(--focus-ring), var(--glass-inset);
 }
 .glass-select-trigger:disabled {
   opacity: 0.45;

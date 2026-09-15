@@ -76,6 +76,32 @@ def test_delete_model_plan(client, app_dependencies, tmp_path):
     service.pool.shutdown()
 
 
+def test_rename_model_plan(client, app_dependencies, tmp_path):
+    service, plan_id = setup_plan(app_dependencies, tmp_path)
+    renamed = client.patch(f'/api/model-plans/{plan_id}', json={'name': '腰古集总演示'})
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()['name'] == '腰古集总演示'
+    assert client.get(f'/api/model-plans/{plan_id}').json()['name'] == '腰古集总演示'
+    cleared = client.patch(f'/api/model-plans/{plan_id}', json={'name': '  '})
+    assert cleared.status_code == 200
+    assert cleared.json()['name'] is None
+    service.pool.shutdown()
+
+
+def test_rename_completed_task(client, app_dependencies, tmp_path):
+    service, plan_id = setup_plan(app_dependencies, tmp_path)
+    created = client.post('/api/tasks', json={**payload(plan_id), 'name': '初稿运行'})
+    assert created.status_code == 201, created.text
+    task_id = created.json()['task_id']
+    assert created.json()['name'] == '初稿运行'
+    renamed = client.patch(f'/api/tasks/{task_id}', json={'name': '正式汛期率定'})
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()['name'] == '正式汛期率定'
+    listed = client.get('/api/tasks').json()
+    assert any(row['task_id'] == task_id and row['name'] == '正式汛期率定' for row in listed)
+    service.pool.shutdown()
+
+
 def test_list_basins_endpoint(client, app_dependencies, tmp_path):
     from hydro_agent.modeling.plans import bundled_academy_root
 

@@ -95,11 +95,15 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
 
     task_id = f"task-{uuid_suffix()}"
     scheme_id = f"{task_id}--{payload.base_scheme_id}"
+    from hydro_agent.modeling.plans import normalize_display_name
+
+    display_name = normalize_display_name(payload.name)
     deps.repository.create_task(
         task_id=task_id,
         basin_id=payload.basin_id,
         phase="B",
         forcing_mode=payload.forcing_mode,
+        name=display_name,
     )
     config = {
         "model_id": "xaj",
@@ -182,6 +186,7 @@ def build_task_summary(deps: AppDependencies, task_id: str) -> TaskSummary:
     end_date = config.get("research_end_date") or config.get("end_date")
     validation_days = config.get("validation_days") or config.get("development_days")
     final_test_days = config.get("final_test_days")
+    display_name = getattr(task, "name", None) or config.get("name")
     if (
         start_date is None
         or end_date is None
@@ -256,6 +261,7 @@ def build_task_summary(deps: AppDependencies, task_id: str) -> TaskSummary:
             if state.current_scheme_id
             else None
         ),
+        name=str(display_name) if display_name else None,
         agent_rounds_used=state.agent_rounds_used,
         optimization_cycles_used=state.optimization_cycles_used,
         start_date=str(start_date) if start_date else None,
@@ -268,6 +274,15 @@ def build_task_summary(deps: AppDependencies, task_id: str) -> TaskSummary:
         workflow_version=getattr(task, "workflow_version", None),
         workflow_hash=getattr(task, "workflow_hash", None),
     )
+
+
+def rename_workbench_task(deps: AppDependencies, task_id: str, name: str | None) -> TaskSummary:
+    from hydro_agent.modeling.plans import normalize_display_name
+
+    cleaned = normalize_display_name(name)
+    deps.repository.get_task(task_id)
+    deps.repository.update_task_display_name(task_id, cleaned)
+    return build_task_summary(deps, task_id)
 
 
 def uuid_suffix() -> str:

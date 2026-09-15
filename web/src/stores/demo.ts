@@ -21,6 +21,7 @@ export type DraftConfig = {
   max_optimization_cycles: number
   campaign_mode: 'smoke' | 'target_quality' | 'convergence'
   campaign_max_model_evaluations: number
+  name?: string | null
 }
 
 export type ConditionState = 'unchecked' | 'ok' | 'warn' | 'fail'
@@ -49,6 +50,7 @@ function defaultDraft(): DraftConfig {
   return {
     ...DEMO_PRESET,
     model_plan_id: null,
+    name: '',
   }
 }
 
@@ -198,6 +200,9 @@ export const useDemoStore = defineStore('demo', () => {
     if (!body.model_plan_id) {
       delete body.model_plan_id
     }
+    const trimmed = body.name?.trim()
+    if (trimmed) body.name = trimmed
+    else delete body.name
     const task = await api.createTask(body)
     taskId.value = task.task_id
     taskMeta.value = task
@@ -251,6 +256,14 @@ export const useDemoStore = defineStore('demo', () => {
 
   async function deleteCase(task: TaskSummary) {
     await deleteCases([task])
+  }
+
+  async function renameCase(task: TaskSummary, name: string | null) {
+    error.value = null
+    const updated = await api.renameTask(task.task_id, name)
+    caseLibrary.value = caseLibrary.value.map((row) => (row.task_id === updated.task_id ? updated : row))
+    if (taskMeta.value?.task_id === updated.task_id) taskMeta.value = updated
+    return updated
   }
 
   async function startRun() {
@@ -405,6 +418,7 @@ export const useDemoStore = defineStore('demo', () => {
     openCaseReplay,
     deleteCase,
     deleteCases,
+    renameCase,
     startRun,
     refresh,
     startPolling,

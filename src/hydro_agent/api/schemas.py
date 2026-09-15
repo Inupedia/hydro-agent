@@ -18,6 +18,7 @@ class TaskCreateRequest(FrozenApiModel):
     forcing_mode: Literal["R", "F"]
     base_scheme_id: str = Field(min_length=1)
     model_plan_id: str | None = None
+    name: str | None = Field(default=None, max_length=80)
     allow_optimization: bool
     # Day-count controls remain convenient for short/smoke tasks. Formal studies
     # should preregister explicit development/final-test dates so complete years
@@ -93,6 +94,7 @@ class TaskSummary(FrozenApiModel):
     paused: bool
     current_scheme_id: str | None
     model_plan_id: str | None = None
+    name: str | None = None
     agent_rounds_used: int
     optimization_cycles_used: int
     start_date: str | None = None
@@ -104,6 +106,10 @@ class TaskSummary(FrozenApiModel):
     workflow_id: str | None = None
     workflow_version: str | None = None
     workflow_hash: str | None = None
+
+
+class RenameTaskBody(FrozenApiModel):
+    name: str | None = Field(default=None, max_length=80)
 
 
 class RunSummary(FrozenApiModel):

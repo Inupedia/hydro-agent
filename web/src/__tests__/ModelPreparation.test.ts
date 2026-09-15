@@ -13,6 +13,7 @@ vi.mock('../api/client', () => ({
     listModelPlans: vi.fn(),
     getModelPlan: vi.fn(),
     createModelPlan: vi.fn(),
+    renameModelPlan: vi.fn(),
     confirmBoundary: vi.fn(),
     deleteModelPlan: vi.fn(),
   },

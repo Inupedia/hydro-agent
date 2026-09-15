@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, type BasinInfo, type ModelPlan } from '../api/client'
 import GlassSelect from './GlassSelect.vue'
 import GlassDialog from './GlassDialog.vue'
+import RenameDialog from './RenameDialog.vue'
 import { BorderBeam, NumberTicker, RippleButton } from './ui'
 
 const props = defineProps<{
@@ -30,6 +31,9 @@ const mapBroken = ref(false)
 const manageOpen = ref(false)
 const buildOpen = ref(false)
 const selectedPlanIds = ref<string[]>([])
+const planName = ref('')
+const renameTarget = ref<ModelPlan | null>(null)
+const renameBusy = ref(false)
 let timer: ReturnType<typeof setInterval> | undefined
 
 const labels: Record<string, string> = {
@@ -42,13 +46,18 @@ const labels: Record<string, string> = {
   completed: '已完成',
 }
 
+function planLabel(plan: ModelPlan) {
+  const title = plan.name?.trim()
+  return title || plan.plan_id
+}
+
 const canBuild = computed(() => !!basin.value?.ready_for_build)
 const materials = computed(() => basin.value?.materials || { hydro: false, dem: false, gis: false })
 const reusePlanOptions = computed(() => [
   { value: '', label: '新建一份模型方案' },
   ...reusablePlans.value.map((plan) => ({
     value: plan.plan_id,
-    label: `${plan.plan_id} · ${plan.model_mode === 'distributed' ? '分布式' : '集总式'} · ${labels[plan.status] || plan.status}`,
+    label: `${planLabel(plan)} · ${plan.model_mode === 'distributed' ? '分布式' : '集总式'} · ${labels[plan.status] || plan.status}`,
   })),
 ])
 const selectedReusePlanId = computed({
@@ -205,6 +214,7 @@ async function create() {
       stream_area_km2: streamArea.value,
       unit_area_km2: unitArea.value,
       warmup_days: warmup.value,
+      ...(planName.value.trim() ? { name: planName.value.trim() } : {}),
     })
     await refreshPlans()
   } catch (e) {
@@ -279,6 +289,35 @@ async function removeSelectedPlans() {
   if (!window.confirm(`删除选中的 ${ids.length} 个模型方案？此操作不可恢复。`)) return
   await performDelete(ids)
   if (!selectedPlanIds.value.length) closeManage()
+}
+
+function openRename(plan: ModelPlan) {
+  renameTarget.value = plan
+}
+
+function closeRename() {
+  if (renameBusy.value) return
+  renameTarget.value = null
+}
+
+async function saveRename(name: string | null) {
+  const plan = renameTarget.value
+  if (!plan) return
+  renameBusy.value = true
+  error.value = ''
+  try {
+    const updated = await api.renameModelPlan(plan.plan_id, name)
+    plans.value = plans.value.map((row) => (row.plan_id === updated.plan_id ? { ...row, ...updated } : row))
+    if (current.value?.plan_id === updated.plan_id) {
+      current.value = updated
+      if (updated.status === 'ready') emit('selected', updated)
+    }
+    renameTarget.value = null
+  } catch (e) {
+    error.value = String((e as Error).message || e)
+  } finally {
+    renameBusy.value = false
+  }
 }
 
 watch(
@@ -392,7 +431,11 @@ onUnmounted(() => {
         </template>
         <label v-for="plan in deletablePlans" :key="plan.plan_id" class="glass-dialog-item">
           <input v-model="selectedPlanIds" type="checkbox" :value="plan.plan_id" />
-          <span><strong>{{ plan.plan_id }}</strong><small>{{ plan.model_mode || 'lumped' }} · {{ labels[plan.status] || plan.status }}</small></span>
+          <span>
+            <strong>{{ planLabel(plan) }}</strong>
+            <small>{{ plan.plan_id }} · {{ plan.model_mode || 'lumped' }} · {{ labels[plan.status] || plan.status }}</small>
+          </span>
+          <button type="button" class="text-button" :disabled="busy || locked" @click.prevent="openRename(plan)">重命名</button>
         </label>
         <p v-if="!deletablePlans.length">当前没有可批量删除的模型方案。</p>
         <template #footer>
@@ -403,7 +446,30 @@ onUnmounted(() => {
         </template>
       </GlassDialog>
 
+      <RenameDialog
+        :open="!!renameTarget"
+        overline="模型方案"
+        title="重命名方案"
+        hint="留空则恢复为系统编号。"
+        placeholder="例如：腰古集总 2020 汛期"
+        :initial-name="renameTarget?.name"
+        :busy="renameBusy"
+        test-id="rename-plan-dialog"
+        @close="closeRename"
+        @save="saveRename"
+      />
+
       <fieldset class="structure-block" :disabled="locked || busy || loadingBasin || !canBuild">
+        <label>方案名称（可选）
+          <input
+            v-model="planName"
+            type="text"
+            maxlength="80"
+            data-test="plan-name"
+            placeholder="例如：腰古集总 2020 汛期"
+            :disabled="locked || busy"
+          />
+        </label>
         <label>结构模式
           <GlassSelect
             :model-value="modelMode"
@@ -433,7 +499,12 @@ onUnmounted(() => {
       <p v-if="error && !buildOpen" role="alert" class="model-error">{{ error }}</p>
       <div v-if="current" class="plan-summary" :data-status="current.status" data-test="plan-summary">
         <span class="status-pill">{{ labels[current.status] }}</span>
-        <span class="plan-meta">{{ current.plan_id }} · {{ current.model_mode || 'lumped' }}</span>
+        <span class="plan-meta">
+          <strong>{{ planLabel(current) }}</strong>
+          <small v-if="current.name">{{ current.plan_id }} · {{ current.model_mode || 'lumped' }}</small>
+          <template v-else>{{ current.plan_id }} · {{ current.model_mode || 'lumped' }}</template>
+        </span>
+        <button type="button" class="text-button" data-test="rename-plan" :disabled="busy || locked" @click="openRename(current)">重命名</button>
         <button type="button" class="text-button" data-test="open-build" @click="openBuild">
           {{ current.status === 'awaiting_review' ? '继续复核' : current.status === 'ready' ? '查看结果' : current.status === 'failed' ? '查看原因' : '查看进度' }}
         </button>
@@ -465,7 +536,7 @@ onUnmounted(() => {
         <p v-if="error || current?.error" role="alert" class="model-error">{{ error || current?.error }}</p>
         <div v-if="current" class="plan-status">
           <strong>{{ labels[current.status] }}</strong>
-          <span>{{ current.plan_id }} · {{ current.model_mode }}</span>
+          <span>{{ planLabel(current) }} · {{ current.model_mode }}</span>
         </div>
         <ol v-if="visibleStages.length" class="model-steps" data-test="model-steps">
           <li
@@ -615,8 +686,18 @@ onUnmounted(() => {
   overflow-wrap: anywhere;
   flex: 1 1 auto;
   min-width: 0;
+  display: grid;
+  gap: 2px;
 }
-.plan-summary .text-button { margin-left: auto; }
+.plan-summary .plan-meta strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.plan-summary .plan-meta small {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.plan-summary .text-button { margin-left: 0; }
 .status-pill {
   display: inline-flex;
   align-items: center;

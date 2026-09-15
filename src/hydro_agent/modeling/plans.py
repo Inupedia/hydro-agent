@@ -83,6 +83,22 @@ class PlanRequest(BaseModel):
     unit_area_km2: float = Field(default=50, gt=0, le=10000)
     warmup_days: int = Field(default=365, ge=1, le=1000)
     unit_count: int = Field(default=4, ge=2, le=32)
+    name: str | None = Field(default=None, max_length=80)
+
+
+def normalize_display_name(value: str | None) -> str | None:
+    """Optional human label; empty input clears to None. IDs stay machine-generated."""
+    if value is None:
+        return None
+    cleaned = ' '.join(str(value).split())
+    if not cleaned:
+        return None
+    if len(cleaned) > 80:
+        raise ValueError('名称最多 80 个字符')
+    if any(ord(ch) < 32 for ch in cleaned):
+        raise ValueError('名称不能包含控制字符')
+    return cleaned
+
 
 
 def digest(path: Path) -> str:
@@ -184,15 +200,27 @@ class ModelPlanService:
         if not academy_materials_ready(self.academy):
             raise ValueError('本地腰古资料不完整，请确认 data/academy/examples 已就绪')
         plan_id = f'plan-{uuid.uuid4().hex[:12]}'
+        name = normalize_display_name(request.name)
         with self.lock:
             self.directory(plan_id).mkdir()
-            payload = dict(plan_id=plan_id, basin_id=BUNDLED_BASIN_ID, model_mode=request.model_mode,
-                           status='queued', error=None, config=request.model_dump(),
-                           model_version=MODEL_VERSION, model_source_sha256=MODEL_SHA256,
-                           stages=[dict(code=code, label=label, status='pending', detail='') for code,label in STAGES])
+            payload = dict(
+                plan_id=plan_id,
+                basin_id=BUNDLED_BASIN_ID,
+                model_mode=request.model_mode,
+                status='queued',
+                error=None,
+                name=name,
+                config=request.model_dump(exclude={'name'}),
+                model_version=MODEL_VERSION,
+                model_source_sha256=MODEL_SHA256,
+                stages=[dict(code=code, label=label, status='pending', detail='') for code, label in STAGES],
+            )
             write_json(self.directory(plan_id) / 'plan.json', payload)
         self.pool.submit(self._build, plan_id, False)
         return payload
+
+    def rename(self, plan_id: str, name: str | None) -> dict:
+        return self._update(plan_id, name=normalize_display_name(name))
 
     def confirm(self, plan_id: str, boundary_hash: str) -> dict:
         with self.lock:

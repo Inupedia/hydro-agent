@@ -37,6 +37,7 @@ class Task(Created, Base):
     phase: Mapped[str]
     forcing_mode: Mapped[str]
     terminal_status: Mapped[str | None]
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
     workflow_id: Mapped[str | None] = mapped_column(String, nullable=True)
     workflow_version: Mapped[str | None] = mapped_column(String, nullable=True)
     workflow_hash: Mapped[str | None] = mapped_column(String, nullable=True)

@@ -27,6 +27,7 @@ class CreatePlanBody(BaseModel):
     unit_area_km2: float = Field(default=50, gt=0, le=10000)
     warmup_days: int = Field(default=365, ge=1, le=1000)
     unit_count: int = Field(default=4, ge=2, le=32)
+    name: str | None = Field(default=None, max_length=80)
 
 
 @router.post('', status_code=202)
@@ -45,6 +46,20 @@ def get_plan(plan_id: str, request: Request):
         return service(request).get(plan_id)
     except (KeyError, ValueError) as exc:
         raise HTTPException(404, '模型方案不存在') from exc
+
+
+class RenamePlanBody(BaseModel):
+    name: str | None = Field(default=None, max_length=80)
+
+
+@router.patch('/{plan_id}')
+def rename_plan(plan_id: str, payload: RenamePlanBody, request: Request):
+    try:
+        return service(request).rename(plan_id, payload.name)
+    except KeyError as exc:
+        raise HTTPException(404, '模型方案不存在') from exc
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @router.delete('/{plan_id}', status_code=204)

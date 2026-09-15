@@ -10,6 +10,7 @@ class TaskCreate(FrozenModel):
     basin_id: str = Field(min_length=1)
     phase: Literal["B", "F", "E"]
     forcing_mode: Literal["R", "F"]
+    name: str | None = None
     workflow_id: str | None = None
     workflow_version: str | None = None
     workflow_hash: str | None = None

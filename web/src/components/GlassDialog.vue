@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 const props = withDefaults(
   defineProps<{
@@ -17,6 +17,14 @@ const props = withDefaults(
 const emit = defineEmits<{ close: [] }>()
 const panel = ref<HTMLElement | null>(null)
 let previousFocus: HTMLElement | null = null
+const stackId = Symbol('glass-dialog')
+
+type OpenEntry = { id: symbol; close: () => void }
+const openStack = ((globalThis as { __hydroGlassDialogStack?: OpenEntry[] }).__hydroGlassDialogStack ||=
+  [])
+
+const layerIndex = ref(0)
+const backdropStyle = computed(() => ({ zIndex: String(50 + layerIndex.value) }))
 
 function close() {
   emit('close')
@@ -27,10 +35,25 @@ function onBackdrop() {
 }
 
 function onKey(event: KeyboardEvent) {
-  if (props.open && event.key === 'Escape') {
-    event.preventDefault()
-    close()
-  }
+  if (!props.open || event.key !== 'Escape') return
+  const top = openStack.at(-1)
+  if (top?.id !== stackId) return
+  event.preventDefault()
+  event.stopPropagation()
+  close()
+}
+
+function pushStack() {
+  const existing = openStack.findIndex((entry) => entry.id === stackId)
+  if (existing >= 0) openStack.splice(existing, 1)
+  openStack.push({ id: stackId, close })
+  layerIndex.value = openStack.length - 1
+}
+
+function popStack() {
+  const index = openStack.findIndex((entry) => entry.id === stackId)
+  if (index >= 0) openStack.splice(index, 1)
+  layerIndex.value = 0
 }
 
 watch(
@@ -39,14 +62,19 @@ watch(
     if (open) {
       previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
       document.body.style.overflow = 'hidden'
+      pushStack()
       await nextTick()
-      const focusable = panel.value?.querySelector<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      )
+      const preferred = panel.value?.querySelector<HTMLElement>('[data-autofocus], [autofocus]')
+      const focusable =
+        preferred ||
+        panel.value?.querySelector<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        )
       focusable?.focus()
       return
     }
-    document.body.style.overflow = ''
+    popStack()
+    if (!openStack.length) document.body.style.overflow = ''
     previousFocus?.focus()
     previousFocus = null
   },
@@ -55,7 +83,8 @@ watch(
 onMounted(() => window.addEventListener('keydown', onKey))
 onUnmounted(() => {
   window.removeEventListener('keydown', onKey)
-  document.body.style.overflow = ''
+  popStack()
+  if (!openStack.length) document.body.style.overflow = ''
 })
 </script>
 
@@ -64,6 +93,7 @@ onUnmounted(() => {
     <div
       v-if="open"
       class="glass-dialog-backdrop"
+      :style="backdropStyle"
       :data-test="testId"
       @click.self="onBackdrop"
     >
@@ -100,7 +130,7 @@ onUnmounted(() => {
 .glass-dialog-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 50; /* raised via inline style when nested */
   display: grid;
   place-items: center;
   padding: 24px;
@@ -111,8 +141,8 @@ onUnmounted(() => {
   overscroll-behavior: none;
 }
 .glass-dialog-panel {
-  width: min(520px, calc(100vw - 32px));
-  max-width: calc(100vw - 32px);
+  width: min(520px, 100%);
+  max-width: 100%;
   max-height: min(80dvh, 760px);
   padding: 20px;
   display: grid;
@@ -121,9 +151,11 @@ onUnmounted(() => {
   box-shadow: var(--shadow-modal);
   overflow: hidden;
   min-width: 0;
+  justify-self: center;
+  align-self: center;
 }
 .glass-dialog-panel.size-wide {
-  width: min(720px, calc(100vw - 32px));
+  width: min(720px, 100%);
 }
 .glass-dialog-panel.has-toolbar {
   grid-template-rows: auto auto minmax(0, 1fr) auto;
@@ -171,7 +203,7 @@ onUnmounted(() => {
   overscroll-behavior: contain;
   touch-action: pan-y;
   scrollbar-gutter: stable;
-  padding: 10px 0;
+  padding: 10px 2px;
   display: grid;
   align-content: start;
   align-items: stretch;
@@ -186,23 +218,25 @@ onUnmounted(() => {
 .glass-dialog-footer {
   flex-wrap: wrap;
   padding-top: 12px;
+  padding-bottom: env(safe-area-inset-bottom, 0);
   border-top: 1px solid var(--separator);
   color: var(--text-secondary);
   font-size: 12px;
 }
 .glass-dialog-footer :deep(.start-button),
-.glass-dialog-footer :deep(.primary-button) {
+.glass-dialog-footer :deep(.primary-button),
+.glass-dialog-footer :deep(.rename-save) {
   min-height: 40px;
   padding: 8px 16px;
   white-space: normal;
   text-align: center;
 }
-.glass-dialog-footer :deep(.start-button) {
+.glass-dialog-footer:has(> :only-child) :deep(.start-button) {
   width: 100%;
 }
 :deep(.glass-dialog-item) {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   padding: 10px 11px;
@@ -233,14 +267,20 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+:deep(.glass-dialog-item .text-button) {
+  justify-self: end;
+  white-space: nowrap;
+}
 @media (max-height: 640px) {
   .glass-dialog-backdrop {
     padding: 16px;
-    align-items: stretch;
+    align-items: center;
+    justify-items: center;
   }
   .glass-dialog-panel {
-    max-height: none;
-    height: 100%;
+    max-height: calc(100dvh - 32px);
+    height: auto;
+    width: min(520px, 100%);
   }
 }
 @media (prefers-reduced-transparency: reduce) {

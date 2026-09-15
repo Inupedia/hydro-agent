@@ -2,23 +2,29 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import ExecutionJournal from '../components/ExecutionJournal.vue'
-import HydrographComparisonChart from '../components/HydrographComparisonChart.vue'
-import SchemeComparisonMetricsChart from '../components/SchemeComparisonMetricsChart.vue'
 import LiveWorkflow from '../components/LiveWorkflow.vue'
 import ModelPreparation from '../components/ModelPreparation.vue'
 import type { ModelPlan } from '../types/api'
-import AgentCalibrationPanel from '../components/AgentCalibrationPanel.vue'
 import GlassSelect from '../components/GlassSelect.vue'
-import ParamTuningPanel from '../components/ParamTuningPanel.vue'
-import ReportSectionHead from '../components/ReportSectionHead.vue'
-import ResearchEvidencePanel from '../components/ResearchEvidencePanel.vue'
+import ObservatoryResultsStack from '../components/ObservatoryResultsStack.vue'
 import GlassDialog from '../components/GlassDialog.vue'
+import RenameDialog from '../components/RenameDialog.vue'
 import { RippleButton } from '../components/ui'
 import { useDemoStore } from '../stores/demo'
 import { DEMO_PRESET } from '../demo/preset'
 import { api } from '../api/client'
 import { gsap, motionDuration, prefersReducedMotion } from '../motion/gsap'
 import { basinLabel, providerErrorZh, workbenchErrorZh } from '../demo/stages'
+import { useMediaQuery } from '../composables/useMediaQuery'
+
+type MobileStep = 'prepare' | 'task' | 'journal' | 'results'
+const MOBILE_STEPS: MobileStep[] = ['prepare', 'task', 'journal', 'results']
+const MOBILE_STEP_LABEL: Record<MobileStep, string> = {
+  prepare: '数据准备',
+  task: '流域与任务',
+  journal: '执行记录',
+  results: '运行结果',
+}
 
 const demo = useDemoStore()
 const route = useRoute()
@@ -66,9 +72,40 @@ const caseSelectOptions = computed(() => [
   { value: '', label: demo.caseLibrary.length ? '选择一份已完成记录' : '暂无已完成记录' },
   ...demo.caseLibrary.map((task) => ({
     value: task.task_id,
-    label: `${task.start_date || task.task_id} · ${basinLabel(task.basin_id)}`,
+    label: caseLabel(task),
   })),
 ])
+function caseLabel(task: { task_id: string; name?: string | null; start_date?: string | null; basin_id: string }) {
+  const title = task.name?.trim()
+  if (title) return `${title} · ${basinLabel(task.basin_id)}`
+  return `${task.start_date || task.task_id} · ${basinLabel(task.basin_id)}`
+}
+function planCaption(plan: ModelPlan | null, planId: string | null | undefined) {
+  if (plan?.name?.trim()) return `${plan.name.trim()}（${plan.plan_id}）`
+  return planId || ''
+}
+function openRenameCase(task: { task_id: string; name?: string | null; start_date?: string | null; basin_id: string }) {
+  renameCaseTarget.value = task
+}
+
+function closeRenameCase() {
+  if (renameCaseBusy.value) return
+  renameCaseTarget.value = null
+}
+
+async function saveRenameCase(name: string | null) {
+  const task = renameCaseTarget.value
+  if (!task) return
+  renameCaseBusy.value = true
+  try {
+    await demo.renameCase(task as never, name)
+    renameCaseTarget.value = null
+  } catch (err) {
+    demo.error = String((err as Error).message || err)
+  } finally {
+    renameCaseBusy.value = false
+  }
+}
 const selectedCaseId = computed({
   get: () => (demo.mode === 'replay' ? demo.taskId || '' : ''),
   set: (id: string) => {
@@ -149,8 +186,11 @@ const mainStage = ref<HTMLElement | null>(null)
 const journalPane = ref<HTMLElement | null>(null)
 const forecastSurface = ref<HTMLElement | null>(null)
 const tuningMount = ref<HTMLElement | null>(null)
+const desktopResultsStack = ref<{ forecastSurface: HTMLElement | null; tuningMount: HTMLElement | null } | null>(null)
 const caseManagerOpen = ref(false)
 const selectedCaseIds = ref<string[]>([])
+const renameCaseTarget = ref<{ task_id: string; name?: string | null; start_date?: string | null; basin_id: string } | null>(null)
+const renameCaseBusy = ref(false)
 const runNotice = ref<{ overline: string; title: string; body: string } | null>(null)
 let timer: number | undefined
 let layoutTween: ReturnType<typeof gsap.timeline> | null = null
@@ -165,17 +205,107 @@ const finalComparison = computed(() => {
 })
 const hasHydrograph = computed(() => !!finalComparison.value)
 const showResultsStage = computed(() => demo.isCompleted && !demo.isFailed && !!demo.results)
-const showWorkflow = computed(
+const isMobile = useMediaQuery('(max-width: 900px)')
+const showRunActivity = computed(
   () =>
-    !showResultsStage.value &&
-    (busy.value ||
-      demo.isRunning ||
-      demo.isQueued ||
-      !!demo.run?.paused ||
-      demo.isFailed ||
-      (!!demo.taskId && !!demo.run && demo.run.status !== 'created' && !demo.isCompleted)),
+    busy.value ||
+    demo.isRunning ||
+    demo.isQueued ||
+    !!demo.run?.paused ||
+    demo.isFailed ||
+    (!!demo.taskId && !!demo.run && demo.run.status !== 'created' && !demo.isCompleted),
 )
+const showWorkflow = computed(() => !isMobile.value && !showResultsStage.value && showRunActivity.value)
 const focusStage = computed(() => showWorkflow.value && !demo.isCompleted)
+const mobilePreferredStep = computed<MobileStep>(() => {
+  if (showResultsStage.value) return 'results'
+  if (showRunActivity.value || (demo.isCompleted && demo.isFailed)) return 'journal'
+  if (demo.draft.model_plan_id || !modelingAvailable.value || !!demo.taskId) return 'task'
+  return 'prepare'
+})
+const mobileStep = ref<MobileStep>('prepare')
+const mobileStepIndex = computed(() => MOBILE_STEPS.indexOf(mobileStep.value))
+const mobileLocked = computed(
+  () => mobilePreferredStep.value === 'journal' || mobilePreferredStep.value === 'results',
+)
+const canMobileBack = computed(
+  () => !mobileLocked.value && mobileStepIndex.value > 0,
+)
+const canMobileForward = computed(
+  () =>
+    !mobileLocked.value &&
+    mobileStepIndex.value < MOBILE_STEPS.indexOf(mobilePreferredStep.value),
+)
+const headerCaption = computed(() => {
+  if (isMobile.value) return MOBILE_STEP_LABEL[mobileStep.value]
+  if (focusStage.value) return '执行中'
+  if (demo.mode === 'replay') return '案例回放'
+  if (showResultsStage.value) return '运行结果'
+  return '工作台'
+})
+
+let deckTouchX = 0
+let deckTouchY = 0
+let deckTouchActive = false
+
+function goMobileStep(step: MobileStep) {
+  if (mobileLocked.value) return
+  const target = MOBILE_STEPS.indexOf(step)
+  const ceiling = MOBILE_STEPS.indexOf(mobilePreferredStep.value)
+  if (target < 0 || target > ceiling) return
+  mobileStep.value = step
+}
+
+function mobileBack() {
+  if (!canMobileBack.value) return
+  goMobileStep(MOBILE_STEPS[mobileStepIndex.value - 1])
+}
+
+function mobileForward() {
+  if (!canMobileForward.value) return
+  goMobileStep(MOBILE_STEPS[mobileStepIndex.value + 1])
+}
+
+function onDeckTouchStart(event: TouchEvent) {
+  if (!isMobile.value || mobileLocked.value || event.touches.length !== 1) return
+  const target = event.target as HTMLElement | null
+  if (target?.closest('input, textarea, select, [data-no-swipe]')) return
+  deckTouchActive = true
+  deckTouchX = event.touches[0].clientX
+  deckTouchY = event.touches[0].clientY
+}
+
+function onDeckTouchEnd(event: TouchEvent) {
+  if (!deckTouchActive || !isMobile.value || mobileLocked.value) return
+  deckTouchActive = false
+  const touch = event.changedTouches[0]
+  if (!touch) return
+  const dx = touch.clientX - deckTouchX
+  const dy = touch.clientY - deckTouchY
+  if (Math.abs(dx) < 64 || Math.abs(dx) < Math.abs(dy) * 1.35) return
+  if (dx > 0) mobileBack()
+  else mobileForward()
+}
+
+watch(
+  mobilePreferredStep,
+  (preferred, previous) => {
+    if (!isMobile.value) return
+    if (preferred === 'journal' || preferred === 'results') {
+      mobileStep.value = preferred
+      return
+    }
+    const nextIdx = MOBILE_STEPS.indexOf(preferred)
+    const prevIdx = previous == null ? -1 : MOBILE_STEPS.indexOf(previous)
+    if (nextIdx > prevIdx) mobileStep.value = preferred
+  },
+  { immediate: true },
+)
+
+watch(isMobile, (mobile) => {
+  if (mobile) mobileStep.value = mobilePreferredStep.value
+})
+
 const completedActions = computed(() =>
   demo.timeline
     .filter((t) => t.action && !['failed', 'error', 'skipped', 'running'].includes(t.status))
@@ -307,13 +437,16 @@ async function deleteSelectedCases() {
 function newTask() {
   demo.resetSession()
   history.replaceState(null, '', '/')
+  mobileStep.value = modelingAvailable.value ? 'prepare' : 'task'
   void nextTick(() => {
+    if (isMobile.value) return
     const task = taskPane.value
     if (task) gsap.set(task, { autoAlpha: 1, pointerEvents: 'auto', clearProps: 'transform,opacity,visibility' })
   })
 }
 
 function animateFocus(enter: boolean) {
+  if (isMobile.value) return
   layoutTween?.kill()
   const reduced = prefersReducedMotion()
   const dur = motionDuration(0.55)
@@ -351,8 +484,8 @@ function animateFocus(enter: boolean) {
 }
 
 function animateResultsSurfaces() {
-  const chart = forecastSurface.value
-  const tuning = tuningMount.value
+  const chart = desktopResultsStack.value?.forecastSurface || forecastSurface.value
+  const tuning = desktopResultsStack.value?.tuningMount || tuningMount.value
   const dur = motionDuration(0.6)
   if (chart) {
     gsap.fromTo(
@@ -386,6 +519,7 @@ function animateResultsSurfaces() {
 
 watch(focusStage, async (enter, was) => {
   await nextTick()
+  if (isMobile.value) return
   if (was === undefined && !enter) return
   if (!enter && showResultsStage.value) {
     layoutTween?.kill()
@@ -467,10 +601,14 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="observatory" :class="{ 'is-focus': focusStage, 'is-results': showResultsStage }">
+  <div
+    class="observatory"
+    :class="{ 'is-focus': focusStage, 'is-results': showResultsStage, 'is-mobile': isMobile }"
+    :data-mobile-step="isMobile ? mobileStep : undefined"
+  >
     <header class="observatory-header">
       <a href="/" class="observatory-brand"><span class="brand-symbol" aria-hidden="true">≈</span><span>Hydro<span class="brand-light">Agent</span><small>水文智能体 · 课题工作台</small></span></a>
-      <div class="header-caption">{{ focusStage ? '执行中' : demo.mode === 'replay' ? '案例回放' : showResultsStage ? '运行结果' : '工作台' }}</div>
+      <div class="header-caption">{{ headerCaption }}</div>
       <div class="header-end">
         <div v-if="showResultsStage" class="header-actions">
           <label class="header-case-picker">已有案例
@@ -516,9 +654,13 @@ onUnmounted(() => {
         <span>共 {{ demo.caseLibrary.length }} 份已完成记录</span>
         <button type="button" class="text-button" @click="toggleAllCases">{{ allCasesSelected ? '取消全选' : '全选' }}</button>
       </template>
-      <label v-for="task in demo.caseLibrary" :key="task.task_id" class="glass-dialog-item">
+      <label v-for="task in demo.caseLibrary" :key="task.task_id" class="glass-dialog-item case-manager-item">
         <input v-model="selectedCaseIds" type="checkbox" :value="task.task_id" />
-        <span><strong>{{ task.start_date || task.task_id }}</strong><small>{{ basinLabel(task.basin_id) }} · {{ task.task_id }}</small></span>
+        <span>
+          <strong>{{ task.name?.trim() || task.start_date || task.task_id }}</strong>
+          <small>{{ basinLabel(task.basin_id) }} · {{ task.task_id }}</small>
+        </span>
+        <button type="button" class="text-button" :disabled="busy" @click.prevent="openRenameCase(task)">重命名</button>
       </label>
       <template #footer>
         <span>已选 {{ selectedCaseIds.length }} 份</span>
@@ -526,32 +668,41 @@ onUnmounted(() => {
       </template>
     </GlassDialog>
 
+    <RenameDialog
+      :open="!!renameCaseTarget"
+      overline="历史案例"
+      title="重命名案例"
+      hint="留空则恢复为日期编号。"
+      placeholder="例如：腰古 2000 汛期率定"
+      :initial-name="renameCaseTarget?.name"
+      :busy="renameCaseBusy"
+      test-id="rename-case-dialog"
+      @close="closeRenameCase"
+      @save="saveRenameCase"
+    />
+
     <main class="observatory-grid">
-      <section ref="mainStage" class="main-stage glass-pane" :class="{ 'main-stage--focus': focusStage, 'main-stage--results': showResultsStage }">
+      <div
+        class="mobile-deck"
+        data-test="mobile-deck"
+        @touchstart.passive="onDeckTouchStart"
+        @touchend="onDeckTouchEnd"
+      >
+      <section ref="mainStage" class="main-stage glass-pane" :class="{ 'main-stage--focus': focusStage, 'main-stage--results': showResultsStage && !isMobile }">
         <LiveWorkflow v-if="showWorkflow" :action="action" :status="demo.run?.paused ? 'paused' : demo.run?.status" :completed-actions="completedActions" :gate-status="gateStatus" :expanded="focusStage" :workflow-version="demo.taskMeta?.workflow_version" />
         <ModelPreparation v-else-if="modelingAvailable && !demo.taskId" :basin-id="demo.draft.basin_id" :selected-id="demo.draft.model_plan_id" :locked="busy" @selected="selectPlan" />
-        <div v-else-if="showResultsStage" class="results-stack" data-test="forecast-surface">
-          <section ref="forecastSurface" class="report-module">
-            <ReportSectionHead
-              :overline="comparisonOverline"
-              :title="comparisonTitle"
-              :subtitle="comparisonSubtitle"
-            >
-              <template #aside>
-                <span class="module-meta">{{ comparisonMeta }}</span>
-              </template>
-            </ReportSectionHead>
-            <template v-if="finalComparison">
-              <HydrographComparisonChart :comparison="finalComparison" />
-            </template>
-            <SchemeComparisonMetricsChart :comparison="finalComparison" :gate="demo.results?.gate" />
-          </section>
-          <AgentCalibrationPanel v-if="demo.taskId" :task-id="demo.taskId" :comparison="demo.results?.calibration_hydrograph" />
-          <ResearchEvidencePanel v-if="demo.taskId" :task-id="demo.taskId" />
-          <div v-if="showTuning" ref="tuningMount" class="tuning-mount">
-            <ParamTuningPanel :diagnosis="demo.results?.diagnosis" :optimize="demo.results?.optimize" :scheme="demo.results?.scheme" />
-          </div>
-        </div>
+        <ObservatoryResultsStack
+          v-else-if="showResultsStage && !isMobile"
+          ref="desktopResultsStack"
+          :task-id="demo.taskId"
+          :comparison="finalComparison"
+          :results="demo.results"
+          :show-tuning="showTuning"
+          :overline="comparisonOverline"
+          :title="comparisonTitle"
+          :subtitle="comparisonSubtitle"
+          :meta="comparisonMeta"
+        />
         <div v-else class="prep-placeholder"><span class="overline">数据准备</span><h2>等待建模服务</h2><p>建模服务就绪后，将在此完成资料检查、单元划分与边界复核。</p></div>
       </section>
 
@@ -573,7 +724,7 @@ onUnmounted(() => {
                   :options="basinSelectOptions"
                 />
               </label>
-              <p v-if="demo.draft.model_plan_id" class="basin-caption">已绑定方案：{{ demo.draft.model_plan_id }}</p>
+              <p v-if="demo.draft.model_plan_id" class="basin-caption">已绑定方案：{{ planCaption(boundPlan, demo.draft.model_plan_id) }}</p>
               <p v-else-if="serviceMode === 'real'" class="basin-caption">请先在左侧完成数据准备</p>
               <div class="section-heading subsection">
                 <span class="overline">预报任务</span>
@@ -588,6 +739,15 @@ onUnmounted(() => {
               <p v-if="demo.draft.basin_id === 'yaogu'" class="basin-caption">演示窗口 {{ DEMO_PRESET.start_date }} 至 {{ DEMO_PRESET.end_date }}，按开发期筛选，不代表正式研究结论。复现请使用 365 天预热、单元集总方案。</p>
               <div :class="{ 'is-locked': serviceMode === 'real' && !planReady }">
                 <fieldset :disabled="locked || (serviceMode === 'real' && !planReady)">
+                  <label>运行名称（可选）
+                    <input
+                      v-model="demo.draft.name"
+                      type="text"
+                      maxlength="80"
+                      data-test="task-name"
+                      placeholder="例如：腰古 2000 汛期率定"
+                    />
+                  </label>
                   <div class="date-fields">
                     <label>开始日期<input v-model="demo.draft.start_date" data-test="start-date" type="date" :min="planDateMin" :max="planDateMax" required /></label>
                     <label>结束日期<input v-model="demo.draft.end_date" data-test="end-date" type="date" :min="demo.draft.start_date" :max="planDateMax" required /></label>
@@ -666,7 +826,49 @@ onUnmounted(() => {
           @refresh="demo.refresh()"
         />
       </aside>
+
+      <aside class="results-pane glass-pane" aria-label="运行结果">
+        <ObservatoryResultsStack
+          v-if="showResultsStage && isMobile"
+          :task-id="demo.taskId"
+          :comparison="finalComparison"
+          :results="demo.results"
+          :show-tuning="showTuning"
+          :overline="comparisonOverline"
+          :title="comparisonTitle"
+          :subtitle="comparisonSubtitle"
+          :meta="comparisonMeta"
+        />
+      </aside>
+      </div>
+
+      <nav v-if="isMobile" class="mobile-step-bar" aria-label="工作台步骤" data-test="mobile-step-bar">
+        <ol class="mobile-step-dots">
+          <li
+            v-for="step in MOBILE_STEPS"
+            :key="step"
+            :class="{
+              'is-current': mobileStep === step,
+              'is-reached': MOBILE_STEPS.indexOf(step) <= MOBILE_STEPS.indexOf(mobilePreferredStep),
+              'is-locked': mobileLocked && step !== mobilePreferredStep,
+            }"
+          >
+            <button
+              type="button"
+              :disabled="
+                (mobileLocked && step !== mobilePreferredStep) ||
+                MOBILE_STEPS.indexOf(step) > MOBILE_STEPS.indexOf(mobilePreferredStep)
+              "
+              :aria-current="mobileStep === step ? 'step' : undefined"
+              @click="goMobileStep(step)"
+            >
+              {{ MOBILE_STEP_LABEL[step] }}
+            </button>
+          </li>
+        </ol>
+      </nav>
     </main>
+
     <footer class="observatory-footer"><span>水文智能体 <span class="footer-divider">/</span> 课题工作台</span><span>新安江模型 · 可追溯执行</span></footer>
   </div>
 </template>

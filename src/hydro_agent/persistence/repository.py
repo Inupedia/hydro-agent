@@ -141,6 +141,16 @@ class HydroRepository:
                 stmt = stmt.where(Scheme.status == status)
             return list(session.scalars(stmt))
 
+    def update_task_display_name(self, task_id: str, name: str | None):
+        """Persist a human label on the mutable tasks row (schemes stay immutable)."""
+        with self.database.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                raise KeyError(task_id)
+            task.name = name
+            session.flush()
+            return name
+
     def create_forecast(self, **kwargs):
         data = ForecastCreate(**kwargs)
         record = ForecastRecord(

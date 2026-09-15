@@ -44,6 +44,9 @@ class BasinModelPlanService:
     def get(self, plan_id: str) -> dict:
         return self._for_plan(plan_id).get(plan_id)
 
+    def rename(self, plan_id: str, name: str | None) -> dict:
+        return self._for_plan(plan_id).rename(plan_id, name)
+
     def delete(self, plan_id: str) -> None:
         self._for_plan(plan_id).delete(plan_id)
 

@@ -162,7 +162,12 @@ describe("single page observatory", () => {
 
   it("places data preparation left of the task pane and leaves workflow sections unnumbered", async () => {
     const { wrapper } = await setup();
-    const children = [...wrapper.find(".observatory-grid").element.children];
+    const children = [...wrapper.find(".observatory-grid").element.children].flatMap((node) => {
+      if ((node as HTMLElement).classList?.contains("mobile-deck")) {
+        return [...node.children];
+      }
+      return [node];
+    }) as HTMLElement[];
     expect(children[0].className).toContain("main-stage");
     expect(children[1].className).toContain("task-pane");
     expect(children[2].className).toContain("journal-pane");

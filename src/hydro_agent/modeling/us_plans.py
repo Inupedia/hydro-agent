@@ -72,6 +72,7 @@ class UsPlanRequest(BaseModel):
     warmup_days: int = Field(default=30, ge=1, le=1000)
     # Distributed: how many equal-area units when DEM partition is unavailable.
     unit_count: int = Field(default=4, ge=2, le=32)
+    name: str | None = Field(default=None, max_length=80)
 
 
 class UsModelPlanService:
@@ -141,10 +142,13 @@ class UsModelPlanService:
             write_json(self.directory(plan_id) / "plan.json", plan)
 
     def create(self, request: UsPlanRequest) -> dict:
+        from hydro_agent.modeling.plans import normalize_display_name
+
         meta = self.catalog.require_buildable(request.basin_id)
         if request.model_mode == "distributed" and not meta.get("materials", {}).get("dem"):
             raise ValueError("distributed 模式需要先下载 DEM；请先完成地形下载")
         plan_id = f"plan-{uuid.uuid4().hex[:12]}"
+        name = normalize_display_name(request.name)
         with self.lock:
             self.directory(plan_id).mkdir()
             payload = dict(
@@ -153,7 +157,8 @@ class UsModelPlanService:
                 model_mode=request.model_mode,
                 status="queued",
                 error=None,
-                config=request.model_dump(),
+                name=name,
+                config=request.model_dump(exclude={"name"}),
                 model_version=MODEL_VERSION,
                 model_source_sha256=MODEL_SHA256,
                 stages=[
@@ -165,6 +170,11 @@ class UsModelPlanService:
             write_json(self.directory(plan_id) / "plan.json", payload)
         self.pool.submit(self._build, plan_id, False)
         return payload
+
+    def rename(self, plan_id: str, name: str | None) -> dict:
+        from hydro_agent.modeling.plans import normalize_display_name
+
+        return self._update(plan_id, name=normalize_display_name(name))
 
     def confirm(self, plan_id: str, boundary_hash: str) -> dict:
         with self.lock:

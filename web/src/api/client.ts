@@ -77,14 +77,20 @@ export const api = {
   createModelPlan(config: Record<string, string | number>) {
     return request<ModelPlan>('/api/model-plans', { method: 'POST', body: JSON.stringify(config) })
   },
+  renameModelPlan(id: string, name: string | null) {
+    return request<ModelPlan>(`/api/model-plans/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    })
+  },
   confirmBoundary(id: string, boundary_hash: string) {
-    return request<ModelPlan>(`/api/model-plans/${id}/confirm-boundary`, {
+    return request<ModelPlan>(`/api/model-plans/${encodeURIComponent(id)}/confirm-boundary`, {
       method: 'POST',
       body: JSON.stringify({ boundary_hash }),
     })
   },
   deleteModelPlan(id: string) {
-    return request<void>(`/api/model-plans/${id}`, { method: 'DELETE' })
+    return request<void>(`/api/model-plans/${encodeURIComponent(id)}`, { method: 'DELETE' })
   },
   createHydrologistSession(body: { plan_id: string; task_id?: string | null }) {
     return request<HydrologistSession>('/api/hydrologist/sessions', {
@@ -93,13 +99,13 @@ export const api = {
     })
   },
   getHydrologistSession(id: string) {
-    return request<HydrologistSession>(`/api/hydrologist/sessions/${id}`)
+    return request<HydrologistSession>(`/api/hydrologist/sessions/${encodeURIComponent(id)}`)
   },
   hydrologistStep(
     id: string,
     body: { step: string; params?: Record<string, number>; note?: string; task_id?: string | null },
   ) {
-    return request<HydrologistSession>(`/api/hydrologist/sessions/${id}/step`, {
+    return request<HydrologistSession>(`/api/hydrologist/sessions/${encodeURIComponent(id)}/step`, {
       method: 'POST',
       body: JSON.stringify(body),
     })
@@ -114,10 +120,16 @@ export const api = {
     return request<TaskSummary[]>('/api/tasks')
   },
   getTask(taskId: string) {
-    return request<TaskSummary>(`/api/tasks/${taskId}`)
+    return request<TaskSummary>(`/api/tasks/${encodeURIComponent(taskId)}`)
+  },
+  renameTask(taskId: string, name: string | null) {
+    return request<TaskSummary>(`/api/tasks/${encodeURIComponent(taskId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    })
   },
   deleteTask(taskId: string) {
-    return request<void>(`/api/tasks/${taskId}`, { method: 'DELETE' })
+    return request<void>(`/api/tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE' })
   },
   startRun(taskId: string) {
     return request<RunSummary>(`/api/tasks/${taskId}/run`, { method: 'POST' })

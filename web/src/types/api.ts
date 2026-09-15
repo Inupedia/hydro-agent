@@ -7,6 +7,7 @@ export type TaskSummary = {
   paused: boolean
   current_scheme_id: string | null
   model_plan_id?: string | null
+  name?: string | null
   agent_rounds_used: number
   optimization_cycles_used: number
   start_date?: string | null
@@ -27,6 +28,7 @@ export type TaskCreateRequest = {
   end_date: string
   forcing_mode: 'R' | 'F'
   model_plan_id?: string | null
+  name?: string | null
   base_scheme_id: string
   allow_optimization: boolean
   /** Backward-compatible API name for the mutable development Gate window. */
@@ -163,6 +165,7 @@ export type ModelPlan = {
   plan_id: string
   basin_id: string
   status: string
+  name?: string | null
   model_mode?: 'lumped' | 'distributed'
   current_stage?: string
   stages: {code:string;label:string;status:string;detail:string}[]
