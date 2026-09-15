@@ -1,10 +1,10 @@
 import json
 from pathlib import Path
 
-from hydro_agent.knowledge.catalog import GovernedKnowledgeRepository
-from hydro_agent.knowledge.expert import ExpertPriorEngine
-from hydro_agent.knowledge.governance import KnowledgeQueryContext
 from hydro_agent.skills import SkillRegistry
+from hydro_agent.skills.catalog import GovernedKnowledgeRepository
+from hydro_agent.skills.expert import ExpertPriorEngine
+from hydro_agent.skills.governance import KnowledgeQueryContext
 from hydro_agent.skills.manager import SkillManager
 
 
@@ -67,11 +67,12 @@ def test_user_skill_assets_drive_expert_priors(monkeypatch, tmp_path: Path):
 
     engine = ExpertPriorEngine()
     context = KnowledgeQueryContext(model_id="xaj", allow_unverified_expert_priors=True)
-    below = engine.advise({"metrics": {"pbias_percent": 20.0}}, governance_context=context)
-    above = engine.advise({"metrics": {"pbias_percent": 30.0}}, governance_context=context)
-
-    assert below.matched_prior_refs == ()
-    assert above.matched_prior_refs == ("expert.water_balance_first@1",)
+    assert engine.advise(
+        {"metrics": {"pbias_percent": 20.0}}, governance_context=context
+    ).matched_prior_refs == ()
+    assert engine.advise(
+        {"metrics": {"pbias_percent": 30.0}}, governance_context=context
+    ).matched_prior_refs == ("expert.water_balance_first@1",)
 
 
 def test_user_skill_assets_drive_governed_catalog(monkeypatch, tmp_path: Path):
@@ -80,54 +81,29 @@ def test_user_skill_assets_drive_governed_catalog(monkeypatch, tmp_path: Path):
     builtin = _write_skill(builtin_root)
     governed_dir = builtin / "assets" / "governed"
     governed_dir.mkdir(parents=True)
+    claim = {
+        "knowledge_id": "expert.example",
+        "revision": 1,
+        "category": "expert_diagnostic_prior",
+        "authority": "advisory_only",
+        "claim": "builtin claim",
+        "source_id": "builtin",
+        "source_hash": "sha256:builtin",
+        "source_locator": "claims.json",
+        "applicability": {"model_ids": ["xaj"]},
+        "verification_status": "verified_in_scope",
+        "review_status": "approved",
+    }
     (governed_dir / "claims.json").write_text(
-        json.dumps(
-            {
-                "entries": [
-                    {
-                        "knowledge_id": "expert.example",
-                        "revision": 1,
-                        "category": "expert_diagnostic_prior",
-                        "authority": "advisory_only",
-                        "claim": "builtin claim",
-                        "source_id": "builtin",
-                        "source_hash": "sha256:builtin",
-                        "source_locator": "claims.json",
-                        "applicability": {"model_ids": ["xaj"]},
-                        "verification_status": "verified_in_scope",
-                        "review_status": "approved",
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
+        json.dumps({"entries": [claim]}), encoding="utf-8"
     )
     monkeypatch.setenv("HYDRO_AGENT_SKILLS_DIR", str(user_root))
 
     registry = SkillRegistry(builtin_root=builtin_root, user_root=user_root)
     manager = SkillManager(registry)
+    claim.update(revision=2, claim="user claim", source_id="user", source_hash="sha256:user")
     manager.save_resource(
-        "xaj-calibration",
-        "assets/governed/claims.json",
-        json.dumps(
-            {
-                "entries": [
-                    {
-                        "knowledge_id": "expert.example",
-                        "revision": 2,
-                        "category": "expert_diagnostic_prior",
-                        "authority": "advisory_only",
-                        "claim": "user claim",
-                        "source_id": "user",
-                        "source_hash": "sha256:user",
-                        "source_locator": "claims.json",
-                        "applicability": {"model_ids": ["xaj"]},
-                        "verification_status": "verified_in_scope",
-                        "review_status": "approved",
-                    }
-                ]
-            }
-        ),
+        "xaj-calibration", "assets/governed/claims.json", json.dumps({"entries": [claim]})
     )
 
     repository = GovernedKnowledgeRepository()
