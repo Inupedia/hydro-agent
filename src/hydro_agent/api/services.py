@@ -11,24 +11,6 @@ from hydro_agent.api.schemas import TaskCreateRequest, TaskSummary
 from hydro_agent.execution.hashing import sha256_bytes
 from hydro_agent.workbench.timeline import build_experiment_timeline
 
-DEFAULT_XAJ_PARAMS = {
-    "K": 0.75,
-    "B": 0.25,
-    "IM": 0.06,
-    "UM": 20.0,
-    "LM": 60.0,
-    "DM": 40.0,
-    "C": 0.16,
-    "SM": 20.0,
-    "EX": 1.2,
-    "KI": 0.3,
-    "KG": 0.4,
-    "CS": 0.9,
-    "L": 2.0,
-    "CI": 0.8,
-    "CG": 0.98,
-}
-
 
 def build_runtime_task_config(
     workbench: Mapping[str, Any],
@@ -58,8 +40,13 @@ def build_runtime_task_config(
 def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> str:
     if payload.end_date < payload.start_date:
         raise ValueError("end_date before start_date")
-    if payload.model_id != "xaj":
-        raise ValueError("only xaj is enabled in the XAJ-first workbench")
+    from hydro_agent.models.registry import default_model_registry
+
+    models = default_model_registry()
+    try:
+        plugin = models.get(payload.model_id)
+    except KeyError as exc:
+        raise ValueError(f"unsupported model_id: {payload.model_id}") from exc
     if payload.forcing_mode not in ("R", "F"):
         raise ValueError("invalid forcing_mode")
 
@@ -105,10 +92,11 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
         forcing_mode=payload.forcing_mode,
         name=display_name,
     )
+    defaults = plugin.default_scheme_config()
     config = {
-        "model_id": "xaj",
-        "warmup_days": 30,
-        "parameters": copy.deepcopy(DEFAULT_XAJ_PARAMS),
+        "model_id": payload.model_id,
+        "warmup_days": int(defaults.get("warmup_days") or 30),
+        "parameters": copy.deepcopy(defaults["parameters"]),
         "workbench": {
             "template_scheme_id": payload.base_scheme_id,
             "allow_optimization": payload.allow_optimization,
@@ -128,12 +116,28 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
             "forbidden_evidence_dataset_ids": list(payload.forbidden_evidence_dataset_ids),
         },
     }
-    if plan_config is not None or deps.base_scheme_config is not None:
-        base = plan_config if plan_config is not None else deps.base_scheme_config()
+    if "routing" in defaults:
+        config["routing"] = copy.deepcopy(defaults["routing"])
+    if plan_config is not None:
+        # Basin/data plan may still ship an XAJ scheme.json. Reuse its warmup and
+        # plan binding for any model; only adopt parameters when the plan scheme
+        # already matches the requested model_id (today: XAJ).
+        plan_model = str(plan_config.get("model_id") or "xaj")
+        if plan_config.get("warmup_days") is not None:
+            config["warmup_days"] = int(plan_config["warmup_days"])
+        if plan_model == payload.model_id:
+            for key in ("routing", "model_version"):
+                if key in plan_config:
+                    config[key] = copy.deepcopy(plan_config[key])
+            if isinstance(plan_config.get("parameters"), dict) and plan_config["parameters"]:
+                config["parameters"] = copy.deepcopy(plan_config["parameters"])
+        config["model_id"] = payload.model_id
+    elif deps.base_scheme_config is not None and payload.model_id == "xaj":
+        base = deps.base_scheme_config()
         for key in ("routing", "model_version", "model_plan_id"):
             if key in base:
                 config[key] = copy.deepcopy(base[key])
-        config["model_id"] = str(base.get("model_id") or "xaj")
+        config["model_id"] = str(base.get("model_id") or payload.model_id)
         if base.get("warmup_days") is not None:
             config["warmup_days"] = int(base["warmup_days"])
         if isinstance(base.get("parameters"), dict) and base["parameters"]:
@@ -161,7 +165,7 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
     deps.repository.create_scheme(
         scheme_id=scheme_id,
         task_id=task_id,
-        model_id="xaj",
+        model_id=payload.model_id,
         status="base",
         config=config,
         content_hash=content_hash,
@@ -183,49 +187,41 @@ def build_task_summary(deps: AppDependencies, task_id: str) -> TaskSummary:
     task = deps.repository.get_task(task_id)
     state = deps.repository.ensure_task_state(task_id)
     config = deps.task_configs.get(task_id) or {}
-    model_id = str(config.get("model_id") or "xaj")
+    model_id = str(config.get("model_id") or "")
     start_date = config.get("research_start_date") or config.get("start_date")
     end_date = config.get("research_end_date") or config.get("end_date")
     validation_days = config.get("validation_days") or config.get("development_days")
     final_test_days = config.get("final_test_days")
     display_name = getattr(task, "name", None) or config.get("name")
-    if (
-        start_date is None
-        or end_date is None
-        or validation_days is None
-        or final_test_days is None
-    ):
-        try:
-            schemes = deps.repository.list_schemes(task_id=task_id)
-            for scheme in schemes:
-                workbench = (scheme.config_json or {}).get("workbench") or {}
-                start_date = (
-                    start_date
-                    or workbench.get("research_start_date")
-                    or workbench.get("start_date")
-                )
-                end_date = (
-                    end_date
-                    or workbench.get("research_end_date")
-                    or workbench.get("end_date")
-                )
-                validation_days = (
-                    validation_days
-                    or workbench.get("validation_days")
-                    or workbench.get("development_days")
-                )
-                final_test_days = final_test_days or workbench.get("final_test_days")
-                if not model_id or model_id == "xaj":
-                    model_id = str(scheme.model_id or model_id or "xaj")
-                if (
-                    start_date
-                    and end_date
-                    and validation_days is not None
-                    and final_test_days is not None
-                ):
-                    break
-        except Exception:
-            pass
+    try:
+        schemes = deps.repository.list_schemes(task_id=task_id)
+        for scheme in schemes:
+            if not model_id:
+                model_id = str(scheme.model_id or "")
+            workbench = (scheme.config_json or {}).get("workbench") or {}
+            start_date = (
+                start_date
+                or workbench.get("research_start_date")
+                or workbench.get("start_date")
+            )
+            end_date = (
+                end_date
+                or workbench.get("research_end_date")
+                or workbench.get("end_date")
+            )
+            validation_days = (
+                validation_days
+                or workbench.get("validation_days")
+                or workbench.get("development_days")
+            )
+            final_test_days = final_test_days or workbench.get("final_test_days")
+            if state.current_scheme_id and scheme.scheme_id == state.current_scheme_id:
+                model_id = str(scheme.model_id or model_id)
+                break
+    except Exception:
+        pass
+    if not model_id:
+        model_id = "xaj"
     active = False
     executor = getattr(deps, "executor", None)
     if executor is not None:

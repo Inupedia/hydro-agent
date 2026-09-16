@@ -16,6 +16,7 @@ from hydro_agent.agent.contracts import (
 )
 from hydro_agent.agent.permissions import PermissionGate
 from hydro_agent.execution.hashing import sha256_bytes
+from hydro_agent.models.registry import ModelRegistry, default_model_registry
 from hydro_agent.optimization.campaign import rebuild_campaign_from_evidence
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 from hydro_agent.skills import SkillRegistry
@@ -27,16 +28,18 @@ class WorldStateBuilder:
         self,
         repository,
         *,
-        model_id: str = "xaj",
+        model_id: str | None = None,
         capabilities: frozenset[str] | None = None,
         skills: SkillRegistry | None = None,
         strategies: CalibrationStrategyRegistry | None = None,
+        model_registry: ModelRegistry | None = None,
     ):
         self.repository = repository
         self.model_id = model_id
-        self.capabilities = capabilities or frozenset({"forecast", "calibrate", "validate"})
+        self.capabilities = capabilities
         self.skills = skills or SkillRegistry()
-        self.strategies = strategies or CalibrationStrategyRegistry()
+        self.models = model_registry or default_model_registry()
+        self.strategies = strategies or self.models.strategy_registry()
 
     def build(self, task_id: str) -> WorldStateView:
         task = self.repository.get_task(task_id)
@@ -129,6 +132,20 @@ class WorldStateBuilder:
             )
         else:
             forbidden_evidence_dataset_ids = ()
+        model_id = str(scheme.model_id or self.model_id or "xaj")
+        try:
+            plugin = self.models.get(model_id)
+            param_groups = tuple(plugin.descriptor.parameter_groups)
+            capabilities = tuple(sorted(plugin.runtime_adapter.capabilities))
+        except KeyError:
+            param_groups = ("evap", "runoff", "routing")
+            capabilities = tuple(
+                sorted(self.capabilities or frozenset({"forecast", "calibrate", "validate"}))
+            )
+        strategy_ids = self.strategies.list_ids(model_id=model_id) or self.strategies.list_ids()
+        strategy_ids = tuple(
+            sid for sid in strategy_ids if not sid.endswith("-hydrologist-manual-v1")
+        ) or strategy_ids
         hydro = HydroContext(
             current_parameters={k: float(v) for k, v in current_params.items()},
             candidate_parameters=candidate_params,
@@ -139,13 +156,8 @@ class WorldStateBuilder:
                 else {}
             ),
             available_skills=self.skills.summaries_zh(),
-            available_strategies=tuple(
-                sid
-                for sid in self.strategies.list_ids()
-                if sid != "xaj-hydrologist-manual-v1"
-            )
-            or self.strategies.list_ids(),
-            available_param_groups=("evap", "runoff", "routing"),
+            available_strategies=strategy_ids,
+            available_param_groups=param_groups,
             available_objectives=("nse", "peak", "composite"),
             campaign_objective=campaign_objective,
             campaign=campaign,
@@ -175,9 +187,7 @@ class WorldStateBuilder:
                 terminal_status=task.terminal_status,
                 allow_optimization=allow_optimization,
             ),
-            model=ModelSummary(
-                model_id=self.model_id, capabilities=tuple(sorted(self.capabilities))
-            ),
+            model=ModelSummary(model_id=model_id, capabilities=capabilities),
             scheme=SchemeSummary(
                 scheme_id=scheme.scheme_id,
                 status=scheme.status,

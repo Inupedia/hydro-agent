@@ -23,7 +23,7 @@ export type TaskSummary = {
 
 export type TaskCreateRequest = {
   basin_id: string
-  model_id: 'xaj' | 'openhydronet'
+  model_id: 'xaj' | 'gr4j' | 'openhydronet'
   start_date: string
   end_date: string
   forcing_mode: 'R' | 'F'

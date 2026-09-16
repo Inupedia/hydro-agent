@@ -20,8 +20,19 @@ from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 from hydro_agent.skills.expert import ExpertPriorEngine
 from hydro_agent.skills.governance import KnowledgeQueryContext
 
-ParameterGroup = Literal["evap", "runoff", "routing"]
-ProcessLayer = Literal["evap", "runoff", "routing", "mixed", "unknown"]
+ParameterGroup = str
+ProcessLayer = Literal[
+    "snow",
+    "evap",
+    "soil",
+    "runoff",
+    "groundwater",
+    "routing",
+    "production",
+    "exchange",
+    "mixed",
+    "unknown",
+]
 ObjectiveName = Literal["nse", "peak", "composite"]
 OptimizerName = Literal["dds", "sce-ua", "random-search", "manual"]
 SearchScope = Literal["global", "local"]
@@ -142,7 +153,9 @@ def _normalize_groups(raw_groups: object, fallback: tuple[str, ...]) -> tuple[st
         groups = tuple(str(item).strip() for item in raw_groups if str(item).strip())
     else:
         groups = ()
-    allowed = {"evap", "runoff", "routing"}
+    from hydro_agent.models.diagnosis_defaults import allowed_param_groups
+
+    allowed = allowed_param_groups()
     if not groups or any(item not in allowed for item in groups):
         return tuple(fallback)
     return groups
@@ -158,11 +171,35 @@ def _name_list(raw: object) -> tuple[str, ...]:
 
 def _process_layer(groups: tuple[str, ...]) -> ProcessLayer:
     unique = tuple(dict.fromkeys(groups))
-    if len(unique) == 1 and unique[0] in {"evap", "runoff", "routing"}:
+    known = {
+        "snow",
+        "evap",
+        "soil",
+        "runoff",
+        "groundwater",
+        "routing",
+        "production",
+        "exchange",
+    }
+    if len(unique) == 1 and unique[0] in known:
         return unique[0]  # type: ignore[return-value]
     if len(unique) > 1:
         return "mixed"
     return "unknown"
+
+
+def _default_strategy_id(diagnosis: dict[str, Any] | None = None) -> str:
+    model_id = "xaj"
+    if isinstance(diagnosis, dict):
+        raw = diagnosis.get("model_id")
+        if raw:
+            model_id = str(raw)
+    try:
+        from hydro_agent.models.registry import default_model_registry
+
+        return default_model_registry().default_strategy_id(model_id)
+    except KeyError:
+        return f"{model_id}-bounded-v1"
 
 
 def _search_adjustment(diagnosis: dict[str, Any]) -> SearchAdjustment:
@@ -183,12 +220,19 @@ def _progressive_strategy(
     if adjustment != "broaden_within_absolute_bounds":
         return recommended_strategy_id
     source_strategy_id = previous_strategy_id or recommended_strategy_id
-    if source_strategy_id == "xaj-broadened-refine-v1":
-        return "xaj-bounded-v1"
+    model_prefix = source_strategy_id.split("-", 1)[0] if "-" in source_strategy_id else "xaj"
+    broadened = f"{model_prefix}-broadened-refine-v1"
+    bounded = f"{model_prefix}-bounded-v1"
+    if source_strategy_id == broadened:
+        return bounded if bounded in {s for s in registry.list_ids()} else recommended_strategy_id
     current = registry.get(source_strategy_id)
     if current.local_scale is None:
         return recommended_strategy_id
-    return "xaj-broadened-refine-v1"
+    try:
+        registry.get(broadened)
+        return broadened
+    except KeyError:
+        return recommended_strategy_id
 
 
 def _locked_objective(
@@ -330,11 +374,12 @@ def plan_from_hypothesis(
     """Compile a legal ``CalibrationPlan`` from a typed diagnosis hypothesis."""
 
     registry = strategies or CalibrationStrategyRegistry()
-    recommended_strategy_id = hypothesis.recommended_strategy_id or "xaj-bounded-v1"
+    fallback = _default_strategy_id(diagnosis)
+    recommended_strategy_id = hypothesis.recommended_strategy_id or fallback
     try:
         strategy = registry.get(recommended_strategy_id)
     except KeyError:
-        recommended_strategy_id = "xaj-bounded-v1"
+        recommended_strategy_id = fallback
         strategy = registry.get(recommended_strategy_id)
 
     groups = hypothesis.parameter_groups or tuple(strategy.param_groups)

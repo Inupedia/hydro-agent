@@ -142,10 +142,11 @@ XAJ_HYDROLOGIST_MANUAL_V1 = CalibrationStrategy(
 
 
 class CalibrationStrategyRegistry:
-    def __init__(self) -> None:
-        self._strategies = {
-            s.strategy_id: s
-            for s in (
+    def __init__(self, strategies: tuple[CalibrationStrategy, ...] | None = None) -> None:
+        if strategies is None:
+            from hydro_agent.models.gr4j.strategies import GR4J_STRATEGIES
+
+            strategies = (
                 XAJ_BOUNDED_V1,
                 XAJ_PEAK_BIAS_V1,
                 XAJ_LOCAL_REFINE_V1,
@@ -156,13 +157,33 @@ class CalibrationStrategyRegistry:
                 XAJ_SCEUA_BENCHMARK_V1,
                 XAJ_RANDOM_SEARCH_V1,
                 XAJ_HYDROLOGIST_MANUAL_V1,
+                *GR4J_STRATEGIES,
             )
-        }
+        self._strategies = {s.strategy_id: s for s in strategies}
 
-    def get(self, strategy_id: str) -> CalibrationStrategy:
+    def get(self, strategy_id: str, *, model_id: str | None = None) -> CalibrationStrategy:
         if strategy_id not in self._strategies:
             raise KeyError(strategy_id)
-        return self._strategies[strategy_id]
+        strategy = self._strategies[strategy_id]
+        if model_id is not None and not strategy.strategy_id.startswith(f"{model_id}-"):
+            raise KeyError(f"strategy {strategy_id} is not registered for model {model_id}")
+        return strategy
 
-    def list_ids(self) -> tuple[str, ...]:
-        return tuple(sorted(self._strategies))
+    def list_ids(self, *, model_id: str | None = None) -> tuple[str, ...]:
+        ids = tuple(sorted(self._strategies))
+        if model_id is None:
+            return ids
+        prefix = f"{model_id}-"
+        return tuple(item for item in ids if item.startswith(prefix))
+
+    def all_strategies(self) -> tuple[CalibrationStrategy, ...]:
+        return tuple(self._strategies[sid] for sid in self.list_ids())
+
+    def default_for_model(self, model_id: str) -> CalibrationStrategy:
+        preferred = f"{model_id}-bounded-v1"
+        if preferred in self._strategies:
+            return self._strategies[preferred]
+        ids = self.list_ids(model_id=model_id)
+        if not ids:
+            raise KeyError(f"no strategies registered for model {model_id}")
+        return self._strategies[ids[0]]

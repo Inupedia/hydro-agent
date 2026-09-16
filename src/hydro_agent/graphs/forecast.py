@@ -100,6 +100,9 @@ def build_forecast_graph(
                 _fallback_payload(view, raw_text="no new evidence recovery"),
                 safe_actions=safe,
                 evidence_actions=evidence_actions,
+                available_param_groups=tuple(view.hydro.available_param_groups),
+                available_strategies=tuple(view.hydro.available_strategies),
+                model_id=str(view.model.model_id or "xaj"),
             )
             # Prefer forward progress over repeating the blocked decision.
             for preferred in (

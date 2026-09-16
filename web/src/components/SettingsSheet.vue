@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useDemoStore } from '../stores/demo'
 import { basinLabel, forcingLabel } from '../demo/stages'
+import { modelLabel } from '../modelLabels'
 
 const demo = useDemoStore()
 </script>
@@ -28,7 +29,7 @@ const demo = useDemoStore()
           </div>
           <div>
             <dt>模型</dt>
-            <dd>{{ demo.draft.model_id === 'xaj' ? '新安江（XAJ）' : demo.draft.model_id }}</dd>
+            <dd>{{ modelLabel(demo.draft.model_id) }}</dd>
           </div>
           <div>
             <dt>日期</dt>

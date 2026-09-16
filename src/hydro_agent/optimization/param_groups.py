@@ -1,52 +1,64 @@
-"""XAJ parameter groups for bounded, agent-selected calibration."""
+"""Parameter-group helpers — prefer model plugins; XAJ kept for compatibility."""
 
 from __future__ import annotations
 
 from typing import Literal
 
-ParamGroup = Literal["evap", "runoff", "routing"]
+from hydro_agent.models.xaj.param_groups import (
+    ALL_PARAM_GROUPS,
+    XAJ_PARAM_GROUPS,
+    normalize_param_groups as normalize_xaj_param_groups,
+    resolve_param_names as resolve_xaj_param_names,
+)
+
+ParamGroup = str
 ObjectiveName = Literal["nse", "peak", "composite"]
-
-XAJ_PARAM_GROUPS: dict[ParamGroup, tuple[str, ...]] = {
-    "evap": ("K", "UM", "LM", "DM", "C"),
-    "runoff": ("B", "IM", "SM", "EX", "KI", "KG"),
-    "routing": ("CS", "CI", "CG", "L"),
-}
-
-ALL_PARAM_GROUPS: tuple[ParamGroup, ...] = ("evap", "runoff", "routing")
 ALL_OBJECTIVES: tuple[ObjectiveName, ...] = ("nse", "peak", "composite")
 
 
-def resolve_param_names(groups: tuple[str, ...] | list[str] | None) -> tuple[str, ...]:
-    if not groups:
-        groups = ALL_PARAM_GROUPS
-    names: list[str] = []
-    seen: set[str] = set()
-    for group in groups:
-        key = str(group).strip().lower()
-        if key not in XAJ_PARAM_GROUPS:
-            raise KeyError(f"unknown param group: {group}")
-        for name in XAJ_PARAM_GROUPS[key]:  # type: ignore[index]
-            if name not in seen:
-                seen.add(name)
-                names.append(name)
-    return tuple(names)
+def resolve_param_names(
+    groups: tuple[str, ...] | list[str] | None,
+    *,
+    model_id: str = "xaj",
+) -> tuple[str, ...]:
+    if model_id == "xaj":
+        return resolve_xaj_param_names(groups)
+    from hydro_agent.models.registry import default_model_registry
+
+    return default_model_registry().get(model_id).resolve_param_names(groups)
 
 
-def normalize_param_groups(raw) -> tuple[ParamGroup, ...]:
+def normalize_param_groups(raw, *, model_id: str = "xaj") -> tuple[str, ...]:
+    if model_id == "xaj":
+        return normalize_xaj_param_groups(raw)
+    from hydro_agent.models.registry import default_model_registry
+
+    plugin = default_model_registry().get(model_id)
+    if hasattr(plugin, "normalize_param_groups"):
+        return plugin.normalize_param_groups(raw)  # type: ignore[attr-defined]
     if raw is None:
-        return ALL_PARAM_GROUPS
+        return tuple(plugin.descriptor.parameter_groups)
     if isinstance(raw, str):
         parts = [p.strip() for p in raw.split(",") if p.strip()]
     else:
         parts = [str(p).strip() for p in raw if str(p).strip()]
-    if not parts:
-        return ALL_PARAM_GROUPS
-    out: list[ParamGroup] = []
-    for part in parts:
+    allowed = set(plugin.descriptor.parameter_groups)
+    out: list[str] = []
+    for part in parts or plugin.descriptor.parameter_groups:
         key = part.lower()
-        if key not in XAJ_PARAM_GROUPS:
-            raise KeyError(f"unknown param group: {part}")
+        if key not in allowed:
+            raise KeyError(f"unknown {model_id} param group: {part}")
         if key not in out:
-            out.append(key)  # type: ignore[arg-type]
+            out.append(key)
     return tuple(out)
+
+
+__all__ = [
+    "ALL_OBJECTIVES",
+    "ALL_PARAM_GROUPS",
+    "ObjectiveName",
+    "ParamGroup",
+    "XAJ_PARAM_GROUPS",
+    "normalize_param_groups",
+    "resolve_param_names",
+]

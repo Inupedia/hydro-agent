@@ -14,6 +14,14 @@ from typing import Literal, Mapping, Sequence
 from pydantic import Field
 
 from hydro_agent.execution.contracts import FrozenModel
+from hydro_agent.models.diagnosis_defaults import (
+    broadened_plan,
+    peak_plan,
+    planner_fallbacks,
+    resolve_model_id,
+    timing_plan,
+    water_balance_plan,
+)
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 
 CanonicalObjective = Literal["nse", "kge", "peak"]
@@ -53,7 +61,7 @@ class ExperimentPlan(FrozenModel):
     strategy_id: str = Field(min_length=1)
     optimizer: Literal["dds", "sce-ua", "random-search", "manual"]
     objective: CanonicalObjective
-    param_groups: tuple[Literal["evap", "runoff", "routing"], ...]
+    param_groups: tuple[str, ...]
     evaluation_budget: int = Field(ge=1, le=10_000)
     evidence_refs: tuple[str, ...] = ()
     reason_codes: tuple[str, ...] = ()
@@ -153,13 +161,17 @@ class ExperimentPlanner:
         available = tuple(
             strategy_id
             for strategy_id in available_strategies
-            if strategy_id != "xaj-hydrologist-manual-v1"
+            if not strategy_id.endswith("-hydrologist-manual-v1")
         )
         if not available:
             raise ValueError("no automatic calibration strategy is available")
 
+        model_id = resolve_model_id(
+            diagnosis,
+            next((sid.split("-", 1)[0] for sid in available if "-" in sid), None),
+        )
         recommended = str(diagnosis.get("recommended_strategy_id") or "").strip()
-        groups = self._groups(diagnosis.get("recommended_param_groups"))
+        groups = self._groups(diagnosis.get("recommended_param_groups"), model_id=model_id)
         objective = canonical_objective(str(diagnosis.get("recommended_objective") or "nse"))
         local_hits = self._tokens(diagnosis.get("local_boundary_hits"))
         latest = prior_trials[-1] if prior_trials else None
@@ -169,26 +181,27 @@ class ExperimentPlanner:
         if strategy_id:
             reason_codes.append("diagnosis_recommendation")
 
-        if local_hits and "xaj-broadened-refine-v1" in available:
-            strategy_id = "xaj-broadened-refine-v1"
+        broadened_id = broadened_plan(model_id)
+        routing_id, _ = timing_plan(model_id)
+        peak_id, _ = peak_plan(model_id)
+        water_id, water_groups = water_balance_plan(model_id)
+
+        if local_hits and broadened_id in available:
+            strategy_id = broadened_id
             reason_codes.append("local_boundary_hit")
-        elif groups == ("routing",) and "xaj-routing-refine-v1" in available:
-            strategy_id = "xaj-routing-refine-v1"
+        elif groups == ("routing",) and routing_id in available:
+            strategy_id = routing_id
             reason_codes.append("routing_only_hypothesis")
-        elif objective == "peak" and "xaj-peak-bias-v1" in available:
-            strategy_id = "xaj-peak-bias-v1"
+        elif objective == "peak" and peak_id in available:
+            strategy_id = peak_id
             reason_codes.append("peak_target")
-        elif strategy_id is None and groups and set(groups) <= {"evap", "runoff"}:
-            if "xaj-water-balance-v1" in available:
-                strategy_id = "xaj-water-balance-v1"
+        elif strategy_id is None and groups and set(groups) <= set(water_groups):
+            if water_id in available:
+                strategy_id = water_id
                 reason_codes.append("water_balance_groups")
 
         if strategy_id is None:
-            for fallback in (
-                "xaj-hydro-composite-v1",
-                "xaj-bounded-v1",
-                "xaj-local-refine-v1",
-            ):
+            for fallback in planner_fallbacks(model_id):
                 if fallback in available:
                     strategy_id = fallback
                     reason_codes.append("registered_fallback")
@@ -204,10 +217,10 @@ class ExperimentPlanner:
             and latest.strategy_id == strategy_id
             and latest.hypothesis_outcome == "refuted"
             and not recommended
-            and "xaj-broadened-refine-v1" in available
-            and strategy_id != "xaj-broadened-refine-v1"
+            and broadened_id in available
+            and strategy_id != broadened_id
         ):
-            strategy_id = "xaj-broadened-refine-v1"
+            strategy_id = broadened_id
             reason_codes.append("refuted_trial_widen_search")
 
         strategy = self.registry.get(strategy_id)
@@ -252,10 +265,12 @@ class ExperimentPlanner:
             return tuple(str(item).strip() for item in value if str(item).strip())
         return ()
 
-    def _groups(self, value: object) -> tuple[Literal["evap", "runoff", "routing"], ...]:
+    def _groups(self, value: object, *, model_id: str = "xaj") -> tuple[str, ...]:
+        from hydro_agent.models.diagnosis_defaults import allowed_param_groups
+
         raw = self._tokens(value)
-        allowed = {"evap", "runoff", "routing"}
-        return tuple(item for item in raw if item in allowed)  # type: ignore[return-value]
+        allowed = allowed_param_groups(model_id)
+        return tuple(item for item in raw if item in allowed)
 
 
 def infer_trial_outcome(

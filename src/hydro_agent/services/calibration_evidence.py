@@ -15,8 +15,14 @@ import numpy as np
 
 from hydro_agent.evaluation.evidence import HydrologicEvidenceBuilder
 from hydro_agent.evaluation.evidence_summary import annual_stability_evidence
-from hydro_agent.models.xaj.contracts import XajBasin, XajScheme
-from hydro_agent.models.xaj.upstream import simulate
+from hydro_agent.models.diagnosis_defaults import (
+    composite_plan,
+    peak_plan,
+    resolve_model_id,
+    timing_plan,
+    water_balance_plan,
+)
+from hydro_agent.models.registry import default_model_registry
 
 
 def build_calibration_evidence(
@@ -41,13 +47,8 @@ def build_calibration_evidence(
             f"calibration evidence forcing incomplete: missing={missing_forcing[0].isoformat()}"
         )
 
-    xaj = XajScheme(
-        model_id="xaj",
-        warmup_days=warmup_days,
-        parameters=scheme_config["parameters"],
-        routing=scheme_config.get("routing") or {},
-    )
-    basin = XajBasin.model_validate(source.basin)
+    model_id = str(scheme_config.get("model_id") or "xaj")
+    plugin = default_model_registry().get(model_id)
     forcing = np.asarray(
         [
             [
@@ -58,7 +59,12 @@ def build_calibration_evidence(
         ],
         dtype=float,
     )
-    full_sim = simulate(xaj, basin, forcing[:, None, :], include_warmup=True)
+    full_sim = plugin.simulate(
+        scheme_config,
+        dict(source.basin),
+        forcing[:, None, :],
+        include_warmup=True,
+    )
     if len(full_sim) != len(required_dates):
         raise ValueError("calibration continuous simulation length mismatch")
 
@@ -86,6 +92,7 @@ def build_calibration_evidence(
         "calibration_start": calibration_start.isoformat(),
         "calibration_end": calibration_end.isoformat(),
         "warmup_days": warmup_days,
+        "model_id": model_id,
         "development_accessed": False,
         "final_test_accessed": False,
     }
@@ -107,6 +114,11 @@ def apply_calibration_evidence_to_diagnosis(
     """
 
     result = dict(rolling_diagnosis)
+    provenance = calibration_evidence.get("provenance")
+    provenance = provenance if isinstance(provenance, dict) else {}
+    model_id = resolve_model_id(result, provenance)
+    result["model_id"] = model_id
+
     rolling_metrics = dict(result.get("metrics") or {})
     metrics = {f"rolling_{key}": float(value) for key, value in rolling_metrics.items()}
     overall = calibration_evidence.get("overall")
@@ -145,48 +157,55 @@ def apply_calibration_evidence_to_diagnosis(
         peak_timing = metrics.get("peak_timing_lag_days", 0.0)
         full_nse = metrics.get("nse")
         if pbias is not None and abs(pbias) >= water_balance_threshold:
+            strategy, groups = water_balance_plan(model_id)
+            phenomenon = (
+                f"完整率定期 PBIAS={pbias:.1f}% 显示系统水量偏差，优先处理产流/交换参数"
+                if model_id == "gr4j"
+                else f"完整率定期 PBIAS={pbias:.1f}% 显示系统水量偏差，优先处理蒸散发/产流参数"
+            )
             result.update(
                 {
                     "hypothesis": "MODEL",
-                    "phenomenon": (
-                        f"完整率定期 PBIAS={pbias:.1f}% 显示系统水量偏差，优先处理蒸散发/产流参数"
-                    ),
+                    "phenomenon": phenomenon,
                     "recommended_action": "A05_OPTIMIZE",
-                    "recommended_strategy_id": "xaj-water-balance-v1",
-                    "recommended_param_groups": ["evap", "runoff"],
+                    "recommended_strategy_id": strategy,
+                    "recommended_param_groups": groups,
                     "recommended_objective": "composite",
                 }
             )
         elif abs(peak_timing) >= 1:
+            strategy, groups = timing_plan(model_id)
             result.update(
                 {
                     "hypothesis": "TIMING",
                     "phenomenon": f"完整率定期洪峰错位约 {peak_timing:.0f} 天，优先检查汇流响应",
                     "recommended_action": "A05_OPTIMIZE",
-                    "recommended_strategy_id": "xaj-routing-refine-v1",
-                    "recommended_param_groups": ["routing"],
+                    "recommended_strategy_id": strategy,
+                    "recommended_param_groups": groups,
                     "recommended_objective": "composite",
                 }
             )
         elif peak_ratio < 0.85 or peak_ratio > 1.15:
+            strategy, groups = peak_plan(model_id)
             result.update(
                 {
                     "hypothesis": "MODEL",
                     "phenomenon": f"完整率定期洪峰比={peak_ratio:.2f}，优先联合产流与汇流过程",
                     "recommended_action": "A05_OPTIMIZE",
-                    "recommended_strategy_id": "xaj-peak-bias-v1",
-                    "recommended_param_groups": ["runoff", "routing"],
+                    "recommended_strategy_id": strategy,
+                    "recommended_param_groups": groups,
                     "recommended_objective": "composite",
                 }
             )
         elif full_nse is None or full_nse < dc_bing_floor:
+            strategy, groups = composite_plan(model_id)
             result.update(
                 {
                     "hypothesis": "MODEL",
                     "phenomenon": "完整率定期整体拟合不足，采用受约束综合率定",
                     "recommended_action": "A05_OPTIMIZE",
-                    "recommended_strategy_id": "xaj-hydro-composite-v1",
-                    "recommended_param_groups": ["evap", "runoff", "routing"],
+                    "recommended_strategy_id": strategy,
+                    "recommended_param_groups": groups,
                     "recommended_objective": "composite",
                 }
             )
@@ -211,6 +230,7 @@ def apply_calibration_evidence_to_diagnosis(
             "calibration_evidence_development_accessed=false",
             "calibration_evidence_final_test_accessed=false",
             f"calibration_valid_samples={valid_count}",
+            f"model_id={model_id}",
         )
     )
     result["notes"] = notes

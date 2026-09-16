@@ -27,13 +27,11 @@ from hydro_agent.data.policy import DataAccessPolicy
 from hydro_agent.data.snapshot import SnapshotBuilder
 from hydro_agent.evaluation.service import EvaluationService
 from hydro_agent.execution.contracts import ExecutionPolicy
-from hydro_agent.execution.registry import RuntimeRegistry
 from hydro_agent.execution.runner import SandboxRunner
-from hydro_agent.models.xaj.adapter import XajRuntimeAdapter
+from hydro_agent.models.registry import ModelRegistry, default_model_registry
 from hydro_agent.optimization.candidates import CandidateSchemeService
 from hydro_agent.optimization.contracts import GatePolicy
 from hydro_agent.optimization.gate import GateEvaluator
-from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 from hydro_agent.replay.freeze import FreezeService
 from hydro_agent.replay.planner import ReplayPlanner
 from hydro_agent.replay.service import ReplayService
@@ -75,7 +73,7 @@ GATE_POLICY = gate_policy_from_standards()
 
 
 class RealWorkbenchKernel:
-    """Shared real XAJ + evaluation stack for the workbench API."""
+    """Shared real multi-model workbench stack (plugins + evaluation)."""
 
     def __init__(
         self,
@@ -86,17 +84,19 @@ class RealWorkbenchKernel:
         scheme_path: Path,
         report_root: Path,
         warmup_days: int = 30,
+        model_registry: ModelRegistry | None = None,
     ):
         self.repository = repository
         self.work_root = Path(work_root)
         self.report_root = Path(report_root)
+        self.models = model_registry or default_model_registry()
         self.source = load_normalized_source(source_dir)
         self.scheme_template = json.loads(Path(scheme_path).read_text(encoding="utf-8"))
         self.scheme_template["warmup_days"] = warmup_days
         self.scheme_template.setdefault("model_id", "xaj")
         self.skills = SkillRegistry(repository=repository)
         self.standards = self.skills.standards
-        self.strategies = CalibrationStrategyRegistry()
+        self.strategies = self.models.strategy_registry()
         self.gate_policy = gate_policy_from_standards(self.standards)
         self._task_configs: dict = {}
 
@@ -111,13 +111,11 @@ class RealWorkbenchKernel:
         workspaces = MaterializingWorkspaceManager(
             self.work_root / "runs", repository, snapshot_root=self.snapshot_root
         )
-        registry = RuntimeRegistry()
-        registry.register(XajRuntimeAdapter())
-        runner = SandboxRunner(registry, workspaces)
-        self.forecast = ForecastService(
-            repository, resolver=self.resolver, runner=runner, model_id="xaj"
+        runner = SandboxRunner(self.models.runtime_registry(), workspaces)
+        self.forecast = ForecastService(repository, resolver=self.resolver, runner=runner)
+        self.calibration = CalibrationService(
+            repository, runner=runner, strategies=self.strategies
         )
-        self.calibration = CalibrationService(repository, runner=runner, model_id="xaj")
         self.candidates = CandidateSchemeService(repository)
         self.gate = GateEvaluator()
         self.freeze_service = FreezeService(repository, gate_policy=self.gate_policy.model_dump())
@@ -137,6 +135,19 @@ class RealWorkbenchKernel:
 
     def scheme_config(self) -> dict:
         return json.loads(json.dumps(self.scheme_template))
+
+    def _default_strategy_id(self, task_id: str) -> str:
+        state = self.repository.ensure_task_state(task_id)
+        model_id = str(self.scheme_template.get("model_id") or "xaj")
+        if state.current_scheme_id:
+            try:
+                model_id = str(self.repository.get_scheme(state.current_scheme_id).model_id)
+            except KeyError:
+                pass
+        try:
+            return self.models.default_strategy_id(model_id)
+        except KeyError:
+            return "xaj-bounded-v1"
 
     def _workbench_config(self, task_id: str) -> dict:
         runtime = dict(self._task_configs.get(task_id) or {})
@@ -243,6 +254,15 @@ class RealWorkbenchKernel:
             self.source,
             flow_rows=tuple(row for row in self.source.flow_rows if row.eligible_for_scoring),
         )
+        model_id = "xaj"
+        get_scheme = getattr(self.repository, "get_scheme", None)
+        if callable(get_scheme):
+            try:
+                model_id = str(get_scheme(scheme_id).model_id or "xaj")
+            except (KeyError, AttributeError, TypeError):
+                model_id = str(getattr(self, "scheme_template", {}).get("model_id") or "xaj")
+        elif getattr(self, "scheme_template", None):
+            model_id = str(self.scheme_template.get("model_id") or "xaj")
         result = diagnose_prevalidation_window(
             repository=self.repository,
             forecast_service=self.forecast,
@@ -251,6 +271,7 @@ class RealWorkbenchKernel:
             task_id=task_id,
             scheme_id=scheme_id,
             validation_start=window.start,
+            model_id=model_id,
         )
 
         cfg = self._workbench_config(task_id)
@@ -400,7 +421,7 @@ class _TaskAwareOptimizeHandler:
                         )
                 objective = objective or gates.get("recommended_objective") or None
                 break
-        strategy_id = strategy_id or "xaj-bounded-v1"
+        strategy_id = strategy_id or self._default_strategy_id(task_id)
         handler = OptimizeHandler(
             self.kernel.repository,
             calibration_service=self.kernel.calibration,

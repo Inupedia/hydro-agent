@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { modelLabel } from '../modelLabels'
+
 defineProps<{
   scheme: {
     scheme_id: string
@@ -21,7 +23,7 @@ defineProps<{
           : '这套参数仍可被后续步骤调整。'
       }}
     </p>
-    <p class="muted">模型：{{ scheme.model_id === 'xaj' ? '新安江（XAJ）' : scheme.model_id }}</p>
+    <p class="muted">模型：{{ modelLabel(scheme.model_id) }}</p>
   </section>
 </template>
 

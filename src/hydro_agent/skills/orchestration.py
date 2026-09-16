@@ -25,6 +25,7 @@ from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 from hydro_agent.skills import (
     EVIDENCE_REVIEW_SKILL_ID,
     EXPERIMENT_DESIGN_SKILL_ID,
+    GR4J_DIAGNOSIS_SKILL_ID,
     RESULT_REVIEW_SKILL_ID,
     XAJ_DIAGNOSIS_SKILL_ID,
     SkillRegistry,
@@ -43,6 +44,7 @@ OutputContractName = Literal[
 SKILL_OUTPUT_CONTRACT: dict[str, OutputContractName] = {
     EVIDENCE_REVIEW_SKILL_ID: "EvidenceInterpretation",
     XAJ_DIAGNOSIS_SKILL_ID: "DiagnosisHypothesis",
+    GR4J_DIAGNOSIS_SKILL_ID: "DiagnosisHypothesis",
     EXPERIMENT_DESIGN_SKILL_ID: "CalibrationPlan",
     RESULT_REVIEW_SKILL_ID: "ExperimentReview",
 }
@@ -99,7 +101,9 @@ class SkillOrchestrator:
 
         if skill_id == EVIDENCE_REVIEW_SKILL_ID:
             typed: FrozenModel = interpret_evidence(evidence)
-        elif skill_id == XAJ_DIAGNOSIS_SKILL_ID:
+        elif skill_id in {XAJ_DIAGNOSIS_SKILL_ID, GR4J_DIAGNOSIS_SKILL_ID} or (
+            SKILL_OUTPUT_CONTRACT.get(skill_id) == "DiagnosisHypothesis"
+        ):
             reading = interpretation or interpret_evidence(diagnosis)
             typed = form_diagnosis_hypothesis(reading, diagnosis)
         elif skill_id == EXPERIMENT_DESIGN_SKILL_ID:
@@ -170,9 +174,25 @@ class SkillOrchestrator:
         model_id = "xaj"
         if view is not None:
             model_id = str(getattr(getattr(view, "model", None), "model_id", "xaj") or "xaj")
-        if model_id == "xaj":
+        diagnosis = dict(diagnosis)
+        diagnosis.setdefault("model_id", model_id)
+        diagnosis_skill_id = None
+        if self.skills is not None:
+            candidates = self.skills._diagnosis_skill_ids(model_id)
+            for skill_id in candidates:
+                if skill_id in SKILL_OUTPUT_CONTRACT:
+                    diagnosis_skill_id = skill_id
+                    break
+        if diagnosis_skill_id is None:
+            from hydro_agent.models.registry import default_model_registry
+
+            try:
+                diagnosis_skill_id = default_model_registry().diagnosis_skill_id(model_id)
+            except KeyError:
+                diagnosis_skill_id = None
+        if diagnosis_skill_id and diagnosis_skill_id in SKILL_OUTPUT_CONTRACT:
             hyp_inv = self.invoke_skill(
-                XAJ_DIAGNOSIS_SKILL_ID,
+                diagnosis_skill_id,
                 diagnosis=diagnosis,
                 view=view,
                 interpretation=interpretation,

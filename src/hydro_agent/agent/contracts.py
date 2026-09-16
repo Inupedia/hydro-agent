@@ -37,7 +37,7 @@ class AgentDecision(FrozenModel):
     hypothesis: ProblemHypothesis
     strategy_id: str | None = None
     # Optional optimize controls — agent selects groups/objective, never raw vectors.
-    param_groups: tuple[Literal["evap", "runoff", "routing"], ...] | None = None
+    param_groups: tuple[str, ...] | None = None
     objective: Literal["nse", "peak", "composite"] | None = None
     rationale_summary: str = Field(min_length=1, max_length=600)
     # Structured ExperimentPlan metadata is populated by the deterministic

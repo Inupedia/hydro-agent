@@ -1,0 +1,10 @@
+{
+  "model_id": "gr4j",
+  "warmup_days": 5,
+  "parameters": {
+    "X1": 350.0,
+    "X2": 0.0,
+    "X3": 90.0,
+    "X4": 1.7
+  }
+}

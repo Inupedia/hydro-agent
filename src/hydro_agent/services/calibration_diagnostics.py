@@ -20,6 +20,7 @@ from hydro_agent.evaluation.metrics import (
     rmse,
 )
 from hydro_agent.hydrology import derive_basin_hydro_profile
+from hydro_agent.models.diagnosis_defaults import measurement_diagnosis_plan
 
 
 def _safe(metric, obs: list[float], sim: list[float]) -> float | None:
@@ -55,6 +56,7 @@ def diagnose_prevalidation_window(
     scheme_id: str,
     validation_start: date,
     lookback_issue_days: int = DIAGNOSTIC_LOOKBACK_ISSUE_DAYS,
+    model_id: str = "xaj",
 ) -> dict[str, Any]:
     """Measure pre-development model behavior without applying expert policy.
 
@@ -123,6 +125,7 @@ def diagnose_prevalidation_window(
 
     if len(all_obs) < 6:
         return {
+            "model_id": model_id,
             "hypothesis": "DATA",
             "phenomenon": "率定期历史预报/观测不足，不能形成无泄漏诊断",
             "recommended_action": "A01_CHECK_DATA",
@@ -135,6 +138,7 @@ def diagnose_prevalidation_window(
                 f"diagnostic_window={first_issue.isoformat()}..{latest_issue.isoformat()}",
                 f"development_starts={development_start.isoformat()}",
                 "diagnostic_truth_strictly_precedes_development=true",
+                f"model_id={model_id}",
             ],
         }
 
@@ -185,6 +189,7 @@ def diagnose_prevalidation_window(
         )
         basin_attributes = profile.model_dump(exclude_none=True)
 
+    strategy_id, param_groups = measurement_diagnosis_plan(model_id)
     nse_text = "n/a" if overall_nse is None else f"{overall_nse:.3f}"
     primary = {
         "id": "MODEL",
@@ -195,8 +200,8 @@ def diagnose_prevalidation_window(
             "由治理后的知识与实验计划决定是否缩小搜索范围"
         ),
         "suggested_action": "A05_OPTIMIZE",
-        "suggested_strategy_id": "xaj-hydro-composite-v1",
-        "suggested_param_groups": ["evap", "runoff", "routing"],
+        "suggested_strategy_id": strategy_id,
+        "suggested_param_groups": param_groups,
         "suggested_objective": "composite",
     }
 
@@ -207,6 +212,7 @@ def diagnose_prevalidation_window(
         f"development_starts={development_start.isoformat()}",
         "diagnostic_truth_strictly_precedes_development=true",
         "diagnosis_scope=measurement_only_no_expert_thresholds=true",
+        f"model_id={model_id}",
     ]
     if basin_attributes:
         notes.append(
@@ -218,6 +224,7 @@ def diagnose_prevalidation_window(
         notes.append("aridity_not_derived=evaporation_input_is_not_potential_evapotranspiration")
 
     return {
+        "model_id": model_id,
         "hypothesis": primary["id"],
         "phenomenon": primary["phenomenon"],
         "recommended_action": primary["suggested_action"],

@@ -353,7 +353,9 @@ def _build_real(
         deps.model_plans.require_ready(plan_id)
         directory = deps.model_plans.directory(plan_id)
         deps.task_configs[task_id] = build_runtime_task_config(
-            config.get("workbench", {}), model_plan_id=plan_id
+            config.get("workbench", {}),
+            base={"model_id": str(config.get("model_id") or "")},
+            model_plan_id=plan_id,
         )
         task_kernel = RealWorkbenchKernel(
             repository=repository, work_root=work_root/task_id,

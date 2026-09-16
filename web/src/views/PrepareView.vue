@@ -85,6 +85,7 @@ function statusZh(status: string) {
             <div class="val">
               <select v-model="demo.draft.model_id">
                 <option value="xaj">新安江（XAJ）</option>
+                <option value="gr4j">GR4J</option>
                 <option value="openhydronet" disabled>OpenHydroNet（未启用）</option>
               </select>
             </div>

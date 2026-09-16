@@ -134,6 +134,7 @@ const schemePlain = computed(() => {
 const modelPlain = computed(() => {
   const id = props.result?.scheme?.model_id
   if (id === 'xaj') return '新安江模型（XAJ）：一种常见的流域产汇流概念模型，用来把降雨转换成河川流量。'
+  if (id === 'gr4j') return 'GR4J：四参数日尺度降雨—径流模型，用产流库、地下水交换与汇流单元描述流域响应。'
   return id ? `模型：${id}` : ''
 })
 </script>

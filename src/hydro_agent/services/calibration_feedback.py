@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+from hydro_agent.models.diagnosis_defaults import (
+    composite_plan,
+    local_refine_plan,
+    peak_plan,
+    resolve_model_id,
+)
+
 
 def apply_latest_gate_feedback(result: dict, evidence_rows: list) -> dict:
     """Refine the next experiment hypothesis from the latest resolved Gate.
@@ -29,6 +36,7 @@ def apply_latest_gate_feedback(result: dict, evidence_rows: list) -> dict:
     if latest_gate is None:
         return result
 
+    model_id = resolve_model_id(result)
     gates = dict(latest_gate.gates_json or {})
     reasons = [item for item in str(gates.get("reasons") or "").split(",") if item]
     metrics = dict(latest_gate.metrics_json or {})
@@ -39,16 +47,13 @@ def apply_latest_gate_feedback(result: dict, evidence_rows: list) -> dict:
     )
 
     if high_flow_failure or lead_failure:
-        strategy = "xaj-peak-bias-v1"
-        groups = ["runoff", "routing"]
+        strategy, groups = peak_plan(model_id)
         phenomenon = "Gate 暴露洪峰或分 lead 失真，下一轮聚焦产汇流响应，不重复原实验"
     elif absolute_failure:
-        strategy = "xaj-hydro-composite-v1"
-        groups = ["evap", "runoff", "routing"]
+        strategy, groups = composite_plan(model_id)
         phenomenon = "候选虽有局部改善但绝对技巧未过线，下一轮改用全水文过程综合目标"
     else:
-        strategy = "xaj-local-refine-v1"
-        groups = ["evap", "runoff", "routing"]
+        strategy, groups = local_refine_plan(model_id)
         phenomenon = "候选未达到采用条件，吸收 Gate 证据后缩小范围重新检验"
 
     feedback_hypothesis = {
@@ -62,6 +67,7 @@ def apply_latest_gate_feedback(result: dict, evidence_rows: list) -> dict:
         "gate_feedback_status": latest_resolve.status,
         "gate_feedback_reasons": reasons,
     }
+    result["model_id"] = model_id
     result["hypothesis"] = feedback_hypothesis["id"]
     result["phenomenon"] = feedback_hypothesis["phenomenon"]
     result["recommended_action"] = feedback_hypothesis["suggested_action"]

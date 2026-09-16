@@ -16,6 +16,7 @@ import { DEMO_PRESET } from '../demo/preset'
 import { api } from '../api/client'
 import { gsap, motionDuration, prefersReducedMotion } from '../motion/gsap'
 import { basinLabel, providerErrorZh, workbenchErrorZh } from '../demo/stages'
+import { modelShortLabel } from '../modelLabels'
 import { useMediaQuery } from '../composables/useMediaQuery'
 
 type MobileStep = 'prepare' | 'task' | 'journal' | 'results'
@@ -51,8 +52,12 @@ const basinSelectOptions = computed(() =>
 )
 const modelSelectOptions = [
   { value: 'xaj', label: '新安江' },
+  { value: 'gr4j', label: 'GR4J' },
   { value: 'openhydronet', label: 'OpenHydroNet · 尚未启用', disabled: true },
 ]
+const footerModelLabel = computed(() =>
+  modelShortLabel(demo.results?.scheme?.model_id || demo.draft.model_id),
+)
 const forcingSelectOptions = [
   { value: 'R', label: '实测日资料 · 历史率定' },
   { value: 'F', label: '预报资料 · 当前未开放', disabled: true },
@@ -591,7 +596,12 @@ onMounted(async () => {
       if (task.start_date) demo.draft.start_date = task.start_date
       if (task.end_date) demo.draft.end_date = task.end_date
       if (task.forcing_mode) demo.draft.forcing_mode = task.forcing_mode
-      demo.draft.model_id = task.model_id === 'openhydronet' ? 'openhydronet' : 'xaj'
+      demo.draft.model_id =
+        task.model_id === 'openhydronet'
+          ? 'openhydronet'
+          : task.model_id === 'gr4j'
+            ? 'gr4j'
+            : 'xaj'
       demo.restoreTask(id)
     } catch (err) {
       demo.error = String((err as Error).message || err)
@@ -887,7 +897,7 @@ onUnmounted(() => {
       </nav>
     </main>
 
-    <footer class="observatory-footer"><span>水文智能体 <span class="footer-divider">/</span> 观测台</span><span>新安江模型 · 可追溯执行</span></footer>
+    <footer class="observatory-footer"><span>水文智能体 <span class="footer-divider">/</span> 观测台</span><span>{{ footerModelLabel }}模型 · 可追溯执行</span></footer>
   </div>
 </template>
 

@@ -12,7 +12,7 @@ class FrozenApiModel(BaseModel):
 
 class TaskCreateRequest(FrozenApiModel):
     basin_id: str = Field(min_length=1)
-    model_id: Literal["xaj", "openhydronet"]
+    model_id: Literal["xaj", "gr4j", "openhydronet"]
     start_date: date
     end_date: date
     forcing_mode: Literal["R", "F"]

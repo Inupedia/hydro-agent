@@ -26,6 +26,7 @@ _CORE_SKILL_IDS = frozenset(LEGACY_SKILL_ALIASES.values()) | {
     "hydrology-data-review",
     "hydrologic-evidence-review",
     "xaj-calibration-diagnosis",
+    "gr4j-calibration-diagnosis",
     "calibration-experiment-design",
     "calibration-result-review",
     "hydrology-reporting",

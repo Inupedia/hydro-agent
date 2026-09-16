@@ -164,6 +164,9 @@ class SiliconFlowDecisionProvider:
             try_payload,
             safe_actions=safe,
             evidence_actions=evidence_actions,
+            available_param_groups=tuple(view.hydro.available_param_groups),
+            available_strategies=tuple(view.hydro.available_strategies),
+            model_id=str(view.model.model_id or "xaj"),
         )
         original_action = str(payload.get("action") or "")
         payload = _diagnosis_calibration_progress(
@@ -191,12 +194,17 @@ class SiliconFlowDecisionProvider:
 def _optimize_payload(view: WorldStateView, *, rationale: str) -> dict:
     """Legal A05 shell; typed strategy/groups/objective are bound after decide()."""
 
-    _ = view
+    model_id = str(view.model.model_id or "xaj")
+    groups = list(view.hydro.available_param_groups or ())
+    if not groups:
+        from hydro_agent.models.diagnosis_defaults import all_param_groups
+
+        groups = all_param_groups(model_id)
     return {
         "action": ActionCode.A05_OPTIMIZE.value,
         "hypothesis": ProblemHypothesis.MODEL.value,
-        "strategy_id": "xaj-bounded-v1",
-        "param_groups": ["runoff", "routing"],
+        "strategy_id": f"{model_id}-bounded-v1",
+        "param_groups": groups,
         "objective": "nse",
         "rationale_summary": rationale,
     }
@@ -473,8 +481,10 @@ def _fallback_payload(view: WorldStateView, *, raw_text: str) -> dict:
     return {
         "action": preferred,
         "hypothesis": "MODEL",
-        "strategy_id": "xaj-bounded-v1" if preferred == ActionCode.A05_OPTIMIZE.value else None,
-        "param_groups": ["evap", "runoff", "routing"]
+        "strategy_id": f"{view.model.model_id}-bounded-v1"
+        if preferred == ActionCode.A05_OPTIMIZE.value
+        else None,
+        "param_groups": list(view.hydro.available_param_groups)
         if preferred == ActionCode.A05_OPTIMIZE.value
         else None,
         "objective": "nse" if preferred == ActionCode.A05_OPTIMIZE.value else None,
@@ -487,6 +497,9 @@ def normalize_decision_payload(
     *,
     safe_actions: set[str] | None = None,
     evidence_actions: tuple[str, ...] = (),
+    available_param_groups: tuple[str, ...] | None = None,
+    available_strategies: tuple[str, ...] | None = (),
+    model_id: str = "xaj",
 ) -> dict:
     """Coerce common LLM mistakes into a valid AgentDecision dict."""
     data = dict(payload)
@@ -567,16 +580,36 @@ def normalize_decision_payload(
     if len(rationale) > 600:
         rationale = rationale[:597] + "..."
 
+    default_strategy = f"{model_id}-bounded-v1"
+    if available_strategies:
+        if default_strategy not in available_strategies:
+            default_strategy = next(
+                (sid for sid in available_strategies if sid.startswith(f"{model_id}-")),
+                available_strategies[0],
+            )
     strategy_id = data.get("strategy_id")
     if strategy_id in ("", "null", "None"):
         strategy_id = None
     if action == ActionCode.A05_OPTIMIZE.value and not strategy_id:
-        strategy_id = "xaj-bounded-v1"
+        strategy_id = default_strategy
     # Automatic agent loop never uses HITL-only manual strategy.
-    if action == ActionCode.A05_OPTIMIZE.value and strategy_id == "xaj-hydrologist-manual-v1":
-        strategy_id = "xaj-bounded-v1"
+    if action == ActionCode.A05_OPTIMIZE.value and str(strategy_id or "").endswith(
+        "-hydrologist-manual-v1"
+    ):
+        strategy_id = default_strategy
+    if (
+        action == ActionCode.A05_OPTIMIZE.value
+        and available_strategies
+        and strategy_id not in available_strategies
+    ):
+        strategy_id = default_strategy
     if action != ActionCode.A05_OPTIMIZE.value:
         strategy_id = None
+
+    from hydro_agent.models.diagnosis_defaults import all_param_groups, allowed_param_groups
+
+    default_groups = list(available_param_groups or all_param_groups(model_id))
+    allowed_groups = set(available_param_groups or ()) or allowed_param_groups(model_id)
 
     param_groups = data.get("param_groups")
     objective = data.get("objective")
@@ -592,7 +625,7 @@ def normalize_decision_payload(
             cleaned = []
             for item in param_groups:
                 key = str(item).strip().lower()
-                if key in {"evap", "runoff", "routing"} and key not in cleaned:
+                if key in allowed_groups and key not in cleaned:
                     cleaned.append(key)
             param_groups = cleaned or None
         if objective in ("", "null", "None", None):
@@ -600,7 +633,7 @@ def normalize_decision_payload(
         elif str(objective) not in {"nse", "peak", "composite"}:
             objective = "nse"
         if not param_groups:
-            param_groups = ["evap", "runoff", "routing"]
+            param_groups = default_groups
         if not objective:
             objective = "nse"
 

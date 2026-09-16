@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 DATA_REVIEW_SKILL_ID = "hydrology-data-review"
 EVIDENCE_REVIEW_SKILL_ID = "hydrologic-evidence-review"
 XAJ_DIAGNOSIS_SKILL_ID = "xaj-calibration-diagnosis"
+GR4J_DIAGNOSIS_SKILL_ID = "gr4j-calibration-diagnosis"
 EXPERIMENT_DESIGN_SKILL_ID = "calibration-experiment-design"
 RESULT_REVIEW_SKILL_ID = "calibration-result-review"
 REPORTING_SKILL_ID = "hydrology-reporting"
@@ -330,8 +331,9 @@ class SkillRegistry:
             selected.append(RESULT_REVIEW_SKILL_ID)
         else:
             selected.append(EVIDENCE_REVIEW_SKILL_ID)
-            if has_diagnosis and view.model.model_id == "xaj":
-                selected.append(XAJ_DIAGNOSIS_SKILL_ID)
+            if has_diagnosis:
+                for skill_id in self._diagnosis_skill_ids(view.model.model_id):
+                    selected.append(skill_id)
             if has_diagnosis and view.task.allow_optimization:
                 selected.append(EXPERIMENT_DESIGN_SKILL_ID)
             if "A06_GATE" in actions or "A07_RESOLVE" in actions:
@@ -360,6 +362,28 @@ class SkillRegistry:
         if not output and DATA_REVIEW_SKILL_ID in self._cards:
             output.append(DATA_REVIEW_SKILL_ID)
         return tuple(output)
+
+    def _diagnosis_skill_ids(self, model_id: str) -> tuple[str, ...]:
+        """Resolve model diagnosis Skills from bindings / plugin descriptor — not if/elif."""
+
+        from hydro_agent.models.registry import default_model_registry
+
+        preferred: list[str] = []
+        try:
+            skill_id = default_model_registry().diagnosis_skill_id(model_id)
+        except KeyError:
+            skill_id = None
+        if skill_id:
+            preferred.append(skill_id)
+        for skill_id in sorted(self._loaded):
+            if skill_id in preferred:
+                continue
+            binding = self.binding_for(skill_id)
+            stages = binding.get("activation_stages") or []
+            models = binding.get("activation_model_ids") or []
+            if "diagnosis" in stages and model_id in models:
+                preferred.append(skill_id)
+        return tuple(preferred)
 
     @staticmethod
     def activation_stage(view: WorldStateView) -> ActivationStage:

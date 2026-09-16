@@ -21,11 +21,12 @@ class ForecastService:
         *,
         resolver: SnapshotResolver,
         runner: SandboxRunner,
-        model_id: str = "xaj",
+        model_id: str | None = None,
     ):
         self.repository = repository
         self.resolver = resolver
         self.runner = runner
+        # Optional default; forecast() prefers the scheme's model_id.
         self.model_id = model_id
 
     def forecast(self, *, task_id: str, scheme_id: str, issue_time: str, policy) -> ForecastRecord:
@@ -42,12 +43,16 @@ class ForecastService:
                 unit=existing.unit,
                 artifact_ids=tuple(existing.artifact_ids_json),
             )
+        scheme = self.repository.get_scheme(scheme_id)
+        model_id = str(scheme.model_id)
+        if self.model_id is not None and model_id != self.model_id:
+            raise ValueError("scheme model mismatch")
         snapshot_id = self.resolver.resolve(task_id, "forecast", issue_time)
         action_run_id = new_action_run_id()
         self.repository.create_action_run(
             task_id=task_id,
             action_run_id=action_run_id,
-            model_id=self.model_id,
+            model_id=model_id,
             capability="forecast",
             data_snapshot_id=snapshot_id,
             scheme_id=scheme_id,

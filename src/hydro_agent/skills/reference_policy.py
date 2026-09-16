@@ -128,10 +128,16 @@ def _reporting_refs(view: WorldStateView, declared: tuple[str, ...]) -> tuple[st
     return _filter_declared(declared, ["references/hydro-report-closeout-report-checklist.md"])
 
 
+def _gr4j_calibration_refs(view: WorldStateView, declared: tuple[str, ...]) -> tuple[str, ...]:
+    del view
+    return _filter_declared(declared, ["references/gr4j-parameter-semantics.md"])
+
+
 def references_for_view(skill: LoadedSkill, view: WorldStateView) -> tuple[str, ...]:
     declared = skill.meta_list("prompt_references")
     selectors = {
         "xaj-calibration-diagnosis": _xaj_calibration_refs,
+        "gr4j-calibration-diagnosis": _gr4j_calibration_refs,
         "hydrologic-evidence-review": _evidence_review_refs,
         "hydrology-data-review": _data_review_refs,
         "calibration-experiment-design": _experiment_design_refs,

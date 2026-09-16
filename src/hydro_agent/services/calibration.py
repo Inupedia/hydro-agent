@@ -7,7 +7,7 @@ from pydantic import Field
 from hydro_agent.execution.contracts import ExecutionResult, FrozenModel, Identifier
 from hydro_agent.execution.hashing import sha256_file
 from hydro_agent.execution.runner import SandboxRunner
-from hydro_agent.models.xaj.calibration_state import evaluation_count, has_resumable_state
+from hydro_agent.models.calibration_state import evaluation_count, has_resumable_state
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 from hydro_agent.services.snapshots import new_action_run_id
 
@@ -52,16 +52,18 @@ class CalibrationService:
         repository,
         *,
         runner: SandboxRunner,
-        model_id: str = "xaj",
+        model_id: str | None = None,
         max_resume_attempts: int = 3,
+        strategies: CalibrationStrategyRegistry | None = None,
     ):
         if max_resume_attempts < 0:
             raise ValueError("max_resume_attempts must be >= 0")
         self.repository = repository
         self.runner = runner
+        # Optional default; calibrate() prefers the scheme's model_id.
         self.model_id = model_id
         self.max_resume_attempts = max_resume_attempts
-        self.strategies = CalibrationStrategyRegistry()
+        self.strategies = strategies or CalibrationStrategyRegistry()
 
     def _run_with_resume(self, request, *, strategy) -> ExecutionResult:
         attempts = 0
@@ -123,25 +125,26 @@ class CalibrationService:
         task = self.repository.get_task(task_id)
         if task.phase in ("F", "E"):
             raise ValueError("optimization forbidden in F/E")
-        strategy = self.strategies.get(strategy_id)
+        base = self.repository.get_scheme(base_scheme_id)
+        cal_snap = self.repository.get_snapshot(calibration_snapshot_id)
+        if base.task_id != task_id or cal_snap.task_id != task_id:
+            raise ValueError("cross-task references are forbidden")
+        model_id = str(base.model_id)
+        if self.model_id is not None and model_id != self.model_id:
+            raise ValueError("scheme model mismatch")
+        strategy = self.strategies.get(strategy_id, model_id=model_id)
         evaluation_budget = strategy.evaluation_budget
         if evaluation_budget_override is not None:
             if evaluation_budget_override < 2:
                 raise ValueError("remaining calibration evaluation budget must be >= 2")
             evaluation_budget = min(evaluation_budget, evaluation_budget_override)
-        base = self.repository.get_scheme(base_scheme_id)
-        cal_snap = self.repository.get_snapshot(calibration_snapshot_id)
-        if base.task_id != task_id or cal_snap.task_id != task_id:
-            raise ValueError("cross-task references are forbidden")
-        if base.model_id != self.model_id:
-            raise ValueError("scheme model mismatch")
         resolved_groups = tuple(param_groups) if param_groups else tuple(strategy.param_groups)
         resolved_objective = objective or strategy.objective
         action_run_id = new_action_run_id()
         self.repository.create_action_run(
             task_id=task_id,
             action_run_id=action_run_id,
-            model_id=self.model_id,
+            model_id=model_id,
             capability="calibrate",
             data_snapshot_id=calibration_snapshot_id,
             scheme_id=base_scheme_id,

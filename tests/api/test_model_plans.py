@@ -59,6 +59,26 @@ def test_real_task_requires_plan_and_keeps_routing(client, app_dependencies, tmp
     service.pool.shutdown()
 
 
+def test_gr4j_task_reuses_plan_data_without_xaj_parameters(client, app_dependencies, tmp_path):
+    service, plan_id = setup_plan(app_dependencies, tmp_path)
+    created = client.post(
+        '/api/tasks',
+        json={**payload(plan_id), 'model_id': 'gr4j'},
+    )
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body['model_id'] == 'gr4j'
+    assert body['model_plan_id'] == plan_id
+    scheme = app_dependencies.repository.get_scheme(body['current_scheme_id'])
+    assert scheme.model_id == 'gr4j'
+    assert scheme.config_json['model_id'] == 'gr4j'
+    assert set(scheme.config_json['parameters']) == {'X1', 'X2', 'X3', 'X4'}
+    assert 'K' not in scheme.config_json['parameters']
+    assert scheme.config_json['model_plan_hash'] == 'v1'
+    assert scheme.config_json['warmup_days'] == 5
+    service.pool.shutdown()
+
+
 def test_wrong_basin_and_future_forcing_rejected(client, app_dependencies, tmp_path):
     service, plan_id = setup_plan(app_dependencies, tmp_path)
     for change in ({'basin_id': 'wrong'}, {'forcing_mode': 'F'}, {'start_date': '1988-01-01'}):

@@ -13,6 +13,7 @@ from hydro_agent.skills.orchestration import SkillOrchestrator
 
 def diagnosis_from_view(view: WorldStateView) -> dict:
     diagnosis = dict(view.hydro.diagnosis or {})
+    diagnosis.setdefault("model_id", str(view.model.model_id or "xaj"))
     raw_hypotheses = diagnosis.get("hypotheses_json")
     if isinstance(raw_hypotheses, str) and raw_hypotheses:
         try:

@@ -29,7 +29,8 @@ class CalibrationStrategy(FrozenModel):
     random_seed: int
     objective: CalibrationObjective = "nse"
     local_scale: float | None = Field(default=None, ge=0.0, le=1.0)
-    param_groups: tuple[Literal["evap", "runoff", "routing"], ...] = (
+    # Model-scoped group ids (XAJ: evap/runoff/routing; GR4J: production/...).
+    param_groups: tuple[str, ...] = (
         "evap",
         "runoff",
         "routing",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from dataclasses import asdict
 from datetime import date, timedelta
 from pathlib import Path
@@ -334,38 +335,28 @@ class EvaluationService:
 
             import numpy as np
 
-            from hydro_agent.models.xaj.contracts import XajBasin, XajScheme
-            from hydro_agent.models.xaj.upstream import simulate
+            from hydro_agent.models.registry import default_model_registry
 
-            xaj = XajScheme(
-                model_id="xaj",
-                warmup_days=int(cfg["warmup_days"]),
-                parameters=cfg["parameters"],
-                routing=cfg.get("routing") or {},
-            )
-            basin = XajBasin.model_validate_json(basin_path.read_text(encoding="utf-8"))
+            model_id = str(scheme.model_id or cfg.get("model_id") or "xaj")
+            plugin = default_model_registry().get(model_id)
+            basin = json.loads(basin_path.read_text(encoding="utf-8"))
             with forcing_path.open(encoding="utf-8", newline="") as handle:
                 rows = list(csv.DictReader(handle))
             dates = [date_cls.fromisoformat(row["date"]) for row in rows]
             array = np.asarray(
                 [[float(row["precipitation_mm_day"]), float(row["pet_mm_day"])] for row in rows]
             )
-            if len(dates) < xaj.warmup_days + 2:
+            warmup_days = int(cfg["warmup_days"])
+            if len(dates) < warmup_days + 2:
                 return None
-            values = simulate(xaj, basin, array[:, None, :], include_warmup=True)
+            values = plugin.simulate(cfg, basin, array[:, None, :], include_warmup=True)
 
             baseline_values = None
             baseline_cfg = self._baseline_config_for_frozen(scheme)
             if baseline_cfg:
                 try:
-                    baseline_xaj = XajScheme(
-                        model_id="xaj",
-                        warmup_days=int(baseline_cfg.get("warmup_days", cfg["warmup_days"])),
-                        parameters=baseline_cfg["parameters"],
-                        routing=baseline_cfg.get("routing") or {},
-                    )
-                    baseline_values = simulate(
-                        baseline_xaj, basin, array[:, None, :], include_warmup=True
+                    baseline_values = plugin.simulate(
+                        baseline_cfg, basin, array[:, None, :], include_warmup=True
                     )
                 except Exception:  # noqa: BLE001
                     baseline_values = None
@@ -381,7 +372,7 @@ class EvaluationService:
                     return None
                 final_start_index = dates.index(final_start)
                 final_end_index = dates.index(final_end)
-                warmup_start_index = final_start_index - xaj.warmup_days
+                warmup_start_index = final_start_index - warmup_days
                 if warmup_start_index < 0 or final_end_index < final_start_index:
                     return None
                 slice_end = final_end_index + 1
@@ -391,15 +382,15 @@ class EvaluationService:
                     baseline_values = baseline_values[warmup_start_index:slice_end]
                 evaluated_start = final_start.isoformat()
                 evaluated_end = final_end.isoformat()
-                effective_warmup_days = xaj.warmup_days
+                effective_warmup_days = warmup_days
             else:
                 evaluated_start = (
-                    dates[xaj.warmup_days].isoformat()
-                    if len(dates) > xaj.warmup_days
+                    dates[warmup_days].isoformat()
+                    if len(dates) > warmup_days
                     else dates[0].isoformat()
                 )
                 evaluated_end = dates[-1].isoformat()
-                effective_warmup_days = xaj.warmup_days
+                effective_warmup_days = warmup_days
 
             comparison = build_comparison(
                 kind="independent_test",

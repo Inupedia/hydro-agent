@@ -9,7 +9,7 @@ export type RunMode = 'live' | 'replay' | 'simulated'
 export type DraftConfig = {
   model_plan_id?: string | null
   basin_id: string
-  model_id: 'xaj' | 'openhydronet'
+  model_id: 'xaj' | 'gr4j' | 'openhydronet'
   start_date: string
   end_date: string
   forcing_mode: 'R' | 'F'
@@ -141,9 +141,15 @@ export const useDemoStore = defineStore('demo', () => {
             ? `已连接 · ${health.provider_model || '真实模式'}`
             : `已连接 · ${health.mode || '演示'}模式`
         conditions.value.model =
-          health.mode === 'real' || draft.value.model_id === 'xaj' ? 'ok' : 'warn'
+          health.mode === 'real' || draft.value.model_id === 'xaj' || draft.value.model_id === 'gr4j'
+            ? 'ok'
+            : 'warn'
         conditions.value.modelDetail =
-          draft.value.model_id === 'xaj' ? '新安江模型可用' : '所选模型尚未启用'
+          draft.value.model_id === 'xaj'
+            ? '新安江模型可用'
+            : draft.value.model_id === 'gr4j'
+              ? 'GR4J 模型可用'
+              : '所选模型尚未启用'
       } else {
         conditions.value.service = 'fail'
         conditions.value.serviceDetail = '服务响应异常'
@@ -183,7 +189,12 @@ export const useDemoStore = defineStore('demo', () => {
 
   function applyTaskMeta(task: TaskSummary) {
     draft.value.basin_id = task.basin_id
-    draft.value.model_id = task.model_id === 'openhydronet' ? 'openhydronet' : 'xaj'
+    draft.value.model_id =
+      task.model_id === 'openhydronet'
+        ? 'openhydronet'
+        : task.model_id === 'gr4j'
+          ? 'gr4j'
+          : 'xaj'
     draft.value.model_plan_id = task.model_plan_id ?? null
     if (task.start_date) draft.value.start_date = task.start_date
     if (task.end_date) draft.value.end_date = task.end_date

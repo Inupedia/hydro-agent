@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { paramTuningTitle } from '../modelLabels'
 import ReportSectionHead from './ReportSectionHead.vue'
 
 const props = defineProps<{
@@ -22,6 +23,8 @@ const GROUP_ZH: Record<string, string> = {
   evap: '蒸发',
   runoff: '产流',
   routing: '汇流',
+  production: '产流库',
+  exchange: '地下水交换',
 }
 
 const OBJECTIVE_ZH: Record<string, string> = {
@@ -46,7 +49,13 @@ const PARAM_GROUP_OF: Record<string, string> = {
   CI: 'routing',
   CG: 'routing',
   L: 'routing',
+  X1: 'production',
+  X2: 'exchange',
+  X3: 'routing',
+  X4: 'routing',
 }
+
+const tuningTitle = computed(() => paramTuningTitle(props.scheme?.model_id))
 
 type HypothesisRow = {
   id: string
@@ -172,7 +181,7 @@ function fmtDelta(value: number | null) {
   <section v-if="showPanel" class="param-tuning" data-test="param-tuning">
     <ReportSectionHead
       overline="参数变化"
-      title="新安江参数如何被调整"
+      :title="tuningTitle"
       subtitle="诊断假设 → 有界搜索 → 与基础方案对照 → 质量门控。"
     >
       <template v-if="scheme?.status" #aside>
