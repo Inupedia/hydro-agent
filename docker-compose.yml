@@ -14,6 +14,7 @@ services:
       - ./tests/fixtures:/app/tests/fixtures:ro
       # Keep runtime in sync with the workspace so hotfixes cannot drift from the image.
       - ./src:/app/src
+      - ./skills:/app/skills:ro
       - ./workflow:/app/workflow:ro
       - ./scripts/run_workbench_api.py:/app/scripts/run_workbench_api.py:ro
     extra_hosts:

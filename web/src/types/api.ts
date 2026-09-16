@@ -90,6 +90,19 @@ export type AgentRoundLogItem = {
   tool_observations: string[]
   tool_metrics: Record<string, number>
   activated_skill_ids?: string[]
+  activated_skills_audit?: Array<{
+    skill_id: string
+    source: string
+    skill_sha256: string | null
+    snapshot_sha256?: string | null
+    binding_sha256?: string
+    task_id?: string
+    activation_stage?: string
+    input_evidence_ids?: string[]
+    output_contract?: string
+    model?: string
+    loaded_references: Array<{ path: string; sha256: string }>
+  }>
   error?: string | null
 }
 

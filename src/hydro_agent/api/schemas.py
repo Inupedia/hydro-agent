@@ -225,6 +225,7 @@ class AgentRoundLogItem(FrozenApiModel):
     judgment_zh: str = ""
     input_world_state: dict[str, object] = Field(default_factory=dict)
     activated_skill_ids: tuple[str, ...] = ()
+    activated_skills_audit: tuple[dict, ...] = ()
     tool_status: str | None = None
     tool_status_zh: str = ""
     tool_observations: tuple[str, ...] = ()

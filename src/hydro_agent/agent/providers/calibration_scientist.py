@@ -1,8 +1,11 @@
-"""Deterministic calibration-scientist policy for reproducible research runs."""
+"""Deterministic calibration-scientist policy for reproducible research runs.
+
+Owns orchestration only: which stage runs next, and how typed Skill/Core
+contracts are sequenced via ``SkillOrchestrator``. Hydrologic knowledge lives
+in Agent Skills; continuous parameter search lives in optimizers.
+"""
 
 from __future__ import annotations
-
-import json
 
 from hydro_agent.agent.contracts import (
     ActionCode,
@@ -10,15 +13,27 @@ from hydro_agent.agent.contracts import (
     ProblemHypothesis,
     WorldStateView,
 )
-from hydro_agent.optimization.calibration_scientist import plan_from_diagnosis
-from hydro_agent.skills.governance import KnowledgeQueryContext
+from hydro_agent.agent.providers.skill_support import (
+    diagnosis_from_view,
+    knowledge_context_from_view,
+    skill_orchestrator,
+)
+from hydro_agent.skills import SkillRegistry
 
 
 class CalibrationScientistDecisionProvider:
     """Evidence-conditioned Observe→Diagnose→Plan→Gate→Reflect policy."""
 
-    def __init__(self, *, max_experiments: int | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        max_experiments: int | None = None,
+        repository=None,
+        skills: SkillRegistry | None = None,
+    ) -> None:
         _ = max_experiments
+        self.repository = repository
+        self.skills = skills
         self.seen_views: list[WorldStateView] = []
 
     @staticmethod
@@ -27,26 +42,6 @@ class CalibrationScientistDecisionProvider:
             return ProblemHypothesis(str(raw or "UNKNOWN"))
         except ValueError:
             return ProblemHypothesis.UNKNOWN
-
-    @staticmethod
-    def _diagnosis(view: WorldStateView) -> dict:
-        diagnosis = dict(view.hydro.diagnosis or {})
-        raw_hypotheses = diagnosis.get("hypotheses_json")
-        if isinstance(raw_hypotheses, str) and raw_hypotheses:
-            try:
-                diagnosis["hypotheses"] = json.loads(raw_hypotheses)
-            except json.JSONDecodeError:
-                diagnosis["hypotheses"] = []
-        return diagnosis
-
-    @staticmethod
-    def _skill_context(view: WorldStateView) -> KnowledgeQueryContext:
-        return KnowledgeQueryContext(
-            model_id=str(view.model.model_id),
-            basin_id=view.task.basin_id,
-            allow_unverified_expert_priors=view.hydro.allow_unverified_expert_priors,
-            forbidden_evidence_dataset_ids=view.hydro.forbidden_evidence_dataset_ids,
-        )
 
     @staticmethod
     def _latest(view: WorldStateView):
@@ -59,6 +54,16 @@ class CalibrationScientistDecisionProvider:
         if not safe:
             raise RuntimeError("calibration scientist has no safe action")
         return safe[0]
+
+    def _orchestrator(self, view: WorldStateView):
+        registry = self.skills
+        if registry is None and self.repository is not None:
+            registry = SkillRegistry(repository=self.repository)
+        return skill_orchestrator(
+            registry,
+            task_id=view.task.task_id,
+            model="calibration-scientist",
+        )
 
     def decide(self, view: WorldStateView) -> AgentDecision:
         self.seen_views.append(view)
@@ -104,7 +109,7 @@ class CalibrationScientistDecisionProvider:
             )
 
         if latest.action == ActionCode.A04_DIAGNOSE:
-            diagnosis = self._diagnosis(view)
+            diagnosis = diagnosis_from_view(view)
             hypothesis = self._hypothesis(diagnosis.get("hypothesis"))
             if view.hydro.campaign.stop_reason is not None:
                 action = self._fallback(view, ActionCode.A08_FREEZE)
@@ -130,12 +135,28 @@ class CalibrationScientistDecisionProvider:
                     ),
                 )
 
-            plan = plan_from_diagnosis(
+            orchestrator = self._orchestrator(view)
+            plan, invocations = orchestrator.plan_calibration(
                 diagnosis,
+                view=view,
                 campaign_objective=view.hydro.campaign_objective,
-                knowledge_context=self._skill_context(view),
+                knowledge_context=knowledge_context_from_view(view),
             )
+            skill_ids, audit = orchestrator.decision_audit(invocations)
+            interpretation = plan.evidence_interpretation
+            diagnosis_hypothesis = plan.diagnosis_hypothesis
             action = self._fallback(view, ActionCode.A05_OPTIMIZE)
+            patterns = (
+                "；".join(interpretation.dominant_patterns[:2])
+                if interpretation is not None
+                else plan.hypothesis.phenomenon
+            )
+            analysis = (
+                f"{diagnosis_hypothesis.process_layer}："
+                f"{' / '.join(diagnosis_hypothesis.falsification_conditions[:2])}"
+                if diagnosis_hypothesis is not None
+                else plan.rationale
+            )
             return AgentDecision(
                 action=action,
                 hypothesis=hypothesis,
@@ -143,6 +164,13 @@ class CalibrationScientistDecisionProvider:
                 param_groups=(plan.parameter_groups if action == ActionCode.A05_OPTIMIZE else None),
                 objective=plan.objective if action == ActionCode.A05_OPTIMIZE else None,
                 rationale_summary=plan.rationale[:600],
+                observation_zh=patterns[:240],
+                analysis_zh=analysis[:600],
+                decision_zh=(
+                    f"开放 {','.join(plan.parameter_groups)} · {plan.optimizer} · {plan.objective}"
+                )[:240],
+                activated_skill_ids=skill_ids,
+                activated_skills_audit=audit,
             )
 
         if latest.action == ActionCode.A05_OPTIMIZE:
@@ -207,14 +235,27 @@ class CalibrationScientistDecisionProvider:
                 if campaign.plateau_candidate and not campaign.restart_check_satisfied
                 else ""
             )
+            orchestrator = self._orchestrator(view)
+            review, review_inv = orchestrator.review_calibration(
+                diagnosis=diagnosis_from_view(view),
+                view=view,
+                gate_status=gate_status,
+                qualification_status=qualification_status or "NOT_EVALUATED",
+                reasons=(adopted_note,),
+                campaign_objective=view.hydro.campaign_objective,
+                knowledge_context=knowledge_context_from_view(view),
+            )
+            skill_ids, audit = orchestrator.decision_audit((review_inv,))
             return AgentDecision(
                 action=action,
                 hypothesis=ProblemHypothesis.UNKNOWN,
                 rationale_summary=(
                     f"Gate={gate_status} / Qualification={qualification_status or 'UNKNOWN'}；"
                     f"{adopted_note}。Campaign 尚无停止证据，吸收本轮 Evidence 后继续诊断。"
-                    f"{plateau_note}"
+                    f"{plateau_note} review={review.hypothesis_status}"
                 )[:600],
+                activated_skill_ids=skill_ids,
+                activated_skills_audit=audit,
             )
 
         if latest.action == ActionCode.A08_FREEZE:

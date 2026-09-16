@@ -1,286 +1,86 @@
 # Hydro-Agent Agent Skills 与规则架构
 
-> 当前版本目标：把 Hydro-Agent 的“可编辑水文经验”和“不可被文本覆盖的确定性规则”彻底分开。Agent Skills 是领域能力层，不是第二套 Protocol，也不是参数配置文件。
+> 当前实现把 Hydro-Agent 的可编辑水文专业方法收敛成六个 agentskills.io 风格 Package。XAJ、指标、优化器、Validator、Gate、Campaign 和 final-test 隔离仍属于确定性 Core。
 
-## 1. 权威分层
+## 1. 唯一 Skill 目录
 
-```text
-                       Hydro-Agent
-                           │
-                  Observe / Decide / Act
-                           │
-       ┌───────────────────┼───────────────────┐
-       ▼                   ▼                   ▼
-  Agent Skills          Protocol            Standards
- 可编辑软知识           实验协议              规范/政策
-       │                   │                   │
-       ▼                   ▼                   ▼
-诊断/假设/实验建议   数据窗口/预算/锁定目标   GB/T 配置/Gate Policy
-       │                   │                   │
-       └──────────────┬────┴──────────────┬────┘
-                      ▼                   ▼
-               ExperimentPlan       Deterministic Gate
-                      │
-                      ▼
-              Model Validator / Kernel
-              硬边界 / 联合约束 / 只读项
-                      │
-                      ▼
-                 Numerical Optimizer
-                      │
-                      ▼
-              Independent Development Gate
-                      │
-                 ADOPT / KEEP / ROLLBACK
-                      │
-                      ▼
-             Campaign / ConvergencePolicy
-                      │
-                 stop_reason 出现后
-                      ▼
-             Freeze → Final Test → Report
-```
-
-### Skill 可以做
-
-- 解释水文误差模式；
-- 提出可证伪假设；
-- 建议应测试的物理过程和参数组；
-- 从已注册 strategy 中建议实验路径；
-- 提供带 provenance、scope、review/verification 状态的专家 prior；
-- 说明标准 evaluator 的调用时机与结果语义。
-
-### Skill 不能做
-
-- 定义或覆盖 XAJ 参数硬边界；
-- 定义 KG/KI 等跨参数执行约束；
-- 修改已锁定的 Campaign objective；
-- 修改 calibration/development/final-test 分区；
-- 用 NSE/KGE/PBIAS 单阈值宣布 Campaign 收敛；
-- 在 SKILL.md 中保存可执行 GB/T 甲乙丙阈值；
-- 绕过 A08/A09 直接采用候选。
-
-## 2. 当前 Skill 体系
+仓库顶层 `skills/` 是内置 Skill 的源码 SSOT；构建 Wheel 时复制到 `hydro_agent/skills/data`。`.agents/skills/` 或 `HYDRO_AGENT_SKILLS_DIR` 是用户完整覆盖目录。`src/hydro_agent/skills/` 只保存 Registry、Loader、Snapshot、Binding、治理与审计代码，不再存放内置 Package。
 
 ```text
 skills/
-├── hydro-data-readiness/
-│   ├── SKILL.md
-│   ├── references/
-│   │   ├── data-semantics.md
-│   │   └── leakage-checks.md
-│   └── assets/expert/
-│
-├── hydro-error-diagnosis/
-│   ├── SKILL.md
-│   └── references/
-│       ├── metric-patterns.md
-│       └── diagnosis-routing.md
-│
-├── xaj-water-balance/
-│   ├── SKILL.md
-│   ├── references/
-│   │   ├── water-balance.md
-│   │   └── evap-runoff-semantics.md
-│   └── assets/
-│       ├── expert/
-│       └── governed/
-│
-├── xaj-runoff-generation/
-│   ├── SKILL.md
-│   ├── references/
-│   │   ├── runoff-generation.md
-│   │   └── source-partition.md
-│   └── assets/expert/
-│
-├── xaj-routing-diagnosis/
-│   ├── SKILL.md
-│   ├── references/
-│   │   ├── routing.md
-│   │   └── recession-and-lag.md
-│   └── assets/
-│       ├── expert/
-│       └── governed/
-│
-├── hydro-campaign-design/
-│   ├── SKILL.md
-│   └── references/
-│       ├── period-splitting.md
-│       ├── objective-locking.md
-│       └── convergence-policy.md
-│
-├── hydro-modeling-prep/
-│   ├── SKILL.md
-│   └── references/
-│       └── modeling-checklist.md
-│
-├── hydro-experiment-design/
-│   ├── SKILL.md
-│   ├── references/
-│   │   ├── experiment-strategies.md
-│   │   ├── hypothesis-testing.md
-│   │   └── budget-allocation.md
-│   └── assets/
-│       ├── parameter-groups.json
-│       └── governed/
-│
-├── xaj-calibration/
-│   ├── SKILL.md
-│   ├── references/
-│   │   ├── workflow.md
-│   │   ├── parameter-semantics.md
-│   │   ├── parameter-relations.md
-│   │   └── escalation.md
-│   └── assets/
-│       ├── governed/
-│       └── review/
-│
-├── openhydronet-diagnosis/
-│   ├── SKILL.md
-│   └── references/
-│       └── openhydronet-diagnosis.md
-│
-├── hydro-report-closeout/
-│   ├── SKILL.md
-│   └── references/
-│       └── report-checklist.md
-│
-└── gbt-22482-accuracy/
-    ├── SKILL.md
-    └── references/
-        └── evaluation-workflow.md
+├── .bindings/
+├── hydrology-data-review/
+├── hydrologic-evidence-review/
+├── xaj-calibration-diagnosis/
+├── calibration-experiment-design/
+├── calibration-result-review/
+└── hydrology-reporting/
 ```
 
-旧 `data-check`、`forecast-diagnose` 和以 `xaj-calibration` 为万能知识容器的结构已经删除。
+Workflow Binding 位于 `.bindings/*.json`，不写入便携的 `SKILL.md`。
 
-## 3. 为什么把 Campaign 和 Experiment 分开
+## 2. 六个任务型 Skill
 
-二者回答的是不同问题：
+| Skill | 输入与职责 | 明确边界 |
+| --- | --- | --- |
+| `hydrology-data-review` | DataQualityEvidence、资料语义、DEM/ModelPlan；解释风险和补充检查 | 不执行清洗，不决定 Data Gate |
+| `hydrologic-evidence-review` | 指标、过程线、季节、高低流量、洪水、退水；只描述现象 | 不直接解释 XAJ 参数 |
+| `xaj-calibration-diagnosis` | 根据现象和按需 Reference 建立机制假设、支持/反证、参数组 | 不输出连续参数值或硬边界 |
+| `calibration-experiment-design` | 假设、历史实验、预算、合法策略；形成受限实验计划 | 不运行优化器，不修改 Campaign lock |
+| `calibration-result-review` | 候选、基线、多指标、Gate、预算；复盘假设与正式采纳 | 不覆盖 Gate，不释放 final-test |
+| `hydrology-reporting` | Freeze 后组织开发与封存测试证据 | 不重算指标，不把候选冒充最终方案 |
+
+原来分散在水量、产流、汇流、Campaign、建模和 GB/T 等 Package 中的资料已迁入这六个 Package 的 `references/` 或 `assets/`。XAJ 参数知识是诊断任务的 Reference，不再作为独立 Skill。
+
+## 3. 运行链路
 
 ```text
-Campaign
-“整个研究怎么保证公平、可复现、不会泄漏？”
-    ├── 数据分区
-    ├── objective lock
-    ├── model/data version
-    ├── total budget
-    ├── convergence policy
-    └── final-test isolation
+Data/Model Evidence
+  → hydrology-data-review
+  → deterministic Data Gate / ModelPlan
 
-Experiment
-“这一轮具体要验证哪个假设？”
-    ├── hypothesis
-    ├── parameter groups
-    ├── registered strategy
-    ├── trial budget
-    ├── expected evidence
-    └── falsification condition
+HydrologicEvidence
+  → hydrologic-evidence-review
+  → EvidenceInterpretation
+  → xaj-calibration-diagnosis
+  → DiagnosisHypothesis
+  → calibration-experiment-design
+  → CalibrationPlan（参数组、策略、目标、预算，无参数向量）
+  → DDS / SCE-UA / Morris + XAJ
+  → deterministic metrics + Gate
+  → calibration-result-review
+  → Resolve / Freeze
+  → sealed final-test
+  → hydrology-reporting
 ```
 
-因此 `hydro-campaign-design` 主要服务任务创建/研究设计，不在每轮 Agent Decide 中自动注入；`hydro-experiment-design` 则在 A06 之后进入单轮试验设计。
+当前 `AgentDecision` 和 `CalibrationPlan` 已保持“Agent 选实验，优化器搜参数”的边界。独立的 typed `EvidenceInterpretation`、`DiagnosisHypothesis`、`ExperimentReview` 仍是下一批实现，不能因为目录完成迁移就声称专业推理链已经验收。
 
-## 4. 为什么拆 XAJ 三类专业诊断
+## 4. Progressive Disclosure 与审计
 
-`xaj-calibration` 现在只做总编排。真正的过程知识分为：
+Registry 启动时只读 Frontmatter；激活后才读取 `SKILL.md`。`xaj-calibration-diagnosis` 根据推荐参数组与 Resolve/边界证据选择水量、产流、汇流、参数关系或升级 Reference。其他 Package 目前按声明读取 Reference。
 
-- `xaj-water-balance`：长期水量、蒸散发、径流总量；
-- `xaj-runoff-generation`：产流形成、响应强弱、水源划分；
-- `xaj-routing-diagnosis`：峰现、过程形状、滞后、退水。
+每个任务创建时冻结有效 Package、Binding、Reference 和 Asset 字节；每次调用记录 Skill、Snapshot、Binding、SKILL.md、Reference 哈希以及输入 Evidence ID。修改当前 Skill 不会改变已冻结任务。
 
-这样用户在前端修改一个 routing 经验时，不会覆盖整个率定方法，也不会意外改变 water-balance prior。
+## 5. 权威边界
 
-## 5. 运行时 Progressive Disclosure
+Skill 可以解释证据、提出可证伪假设、选择合法参数组和已注册策略、组织结果。以下内容只能来自确定性 Core：
 
-```text
-还没有基线预报
-    → hydro-data-readiness
+- XAJ 正演与状态；
+- NSE/KGE/PBIAS、事件和 GB/T 指标；
+- 参数范围、联合约束与只读项；
+- DDS/SCE-UA/Morris 的连续数值搜索；
+- ACCEPT/KEEP/ROLLBACK 与方案采纳；
+- Campaign 预算、停止原因和 final-test 隔离。
 
-已有预报、尚未诊断
-    → hydro-error-diagnosis
+## 6. Builtin、Override 与 Binding
 
-已有诊断
-    → hydro-error-diagnosis
-    → 根据 hypothesis / recommended_param_groups 激活：
-        evap        → xaj-water-balance
-        runoff      → xaj-water-balance + xaj-runoff-generation
-        routing     → xaj-routing-diagnosis
-        MODEL/UNKNOWN 且未定位 → 三类专业诊断并行提供候选假设
+Builtin Package 只读。复制为 User Override 后，用户保存的是完整 Package，不做 Markdown 行级合并。Resolver 优先采用同名用户 Package。保存内容不会自动激活；只有外部 Binding 匹配当前 stage/model 后才进入 Prompt。
 
-允许优化且进入率定循环
-    → xaj-calibration
-    → hydro-experiment-design
+现有历史用户目录若仍使用旧的十二个 ID，不会作为新六个内置 Skill 的别名自动混入；需要显式迁移内容和 Binding，避免两个分类体系同时生效。
 
-候选进入 Gate / 最终评价
-    → gbt-22482-accuracy
-```
+## 7. 当前完成边界
 
-这里没有 “NSE < 某值才继续 / NSE > 某值就 Freeze” 的 Skill 逻辑。停止只来自 `Campaign.stop_reason`。
+已经实现：顶层六 Package、metadata-only discovery、lazy load、按证据读取部分 Reference、外部 Binding、Builtin/User 覆盖、任务 Snapshot、调用审计、本地 Package/领域校验、`skills-ref` 0.1.1 官方校验及 CI Gate、确定性 Core 边界。
 
-## 6. Soft Knowledge 的治理
-
-可执行 expert prior 通过 `skills/expert.py` 从当前激活的专业 Skill 资产聚合；claim-level 来源事实通过 `skills/catalog.py` 聚合。
-
-所有 claim 在进入 planning 前仍经过统一治理过滤：
-
-- authority；
-- review status；
-- verification status；
-- model/kernel/adapter/basin/timestep scope；
-- exposure tag；
-- evidence dataset leakage。
-
-用户可编辑不等于拥有运行权。
-
-## 7. 参数知识的最终边界
-
-`parameter-groups.json` 只描述 Agent-facing 的概念组：`evap / runoff / routing`，不保存数值范围。
-
-```text
-Skill
-“这轮值得测试 routing 组”
-        ↓
-ExperimentPlan
-        ↓
-Model Registry / Validator
-“routing 组当前实际包含哪些可调参数、合法范围是什么”
-        ↓
-Optimizer
-“在合法空间中找具体值”
-```
-
-任何来自论文、专家材料或历史 Skill 的范围，如果尚未被当前实现验证，只能作为 governed evidence 保存，不能提升为硬约束。
-
-## 8. Standards 的边界
-
-`gbt-22482-accuracy` 不再保存规范阈值，也不引用旧 `hydro_agent.knowledge`。
-
-确定性链路为：
-
-```text
-standards/StandardRepository
-        ↓
-GbtAccuracyConfig
-        ↓
-deterministic evaluator
-        ↓
-GbtAccuracyReport + provenance
-        ↓
-research Gate policy
-```
-
-Skill 只负责解释什么时候调用和怎样理解。
-
-## 9. 前端管理含义
-
-前端“Skills”管理的是完整 Skill package：
-
-- `SKILL.md`；
-- `references/*.md`；
-- 允许编辑的 `assets/*.json`；
-- user override 覆盖 built-in package。
-
-因此更新专家经验不需要修改 Python 源码。与此同时，Protocol、Standard、Validator 不进入同一个可编辑入口，防止把软知识编辑器变成系统规则后台。
-
-## 10. 最终原则
-
-> **数据给事实，模型给计算，Skill 给专业方法和假设，ExperimentPlan 给本轮实验，Protocol/Validator/Standard 给边界，Gate 给独立判断，Campaign 决定什么时候真正结束。**
+仍需完成：用户 Revision/Pin/Usage/Test 界面、三类专业 typed 输出、所有 Package 的按证据 Reference Policy、历史用户 Skill 迁移工具，以及瑶沟/Leaf River 同预算 old-agent 与 skills-agent 的真实 A/B 运行。

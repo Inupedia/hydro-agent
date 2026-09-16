@@ -167,7 +167,8 @@ def test_nse_progress_calibrates_when_nse_poor():
         safe_actions={"A05_OPTIMIZE", "A08_FREEZE", "A06_GATE"},
     )
     assert out["action"] == "A05_OPTIMIZE"
-    assert out["strategy_id"] == "xaj-peak-bias-v1"
+    # Guardrail only forces A05; typed strategy comes from SkillOrchestrator bind.
+    assert out["strategy_id"] == "xaj-bounded-v1"
 
 
 def test_diagnosis_progress_freezes_when_dc_bing_floor_met():
@@ -422,10 +423,9 @@ def test_siliconflow_provider_injects_activated_skills():
     decision = provider.decide(_view())
     system = fake.calls[0]["messages"][0]["content"]
     assert "Activated Agent Skills" in system
-    assert "hydro-data-readiness" in system
-    assert "hydro-data-readiness" in decision.activated_skill_ids
-    assert "hydro-modeling-prep" in decision.activated_skill_ids
-    assert "hydro-campaign-design" in decision.activated_skill_ids
+    assert "hydrology-data-review" in system
+    assert "hydrology-data-review" in decision.activated_skill_ids
+    assert "calibration-experiment-design" in decision.activated_skill_ids
     assert "data-check" not in system
     assert "forecast-diagnose" not in system
 
@@ -476,15 +476,19 @@ def test_siliconflow_provider_streams_deltas():
     provider = SiliconFlowDecisionProvider(client=fake, settings=settings)
     seen = []
     decision = provider.decide(_view(), on_delta=seen.append)
-    assert decision == AgentDecision(
+    expected = AgentDecision(
         action=ActionCode.A03_FORECAST,
         hypothesis=ProblemHypothesis.MODEL,
         strategy_id=None,
         rationale_summary="Run audited base forecast.",
         activated_skill_ids=(
-            "hydro-data-readiness",
-            "hydro-modeling-prep",
-            "hydro-campaign-design",
+            "hydrology-data-review",
+            "calibration-experiment-design",
         ),
     )
+    assert decision.model_copy(update={"activated_skills_audit": ()}) == expected
+    assert [item["skill_id"] for item in decision.activated_skills_audit] == list(
+        decision.activated_skill_ids
+    )
+    assert all(len(item["skill_sha256"]) == 64 for item in decision.activated_skills_audit)
     assert "".join(seen) == text

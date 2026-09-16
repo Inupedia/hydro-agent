@@ -615,7 +615,7 @@ onUnmounted(() => {
     :data-mobile-step="isMobile ? mobileStep : undefined"
   >
     <header class="observatory-header">
-      <a href="/" class="observatory-brand"><span class="brand-symbol" aria-hidden="true">≈</span><span>Hydro<span class="brand-light">Agent</span><small>水文智能体 · 课题工作台</small></span></a>
+      <a href="/" class="observatory-brand"><span class="brand-symbol" aria-hidden="true">≈</span><span>Hydro<span class="brand-light">Agent</span><small>水文智能体 · 观测台</small></span></a>
       <div class="header-caption">{{ headerCaption }}</div>
       <div class="header-end">
         <button
@@ -624,7 +624,7 @@ onUnmounted(() => {
           data-test="header-skills-library"
           @click="openSkillsLibrary"
         >
-          知识库
+          专业技能
         </button>
         <div v-if="showResultsStage" class="header-actions">
           <label class="header-case-picker">已有案例
@@ -644,7 +644,7 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <SkillsLibrarySheet :open="skillsLibraryOpen" @close="closeSkillsLibrary" />
+    <SkillsLibrarySheet :open="skillsLibraryOpen" :task-id="demo.taskId" @close="closeSkillsLibrary" />
 
     <GlassDialog
       :open="!!runNotice"
@@ -887,7 +887,7 @@ onUnmounted(() => {
       </nav>
     </main>
 
-    <footer class="observatory-footer"><span>水文智能体 <span class="footer-divider">/</span> 课题工作台</span><span>新安江模型 · 可追溯执行</span></footer>
+    <footer class="observatory-footer"><span>水文智能体 <span class="footer-divider">/</span> 观测台</span><span>新安江模型 · 可追溯执行</span></footer>
   </div>
 </template>
 

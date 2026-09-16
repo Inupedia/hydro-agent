@@ -167,6 +167,8 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
         content_hash=content_hash,
     )
     deps.repository.ensure_task_state(task_id, current_scheme_id=scheme_id)
+    if deps.skills is not None:
+        deps.skills.freeze_for_task(task_id)
 
     runtime_config = build_runtime_task_config(
         config["workbench"],

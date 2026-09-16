@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { api } from '../api/client'
 import { actionTitle } from '../demo/stages'
 import { WORKFLOW } from '../generated/workflow'
+import { outputContractLabel, skillTitle } from '../skills/catalog'
 import { currentActionId } from '../workflow/legacyActions'
 import type { AgentRoundLogItem, TimelineItem } from '../types/api'
 
@@ -297,9 +298,18 @@ function journalCopy(event: TimelineItem): JournalCopy {
   }
 }
 
-function activatedSkills(event: TimelineItem): string[] {
+function activatedSkills(event: TimelineItem): Array<{ id: string; title: string; contract: string | null }> {
   const round = matchingRound(event)
-  return (round?.activated_skill_ids || []).filter(Boolean)
+  const ids = (round?.activated_skill_ids || []).filter(Boolean)
+  const audits = round?.activated_skills_audit || []
+  return ids.map((id) => {
+    const audit = audits.find((item) => item.skill_id === id)
+    return {
+      id,
+      title: skillTitle(id),
+      contract: outputContractLabel(audit?.output_contract),
+    }
+  })
 }
 
 function displayTitle(event: TimelineItem) {
@@ -374,7 +384,11 @@ function displayTitle(event: TimelineItem) {
               <span class="skill-block-title">本轮使用技能</span>
             </div>
             <ul class="skill-chip-list">
-              <li v-for="skillId in activatedSkills(event)" :key="skillId">{{ skillId }}</li>
+              <li v-for="skill in activatedSkills(event)" :key="skill.id">
+                <span class="skill-chip-title">{{ skill.title }}</span>
+                <small class="skill-chip-id">{{ skill.id }}</small>
+                <span v-if="skill.contract" class="skill-chip-contract">{{ skill.contract }}</span>
+              </li>
             </ul>
           </div>
           <p class="event-subtitle">{{ journalCopy(event).analysis }}</p>
@@ -463,17 +477,30 @@ function displayTitle(event: TimelineItem) {
   list-style: none;
 }
 .skill-chip-list li {
+  display: grid;
+  gap: 2px;
   max-width: 100%;
   border: 1px solid rgba(0, 122, 255, 0.16);
   border-radius: var(--radius-xs, 6px);
   background: rgba(255, 255, 255, 0.78);
-  padding: 3px 7px;
-  color: var(--accent-text);
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 560;
+  padding: 5px 8px;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+.skill-chip-title {
+  color: var(--accent-text);
+  font-size: 11px;
+  font-weight: 650;
+}
+.skill-chip-id {
+  color: var(--text-tertiary);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+.skill-chip-contract {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
 }
 .event-subtitle { margin: 7px 0 0; color: var(--text-primary); font-size: 12px; font-weight: 560; line-height: 1.65; overflow-wrap: anywhere; }
 .event-support { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 6px; margin: 7px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }

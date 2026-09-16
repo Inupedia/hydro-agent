@@ -85,6 +85,16 @@ def test_provider_turns_diagnosis_into_group_level_dds_experiment():
     assert decision.strategy_id == "xaj-water-balance-v1"
     assert decision.param_groups == ("evap", "runoff")
     assert decision.objective == "nse"
+    assert decision.activated_skill_ids == (
+        "hydrologic-evidence-review",
+        "xaj-calibration-diagnosis",
+        "calibration-experiment-design",
+    )
+    assert [item["output_contract"] for item in decision.activated_skills_audit] == [
+        "EvidenceInterpretation",
+        "DiagnosisHypothesis",
+        "CalibrationPlan",
+    ]
 
 
 def test_provider_only_uses_unverified_seed_prior_when_campaign_opts_in():
@@ -144,6 +154,8 @@ def test_provider_reflects_rollback_into_rediagnosis_while_campaign_running():
     decision = CalibrationScientistDecisionProvider().decide(view)
     assert decision.action == ActionCode.A04_DIAGNOSE
     assert "Campaign 尚无停止证据" in decision.rationale_summary
+    assert decision.activated_skill_ids == ("calibration-result-review",)
+    assert decision.activated_skills_audit[0]["output_contract"] == "ExperimentReview"
 
 
 def test_provider_continues_after_adoption_when_candidate_is_unqualified():

@@ -1,6 +1,8 @@
 from hydro_agent.optimization.calibration_scientist import (
+    interpret_evidence,
     plan_from_diagnosis,
     reflect_on_gate,
+    review_experiment,
 )
 
 
@@ -25,6 +27,24 @@ def test_diagnosis_becomes_group_level_dds_plan():
     assert plan.evaluation_budget == 256
     assert plan.tunes_raw_parameter_vector is False
     assert not hasattr(plan, "parameters")
+    assert plan.diagnosis_hypothesis is not None
+    assert plan.diagnosis_hypothesis.process_layer == "routing"
+    assert plan.evidence_interpretation is not None
+    assert any("nse=" in item for item in plan.evidence_interpretation.metrics_summary)
+    assert plan.diagnosis_hypothesis.falsification_conditions
+
+
+def test_evidence_interpretation_is_model_agnostic():
+    reading = interpret_evidence(
+        {
+            "phenomenon": "汛期 NSE 偏低",
+            "metrics": {"nse": 0.41, "pbias": 12.0},
+            "notes": ["高流量误差显著"],
+        }
+    )
+    assert "汛期 NSE 偏低" in reading.dominant_patterns
+    assert any(item.startswith("nse=") for item in reading.metrics_summary)
+    assert "water_balance" in reading.required_evidence
 
 
 def test_adopted_but_unqualified_reflects_to_rediagnose():
@@ -47,6 +67,14 @@ def test_adopted_but_unqualified_reflects_to_rediagnose():
     assert reflection.qualification_status == "UNQUALIFIED"
     assert reflection.next_step == "re-diagnose"
     assert "meaningful_primary_improvement" in reflection.evidence
+    review = review_experiment(
+        plan,
+        gate_status="ACCEPT",
+        qualification_status="UNQUALIFIED",
+        reasons=("meaningful_primary_improvement",),
+    )
+    assert review.hypothesis_status == "adopted_unqualified"
+    assert review.recommended_next_experiment == "re-diagnose"
 
 
 def test_keep_reflects_to_rediagnose_not_blind_retry():

@@ -109,9 +109,9 @@ function fmt(value: unknown) {
 <template>
   <section class="hydrologist-tune" data-test="hydrologist-tune">
     <header>
-      <span class="overline">水文员调参 / 老师 notebook §6</span>
+      <span class="overline">水文员调参</span>
       <h2>手工改参 · 重跑 · 对比</h2>
-      <p>按老师流程：先跑基准，再改参数对比，确认后再提交候选给 Gate。不是黑盒随机搜索。</p>
+      <p>先跑基准，再改参数对比，确认后提交候选给 Gate。面向可解释调参，不是黑盒随机搜索。</p>
     </header>
 
     <div class="actions">

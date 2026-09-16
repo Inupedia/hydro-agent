@@ -38,6 +38,50 @@ def get_task(task_id: str, request: Request) -> TaskSummary:
         raise HTTPException(status_code=404, detail="task not found") from exc
 
 
+@router.get("/{task_id}/skill-snapshot")
+def get_task_skill_snapshot(task_id: str, request: Request):
+    deps = request.app.state.deps
+    try:
+        snapshot = deps.repository.get_task_state(task_id).skill_snapshot_json
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="task not found") from exc
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="task has no Skill Snapshot")
+    return {
+        "task_id": task_id,
+        "snapshot_sha256": snapshot["sha256"],
+        "skills": [
+            {
+                "skill_id": skill_id,
+                "source": package["source"],
+                "skill_sha256": package["files"]["SKILL.md"]["sha256"],
+                "file_count": len(package["files"]),
+                "binding": package["binding"],
+            }
+            for skill_id, package in sorted(snapshot["skills"].items())
+        ],
+    }
+
+
+@router.get("/{task_id}/skill-usage")
+def get_task_skill_usage(task_id: str, request: Request):
+    """Campaign Usage: frozen Skill Snapshot plus recorded Skill invocations."""
+
+    from hydro_agent.skills.usage import build_skill_usage
+
+    deps = request.app.state.deps
+    try:
+        state = deps.repository.get_task_state(task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="task not found") from exc
+    decisions = deps.repository.list_agent_decisions(task_id)
+    return build_skill_usage(
+        task_id=task_id,
+        snapshot=state.skill_snapshot_json,
+        decisions=decisions,
+    )
+
+
 @router.patch("/{task_id}", response_model=TaskSummary)
 def rename_task(task_id: str, payload: RenameTaskBody, request: Request) -> TaskSummary:
     deps = request.app.state.deps

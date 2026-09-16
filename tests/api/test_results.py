@@ -17,6 +17,40 @@ CREATE_BODY = {
 }
 
 
+def test_agent_log_exposes_persisted_skill_invocation_audit(client, repository, app_dependencies):
+    repository.create_task(task_id="skill-audit-task", basin_id="yaogu", phase="B", forcing_mode="R")
+    manifest = {
+        "skill_id": "hydro-error-diagnosis",
+        "source": "builtin",
+        "skill_sha256": "b" * 64,
+        "loaded_references": [{"path": "references/metric-patterns.md", "sha256": "c" * 64}],
+    }
+    repository.record_agent_decision(
+        decision_id="dec-skill-audit",
+        task_id="skill-audit-task",
+        round_number=1,
+        provider="siliconflow",
+        model="fixture",
+        world_state_hash="view-hash",
+        action="A04_DIAGNOSE",
+        hypothesis="MODEL",
+        strategy_id=None,
+        rationale_summary="Review evidence.",
+        input_tokens=None,
+        output_tokens=None,
+        activated_skills_json=[manifest],
+    )
+    fallback = client.get("/api/tasks/skill-audit-task/agent-log").json()["rounds"][0]
+    assert fallback["activated_skill_ids"] == ["hydro-error-diagnosis"]
+    assert fallback["activated_skills_audit"] == [manifest]
+    app_dependencies.append_agent_round_log(
+        "skill-audit-task",
+        {"round_number": 1, "action": "A04_DIAGNOSE", "rationale_summary": "Review evidence."},
+    )
+    streamed = client.get("/api/tasks/skill-audit-task/agent-log").json()["rounds"][0]
+    assert streamed["activated_skills_audit"] == [manifest]
+
+
 def test_results_are_read_from_persisted_scheme_forecast_gate_report(
     client, repository, app_dependencies
 ):

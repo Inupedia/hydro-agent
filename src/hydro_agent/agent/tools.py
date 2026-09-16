@@ -188,7 +188,7 @@ class DiagnoseHandler:
             "recommended_param_groups": groups_text,
             "recommended_objective": str(result.get("recommended_objective") or ""),
             "phenomenon": str(result.get("phenomenon") or ""),
-            "skill_id": "hydro-error-diagnosis",
+            "skill_id": "hydrologic-evidence-review",
             "hypotheses_json": json.dumps(hypotheses, ensure_ascii=False, sort_keys=True),
             "local_boundary_hits": local_boundary_text,
             "absolute_boundary_hits": absolute_boundary_text,

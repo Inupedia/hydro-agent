@@ -16,13 +16,10 @@ from hydro_agent.skills.governance import (
 )
 
 _GOVERNED_SKILL_IDS = (
-    "hydro-data-readiness",
-    "hydro-error-diagnosis",
-    "xaj-water-balance",
-    "xaj-runoff-generation",
-    "xaj-routing-diagnosis",
-    "hydro-experiment-design",
-    "xaj-calibration",
+    "hydrology-data-review",
+    "hydrologic-evidence-review",
+    "xaj-calibration-diagnosis",
+    "calibration-experiment-design",
 )
 
 

@@ -289,6 +289,7 @@ def download_skadi_dem_for_bbox(
                 file=packed.name,
                 url=url,
                 sha256=sha256_file(packed),
+                hgt_sha256=sha256_file(hgt),
                 samples_per_side=size,
                 latitude=lat,
                 longitude=lon,

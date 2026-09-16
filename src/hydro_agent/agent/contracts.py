@@ -47,6 +47,7 @@ class AgentDecision(FrozenModel):
     experiment_reason_codes: tuple[str, ...] = ()
     experiment_evidence_refs: tuple[str, ...] = ()
     activated_skill_ids: tuple[str, ...] = ()
+    activated_skills_audit: tuple[dict, ...] = ()
     # User-facing audit trace. These are concise decision summaries, not hidden chain-of-thought.
     observation_zh: str = Field(default="", max_length=240)
     analysis_zh: str = Field(default="", max_length=600)

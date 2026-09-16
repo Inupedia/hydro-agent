@@ -182,6 +182,7 @@ def build_forecast_graph(
             rationale_summary=decision.rationale_summary,
             input_tokens=None,
             output_tokens=None,
+            activated_skills_json=list(decision.activated_skills_audit),
         )
         return {"last_packet": packet, "stop": False, "stop_reason": ""}
 

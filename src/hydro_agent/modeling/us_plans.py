@@ -70,8 +70,10 @@ class UsPlanRequest(BaseModel):
     stream_area_km2: float = Field(default=50, gt=0, le=10000)
     unit_area_km2: float = Field(default=50, gt=0, le=10000)
     warmup_days: int = Field(default=30, ge=1, le=1000)
-    # Distributed: how many equal-area units when DEM partition is unavailable.
+    # Legacy API field; ignored. Unit count comes from pyflwdir subbasins_area.
     unit_count: int = Field(default=4, ge=2, le=32)
+    snap_distance_m: float = Field(default=2000, gt=0, le=20000)
+    min_iou: float = Field(default=0.7, gt=0, le=1)
     name: str | None = Field(default=None, max_length=80)
 
 
@@ -217,98 +219,116 @@ class UsModelPlanService:
                 case = root / "case"
                 case.mkdir(exist_ok=True)
                 gis = case / "gis"
-                gis.mkdir(exist_ok=True)
-                basin = json.loads((hydro / "basin.json").read_text(encoding="utf-8"))
-                area = float(basin["area_km2"])
-                if cfg.model_mode == "lumped":
-                    units = [dict(unit_id=1, area_km2=area, source="full-basin")]
-                else:
-                    n = cfg.unit_count
-                    share = area / n
-                    units = [dict(unit_id=i + 1, area_km2=share, source="equal-area-split") for i in range(n)]
-                with (gis / "units.csv").open("w", encoding="utf-8", newline="") as fh:
-                    writer = csv.DictWriter(fh, fieldnames=["unit_id", "area_km2", "source"])
-                    writer.writeheader()
-                    writer.writerows(units)
-                # Copy GIS review artifacts when present.
                 src_gis = self.catalog.gis_dir(basin_id)
-                for name in (
-                    "boundary.geojson",
-                    "outlet.geojson",
-                    "bbox.json",
-                    "boundary_check.json",
-                    "nldi_feature.json",
-                    "flowlines.geojson",
-                    "streams.geojson",
-                ):
-                    if (src_gis / name).is_file():
-                        shutil.copy2(src_gis / name, gis / name)
-                if (gis / "boundary_check.json").is_file():
-                    boundary = json.loads((gis / "boundary_check.json").read_text(encoding="utf-8"))
-                    boundary["model_mode"] = cfg.model_mode
-                    boundary["unit_count"] = len(units)
-                    boundary.setdefault(
-                        "note",
-                        "NLDI reference basin; gridMET gauge-point forcing; one XAJ"
-                        if cfg.model_mode == "lumped"
-                        else (
-                            f"NLDI basin; {len(units)} independent XAJ units "
-                            "(equal-area split; V1 applies the same gridMET field to each unit)"
-                        ),
-                    )
-                else:
-                    boundary = dict(
-                        accepted=True,
-                        dem_area_km2=area,
-                        usgs_area_km2=area,
-                        model_mode=cfg.model_mode,
-                        unit_count=len(units),
-                        note=(
-                            "lumped: one XAJ for the full basin"
-                            if cfg.model_mode == "lumped"
-                            else (
-                                f"distributed: {len(units)} independent XAJ units "
-                                "(equal-area; uniform forcing V1)"
-                            )
-                        ),
-                    )
-                write_json(gis / "boundary_check.json", boundary)
-                outlet_xy = None
-                if (gis / "outlet.geojson").is_file():
-                    outlet_fc = json.loads((gis / "outlet.geojson").read_text(encoding="utf-8"))
-                    for feature in outlet_fc.get("features") or []:
-                        geom = feature.get("geometry") or {}
-                        if geom.get("type") == "Point":
-                            outlet_xy = (float(geom["coordinates"][0]), float(geom["coordinates"][1]))
-                            break
-                try:
-                    from hydro_agent.modeling.review_map import (
-                        render_basin_review_map,
-                        write_units_geojson,
-                    )
+                basin = json.loads((hydro / "basin.json").read_text(encoding="utf-8"))
+                usgs_area = float(basin["area_km2"])
 
-                    write_units_geojson(gis, unit_count=len(units), outlet_xy=outlet_xy)
-                    render_basin_review_map(
-                        gis,
-                        title=f"{basin_id} · {cfg.model_mode} · {len(units)} units",
-                    )
-                except Exception as map_exc:  # noqa: BLE001 - review can continue without map art
-                    write_json(gis / "map_error.json", {"error": str(map_exc)})
-                write_json(
-                    case / "dem_config.json",
-                    dict(
+                if cfg.model_mode == "distributed":
+                    from hydro_agent.modeling.us_delineate import delineate_open_basin
+
+                    delineated = delineate_open_basin(
+                        dem_dir=self.catalog.dem_dir(basin_id),
+                        source_gis=src_gis,
+                        case_dir=case,
                         resolution_m=cfg.resolution_m,
                         stream_area_km2=cfg.stream_area_km2,
                         unit_area_km2=cfg.unit_area_km2,
-                        model_mode=cfg.model_mode,
-                        unit_count=len(units),
-                        note=(
-                            "lumped: one XAJ"
-                            if cfg.model_mode == "lumped"
-                            else f"distributed: {len(units)} independent XAJ units (V1 uniform forcing field)"
+                        snap_distance_m=cfg.snap_distance_m,
+                        min_iou=cfg.min_iou,
+                        model_mode="distributed",
+                    )
+                    boundary = delineated["boundary_check"]
+                    boundary["model_mode"] = "distributed"
+                    boundary["unit_count"] = delineated["unit_count"]
+                    boundary["usgs_area_km2"] = usgs_area
+                    boundary.setdefault(
+                        "forcing_note",
+                        "gridMET gauge-point forcing applied uniformly to each DEM unit (V1)",
+                    )
+                    write_json(gis / "boundary_check.json", boundary)
+                    area = float(delineated["area_km2"])
+                    unit_count = int(delineated["unit_count"])
+                    partition_method = delineated["dem_config"].get("partition_method")
+                else:
+                    if gis.exists():
+                        shutil.rmtree(gis)
+                    gis.mkdir(parents=True)
+                    units = [dict(unit_id=1, area_km2=usgs_area, source="full-basin")]
+                    with (gis / "units.csv").open("w", encoding="utf-8", newline="") as fh:
+                        writer = csv.DictWriter(fh, fieldnames=["unit_id", "area_km2", "source"])
+                        writer.writeheader()
+                        writer.writerows(units)
+                    for name in (
+                        "boundary.geojson",
+                        "outlet.geojson",
+                        "bbox.json",
+                        "boundary_check.json",
+                        "nldi_feature.json",
+                        "flowlines.geojson",
+                        "streams.geojson",
+                    ):
+                        if (src_gis / name).is_file():
+                            shutil.copy2(src_gis / name, gis / name)
+                    if (gis / "boundary_check.json").is_file():
+                        boundary = json.loads((gis / "boundary_check.json").read_text(encoding="utf-8"))
+                        boundary["model_mode"] = "lumped"
+                        boundary["unit_count"] = 1
+                        boundary.setdefault(
+                            "note",
+                            "NLDI reference basin; gridMET gauge-point forcing; one XAJ",
+                        )
+                    else:
+                        boundary = dict(
+                            accepted=True,
+                            dem_area_km2=usgs_area,
+                            usgs_area_km2=usgs_area,
+                            model_mode="lumped",
+                            unit_count=1,
+                            note="lumped: one XAJ for the full basin",
+                        )
+                    write_json(gis / "boundary_check.json", boundary)
+                    write_json(
+                        case / "dem_config.json",
+                        dict(
+                            resolution_m=cfg.resolution_m,
+                            stream_area_km2=cfg.stream_area_km2,
+                            unit_area_km2=cfg.unit_area_km2,
+                            model_mode="lumped",
+                            unit_count=1,
+                            partition_method="full-basin (no DEM partition)",
+                            note="lumped: one XAJ",
                         ),
-                    ),
-                )
+                    )
+                    area = usgs_area
+                    unit_count = 1
+                    partition_method = "full-basin (no DEM partition)"
+
+                try:
+                    from hydro_agent.modeling.review_map import render_basin_review_map
+
+                    # Distributed already wrote real units.geojson; lumped falls back to one polygon.
+                    if cfg.model_mode == "lumped" and not (gis / "units.geojson").is_file():
+                        from hydro_agent.modeling.review_map import write_units_geojson
+
+                        outlet_xy = None
+                        if (gis / "outlet.geojson").is_file():
+                            outlet_fc = json.loads((gis / "outlet.geojson").read_text(encoding="utf-8"))
+                            for feature in outlet_fc.get("features") or []:
+                                geom = feature.get("geometry") or {}
+                                if geom.get("type") == "Point":
+                                    outlet_xy = (
+                                        float(geom["coordinates"][0]),
+                                        float(geom["coordinates"][1]),
+                                    )
+                                    break
+                        write_units_geojson(gis, unit_count=1, outlet_xy=outlet_xy)
+                    render_basin_review_map(
+                        gis,
+                        title=f"{basin_id} · {cfg.model_mode} · {unit_count} units",
+                    )
+                except Exception as map_exc:  # noqa: BLE001 - review can continue without map art
+                    write_json(gis / "map_error.json", {"error": str(map_exc)})
+
                 review = {str(f.relative_to(root)): digest(f) for f in gis.rglob("*") if f.is_file()}
                 review["case/dem_config.json"] = digest(case / "dem_config.json")
                 boundary_hash = hashlib.sha256(json.dumps(review, sort_keys=True).encode()).hexdigest()
@@ -321,7 +341,8 @@ class UsModelPlanService:
                     boundary_hash=boundary_hash,
                     review_files=review,
                     area_km2=area,
-                    unit_count=len(units),
+                    unit_count=unit_count,
+                    partition_method=partition_method,
                 )
                 return
 
@@ -460,6 +481,11 @@ class UsModelPlanService:
                 observed_discharge="USGS NWIS DV 00060 outlet only",
                 warmup_days=cfg.warmup_days,
                 unit_count=len(units),
+                partition=(
+                    "pyflwdir subbasins_area (DEM)"
+                    if cfg.model_mode == "distributed"
+                    else "full-basin lumped"
+                ),
             ),
         )
 

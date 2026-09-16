@@ -1,8 +1,12 @@
-"""Structured calibration-scientist contracts.
+"""Structured calibration-scientist contracts and deterministic Skill handlers.
 
-The Agent owns the scientific decision (what to test and why); the numerical
-optimizer owns the continuous parameter search. No raw XAJ parameter vector is
-part of ``CalibrationPlan`` by design.
+Skill / Agent reasoning may propose what to test; these typed contracts are the
+only bridge into deterministic experiment planning. Continuous XAJ parameter
+vectors are intentionally absent from ``CalibrationPlan``.
+
+Callers that need audited Skill activation should go through
+``hydro_agent.skills.orchestration.SkillOrchestrator`` rather than calling the
+handlers below directly.
 """
 
 from __future__ import annotations
@@ -17,13 +21,58 @@ from hydro_agent.skills.expert import ExpertPriorEngine
 from hydro_agent.skills.governance import KnowledgeQueryContext
 
 ParameterGroup = Literal["evap", "runoff", "routing"]
+ProcessLayer = Literal["evap", "runoff", "routing", "mixed", "unknown"]
 ObjectiveName = Literal["nse", "peak", "composite"]
 OptimizerName = Literal["dds", "sce-ua", "random-search", "manual"]
 SearchScope = Literal["global", "local"]
 SearchAdjustment = Literal["keep", "broaden_within_absolute_bounds", "hold_absolute_bounds"]
+HypothesisStatus = Literal["supported", "refuted", "inconclusive", "adopted_unqualified"]
+
+
+class EvidenceInterpretation(FrozenModel):
+    """Model-agnostic reading of HydrologicEvidence / diagnosis metrics."""
+
+    dominant_patterns: tuple[str, ...] = ()
+    supporting_evidence_ids: tuple[str, ...] = ()
+    contradictory_evidence_ids: tuple[str, ...] = ()
+    uncertainties: tuple[str, ...] = ()
+    required_evidence: tuple[str, ...] = ()
+    metrics_summary: tuple[str, ...] = ()
+
+
+class DiagnosisHypothesis(FrozenModel):
+    """Falsifiable hydrologic hypothesis before optimizer search begins."""
+
+    hypothesis_id: str = Field(min_length=1)
+    confidence: float = Field(ge=0.0, le=1.0)
+    phenomenon: str = Field(min_length=1)
+    process_layer: ProcessLayer = "unknown"
+    parameter_groups: tuple[ParameterGroup, ...] = ()
+    supporting_evidence_ids: tuple[str, ...] = ()
+    contradictory_evidence_ids: tuple[str, ...] = ()
+    falsification_conditions: tuple[str, ...] = ()
+    recommended_strategy_id: str | None = None
+    recommended_objective: ObjectiveName | None = None
+
+    def as_calibration_hypothesis(self) -> CalibrationHypothesis:
+        return CalibrationHypothesis(
+            hypothesis=self.hypothesis_id,
+            confidence=self.confidence,
+            phenomenon=self.phenomenon,
+            evidence=tuple(
+                dict.fromkeys(
+                    (
+                        *self.supporting_evidence_ids,
+                        *self.contradictory_evidence_ids,
+                    )
+                )
+            ),
+        )
 
 
 class CalibrationHypothesis(FrozenModel):
+    """Compact hypothesis payload embedded in ``CalibrationPlan`` (stable API)."""
+
     hypothesis: str = Field(min_length=1)
     confidence: float = Field(ge=0.0, le=1.0)
     phenomenon: str = Field(min_length=1)
@@ -43,6 +92,9 @@ class CalibrationPlan(FrozenModel):
     knowledge_refs: tuple[str, ...] = ()
     expert_notes: tuple[str, ...] = ()
     rationale: str = Field(min_length=1)
+    # Source-addressable upstream contracts for audit / Skill invocation ledger.
+    evidence_interpretation: EvidenceInterpretation | None = None
+    diagnosis_hypothesis: DiagnosisHypothesis | None = None
 
     @property
     def tunes_raw_parameter_vector(self) -> bool:
@@ -55,6 +107,32 @@ class CalibrationReflection(FrozenModel):
     conclusion: str = Field(min_length=1)
     next_step: Literal["freeze", "re-diagnose", "rollback", "handover"]
     evidence: tuple[str, ...] = ()
+
+
+class ExperimentReview(FrozenModel):
+    """Result-review contract after Gate / Resolve (Skill-shaped, code-validated)."""
+
+    hypothesis_status: HypothesisStatus
+    gate_status: Literal["ACCEPT", "KEEP", "ROLLBACK"]
+    qualification_status: Literal["QUALIFIED", "UNQUALIFIED", "NOT_EVALUATED"] = "NOT_EVALUATED"
+    supporting_evidence_ids: tuple[str, ...] = ()
+    contradictory_evidence_ids: tuple[str, ...] = ()
+    lessons: tuple[str, ...] = ()
+    recommended_next_experiment: Literal["freeze", "re-diagnose", "rollback", "handover"]
+    conclusion: str = Field(min_length=1)
+
+    def as_reflection(self) -> CalibrationReflection:
+        return CalibrationReflection(
+            gate_status=self.gate_status,
+            qualification_status=self.qualification_status,
+            conclusion=self.conclusion,
+            next_step=self.recommended_next_experiment,
+            evidence=(
+                *self.supporting_evidence_ids,
+                *self.contradictory_evidence_ids,
+                *self.lessons,
+            ),
+        )
 
 
 def _normalize_groups(raw_groups: object, fallback: tuple[str, ...]) -> tuple[str, ...]:
@@ -76,6 +154,15 @@ def _name_list(raw: object) -> tuple[str, ...]:
     if isinstance(raw, (list, tuple)):
         return tuple(str(item).strip() for item in raw if str(item).strip())
     return ()
+
+
+def _process_layer(groups: tuple[str, ...]) -> ProcessLayer:
+    unique = tuple(dict.fromkeys(groups))
+    if len(unique) == 1 and unique[0] in {"evap", "runoff", "routing"}:
+        return unique[0]  # type: ignore[return-value]
+    if len(unique) > 1:
+        return "mixed"
+    return "unknown"
 
 
 def _search_adjustment(diagnosis: dict[str, Any]) -> SearchAdjustment:
@@ -117,28 +204,142 @@ def _locked_objective(
     return raw  # type: ignore[return-value]
 
 
-def plan_from_diagnosis(
+def interpret_evidence(diagnosis: dict[str, Any] | Any) -> EvidenceInterpretation:
+    """Turn diagnosis metrics/notes into a model-agnostic evidence reading."""
+
+    from hydro_agent.agent.hydrologic_evidence import HydrologicEvidence
+
+    evidence = (
+        diagnosis
+        if isinstance(diagnosis, HydrologicEvidence)
+        else HydrologicEvidence.from_diagnosis(diagnosis)
+    )
+    metrics_summary = list(evidence.metric_lines())
+    notes = evidence.notes[:8]
+    phenomenon = evidence.phenomenon.strip()
+    patterns = tuple(item for item in (phenomenon, *notes[:3], *metrics_summary[:4]) if item)
+    uncertainties: list[str] = []
+    if not metrics_summary:
+        uncertainties.append("缺少可引用的数值指标摘要")
+    if not phenomenon:
+        uncertainties.append("尚未形成明确误差现象描述")
+
+    required: list[str] = []
+    joined = " ".join(patterns).lower()
+    joined_zh = "".join(patterns)
+    if "peak" in joined or "洪峰" in joined_zh:
+        required.append("flood_peak_and_timing")
+    if any(token in joined_zh or token in joined for token in ("水量", "PBIAS", "pbias", "volume")):
+        required.append("water_balance")
+    if evidence.flood_events:
+        required.append("flood_peak_and_timing")
+    if evidence.overall.pbias_percent is not None:
+        required.append("water_balance")
+
+    supporting = tuple(dict.fromkeys((*metrics_summary, *notes[:4])))
+    return EvidenceInterpretation(
+        dominant_patterns=patterns[:6] or ("未形成明确误差模式",),
+        supporting_evidence_ids=supporting,
+        contradictory_evidence_ids=evidence.contradictory_evidence_ids,
+        uncertainties=tuple(uncertainties),
+        required_evidence=tuple(dict.fromkeys(required)),
+        metrics_summary=tuple(metrics_summary),
+    )
+
+
+def form_diagnosis_hypothesis(
+    interpretation: EvidenceInterpretation,
+    diagnosis: dict[str, Any] | Any,
+    *,
+    parameter_groups: tuple[str, ...] = (),
+    recommended_strategy_id: str | None = None,
+    recommended_objective: ObjectiveName | None = None,
+) -> DiagnosisHypothesis:
+    """Build a falsifiable hypothesis from evidence interpretation + diagnosis fields."""
+
+    from hydro_agent.agent.hydrologic_evidence import HydrologicEvidence
+
+    evidence = (
+        diagnosis
+        if isinstance(diagnosis, HydrologicEvidence)
+        else HydrologicEvidence.from_diagnosis(diagnosis)
+    )
+    payload = evidence.as_diagnosis_dict()
+    hypotheses = list(payload.get("hypotheses") or [])
+    primary_id = str(payload.get("hypothesis") or "UNKNOWN")
+    confidence = 0.5
+    for item in hypotheses:
+        if str(item.get("id")) == primary_id:
+            try:
+                confidence = float(item.get("strength"))
+            except (TypeError, ValueError):
+                confidence = 0.5
+            break
+    confidence = max(0.0, min(1.0, confidence))
+    groups = _normalize_groups(
+        parameter_groups or payload.get("recommended_param_groups"), ()
+    )
+    layer = _process_layer(groups)
+    phenomenon = str(payload.get("phenomenon") or interpretation.dominant_patterns[0])
+
+    falsification: list[str] = []
+    if "routing" in groups:
+        falsification.append("若洪量显著偏高而峰值/退水正常，则 routing 假设不足")
+    if "runoff" in groups or "evap" in groups:
+        falsification.append("若峰值偏差主导而水量接近无偏，则水量/产流假设不足")
+    if not falsification:
+        falsification.append("若下一轮证据与当前现象矛盾，则应更换假设而非重复同组搜索")
+    falsification.extend(interpretation.uncertainties[:2])
+
+    objective = recommended_objective
+    if objective is None:
+        raw_obj = payload.get("recommended_objective")
+        if raw_obj in {"nse", "peak", "composite"}:
+            objective = raw_obj  # type: ignore[assignment]
+
+    strategy_id = recommended_strategy_id or (
+        str(payload.get("recommended_strategy_id"))
+        if payload.get("recommended_strategy_id")
+        else None
+    )
+
+    return DiagnosisHypothesis(
+        hypothesis_id=primary_id,
+        confidence=confidence,
+        phenomenon=phenomenon,
+        process_layer=layer,
+        parameter_groups=groups,  # type: ignore[arg-type]
+        supporting_evidence_ids=interpretation.supporting_evidence_ids,
+        contradictory_evidence_ids=interpretation.contradictory_evidence_ids,
+        falsification_conditions=tuple(falsification),
+        recommended_strategy_id=strategy_id,
+        recommended_objective=objective,
+    )
+
+
+def plan_from_hypothesis(
+    hypothesis: DiagnosisHypothesis,
     diagnosis: dict[str, Any],
     *,
+    interpretation: EvidenceInterpretation | None = None,
     strategies: CalibrationStrategyRegistry | None = None,
     expert_priors: ExpertPriorEngine | None = None,
     campaign_objective: ObjectiveName | None = None,
     knowledge_context: KnowledgeQueryContext | None = None,
 ) -> CalibrationPlan:
-    """Translate diagnosis into an auditable experiment using governed Skill priors."""
+    """Compile a legal ``CalibrationPlan`` from a typed diagnosis hypothesis."""
 
     registry = strategies or CalibrationStrategyRegistry()
-    recommended_strategy_id = str(diagnosis.get("recommended_strategy_id") or "xaj-bounded-v1")
+    recommended_strategy_id = hypothesis.recommended_strategy_id or "xaj-bounded-v1"
     try:
         strategy = registry.get(recommended_strategy_id)
     except KeyError:
         recommended_strategy_id = "xaj-bounded-v1"
         strategy = registry.get(recommended_strategy_id)
 
-    groups = _normalize_groups(
-        diagnosis.get("recommended_param_groups"), tuple(strategy.param_groups)
-    )
-    objective = str(diagnosis.get("recommended_objective") or strategy.objective)
+    groups = hypothesis.parameter_groups or tuple(strategy.param_groups)
+    groups = _normalize_groups(groups, tuple(strategy.param_groups))
+    objective = str(hypothesis.recommended_objective or strategy.objective)
     if objective not in {"nse", "peak", "composite"}:
         objective = strategy.objective
     locked_objective = _locked_objective(diagnosis, campaign_objective)
@@ -172,25 +373,6 @@ def plan_from_diagnosis(
         strategy_id = recommended_strategy_id
         strategy = registry.get(strategy_id)
 
-    hypotheses = list(diagnosis.get("hypotheses") or [])
-    primary_id = str(diagnosis.get("hypothesis") or "UNKNOWN")
-    confidence = 0.5
-    for item in hypotheses:
-        if str(item.get("id")) == primary_id:
-            try:
-                confidence = float(item.get("strength"))
-            except (TypeError, ValueError):
-                confidence = 0.5
-            break
-    confidence = max(0.0, min(1.0, confidence))
-    phenomenon = str(diagnosis.get("phenomenon") or "未形成明确误差模式")
-
-    evidence: list[str] = []
-    for key, value in dict(diagnosis.get("metrics") or {}).items():
-        if isinstance(value, (int, float)):
-            evidence.append(f"{key}={float(value):.6g}")
-    evidence.extend(str(note) for note in (diagnosis.get("notes") or ())[:4])
-
     scope: SearchScope = "local" if strategy.local_scale is not None else "global"
     prior_text = ""
     if advice.matched_prior_refs:
@@ -200,7 +382,7 @@ def plan_from_diagnosis(
         )
     search_text = ""
     if adjustment == "broaden_within_absolute_bounds":
-        search_text = " 局部搜索触边界，按协议逐级放宽但不越过老师/内核绝对边界；"
+        search_text = " 局部搜索触边界，按协议逐级放宽但不越过产品绝对参数边界；"
     elif adjustment == "hold_absolute_bounds":
         search_text = " 已触及绝对参数边界，本轮禁止继续外扩并保留为诊断证据；"
     objective_text = ""
@@ -213,13 +395,17 @@ def plan_from_diagnosis(
                 f"{locked_objective}。"
             )
 
+    refined = hypothesis.model_copy(
+        update={
+            "parameter_groups": groups,
+            "recommended_strategy_id": strategy_id,
+            "recommended_objective": objective,  # type: ignore[dict-item]
+            "process_layer": _process_layer(groups),
+        }
+    )
+    reading = interpretation or interpret_evidence(diagnosis)
     return CalibrationPlan(
-        hypothesis=CalibrationHypothesis(
-            hypothesis=primary_id,
-            confidence=confidence,
-            phenomenon=phenomenon,
-            evidence=tuple(evidence),
-        ),
+        hypothesis=refined.as_calibration_hypothesis(),
         strategy_id=strategy_id,
         parameter_groups=groups,  # type: ignore[arg-type]
         objective=objective,  # type: ignore[arg-type]
@@ -231,11 +417,104 @@ def plan_from_diagnosis(
         knowledge_refs=advice.matched_prior_refs,
         expert_notes=tuple(expert_notes),
         rationale=(
-            f"基于 {primary_id} 假设，仅开放 {','.join(groups)} 参数组；"
+            f"基于 {refined.hypothesis_id} 假设（{refined.process_layer}），"
+            f"仅开放 {','.join(groups)} 参数组；"
             f"由 {strategy.optimizer} 在确定性边界内完成至多 {strategy.evaluation_budget} 次模型评估，"
             "Agent 不直接给参数值。"
             f"{objective_text}{prior_text}{search_text}"
         ),
+        evidence_interpretation=reading,
+        diagnosis_hypothesis=refined,
+    )
+
+
+def plan_from_diagnosis(
+    diagnosis: dict[str, Any],
+    *,
+    strategies: CalibrationStrategyRegistry | None = None,
+    expert_priors: ExpertPriorEngine | None = None,
+    campaign_objective: ObjectiveName | None = None,
+    knowledge_context: KnowledgeQueryContext | None = None,
+) -> CalibrationPlan:
+    """Orchestrate Evidence → Hypothesis → Plan via Skill invocations."""
+
+    from hydro_agent.skills.orchestration import SkillOrchestrator
+
+    plan, _invocations = SkillOrchestrator(
+        strategies=strategies,
+        expert_priors=expert_priors,
+    ).plan_calibration(
+        diagnosis,
+        campaign_objective=campaign_objective,
+        knowledge_context=knowledge_context,
+    )
+    return plan
+
+
+def review_experiment(
+    plan: CalibrationPlan,
+    *,
+    gate_status: str,
+    qualification_status: str = "NOT_EVALUATED",
+    reasons: tuple[str, ...] = (),
+) -> ExperimentReview:
+    status = gate_status if gate_status in {"ACCEPT", "KEEP", "ROLLBACK"} else "KEEP"
+    qualification = (
+        qualification_status
+        if qualification_status in {"QUALIFIED", "UNQUALIFIED", "NOT_EVALUATED"}
+        else "NOT_EVALUATED"
+    )
+    supporting = (
+        f"strategy={plan.strategy_id}",
+        f"optimizer={plan.optimizer}",
+        f"hypothesis={plan.hypothesis.hypothesis}",
+        f"search_adjustment={plan.search_adjustment}",
+        f"qualification={qualification}",
+        *tuple(f"knowledge={item}" for item in plan.knowledge_refs),
+    )
+    lessons = tuple(reasons)
+    if status == "ACCEPT" and qualification == "QUALIFIED":
+        return ExperimentReview(
+            hypothesis_status="supported",
+            gate_status="ACCEPT",
+            qualification_status="QUALIFIED",
+            supporting_evidence_ids=supporting,
+            contradictory_evidence_ids=(),
+            lessons=lessons,
+            recommended_next_experiment="freeze",
+            conclusion="候选既优于当前方案，也通过独立资格评价。",
+        )
+    if status == "ACCEPT":
+        return ExperimentReview(
+            hypothesis_status="adopted_unqualified",
+            gate_status="ACCEPT",
+            qualification_status=qualification,  # type: ignore[arg-type]
+            supporting_evidence_ids=supporting,
+            contradictory_evidence_ids=(),
+            lessons=lessons,
+            recommended_next_experiment="re-diagnose",
+            conclusion="候选值得采用为新的工作基线，但尚未达到最终资格条件。",
+        )
+    if status == "ROLLBACK":
+        return ExperimentReview(
+            hypothesis_status="refuted",
+            gate_status="ROLLBACK",
+            qualification_status=qualification,  # type: ignore[arg-type]
+            supporting_evidence_ids=(),
+            contradictory_evidence_ids=supporting,
+            lessons=lessons,
+            recommended_next_experiment="rollback",
+            conclusion="候选在独立验证中退化，本轮率定假设不能继续沿用。",
+        )
+    return ExperimentReview(
+        hypothesis_status="inconclusive",
+        gate_status="KEEP",
+        qualification_status=qualification,  # type: ignore[arg-type]
+        supporting_evidence_ids=(),
+        contradictory_evidence_ids=supporting,
+        lessons=lessons,
+        recommended_next_experiment="re-diagnose",
+        conclusion="证据不足以采用候选；保留当前方案并重新诊断，而不是继续盲目搜索。",
     )
 
 
@@ -246,49 +525,9 @@ def reflect_on_gate(
     qualification_status: str = "NOT_EVALUATED",
     reasons: tuple[str, ...] = (),
 ) -> CalibrationReflection:
-    status = gate_status if gate_status in {"ACCEPT", "KEEP", "ROLLBACK"} else "KEEP"
-    qualification = (
-        qualification_status
-        if qualification_status in {"QUALIFIED", "UNQUALIFIED", "NOT_EVALUATED"}
-        else "NOT_EVALUATED"
-    )
-    evidence = (
-        f"strategy={plan.strategy_id}",
-        f"optimizer={plan.optimizer}",
-        f"hypothesis={plan.hypothesis.hypothesis}",
-        f"search_adjustment={plan.search_adjustment}",
-        f"qualification={qualification}",
-        *tuple(f"knowledge={item}" for item in plan.knowledge_refs),
-        *tuple(reasons),
-    )
-    if status == "ACCEPT" and qualification == "QUALIFIED":
-        return CalibrationReflection(
-            gate_status="ACCEPT",
-            qualification_status="QUALIFIED",
-            conclusion="候选既优于当前方案，也通过独立资格评价。",
-            next_step="freeze",
-            evidence=evidence,
-        )
-    if status == "ACCEPT":
-        return CalibrationReflection(
-            gate_status="ACCEPT",
-            qualification_status=qualification,  # type: ignore[arg-type]
-            conclusion="候选值得采用为新的工作基线，但尚未达到最终资格条件。",
-            next_step="re-diagnose",
-            evidence=evidence,
-        )
-    if status == "ROLLBACK":
-        return CalibrationReflection(
-            gate_status="ROLLBACK",
-            qualification_status=qualification,  # type: ignore[arg-type]
-            conclusion="候选在独立验证中退化，本轮率定假设不能继续沿用。",
-            next_step="rollback",
-            evidence=evidence,
-        )
-    return CalibrationReflection(
-        gate_status="KEEP",
-        qualification_status=qualification,  # type: ignore[arg-type]
-        conclusion="证据不足以采用候选；保留当前方案并重新诊断，而不是继续盲目搜索。",
-        next_step="re-diagnose",
-        evidence=evidence,
-    )
+    return review_experiment(
+        plan,
+        gate_status=gate_status,
+        qualification_status=qualification_status,
+        reasons=reasons,
+    ).as_reflection()

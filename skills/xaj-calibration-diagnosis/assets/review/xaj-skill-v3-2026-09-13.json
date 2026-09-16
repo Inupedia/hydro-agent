@@ -1,0 +1,87 @@
+{
+  "source_id": "xaj-skill-v3-2026-09-13",
+  "title": "XAJ 模型调参专家 Skill（v3）",
+  "source_hash_sha256": "783000ae7f04195a4d9a82651bae08295ce99d4bffc5994453f799a827664495",
+  "received_on": "2026-09-13",
+  "status": "atomized_governed_pending_verification",
+  "authority": "advisory_only",
+  "governed_catalogs": [
+    "skills/xaj-calibration-diagnosis/assets/governed/xaj-v3-water-balance-claims.json",
+    "skills/xaj-calibration-diagnosis/assets/governed/xaj-v3-routing-claims.json",
+    "skills/calibration-experiment-design/assets/governed/xaj-v3-experiment-claims.json",
+    "skills/xaj-calibration-diagnosis/assets/governed/xaj-v3-calibration-claims.json"
+  ],
+  "activation_policy": "The source remains non-authoritative. Claims are split into focused Agent Skill packages by domain. Agent planning receives only advisory entries that pass authority, human-review, experimental-verification, applicability, exposure and dataset-provenance filters. Unverified diagnostic priors require explicit opt-in; constraint, benchmark and policy claims remain non-planning evidence.",
+  "review_items": [
+    {
+      "claim_id": "xaj-v3-kg-ki-boundary",
+      "category": "model_constraint_evidence",
+      "source_locator": "skill_v3.md:L63-L64,L89-L97",
+      "claim": "The expert material allows the boundary 0 < KG + KI <= 1.",
+      "disposition": "atomized_as_disputed_validator_evidence",
+      "notes": "The legacy xaj-calibration Skill encoded KG + KI < 1. Execution constraints must come from the model/protocol validator, not either prose document."
+    },
+    {
+      "claim_id": "xaj-v3-ke-stability",
+      "category": "model_constraint_evidence",
+      "source_locator": "skill_v3.md:L77-L86",
+      "claim": "KE stability limits and an engineering range are derived for the teaching package.",
+      "disposition": "needs_reconciliation",
+      "notes": "The text mentions [15,75], derives XE=0.2 bounds including KE<=60, then recommends [15,36]. Store only after kernel/time-step semantics are reproduced."
+    },
+    {
+      "claim_id": "xaj-v3-local-sensitivity-yaogu",
+      "category": "experiment_case",
+      "source_locator": "skill_v3.md:L101-L137",
+      "claim": "Yaogu local perturbation experiments rank CS/SM/KE/XE highly for peak response and CG/KC/CI/CS for NSE response.",
+      "disposition": "atomized_as_unverified_scope_bound_case",
+      "notes": "Bound to Yaogu/daily/lumped provenance and the academy dataset. It is not a universal parameter discipline and cannot be used as planning evidence by default."
+    },
+    {
+      "claim_id": "xaj-v3-diagnostic-priors",
+      "category": "expert_diagnostic_prior",
+      "source_locator": "skill_v3.md#6.2-6.3",
+      "claim": "The material proposes Yaogu-specific water-balance and recession-shape diagnostic actions.",
+      "disposition": "atomized_as_reviewed_unverified_advisory_priors",
+      "notes": "These priors are now owned by focused water-balance/routing Skill packages. They require explicit allow_unverified_expert_priors opt-in, exact applicability match and no same-dataset leakage conflict before entering planning context."
+    },
+    {
+      "claim_id": "xaj-v3-validation-thresholds",
+      "category": "policy_suggestion",
+      "source_locator": "skill_v3.md:L156-L174",
+      "claim": "The material proposes NSE/KGE/PBIAS/peak/timing acceptance thresholds.",
+      "disposition": "policy_review_required",
+      "notes": "These thresholds are not model facts or universal standards. They may only become a versioned project policy after explicit review."
+    },
+    {
+      "claim_id": "xaj-v3-period-split",
+      "category": "policy_suggestion",
+      "source_locator": "skill_v3.md:L196-L213",
+      "claim": "The material proposes calibration/validation split and warmup rules for the teaching exercise.",
+      "disposition": "do_not_override_campaign_protocol",
+      "notes": "Current campaigns own warmup/calibration/development/final-test windows. Years already exposed during tuning cannot be relabeled as unseen final test."
+    },
+    {
+      "claim_id": "xaj-v3-yaogu-scores",
+      "category": "calibration_case",
+      "source_locator": "skill_v3.md:L18-L24,L127-L137",
+      "claim": "The material reports Yaogu calibration/validation scores including NSE 0.770 and 0.887 under different ranges.",
+      "disposition": "atomized_as_provenance_only_raw_artifacts_required",
+      "notes": "Keep as an unverified case claim until audit script, daily outputs, parameter sets, source data and exact scoring masks are reproduced under a compatible protocol."
+    }
+  ],
+  "data_provenance": {
+    "dataset_id": "yaogu-academy-1989-2003",
+    "source_period": "1989-01-01..2003-12-31",
+    "reason": "The source's Yaogu sensitivity, diagnostic and benchmark claims were derived from this teaching dataset. A campaign using the same dataset can forbid these priors to prevent indirect leakage."
+  },
+  "known_conflict_topics": [
+    "KE stability/range wording",
+    "KG+KI boundary",
+    "read-only structural parameters versus action advice",
+    "peak-timing direction versus LAG advice",
+    "validation reused for selection while described as independent",
+    "local sensitivity generalized beyond its experiment scope"
+  ],
+  "promoted_claim_assets": []
+}

@@ -32,6 +32,19 @@ def test_create_task_returns_persisted_task(client):
     assert task["basin_id"] == "yaogu"
     assert task["status"] == "created"
     assert client.get("/api/tasks").json()[0]["task_id"] == task["task_id"]
+    snapshot = client.get(f"/api/tasks/{task['task_id']}/skill-snapshot")
+    assert snapshot.status_code == 200
+    assert len(snapshot.json()["snapshot_sha256"]) == 64
+    assert snapshot.json()["skills"]
+    assert "data_b64" not in snapshot.text
+    usage = client.get(f"/api/tasks/{task['task_id']}/skill-usage")
+    assert usage.status_code == 200
+    body = usage.json()
+    assert body["task_id"] == task["task_id"]
+    assert body["snapshot_sha256"] == snapshot.json()["snapshot_sha256"]
+    assert body["frozen_skill_count"] == len(snapshot.json()["skills"])
+    assert body["invocation_count"] == 0
+    assert "data_b64" not in usage.text
 
 
 def test_delete_task_removes_persisted_case(client):

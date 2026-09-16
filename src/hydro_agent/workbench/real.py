@@ -94,7 +94,7 @@ class RealWorkbenchKernel:
         self.scheme_template = json.loads(Path(scheme_path).read_text(encoding="utf-8"))
         self.scheme_template["warmup_days"] = warmup_days
         self.scheme_template.setdefault("model_id", "xaj")
-        self.skills = SkillRegistry()
+        self.skills = SkillRegistry(repository=repository)
         self.standards = self.skills.standards
         self.strategies = CalibrationStrategyRegistry()
         self.gate_policy = gate_policy_from_standards(self.standards)

@@ -121,7 +121,11 @@ def write_units_geojson(
     unit_count: int,
     outlet_xy: tuple[float, float] | None = None,
 ) -> Path | None:
-    """Persist approximate unit polygons for distributed review maps."""
+    """Fallback review polygons when DEM ``units.geojson`` is absent (lumped only).
+
+    Distributed US/Yaogu plans must ship real pyflwdir unit polygons; do not call
+    this helper to invent equal-angle wedges for distributed mode.
+    """
     gis_dir = Path(gis_dir)
     boundary_rings = _load_feature_rings(gis_dir / "boundary.geojson")
     if not boundary_rings:

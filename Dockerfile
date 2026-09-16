@@ -46,6 +46,7 @@ COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-install-project --extra api --extra data --extra xaj --extra xaj-dem --no-dev
 
 COPY src ./src
+COPY skills ./skills
 COPY workflow ./workflow
 COPY scripts ./scripts
 COPY data/academy ./data/academy

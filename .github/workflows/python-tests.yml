@@ -1,9 +1,9 @@
 name: Python tests
 on:
   push:
-    paths: ['src/**', 'tests/**', 'workflow/**', 'scripts/sync_workflow.py', 'web/src/generated/**', 'web/public/workflow-meta.js', 'docs/diagrams/**', 'pyproject.toml', 'uv.lock', '.github/workflows/python-tests.yml']
+    paths: ['skills/**', 'src/**', 'tests/**', 'workflow/**', 'scripts/sync_workflow.py', 'web/src/generated/**', 'web/public/workflow-meta.js', 'docs/diagrams/**', 'pyproject.toml', 'uv.lock', '.github/workflows/python-tests.yml']
   pull_request:
-    paths: ['src/**', 'tests/**', 'workflow/**', 'scripts/sync_workflow.py', 'web/src/generated/**', 'web/public/workflow-meta.js', 'docs/diagrams/**', 'pyproject.toml', 'uv.lock', '.github/workflows/python-tests.yml']
+    paths: ['skills/**', 'src/**', 'tests/**', 'workflow/**', 'scripts/sync_workflow.py', 'web/src/generated/**', 'web/public/workflow-meta.js', 'docs/diagrams/**', 'pyproject.toml', 'uv.lock', '.github/workflows/python-tests.yml']
 permissions:
   contents: read
 jobs:
@@ -20,6 +20,13 @@ jobs:
         with:
           python-version: '3.12'
       - run: uv sync --frozen --extra dev --extra xaj-dem --extra api
+      - name: Validate Agent Skills packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          for skill_dir in skills/*; do
+            uvx --from 'skills-ref==0.1.1' agentskills validate "${skill_dir}"
+          done
       - run: uv run --frozen ruff check src tests
       - name: Ruff format gate
         shell: bash

@@ -16,6 +16,11 @@ from hydro_agent.agent.permissions import (
     pending_calibration_action,
     rediagnosis_required,
 )
+from hydro_agent.agent.providers.skill_support import (
+    diagnosis_from_view,
+    knowledge_context_from_view,
+    skill_orchestrator,
+)
 from hydro_agent.llm.client import SiliconFlowClient
 from hydro_agent.llm.settings import LLMSettings
 from hydro_agent.skills import SkillRegistry
@@ -38,7 +43,7 @@ A05_OPTIMIZE -> A06_GATE -> A07_RESOLVE -> either re-diagnose or A08_FREEZE,
 then (F) A09_REPLAY -> (E) A10_EVALUATE_REPORT.
 Adoption and qualification are separate: an adopted candidate may still be unqualified.
 Only qualification evidence may declare an optimized candidate complete.
-A08 is a closeout request: the tool layer freezes only QUALIFIED schemes and otherwise pauses for human handover without consuming final-test evidence.
+A08 is a closeout request: after a Campaign stop, the tool layer freezes the selected research scheme for read-only final evaluation. Only a QUALIFIED release candidate is release-approved; an unqualified research closeout may still replay and report. Final-test evidence is consumed once after freeze, never during experiment planning.
 
 Return ONLY one JSON object with keys:
 - action: ActionCode string
@@ -91,13 +96,46 @@ class SiliconFlowDecisionProvider:
     def model(self) -> str:
         return self.settings.model
 
+    def _bind_typed_skill_contracts(
+        self, view: WorldStateView, decision: AgentDecision
+    ) -> AgentDecision:
+        """When A05 is chosen, bind strategy fields to the Skill CalibrationPlan chain."""
+
+        if decision.action != ActionCode.A05_OPTIMIZE:
+            return decision
+        diagnosis = diagnosis_from_view(view)
+        if not diagnosis:
+            return decision
+        orchestrator = skill_orchestrator(
+            self.skills,
+            task_id=view.task.task_id,
+            model=self.settings.model,
+        )
+        plan, invocations = orchestrator.plan_calibration(
+            diagnosis,
+            view=view,
+            campaign_objective=view.hydro.campaign_objective,
+            knowledge_context=knowledge_context_from_view(view),
+        )
+        skill_ids, audits = orchestrator.decision_audit(invocations)
+        return decision.model_copy(
+            update={
+                "strategy_id": plan.strategy_id,
+                "param_groups": plan.parameter_groups,
+                "objective": plan.objective,
+                "rationale_summary": plan.rationale[:600],
+                "activated_skill_ids": skill_ids,
+                "activated_skills_audit": audits,
+            }
+        )
+
     def decide(
         self,
         view: WorldStateView,
         *,
         on_delta: Callable[[str], None] | None = None,
     ) -> AgentDecision:
-        activated_skill_ids, skill_block = self.skills.activated_for_prompt(view)
+        activated_skill_ids, skill_block, skill_audit = self.skills.activated_for_prompt_with_audit(view)
         system = SYSTEM_INSTRUCTIONS + "\n\n# Activated Agent Skills\n\n" + skill_block
         completion = self.client.complete_stream(
             [
@@ -138,9 +176,30 @@ class SiliconFlowDecisionProvider:
             # The deterministic scientific guardrail may override the model's proposed next action.
             # Keep the model's observation/analysis, but make the visible decision match what runs.
             payload["decision_zh"] = str(payload.get("rationale_summary") or "")[:240]
-        return AgentDecision.model_validate(payload).model_copy(
-            update={"activated_skill_ids": activated_skill_ids}
+        decision = AgentDecision.model_validate(payload).model_copy(
+            update={
+                "activated_skill_ids": activated_skill_ids,
+                "activated_skills_audit": tuple(
+                    {**item, "output_contract": "AgentDecision", "model": self.settings.model}
+                    for item in skill_audit
+                ),
+            }
         )
+        return self._bind_typed_skill_contracts(view, decision)
+
+
+def _optimize_payload(view: WorldStateView, *, rationale: str) -> dict:
+    """Legal A05 shell; typed strategy/groups/objective are bound after decide()."""
+
+    _ = view
+    return {
+        "action": ActionCode.A05_OPTIMIZE.value,
+        "hypothesis": ProblemHypothesis.MODEL.value,
+        "strategy_id": "xaj-bounded-v1",
+        "param_groups": ["runoff", "routing"],
+        "objective": "nse",
+        "rationale_summary": rationale,
+    }
 
 
 def _diagnosis_nse(view: WorldStateView) -> float | None:
@@ -170,35 +229,6 @@ def _latest_gates(view: WorldStateView, action: ActionCode) -> dict[str, str]:
         if item.action == action:
             return dict(item.gates or {})
     return {}
-
-
-def _optimize_payload(view: WorldStateView, *, rationale: str) -> dict:
-    """Create a legal A05 proposal without novelty-based strategy rotation.
-
-    The provider may pass through the fresh diagnosis recommendation, but the
-    execution-semantic strategy is selected later by ExperimentPlan guardrail
-    from diagnosis + persisted trial evidence. This function must never choose a
-    different strategy merely because one was used before.
-    """
-
-    diagnosis = dict(view.hydro.diagnosis or {})
-    strategy = str(diagnosis.get("recommended_strategy_id") or "xaj-bounded-v1")
-    if strategy == "xaj-hydrologist-manual-v1":
-        strategy = "xaj-bounded-v1"
-    groups = diagnosis.get("recommended_param_groups") or ["runoff", "routing"]
-    if isinstance(groups, str):
-        groups = [g.strip() for g in groups.split(",") if g.strip()]
-    objective = str(diagnosis.get("recommended_objective") or "nse")
-    if objective not in {"nse", "peak", "composite"}:
-        objective = "nse"
-    return {
-        "action": ActionCode.A05_OPTIMIZE.value,
-        "hypothesis": ProblemHypothesis.MODEL.value,
-        "strategy_id": strategy,
-        "param_groups": list(groups) if groups else ["runoff", "routing"],
-        "objective": objective,
-        "rationale_summary": rationale,
-    }
 
 
 def _diagnosis_calibration_progress(

@@ -73,6 +73,33 @@ metadata:
         assert detail.status_code == 200
         assert detail.json()["skill_md"] == created
 
+        binding = client.put(
+            "/api/skills/custom-skill/binding",
+            json={"activation_stages": ["diagnosis"], "activation_model_ids": ["xaj"]},
+        )
+        assert binding.status_code == 200
+        assert binding.json()["activation_stages"] == ["diagnosis"]
+        assert binding.json()["activation_model_ids"] == ["xaj"]
+        assert "activation_stages" not in binding.json()["skill_md"]
+
+        validation = client.post(
+            "/api/skills/custom-skill/validate",
+            json={"skill_md": created},
+        )
+        assert validation.status_code == 200
+        assert validation.json() == {
+            "standard_compatible": True,
+            "domain_ready": True,
+            "errors": [],
+            "warnings": [],
+        }
+
+        invalid = client.put(
+            "/api/skills/custom-skill/binding",
+            json={"activation_stages": ["unknown"], "activation_model_ids": []},
+        )
+        assert invalid.status_code == 422
+
         deleted = client.delete("/api/skills/custom-skill/override")
         assert deleted.status_code == 200
         assert deleted.json()["active"] is False

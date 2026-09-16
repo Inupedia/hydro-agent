@@ -14,6 +14,9 @@ import type {
   SkillOverrideDeleteResult,
   SkillResourceContent,
   SkillSummary,
+  SkillUsageSummary,
+  SkillValidateResult,
+  SkillMigrateLegacyResult,
 } from '../types/skills'
 
 export type { BasinInfo, ModelPlan }
@@ -173,6 +176,18 @@ export const api = {
       body: JSON.stringify({ skill_md }),
     })
   },
+  validateSkill(skillId: string, skill_md: string) {
+    return request<SkillValidateResult>(
+      `/api/skills/${encodeURIComponent(skillId)}/validate`,
+      { method: 'POST', body: JSON.stringify({ skill_md }) },
+    )
+  },
+  saveSkillBinding(skillId: string, activation_stages: string[], activation_model_ids: string[]) {
+    return request<SkillDetail>(`/api/skills/${encodeURIComponent(skillId)}/binding`, {
+      method: 'PUT',
+      body: JSON.stringify({ activation_stages, activation_model_ids }),
+    })
+  },
   deleteSkillOverride(skillId: string) {
     return request<SkillOverrideDeleteResult>(
       `/api/skills/${encodeURIComponent(skillId)}/override`,
@@ -189,6 +204,25 @@ export const api = {
     return request<{ skill_ids: string[]; count: number }>('/api/skills/reload', {
       method: 'POST',
     })
+  },
+  migrateLegacySkills() {
+    return request<SkillMigrateLegacyResult>('/api/skills/migrate-legacy', { method: 'POST' })
+  },
+  getTaskSkillSnapshot(taskId: string) {
+    return request<{
+      task_id: string
+      snapshot_sha256: string
+      skills: Array<{
+        skill_id: string
+        source: string
+        skill_sha256: string
+        file_count: number
+        binding: { activation_stages?: string[]; activation_model_ids?: string[] }
+      }>
+    }>(`/api/tasks/${encodeURIComponent(taskId)}/skill-snapshot`)
+  },
+  getTaskSkillUsage(taskId: string) {
+    return request<SkillUsageSummary>(`/api/tasks/${encodeURIComponent(taskId)}/skill-usage`)
   },
   listSkillResources(skillId: string) {
     return request<{ items: SkillDetail['resources'] }>(

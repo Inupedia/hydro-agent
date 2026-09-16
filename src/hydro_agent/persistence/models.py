@@ -127,6 +127,7 @@ class TaskState(Base):
     needs_follow_up: Mapped[bool] = mapped_column(Boolean, default=True)
     last_information_hash: Mapped[str | None]
     last_decision_fingerprint: Mapped[str | None]
+    skill_snapshot_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=now)
 
 
@@ -159,3 +160,4 @@ class AgentDecisionRun(Created, Base):
     rationale_summary: Mapped[str]
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
+    activated_skills_json: Mapped[list | None] = mapped_column(JSON, nullable=True)

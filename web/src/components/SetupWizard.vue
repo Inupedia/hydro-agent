@@ -346,7 +346,7 @@ function onSubmit() {
                 <small>连通验证只按模型评估预算停止，不宣称收敛或发布合格。</small>
               </label>
               <p class="campaign-skill-tip" data-test="campaign-skill-tip">
-                开跑前请先在知识库阅读「水文率定 Campaign 设计」：固定校准/检验分区、目标与预算，中途不要改 locked 规则。
+                开跑前请先在专业技能中阅读「率定实验设计」：固定校准/检验分区、目标与预算，中途不要改 locked 规则。
               </p>
             </div>
           </fieldset>

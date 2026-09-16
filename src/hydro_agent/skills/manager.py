@@ -6,15 +6,30 @@ the user overlay. Scripts are intentionally not writable through this API.
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path, PurePosixPath
 
 from hydro_agent.skills import SkillRegistry
-from hydro_agent.skills.loader import LoadedSkill, parse_skill_md, validate_skill_name
+from hydro_agent.skills.aliases import LEGACY_SKILL_ALIASES, migrate_user_skill_overrides
+from hydro_agent.skills.binding import ACTIVATION_STAGES, binding_path, validate_binding
+from hydro_agent.skills.loader import (
+    LoadedSkill,
+    load_skill_content,
+    parse_skill_md,
+    validate_skill_name,
+)
 
 _EDITABLE_RESOURCE_ROOTS = {"references", "assets"}
 _BUILTIN_READONLY = "built-in skills are read-only; create a new user skill instead"
-_ACTIVATION_STAGES = {"data", "diagnosis", "experiment", "gate", "report"}
+_CORE_SKILL_IDS = frozenset(LEGACY_SKILL_ALIASES.values()) | {
+    "hydrology-data-review",
+    "hydrologic-evidence-review",
+    "xaj-calibration-diagnosis",
+    "calibration-experiment-design",
+    "calibration-result-review",
+    "hydrology-reporting",
+}
 
 
 class SkillManager:
@@ -33,7 +48,7 @@ class SkillManager:
         return [self._summary_payload(card.skill_id) for card in self.registry.list()]
 
     def detail_payload(self, skill_id: str) -> dict:
-        loaded = self._require_loaded(skill_id)
+        loaded = load_skill_content(self._require_loaded(skill_id))
         payload = self._summary_payload(skill_id)
         payload.update(
             {
@@ -53,7 +68,7 @@ class SkillManager:
         if len(skill_md) > self.max_skill_chars:
             raise ValueError(f"SKILL.md exceeds {self.max_skill_chars} characters")
         parsed = parse_skill_md(skill_md, directory_name=skill_id)
-        unknown_stages = set(parsed.meta_list("activation_stages")) - _ACTIVATION_STAGES
+        unknown_stages = set(parsed.meta_list("activation_stages")) - ACTIVATION_STAGES
         if unknown_stages:
             raise ValueError(f"unknown activation_stages: {', '.join(sorted(unknown_stages))}")
         source = self._source_or_none(skill_id)
@@ -64,6 +79,67 @@ class SkillManager:
         user_dir = self._ensure_user_dir(skill_id, create=True)
         self._atomic_write(user_dir / "SKILL.md", skill_md)
         self.registry.reload()
+        return self.detail_payload(skill_id)
+
+    def validate_skill(self, skill_id: str, skill_md: str) -> dict:
+        """Check a draft without writing it or activating its instructions."""
+        errors: list[str] = []
+        warnings: list[str] = []
+        if len(skill_md) > self.max_skill_chars:
+            errors.append(f"SKILL.md exceeds {self.max_skill_chars} characters")
+        try:
+            parsed = parse_skill_md(skill_md, directory_name=skill_id)
+        except ValueError as exc:
+            errors.append(str(exc))
+            return {"standard_compatible": False, "domain_ready": False,
+                    "errors": errors, "warnings": warnings}
+        standard_compatible = not errors
+        unknown_stages = set(parsed.meta_list("activation_stages")) - ACTIVATION_STAGES
+        if unknown_stages:
+            errors.append(f"unknown activation_stages: {', '.join(sorted(unknown_stages))}")
+        root = self.registry.user_root / skill_id
+        if not root.is_dir() and self.registry.builtin_root is not None:
+            root = self.registry.builtin_root / skill_id
+        for relative in parsed.meta_list("prompt_references"):
+            try:
+                normalized = self._validate_resource_relative(relative, writable=False)
+            except ValueError as exc:
+                errors.append(f"invalid prompt Reference {relative}: {exc}")
+                continue
+            if normalized.parts[0] != "references":
+                errors.append(f"prompt Reference must be under references/: {relative}")
+                continue
+            path = (root / normalized).resolve()
+            if not path.is_relative_to(root.resolve()) or not path.is_file():
+                errors.append(f"prompt Reference is missing or escapes package: {relative}")
+        try:
+            binding = self.registry.binding_for(skill_id)
+        except KeyError:
+            binding = {"activation_stages": []}
+        if not binding["activation_stages"] and not parsed.meta_list("activation_stages"):
+            warnings.append("Skill has no Workflow Binding and will not activate")
+        return {"standard_compatible": standard_compatible, "domain_ready": not errors and not warnings,
+                "errors": errors, "warnings": warnings}
+
+    def save_binding(
+        self, skill_id: str, *, activation_stages: tuple[str, ...], activation_model_ids: tuple[str, ...]
+    ) -> dict:
+        if self._source_or_none(skill_id) != "user":
+            raise ValueError(_BUILTIN_READONLY)
+        validate_binding(activation_stages, activation_model_ids)
+        path = binding_path(self.registry.user_root, skill_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._atomic_write(
+            path,
+            json.dumps(
+                {
+                    "activation_stages": list(dict.fromkeys(activation_stages)),
+                    "activation_model_ids": list(dict.fromkeys(activation_model_ids)),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ) + "\n",
+        )
         return self.detail_payload(skill_id)
 
     def list_resources(self, skill_id: str) -> list[dict]:
@@ -123,6 +199,7 @@ class SkillManager:
         if not user_dir.is_dir():
             raise KeyError(f"no user override for skill: {skill_id}")
         shutil.rmtree(user_dir)
+        binding_path(self.registry.user_root, skill_id).unlink(missing_ok=True)
         active = self.registry.reload()
         restored = skill_id in active
         return {
@@ -144,9 +221,10 @@ class SkillManager:
             "purpose_zh": card.purpose_zh,
             "source": source,
             "editable": source == "user",
-            "activation_stages": list(loaded.meta_list("activation_stages")) if loaded else [],
-            "activation_model_ids": list(loaded.meta_list("activation_model_ids")) if loaded else [],
+            "activation_stages": self.registry.binding_for(skill_id)["activation_stages"] if loaded else [],
+            "activation_model_ids": self.registry.binding_for(skill_id)["activation_model_ids"] if loaded else [],
             "recommended_actions": list(card.recommended_actions),
+            "core": skill_id in _CORE_SKILL_IDS,
         }
 
     def copy_from_builtin(self, skill_id: str) -> dict:
@@ -169,6 +247,18 @@ class SkillManager:
         shutil.copytree(src, user_dir)
         self.registry.reload()
         return self.detail_payload(skill_id)
+
+    def migrate_legacy_overrides(self) -> dict:
+        """Rename user overlays that still use the retired twelve Skill IDs."""
+
+        reports = migrate_user_skill_overrides(self.registry.user_root)
+        if reports:
+            self.registry.reload()
+        return {
+            "migrated": [row for row in reports if row["status"] == "migrated"],
+            "conflicts": [row for row in reports if row["status"] == "conflict"],
+            "count": len(reports),
+        }
 
     def _source_or_none(self, skill_id: str) -> str | None:
         try:
@@ -222,5 +312,14 @@ class SkillManager:
     @staticmethod
     def _atomic_write(path: Path, content: str) -> None:
         temp = path.with_name(f".{path.name}.tmp")
-        temp.write_text(content, encoding="utf-8")
+        previous = path.read_bytes() if path.is_file() else b""
+        has_bom = previous.startswith(b"\xef\xbb\xbf")
+        previous_body = previous[3:] if has_bom else previous
+        newline = "\r\n" if b"\r\n" in previous_body else "\n"
+        normalized = content.replace("\r\n", "\n").replace("\r", "\n")
+        if newline == "\r\n":
+            normalized = normalized.replace("\n", "\r\n")
+        normalized = normalized.lstrip("\ufeff")
+        with temp.open("w", encoding="utf-8-sig" if has_bom else "utf-8", newline="") as stream:
+            stream.write(normalized)
         temp.replace(path)

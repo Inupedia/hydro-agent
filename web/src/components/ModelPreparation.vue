@@ -65,8 +65,8 @@ const selectedReusePlanId = computed({
   set: (id: string) => choosePlan(id),
 })
 const structureOptions = [
-  { value: 'lumped', label: '集总式 · 先切割再合并为 1 套新安江参数' },
-  { value: 'distributed', label: '分布式 · 按面积阈值保留全部子流域，每单元一套参数' },
+  { value: 'lumped', label: '集总式 · 全流域一套新安江参数' },
+  { value: 'distributed', label: '分布式 · DEM+PyFlwDir 划分子流域，每单元一套参数' },
 ]
 const buildLabel = computed(() => {
   if (loadingBasin.value) return '正在检查资料…'
@@ -481,12 +481,12 @@ onUnmounted(() => {
         <p class="mode-hint">
           {{
             modelMode === 'lumped'
-              ? '集总：仍按 DEM 划分子流域，再合并成全流域 1 套参数；手工调参走这条路径。'
-              : '分布式：UNIT_AREA_KM2 控制 PyFlwDir subbasins_area；河网阈值只画河网，不决定出口。单元数由阈值算出。'
+              ? '集总：全流域 1 套参数。腰古会先 DEM 切割再合并；Leaf River 直接用 NLDI 全流域边界。'
+              : '分布式：DEM + PyFlwDir subbasins_area 划界（UNIT_AREA_KM2 为面积阈值，单元数由阈值算出）；Leaf / 腰古同一套语义，禁止等面积假分区。'
           }}
         </p>
         <details open class="param-details">
-          <summary>划分与预热参数（与建模笔记第 2、3 节相同）</summary>
+          <summary>划分与预热参数</summary>
           <div class="model-settings">
             <label>DEM 分辨率 RESOLUTION（m）<input v-model.number="resolution" type="number" min="30" max="1000" /></label>
             <label>河网阈值 STREAM_AREA_KM2（km²）<input v-model.number="streamArea" type="number" min="1" /></label>

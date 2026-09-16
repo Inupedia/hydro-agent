@@ -21,16 +21,18 @@ def test_skills_registry_exposes_focused_hydrology_cards():
     skills = SkillRegistry()
     ids = {s.skill_id for s in skills.list()}
     assert {
-        "hydro-data-readiness",
-        "hydro-error-diagnosis",
-        "xaj-calibration",
-        "gbt-22482-accuracy",
-    } <= ids
+        "hydrology-data-review",
+        "hydrologic-evidence-review",
+        "xaj-calibration-diagnosis",
+        "calibration-experiment-design",
+        "calibration-result-review",
+        "hydrology-reporting",
+    } == ids
     assert "data-check" not in ids
     assert "forecast-diagnose" not in ids
-    diagnose = skills.get("hydro-error-diagnosis")
+    diagnose = skills.get("hydrologic-evidence-review")
     assert "A04_DIAGNOSE" in diagnose.recommended_actions
-    cal = skills.get("xaj-calibration")
+    cal = skills.get("xaj-calibration-diagnosis")
     assert "A05_OPTIMIZE" in cal.recommended_actions
     standards = StandardRepository()
     assert standards.grade_dc_bing() == 0.5

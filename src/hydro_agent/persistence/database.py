@@ -38,6 +38,13 @@ class Database:
                 """CREATE UNIQUE INDEX IF NOT EXISTS forecasts_task_scheme_issue
                    ON forecasts(task_id, scheme_id, issue_time)"""
             )
+            conn.exec_driver_sql(
+                """CREATE TRIGGER IF NOT EXISTS task_state_skill_snapshot_no_replace
+                   BEFORE UPDATE OF skill_snapshot_json ON task_state
+                   WHEN OLD.skill_snapshot_json IS NOT NULL
+                        AND NEW.skill_snapshot_json IS NOT OLD.skill_snapshot_json
+                   BEGIN SELECT RAISE(ABORT, 'immutable Skill Snapshot'); END"""
+            )
 
     def _add_missing_columns(self) -> None:
         """SQLite create_all never ALTERs existing tables; add new nullable columns in place."""

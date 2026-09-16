@@ -32,6 +32,7 @@ from hydro_agent.modeling.plans import ModelPlanService, PlanRequest, bundled_ac
 from hydro_agent.persistence.database import Database
 from hydro_agent.persistence.repository import HydroRepository
 from hydro_agent.research import CalibrationCase, CalibrationCaseMemory, lesson_from_gate
+from hydro_agent.skills import SkillRegistry
 from hydro_agent.standards import StandardRepository
 from hydro_agent.workbench.calibration_scientist import CalibrationScientistWorkbenchKernel
 
@@ -210,6 +211,7 @@ def main() -> int:
             mode="real",
         )
         deps.model_plans = plans
+        deps.skills = SkillRegistry(repository=repository)
 
         request = TaskCreateRequest(
             basin_id="yaogu",
@@ -269,7 +271,7 @@ def main() -> int:
             warmup_days=warmup_days,
         )
         tools = kernel.build_tools(task_configs=deps.task_configs)
-        provider = CalibrationScientistDecisionProvider()
+        provider = CalibrationScientistDecisionProvider(repository=repository)
         world_state = WorldStateBuilder(
             repository,
             skills=kernel.skills,

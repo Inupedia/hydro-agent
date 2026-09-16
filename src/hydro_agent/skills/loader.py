@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+
+import yaml
 
 from hydro_agent.skill_paths import builtin_skills_root, user_skills_root
 
-_FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?(.*)\Z", re.DOTALL)
+_FRONTMATTER_RE = re.compile(r"\A\ufeff?---\s*\n(.*?)\n---\s*\n?(.*)\Z", re.DOTALL)
 
 
 @dataclass(frozen=True)
@@ -99,10 +100,43 @@ def load_skills(root: Path | None = None) -> dict[str, LoadedSkill]:
         skill_path = child / "SKILL.md"
         if not skill_path.is_file():
             continue
-        text = skill_path.read_text(encoding="utf-8")
-        loaded = parse_skill_md(text, directory_name=child.name, root=child)
+        loaded = load_skill_metadata(skill_path)
         skills[loaded.skill_id] = loaded
     return skills
+
+
+def load_skill_metadata(path: Path) -> LoadedSkill:
+    """Read only frontmatter for catalog discovery; defer instructions until activation."""
+    lines: list[str] = []
+    with path.open("r", encoding="utf-8-sig") as stream:
+        if stream.readline().strip() != "---":
+            raise ValueError(f"SKILL.md missing YAML frontmatter: {path.parent.name}")
+        for line in stream:
+            if line.strip() == "---":
+                break
+            lines.append(line)
+        else:
+            raise ValueError(f"SKILL.md missing YAML frontmatter: {path.parent.name}")
+    frontmatter = "---\n" + "".join(lines) + "---\n"
+    return replace(
+        parse_skill_md(frontmatter, directory_name=path.parent.name, root=path.parent),
+        raw_text="",
+    )
+
+
+def parse_skill_metadata_text(text: str, *, directory_name: str) -> LoadedSkill:
+    match = _FRONTMATTER_RE.match(text)
+    if not match:
+        raise ValueError(f"SKILL.md missing YAML frontmatter: {directory_name}")
+    frontmatter = "---\n" + match.group(1) + "\n---\n"
+    return replace(parse_skill_md(frontmatter, directory_name=directory_name), raw_text="")
+
+
+def load_skill_content(skill: LoadedSkill) -> LoadedSkill:
+    if skill.root is None:
+        return skill
+    path = skill.root / "SKILL.md"
+    return parse_skill_md(path.read_text(encoding="utf-8"), directory_name=skill.skill_id, root=skill.root)
 
 
 def read_reference(skill: LoadedSkill, relative: str, *, max_chars: int = 4000) -> str:
@@ -132,56 +166,20 @@ def validate_skill_name(name: str) -> None:
 
 
 def _parse_frontmatter(block: str) -> dict:
-    """Minimal YAML subset required by the current Hydro-Agent skill catalog."""
-    result: dict = {}
-    lines = block.splitlines()
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        if not line.strip() or line.strip().startswith("#"):
-            i += 1
-            continue
-        if line.startswith(" ") or line.startswith("\t"):
-            i += 1
-            continue
-        if ":" not in line:
-            i += 1
-            continue
-        key, _, rest = line.partition(":")
-        key = key.strip()
-        rest = rest.strip()
-        if key == "metadata" and (rest == "" or rest == "{}"):
-            nested: dict[str, str] = {}
-            i += 1
-            while i < len(lines):
-                nested_line = lines[i]
-                if nested_line and not nested_line[0].isspace():
-                    break
-                stripped = nested_line.strip()
-                if not stripped or stripped.startswith("#"):
-                    i += 1
-                    continue
-                if ":" not in stripped:
-                    i += 1
-                    continue
-                nk, _, nv = stripped.partition(":")
-                nested[nk.strip()] = _unquote(nv.strip())
-                i += 1
-            result["_metadata"] = nested
-            continue
-        result[key] = _unquote(rest)
-        i += 1
+    """Parse the actual YAML grammar instead of silently accepting a loose subset."""
+    try:
+        result = yaml.safe_load(block)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"invalid SKILL.md YAML frontmatter: {exc}") from exc
+    if not isinstance(result, dict):
+        raise ValueError("SKILL.md frontmatter must be a YAML mapping")
+    metadata = result.pop("metadata", {})
+    if metadata is None:
+        metadata = {}
+    if not isinstance(metadata, dict) or any(
+        not isinstance(key, str) or not isinstance(value, str)
+        for key, value in metadata.items()
+    ):
+        raise ValueError("SKILL.md metadata must map string keys to string values")
+    result["_metadata"] = metadata
     return result
-
-
-def _unquote(value: str) -> str:
-    if len(value) >= 2 and value[0] == value[-1] == '"':
-        if "\\" in value:
-            try:
-                return json.loads(value)
-            except json.JSONDecodeError:
-                pass
-        return value[1:-1]
-    if len(value) >= 2 and value[0] == value[-1] == "'":
-        return value[1:-1]
-    return value

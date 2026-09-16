@@ -36,7 +36,9 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
     )
     executor = TaskExecutor(deps)
     deps.executor = executor  # type: ignore[attr-defined]
-    skill_registry = deps.skills if deps.skills is not None else SkillRegistry()
+    skill_registry = deps.skills if deps.skills is not None else SkillRegistry(repository=deps.repository)
+    if skill_registry.repository is None:
+        skill_registry.repository = deps.repository
     deps.skills = skill_registry
     app.state.deps = deps
     app.state.executor = executor

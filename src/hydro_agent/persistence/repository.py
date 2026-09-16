@@ -334,6 +334,26 @@ class HydroRepository:
     def get_task_state(self, task_id: str):
         return self._get(TaskState, task_id)
 
+    def set_skill_snapshot(self, task_id: str, snapshot: dict):
+        """Freeze once; routine TaskState updates cannot replace package bytes."""
+        from hydro_agent.skills.snapshot import verify_snapshot
+
+        verify_snapshot(snapshot)
+        with self.database.session() as session:
+            changed = session.execute(
+                update(TaskState)
+                .where(TaskState.task_id == task_id, TaskState.skill_snapshot_json.is_(None))
+                .values(skill_snapshot_json=snapshot)
+            )
+            if changed.rowcount == 1:
+                return session.get(TaskState, task_id)
+            state = session.get(TaskState, task_id)
+            if state is None:
+                raise KeyError(task_id)
+            if state.skill_snapshot_json != snapshot:
+                raise ValueError(f"Skill Snapshot already frozen for task {task_id}")
+            return state
+
     def update_task_state(self, task_id: str, **fields):
         allowed = {
             "current_scheme_id",

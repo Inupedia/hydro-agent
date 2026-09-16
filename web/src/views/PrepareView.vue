@@ -76,7 +76,7 @@ function statusZh(status: string) {
             <span class="key">流域</span>
             <div class="val">
               <strong>腰古</strong>
-              <small>yaogu · 内置资料，不可改选</small>
+              <small>yaogu · 产品内置流域，不可改选</small>
             </div>
           </div>
 

@@ -140,7 +140,7 @@ def test_qualified_gate_freezes_even_if_llm_requests_more_search():
     assert "资格评价" in result["rationale_summary"]
 
 
-def test_unqualified_budget_exhaustion_requests_handover_safe_closeout():
+def test_unqualified_budget_exhaustion_auto_closes_without_release_approval():
     view = _resolved_view("UNQUALIFIED", optimization_cycles_remaining=0)
     result = _diagnosis_calibration_progress(
         view,
@@ -155,6 +155,6 @@ def test_unqualified_budget_exhaustion_requests_handover_safe_closeout():
     )
 
     assert result["action"] == "A08_FREEZE"
-    assert "请求收尾检查" in result["rationale_summary"]
-    assert "不冻结或消费 final-test" in result["rationale_summary"]
-    assert "冻结当前工作方案进入回放" not in result["rationale_summary"]
+    assert "自动进入研究收口" in result["rationale_summary"]
+    assert "不放行发布" in result["rationale_summary"]
+    assert "不合格方案仍可冻结并回放/出报告" in result["rationale_summary"]

@@ -27,11 +27,11 @@ description: {name} skill
 def test_user_focused_skill_assets_drive_expert_priors(monkeypatch, tmp_path: Path):
     builtin_root = tmp_path / "builtin"
     user_root = tmp_path / "user"
-    builtin = _write_skill(builtin_root, "xaj-water-balance")
+    builtin = _write_skill(builtin_root, "xaj-calibration-diagnosis")
     expert_dir = builtin / "assets" / "expert"
     expert_dir.mkdir(parents=True)
     payload = {
-        "knowledge_id": "xaj-water-balance-priors-v1",
+        "knowledge_id": "xaj-calibration-diagnosis-priors-v1",
         "status": "seed_prior",
         "authority": "advisory_only",
         "governance": {
@@ -51,18 +51,18 @@ def test_user_focused_skill_assets_drive_expert_priors(monkeypatch, tmp_path: Pa
             }
         ],
     }
-    (expert_dir / "xaj-water-balance-priors-v1.json").write_text(
+    (expert_dir / "xaj-calibration-diagnosis-priors-v1.json").write_text(
         json.dumps(payload), encoding="utf-8"
     )
     monkeypatch.setenv("HYDRO_AGENT_SKILLS_DIR", str(user_root))
 
     registry = SkillRegistry(builtin_root=builtin_root, user_root=user_root)
     manager = SkillManager(registry)
-    manager.copy_from_builtin("xaj-water-balance")
+    manager.copy_from_builtin("xaj-calibration-diagnosis")
     payload["rules"][0]["threshold"] = 25.0
     manager.save_resource(
-        "xaj-water-balance",
-        "assets/expert/xaj-water-balance-priors-v1.json",
+        "xaj-calibration-diagnosis",
+        "assets/expert/xaj-calibration-diagnosis-priors-v1.json",
         json.dumps(payload),
     )
 
@@ -71,14 +71,14 @@ def test_user_focused_skill_assets_drive_expert_priors(monkeypatch, tmp_path: Pa
     assert (
         engine.advise(
             {"metrics": {"pbias_percent": 20.0}},
-            source_id="xaj-water-balance-priors-v1",
+            source_id="xaj-calibration-diagnosis-priors-v1",
             governance_context=context,
         ).matched_prior_refs
         == ()
     )
     assert engine.advise(
         {"metrics": {"pbias_percent": 30.0}},
-        source_id="xaj-water-balance-priors-v1",
+        source_id="xaj-calibration-diagnosis-priors-v1",
         governance_context=context,
     ).matched_prior_refs == ("expert.water_balance_first@1",)
 
@@ -86,7 +86,7 @@ def test_user_focused_skill_assets_drive_expert_priors(monkeypatch, tmp_path: Pa
 def test_user_focused_skill_assets_drive_governed_catalog(monkeypatch, tmp_path: Path):
     builtin_root = tmp_path / "builtin"
     user_root = tmp_path / "user"
-    builtin = _write_skill(builtin_root, "xaj-routing-diagnosis")
+    builtin = _write_skill(builtin_root, "xaj-calibration-diagnosis")
     governed_dir = builtin / "assets" / "governed"
     governed_dir.mkdir(parents=True)
     claim = {
@@ -107,10 +107,10 @@ def test_user_focused_skill_assets_drive_governed_catalog(monkeypatch, tmp_path:
 
     registry = SkillRegistry(builtin_root=builtin_root, user_root=user_root)
     manager = SkillManager(registry)
-    manager.copy_from_builtin("xaj-routing-diagnosis")
+    manager.copy_from_builtin("xaj-calibration-diagnosis")
     claim.update(revision=2, claim="user claim", source_id="user", source_hash="sha256:user")
     manager.save_resource(
-        "xaj-routing-diagnosis",
+        "xaj-calibration-diagnosis",
         "assets/governed/claims.json",
         json.dumps({"entries": [claim]}),
     )

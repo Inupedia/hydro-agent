@@ -56,6 +56,43 @@ metadata:
     assert (builtin / "SKILL.md").read_text(encoding="utf-8") == original
 
 
+def test_user_skill_edit_preserves_existing_bom_and_crlf(tmp_path: Path):
+    user_root = tmp_path / "user"
+    user_dir = user_root / "bom-skill"
+    user_dir.mkdir(parents=True)
+    original = "---\r\nname: bom-skill\r\ndescription: sample\r\n---\r\n\r\n# First\r\n"
+    (user_dir / "SKILL.md").write_bytes(b"\xef\xbb\xbf" + original.encode("utf-8"))
+    registry = SkillRegistry(builtin_root=tmp_path / "builtin", user_root=user_root)
+    manager = SkillManager(registry)
+    updated = "---\nname: bom-skill\ndescription: sample\n---\n\n# Second\n"
+    manager.save_skill("bom-skill", updated)
+    raw = (user_dir / "SKILL.md").read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf")
+    assert b"\r\n# Second\r\n" in raw
+
+
+def test_validate_skill_draft_reports_missing_reference_without_writing(tmp_path: Path):
+    user_root = tmp_path / "user"
+    _write_skill(user_root, "review-skill", "review")
+    registry = SkillRegistry(builtin_root=tmp_path / "builtin", user_root=user_root)
+    manager = SkillManager(registry)
+    original = (user_root / "review-skill" / "SKILL.md").read_bytes()
+    draft = """---
+name: review-skill
+description: Review evidence.
+metadata:
+  prompt_references: references/missing.md
+---
+
+# Review
+"""
+    result = manager.validate_skill("review-skill", draft)
+    assert result["standard_compatible"] is True
+    assert result["domain_ready"] is False
+    assert any("missing" in error for error in result["errors"])
+    assert (user_root / "review-skill" / "SKILL.md").read_bytes() == original
+
+
 def test_copy_builtin_skill_to_user_overlay(tmp_path: Path):
     builtin_root = tmp_path / "builtin"
     user_root = tmp_path / "user"
@@ -102,6 +139,34 @@ metadata:
     assert result["restored_builtin"] is True
     assert registry.source("demo-skill") == "builtin"
     assert registry.get_loaded("demo-skill").description == "builtin description"
+
+
+def test_user_binding_is_external_and_overrides_legacy_metadata(tmp_path: Path):
+    user_root = tmp_path / "user"
+    registry = SkillRegistry(builtin_root=tmp_path / "builtin", user_root=user_root)
+    manager = SkillManager(registry)
+    skill_md = """---
+name: binding-skill
+description: Evidence review.
+metadata:
+  activation_stages: "data"
+---
+
+# Review
+"""
+    manager.save_skill("binding-skill", skill_md)
+    assert registry.binding_for("binding-skill")["activation_stages"] == ["data"]
+    detail = manager.save_binding(
+        "binding-skill", activation_stages=("diagnosis",), activation_model_ids=("xaj",)
+    )
+    assert detail["activation_stages"] == ["diagnosis"]
+    assert detail["activation_model_ids"] == ["xaj"]
+    assert (user_root / "binding-skill" / "SKILL.md").read_text(encoding="utf-8") == skill_md
+    assert (user_root / ".bindings" / "binding-skill.json").is_file()
+    registry.reload()
+    assert registry.binding_for("binding-skill")["activation_stages"] == ["diagnosis"]
+    manager.delete_override("binding-skill")
+    assert not (user_root / ".bindings" / "binding-skill.json").exists()
 
 
 def test_create_skill_and_manage_reference_resource(tmp_path: Path):

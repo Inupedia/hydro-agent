@@ -18,7 +18,7 @@ vi.mock('../api/client', () => ({
 }))
 
 describe('HydrologistTune', () => {
-  it('renders notebook-style actions', async () => {
+  it('renders tune actions', async () => {
     const wrapper = mount(HydrologistTune, {
       props: { planId: 'plan-1', taskId: 'task-1' },
     })

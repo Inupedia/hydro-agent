@@ -7,34 +7,41 @@ standards, Campaign locks, model constraints and Gate decisions live elsewhere.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from hydro_agent.execution.contracts import FrozenModel
+from hydro_agent.skills.binding import read_binding
 from hydro_agent.skills.loader import (
     LoadedSkill,
     default_skills_root,
     default_user_skills_root,
+    load_skill_content,
     load_skills,
+    parse_skill_md,
+    parse_skill_metadata_text,
     read_reference,
+)
+from hydro_agent.skills.reference_policy import references_for_view
+from hydro_agent.skills.snapshot import (
+    build_snapshot,
+    capture_package,
+    snapshot_file_bytes,
+    verify_snapshot,
 )
 from hydro_agent.standards import StandardRepository
 
 if TYPE_CHECKING:
     from hydro_agent.agent.contracts import WorldStateView
 
-DATA_READINESS_SKILL_ID = "hydro-data-readiness"
-ERROR_DIAGNOSIS_SKILL_ID = "hydro-error-diagnosis"
-WATER_BALANCE_SKILL_ID = "xaj-water-balance"
-RUNOFF_GENERATION_SKILL_ID = "xaj-runoff-generation"
-ROUTING_DIAGNOSIS_SKILL_ID = "xaj-routing-diagnosis"
-CAMPAIGN_DESIGN_SKILL_ID = "hydro-campaign-design"
-EXPERIMENT_DESIGN_SKILL_ID = "hydro-experiment-design"
-CALIBRATION_SKILL_ID = "xaj-calibration"
-GBT_SKILL_ID = "gbt-22482-accuracy"
-MODELING_PREP_SKILL_ID = "hydro-modeling-prep"
-REPORT_CLOSEOUT_SKILL_ID = "hydro-report-closeout"
-OPENHYDRONET_DIAGNOSIS_SKILL_ID = "openhydronet-diagnosis"
+DATA_REVIEW_SKILL_ID = "hydrology-data-review"
+EVIDENCE_REVIEW_SKILL_ID = "hydrologic-evidence-review"
+XAJ_DIAGNOSIS_SKILL_ID = "xaj-calibration-diagnosis"
+EXPERIMENT_DESIGN_SKILL_ID = "calibration-experiment-design"
+RESULT_REVIEW_SKILL_ID = "calibration-result-review"
+REPORTING_SKILL_ID = "hydrology-reporting"
 SkillSource = Literal["builtin", "user", "memory"]
 ActivationStage = Literal["data", "diagnosis", "experiment", "gate", "report"]
 
@@ -77,8 +84,13 @@ class SkillRegistry:
         user_root: Path | None = None,
         loaded: dict[str, LoadedSkill] | None = None,
         standards: StandardRepository | None = None,
+        repository=None,
     ):
         self._standards = standards or StandardRepository()
+        self.repository = repository
+        self._snapshot_files: dict[str, dict] = {}
+        self._snapshot_bindings: dict[str, dict] = {}
+        self._snapshot_sha256: str | None = None
         self._static = loaded is not None or skills is not None
         if root is not None:
             self._builtin_root: Path | None = None
@@ -143,6 +155,66 @@ class SkillRegistry:
         except KeyError as exc:
             raise KeyError(skill_id) from exc
 
+    def binding_for(self, skill_id: str) -> dict:
+        skill = self._loaded.get(skill_id)
+        if skill is None:
+            raise KeyError(skill_id)
+        if skill_id in self._snapshot_bindings:
+            return self._snapshot_bindings[skill_id]
+        if self._sources.get(skill_id) == "user":
+            binding = read_binding(self._user_root, skill_id)
+            if binding is not None:
+                return binding
+        if self._builtin_root is not None:
+            binding = read_binding(self._builtin_root, skill_id)
+            if binding is not None:
+                return binding
+        return {
+            "activation_stages": list(skill.meta_list("activation_stages")),
+            "activation_model_ids": list(skill.meta_list("activation_model_ids")),
+        }
+
+    def freeze_for_task(self, task_id: str) -> dict:
+        if self.repository is None:
+            raise ValueError("Skill Registry needs a repository to freeze a task")
+        existing = self.repository.get_task_state(task_id).skill_snapshot_json
+        if existing is not None:
+            verify_snapshot(existing)
+            return existing
+        self.reload()
+        packages: dict[str, dict] = {}
+        for skill_id, skill in sorted(self._loaded.items()):
+            if skill.root is None:
+                continue
+            packages[skill_id] = {
+                "source": self.source(skill_id),
+                "binding": self.binding_for(skill_id),
+                "files": capture_package(skill.root),
+            }
+        snapshot = build_snapshot(packages)
+        self.repository.set_skill_snapshot(task_id, snapshot)
+        return snapshot
+
+    @classmethod
+    def from_snapshot(cls, snapshot: dict, *, standards: StandardRepository | None = None):
+        verify_snapshot(snapshot)
+        loaded: dict[str, LoadedSkill] = {}
+        for skill_id, package in snapshot["skills"].items():
+            raw = snapshot_file_bytes(package["files"], "SKILL.md").decode("utf-8")
+            loaded[skill_id] = parse_skill_metadata_text(raw, directory_name=skill_id)
+        registry = cls(loaded=loaded, standards=standards)
+        registry._sources = {
+            skill_id: package["source"] for skill_id, package in snapshot["skills"].items()
+        }
+        registry._snapshot_files = {
+            skill_id: package["files"] for skill_id, package in snapshot["skills"].items()
+        }
+        registry._snapshot_bindings = {
+            skill_id: package["binding"] for skill_id, package in snapshot["skills"].items()
+        }
+        registry._snapshot_sha256 = snapshot["sha256"]
+        return registry
+
     def summaries_zh(self) -> tuple[str, ...]:
         return tuple(f"{skill.skill_id}:{skill.title_zh}" for skill in self.list())
 
@@ -163,19 +235,75 @@ class SkillRegistry:
         return self._standards.provenance()
 
     def activate(self, skill_id: str, *, include_references: bool = True) -> str:
+        return self.activate_with_manifest(skill_id, include_references=include_references)[0]
+
+    def activate_with_manifest(
+        self,
+        skill_id: str,
+        *,
+        include_references: bool = True,
+        reference_paths: tuple[str, ...] | None = None,
+    ) -> tuple[str, dict]:
         skill = self._loaded.get(skill_id)
         if skill is None:
             card = self._cards.get(skill_id)
             if card is None:
                 raise KeyError(skill_id)
-            return f"# {card.title_zh}\n\n{card.purpose_zh}\n"
+            return f"# {card.title_zh}\n\n{card.purpose_zh}\n", {
+                "skill_id": skill_id,
+                "source": self.source(skill_id),
+                "skill_sha256": None,
+                "snapshot_sha256": self._snapshot_sha256,
+                "loaded_references": [],
+            }
+        if skill_id in self._snapshot_files:
+            raw = snapshot_file_bytes(self._snapshot_files[skill_id], "SKILL.md").decode("utf-8")
+            skill = parse_skill_md(raw, directory_name=skill_id)
+        else:
+            skill = load_skill_content(skill)
         parts = [f"# Skill: {skill.name}\n\n{skill.description}\n\n{skill.body}"]
+        references: list[dict[str, str]] = []
         if include_references:
-            for relative in skill.meta_list("prompt_references"):
-                reference = read_reference(skill, relative)
+            declared = skill.meta_list("prompt_references")
+            requested = declared if reference_paths is None else reference_paths
+            if any(relative not in declared for relative in requested):
+                raise ValueError(f"undeclared Skill reference requested: {skill_id}")
+            for relative in requested:
+                if skill_id in self._snapshot_files:
+                    files = self._snapshot_files[skill_id]
+                    if relative not in files:
+                        continue
+                    raw = snapshot_file_bytes(files, relative)
+                    reference = raw.decode("utf-8")
+                    if len(reference) > 4000:
+                        reference = reference[:3980] + "\n\n…(truncated)…"
+                    reference_hash = hashlib.sha256(raw).hexdigest()
+                else:
+                    reference = read_reference(skill, relative)
+                    reference_hash = (
+                        hashlib.sha256((skill.root / relative).read_bytes()).hexdigest()
+                        if skill.root is not None and reference
+                        else ""
+                    )
                 if reference:
                     parts.append(f"\n\n---\n\n{reference}")
-        return "\n".join(parts)
+                    references.append({
+                        "path": relative,
+                        "sha256": reference_hash,
+                    })
+        manifest = {
+            "skill_id": skill_id,
+            "source": self.source(skill_id),
+            "skill_sha256": hashlib.sha256(skill.raw_text.encode("utf-8")).hexdigest(),
+            "snapshot_sha256": self._snapshot_sha256,
+            "binding_sha256": hashlib.sha256(
+                json.dumps(self.binding_for(skill_id), sort_keys=True, separators=(",", ":")).encode(
+                    "utf-8"
+                )
+            ).hexdigest(),
+            "loaded_references": references,
+        }
+        return "\n".join(parts), manifest
 
     def activate_for_view(self, view: WorldStateView) -> tuple[str, ...]:
         """Select advisory Skills from state without encoding scientific stop rules.
@@ -185,94 +313,52 @@ class SkillRegistry:
         scientific stop decision.
         """
 
-        actions = [item.action.value for item in view.evidence_summary]
+        actions = {item.action.value for item in view.evidence_summary}
         has_forecast = bool(view.latest_forecast_id) or "A03_FORECAST" in actions
-        has_diagnose = "A04_DIAGNOSE" in actions
-        diagnosis = dict(view.hydro.diagnosis or {})
-        hypothesis = str(diagnosis.get("hypothesis") or "").upper()
-        groups = set(_name_list(diagnosis.get("recommended_param_groups")))
-        has_candidate = bool(view.hydro.candidate_parameters)
-        need_gate = "A05_OPTIMIZE" in actions and "A06_GATE" not in actions
-        in_calibration_flow = (
-            has_diagnose
-            or has_candidate
-            or "A05_OPTIMIZE" in actions
-            or "A06_GATE" in actions
-            or "A07_RESOLVE" in actions
-        )
-
+        has_diagnosis = bool(view.hydro.diagnosis) or "A04_DIAGNOSE" in actions
+        stage = self.activation_stage(view)
         selected: list[str] = []
-        if not has_forecast:
-            selected.extend(
-                (
-                    DATA_READINESS_SKILL_ID,
-                    MODELING_PREP_SKILL_ID,
-                    CAMPAIGN_DESIGN_SKILL_ID,
-                )
-            )
-        elif not has_diagnose:
-            selected.append(ERROR_DIAGNOSIS_SKILL_ID)
-            if view.model.model_id == "openhydronet":
-                selected.append(OPENHYDRONET_DIAGNOSIS_SKILL_ID)
+        if stage == "report":
+            if "A06_GATE" in actions or "A10_EVALUATE_REPORT" in actions:
+                selected.append(RESULT_REVIEW_SKILL_ID)
+            selected.append(REPORTING_SKILL_ID)
+        elif stage == "data" or not has_forecast:
+            selected.append(DATA_REVIEW_SKILL_ID)
+            if view.task.allow_optimization:
+                selected.append(EXPERIMENT_DESIGN_SKILL_ID)
+        elif stage == "gate":
+            selected.append(RESULT_REVIEW_SKILL_ID)
         else:
-            selected.append(ERROR_DIAGNOSIS_SKILL_ID)
-            if view.model.model_id == "openhydronet":
-                selected.append(OPENHYDRONET_DIAGNOSIS_SKILL_ID)
-            else:
-                if "evap" in groups:
-                    selected.append(WATER_BALANCE_SKILL_ID)
-                if "runoff" in groups:
-                    selected.extend((WATER_BALANCE_SKILL_ID, RUNOFF_GENERATION_SKILL_ID))
-                if "routing" in groups or hypothesis == "TIMING":
-                    selected.append(ROUTING_DIAGNOSIS_SKILL_ID)
-                if not groups and hypothesis in {"MODEL", "UNKNOWN", ""}:
-                    metrics = dict(diagnosis.get("metrics") or {})
-                    pbias = metrics.get("pbias_percent", metrics.get("pbias"))
-                    peak_lag = metrics.get(
-                        "peak_lag_hours",
-                        metrics.get("peak_time_error_hours", metrics.get("peak_timing_error_hours")),
-                    )
-                    selected.append(WATER_BALANCE_SKILL_ID)
-                    try:
-                        lag_value = abs(float(peak_lag)) if peak_lag is not None else None
-                    except (TypeError, ValueError):
-                        lag_value = None
-                    try:
-                        pbias_value = abs(float(pbias)) if pbias is not None else None
-                    except (TypeError, ValueError):
-                        pbias_value = None
-                    if lag_value is not None and lag_value >= 1.0:
-                        selected.append(ROUTING_DIAGNOSIS_SKILL_ID)
-                    elif pbias_value is not None and pbias_value < 10.0:
-                        selected.append(RUNOFF_GENERATION_SKILL_ID)
-            if view.task.allow_optimization and in_calibration_flow:
-                selected.extend((CALIBRATION_SKILL_ID, EXPERIMENT_DESIGN_SKILL_ID))
-
-        if need_gate or "A06_GATE" in actions or "A10_EVALUATE_REPORT" in actions:
-            selected.append(GBT_SKILL_ID)
-        if (
-            view.task.phase in {"F", "E"}
-            or view.hydro.campaign.stop_reason is not None
-            or "A08_FREEZE" in actions
-            or "A10_EVALUATE_REPORT" in actions
-        ):
-            selected.append(REPORT_CLOSEOUT_SKILL_ID)
+            selected.append(EVIDENCE_REVIEW_SKILL_ID)
+            if has_diagnosis and view.model.model_id == "xaj":
+                selected.append(XAJ_DIAGNOSIS_SKILL_ID)
+            if has_diagnosis and view.task.allow_optimization:
+                selected.append(EXPERIMENT_DESIGN_SKILL_ID)
+            if "A06_GATE" in actions or "A07_RESOLVE" in actions:
+                selected.append(RESULT_REVIEW_SKILL_ID)
 
         output: list[str] = []
         for skill_id in selected:
-            if skill_id in self._cards and skill_id not in output:
+            if skill_id not in self._cards or skill_id in output:
+                continue
+            if skill_id not in self._loaded:
                 output.append(skill_id)
-        stage = self.activation_stage(view)
+                continue
+            binding = self.binding_for(skill_id)
+            stages = binding["activation_stages"]
+            models = binding["activation_model_ids"]
+            if stage in stages and (not models or view.model.model_id in models):
+                output.append(skill_id)
         for skill_id in sorted(self._loaded):
             if self._sources.get(skill_id) != "user" or skill_id in output:
                 continue
-            skill = self._loaded[skill_id]
-            stages = skill.meta_list("activation_stages")
-            models = skill.meta_list("activation_model_ids")
+            binding = self.binding_for(skill_id)
+            stages = binding["activation_stages"]
+            models = binding["activation_model_ids"]
             if stage in stages and (not models or view.model.model_id in models):
                 output.append(skill_id)
-        if not output and DATA_READINESS_SKILL_ID in self._cards:
-            output.append(DATA_READINESS_SKILL_ID)
+        if not output and DATA_REVIEW_SKILL_ID in self._cards:
+            output.append(DATA_REVIEW_SKILL_ID)
         return tuple(output)
 
     @staticmethod
@@ -300,9 +386,28 @@ class SkillRegistry:
         return "data"
 
     def activated_for_prompt(self, view: WorldStateView) -> tuple[tuple[str, ...], str]:
+        skill_ids, prompt, _ = self.activated_for_prompt_with_audit(view)
+        return skill_ids, prompt
+
+    def activated_for_prompt_with_audit(
+        self, view: WorldStateView
+    ) -> tuple[tuple[str, ...], str, tuple[dict, ...]]:
+        if self.repository is not None:
+            snapshot = self.freeze_for_task(view.task.task_id)
+            frozen = self.from_snapshot(snapshot, standards=self._standards)
+            return frozen.activated_for_prompt_with_audit(view)
         self.reload()
         skill_ids = self.activate_for_view(view)
-        chunks = [self.activate(skill_id) for skill_id in skill_ids]
+        activations = [
+            self.activate_with_manifest(
+                skill_id,
+                reference_paths=references_for_view(self._loaded[skill_id], view)
+                if skill_id in self._loaded
+                else (),
+            )
+            for skill_id in skill_ids
+        ]
+        chunks = [item[0] for item in activations]
         provenance = self.standard_provenance()
         stop_reason = view.hydro.campaign.stop_reason
         header = (
@@ -311,15 +416,19 @@ class SkillRegistry:
             f"min_scheme_grade={self.min_scheme_grade()} "
             f"(standard={provenance['standard_id']}; policy={provenance['policy_id']}).\n\n"
         )
-        return skill_ids, header + "\n\n====\n\n".join(chunks)
+        return (
+            skill_ids,
+            header + "\n\n====\n\n".join(chunks),
+            tuple(
+                {
+                    **item[1],
+                    "task_id": view.task.task_id,
+                    "activation_stage": self.activation_stage(view),
+                    "input_evidence_ids": [row.evidence_id for row in view.evidence_summary],
+                }
+                for item in activations
+            ),
+        )
 
     def render_activated(self, view: WorldStateView) -> str:
         return self.activated_for_prompt(view)[1]
-
-
-def _name_list(raw: object) -> tuple[str, ...]:
-    if isinstance(raw, str):
-        return tuple(item.strip() for item in raw.split(",") if item.strip())
-    if isinstance(raw, (list, tuple)):
-        return tuple(str(item).strip() for item in raw if str(item).strip())
-    return ()

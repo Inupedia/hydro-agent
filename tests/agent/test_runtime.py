@@ -44,6 +44,15 @@ def test_runtime_persists_decision_and_evidence(tmp_path):
                 action=ActionCode.A03_FORECAST,
                 hypothesis=ProblemHypothesis.MODEL,
                 rationale_summary="Run the base forecast.",
+                activated_skill_ids=("sample-skill",),
+                activated_skills_audit=(
+                    {
+                        "skill_id": "sample-skill",
+                        "source": "user",
+                        "skill_sha256": "a" * 64,
+                        "loaded_references": [],
+                    },
+                ),
             )
         ]
     )
@@ -58,3 +67,5 @@ def test_runtime_persists_decision_and_evidence(tmp_path):
     state = repo.get_task_state("task-1")
     assert state.agent_rounds_used == 1
     assert state.last_information_hash == "hash-forecast"
+    decision = repo.list_agent_decisions("task-1")[0]
+    assert decision.activated_skills_json[0]["skill_sha256"] == "a" * 64

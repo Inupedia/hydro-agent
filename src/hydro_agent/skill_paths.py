@@ -7,7 +7,12 @@ from pathlib import Path
 
 
 def builtin_skills_root() -> Path:
-    return Path(__file__).resolve().with_name("skills")
+    # Repository Skills are the editable source of truth. Wheels carry a build
+    # copy under the Python package so installed runtimes use the same assets.
+    source = Path(__file__).resolve().parents[2] / "skills"
+    if source.is_dir():
+        return source
+    return Path(__file__).resolve().with_name("skills") / "data"
 
 
 def user_skills_root() -> Path:

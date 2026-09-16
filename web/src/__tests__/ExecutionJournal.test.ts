@@ -234,7 +234,23 @@ describe('ExecutionJournal', () => {
           tool_status_zh: '已完成',
           tool_observations: [],
           tool_metrics: {},
-          activated_skill_ids: ['hydro-error-diagnosis', 'xaj-water-balance'],
+          activated_skill_ids: ['hydrologic-evidence-review', 'xaj-calibration-diagnosis'],
+          activated_skills_audit: [
+            {
+              skill_id: 'hydrologic-evidence-review',
+              source: 'builtin',
+              skill_sha256: 'a',
+              loaded_references: [],
+              output_contract: 'EvidenceInterpretation',
+            },
+            {
+              skill_id: 'xaj-calibration-diagnosis',
+              source: 'builtin',
+              skill_sha256: 'b',
+              loaded_references: [],
+              output_contract: 'CalibrationPlan',
+            },
+          ],
           error: null,
         },
       ],
@@ -266,8 +282,10 @@ describe('ExecutionJournal', () => {
     expect(skills.exists()).toBe(true)
     expect(skills.text()).toContain('Agent Skills')
     expect(skills.text()).toContain('本轮使用技能')
-    expect(skills.text()).toContain('hydro-error-diagnosis')
-    expect(skills.text()).toContain('xaj-water-balance')
+    expect(skills.text()).toContain('水文证据审查')
+    expect(skills.text()).toContain('新安江率定诊断')
+    expect(skills.text()).toContain('证据解读')
+    expect(skills.text()).toContain('实验计划')
     expect(skills.findAll('.skill-chip-list li')).toHaveLength(2)
   })
 })

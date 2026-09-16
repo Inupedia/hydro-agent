@@ -89,6 +89,7 @@ def main():
             report_root=root / "reports",
             warmup_days=365,
         )
+        deps.skills = kernel.skills
         world = WorldStateBuilder(repo, skills=kernel.skills, strategies=kernel.strategies)
         choices = [
             ("plan-default", str(plan["suggested_start"]), str(plan["suggested_end"])),
@@ -123,7 +124,7 @@ def main():
             task_id = create_workbench_task(deps, request)
             runtime = AgentRuntime(
                 repo,
-                provider=CalibrationScientistDecisionProvider(),
+                provider=CalibrationScientistDecisionProvider(repository=repo),
                 tools=kernel.build_tools(task_configs=deps.task_configs),
                 world_state=world,
                 provider_name="calibration-scientist-deterministic",
@@ -208,7 +209,7 @@ def main():
             )
             runtimes[task_id] = AgentRuntime(
                 repo,
-                provider=CalibrationScientistDecisionProvider(),
+                provider=CalibrationScientistDecisionProvider(repository=repo),
                 tools=kernel.build_tools(task_configs=deps.task_configs),
                 world_state=world,
                 provider_name="calibration-scientist-deterministic",
