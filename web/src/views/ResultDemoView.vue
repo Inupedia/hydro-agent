@@ -284,4 +284,18 @@ ul {
     grid-template-columns: 1fr;
   }
 }
+@media (max-width: 600px) {
+  .results { padding-top: 0; }
+  h1 { font-size: 30px; }
+  .lede { font-size: 16px; }
+  .mode-line { font-size: 14px; }
+  .chart-card { padding: 14px 12px 8px; }
+  .chart-head h2,
+  .card h2 { font-size: 17px; }
+  .chart-head p,
+  .muted { font-size: 14px; }
+  .actions { display: grid; grid-template-columns: 1fr; }
+  .secondary,
+  .link { width: 100%; min-height: 44px; }
+}
 </style>

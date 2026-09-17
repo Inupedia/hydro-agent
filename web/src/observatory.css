@@ -994,7 +994,7 @@
   }
 }
 
-/* Compact workbench: one pane at a time, slide navigation (≤1100px via .is-mobile). */
+/* Phone workbench: one pane at a time, slide navigation (≤760px via .is-mobile). */
 .observatory.is-mobile {
   height: 100dvh;
   min-height: 0;
@@ -1195,6 +1195,91 @@
 .observatory.is-mobile .mobile-step-dots button:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+@media (max-width: 760px) {
+  .observatory.is-mobile {
+    height: auto;
+    min-height: 100dvh;
+    padding: 12px;
+    gap: 8px;
+    overflow: visible;
+  }
+  .observatory.is-mobile .observatory-header,
+  .observatory.is-mobile .observatory-footer,
+  .observatory.is-mobile .mobile-step-bar { display: none !important; }
+  .observatory.is-mobile .observatory-grid {
+    display: block;
+    min-height: calc(100dvh - 24px);
+    overflow: visible;
+  }
+  .observatory.is-mobile .mobile-deck {
+    position: static;
+    min-height: 0;
+    overflow: visible;
+  }
+  .observatory.is-mobile .main-stage,
+  .observatory.is-mobile .task-pane,
+  .observatory.is-mobile .journal-pane,
+  .observatory.is-mobile .results-pane {
+    position: static;
+    inset: auto;
+    display: none !important;
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    padding: 16px;
+    border-radius: 18px;
+    overflow: visible;
+    pointer-events: auto;
+    transform: none !important;
+    transition: none;
+  }
+  .observatory.is-mobile.is-mobile-setup .main-stage,
+  .observatory.is-mobile.is-mobile-running .journal-pane,
+  .observatory.is-mobile.is-mobile-results .results-pane { display: flex !important; }
+  .observatory.is-mobile.is-mobile-setup .main-stage {
+    display: block !important;
+    min-height: calc(100dvh - 24px);
+  }
+  /* Preparation is a document-like phone page, not a nested desktop pane. */
+  .observatory.is-mobile.is-mobile-setup .model-preparation,
+  .observatory.is-mobile.is-mobile-setup .prep-body {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+  .observatory.is-mobile.is-mobile-setup .model-preparation { flex: none; }
+  .observatory.is-mobile.is-mobile-setup .prep-actions {
+    position: static;
+    margin-top: 16px;
+  }
+  .observatory.is-mobile.is-mobile-running .journal-pane { min-height: calc(100dvh - 24px); }
+  .observatory.is-mobile .results-stack {
+    display: grid;
+    overflow: visible;
+  }
+  .observatory.is-mobile .mobile-run-actions {
+    display: grid;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--separator);
+  }
+  .mobile-primary-action {
+    min-height: 48px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: var(--primary-button);
+    color: var(--primary-button-text);
+    font: inherit;
+    font-weight: 650;
+    cursor: pointer;
+  }
+}
+
+@media (max-width: 380px) {
+  .observatory.is-mobile { padding: 8px; }
+  .observatory.is-mobile .observatory-grid { min-height: calc(100dvh - 16px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -237,4 +237,13 @@ h1 {
     grid-template-columns: 1fr;
   }
 }
+@media (max-width: 600px) {
+  .execute { padding-top: 0; }
+  h1 { font-size: 30px; }
+  .explain { font-size: 18px; }
+  .progress-card { padding: 14px; }
+  .actions { display: grid; grid-template-columns: 1fr; }
+  .primary,
+  .secondary { width: 100%; min-height: 44px; }
+}
 </style>

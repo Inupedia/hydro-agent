@@ -197,6 +197,25 @@ function exitDemo() {
     display: none;
   }
 }
+@media (max-width: 600px) {
+  .top-bar {
+    gap: 8px;
+    padding: 8px 12px;
+  }
+  .top-actions { gap: 6px; }
+  .ghost {
+    min-height: 36px;
+    padding-inline: 10px;
+  }
+  .content {
+    padding: 12px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+  .bottom-bar {
+    padding: 8px 12px max(10px, env(safe-area-inset-bottom));
+  }
+  .footer-meta { align-items: flex-start; }
+}
 @media (prefers-reduced-transparency: reduce) {
   .glass {
     background: var(--surface);

@@ -21,15 +21,6 @@ import { basinLabel, providerErrorZh, workbenchErrorZh } from '../demo/stages'
 import { asWorkbenchModelId, modelShortLabel } from '../modelLabels'
 import { useMediaQuery } from '../composables/useMediaQuery'
 
-type MobileStep = 'prepare' | 'task' | 'journal' | 'results'
-const MOBILE_STEPS: MobileStep[] = ['prepare', 'task', 'journal', 'results']
-const MOBILE_STEP_LABEL: Record<MobileStep, string> = {
-  prepare: '数据准备',
-  task: '配置运行',
-  journal: '执行记录',
-  results: '运行结果',
-}
-
 const demo = useDemoStore()
 const route = useRoute()
 const busy = ref(false)
@@ -209,7 +200,9 @@ const finalComparison = computed(() => {
 })
 const hasHydrograph = computed(() => !!finalComparison.value)
 const showResultsStage = computed(() => demo.isCompleted && !demo.isFailed && !!demo.results)
-const isMobile = useMediaQuery('(max-width: 1100px)')
+// Tablet keeps the compact two-column workbench. The deck is reserved for actual
+// phone widths, where a three-pane task flow can no longer remain legible.
+const isMobile = useMediaQuery('(max-width: 760px)')
 const showRunActivity = computed(
   () =>
     busy.value ||
@@ -221,93 +214,11 @@ const showRunActivity = computed(
 )
 const showWorkflow = computed(() => !isMobile.value && !showResultsStage.value && showRunActivity.value)
 const focusStage = computed(() => showWorkflow.value && !demo.isCompleted)
-const mobilePreferredStep = computed<MobileStep>(() => {
-  if (showResultsStage.value) return 'results'
-  if (showRunActivity.value || (demo.isCompleted && demo.isFailed)) return 'journal'
-  if (demo.draft.model_plan_id || !modelingAvailable.value || !!demo.taskId) return 'task'
-  return 'prepare'
-})
-const mobileStep = ref<MobileStep>('prepare')
-const mobileStepIndex = computed(() => MOBILE_STEPS.indexOf(mobileStep.value))
-const mobileLocked = computed(
-  () => mobilePreferredStep.value === 'journal' || mobilePreferredStep.value === 'results',
-)
-const canMobileBack = computed(
-  () => !mobileLocked.value && mobileStepIndex.value > 0,
-)
-const canMobileForward = computed(
-  () =>
-    !mobileLocked.value &&
-    mobileStepIndex.value < MOBILE_STEPS.indexOf(mobilePreferredStep.value),
-)
 const headerCaption = computed(() => {
-  if (isMobile.value) return MOBILE_STEP_LABEL[mobileStep.value]
   if (focusStage.value) return '执行中'
   if (demo.mode === 'replay') return '案例回放'
   if (showResultsStage.value) return '运行结果'
   return ''
-})
-
-let deckTouchX = 0
-let deckTouchY = 0
-let deckTouchActive = false
-
-function goMobileStep(step: MobileStep) {
-  if (mobileLocked.value) return
-  const target = MOBILE_STEPS.indexOf(step)
-  const ceiling = MOBILE_STEPS.indexOf(mobilePreferredStep.value)
-  if (target < 0 || target > ceiling) return
-  mobileStep.value = step
-}
-
-function mobileBack() {
-  if (!canMobileBack.value) return
-  goMobileStep(MOBILE_STEPS[mobileStepIndex.value - 1])
-}
-
-function mobileForward() {
-  if (!canMobileForward.value) return
-  goMobileStep(MOBILE_STEPS[mobileStepIndex.value + 1])
-}
-
-function onDeckTouchStart(event: TouchEvent) {
-  if (!isMobile.value || mobileLocked.value || event.touches.length !== 1) return
-  const target = event.target as HTMLElement | null
-  if (target?.closest('input, textarea, select, [data-no-swipe]')) return
-  deckTouchActive = true
-  deckTouchX = event.touches[0].clientX
-  deckTouchY = event.touches[0].clientY
-}
-
-function onDeckTouchEnd(event: TouchEvent) {
-  if (!deckTouchActive || !isMobile.value || mobileLocked.value) return
-  deckTouchActive = false
-  const touch = event.changedTouches[0]
-  if (!touch) return
-  const dx = touch.clientX - deckTouchX
-  const dy = touch.clientY - deckTouchY
-  if (Math.abs(dx) < 64 || Math.abs(dx) < Math.abs(dy) * 1.35) return
-  if (dx > 0) mobileBack()
-  else mobileForward()
-}
-
-watch(
-  mobilePreferredStep,
-  (preferred, previous) => {
-    if (!isMobile.value) return
-    if (preferred === 'journal' || preferred === 'results') {
-      mobileStep.value = preferred
-      return
-    }
-    const nextIdx = MOBILE_STEPS.indexOf(preferred)
-    const prevIdx = previous == null ? -1 : MOBILE_STEPS.indexOf(previous)
-    if (nextIdx > prevIdx) mobileStep.value = preferred
-  },
-  { immediate: true },
-)
-
-watch(isMobile, (mobile) => {
-  if (mobile) mobileStep.value = mobilePreferredStep.value
 })
 
 const completedActions = computed(() =>
@@ -474,7 +385,6 @@ async function deleteSelectedCases() {
 function newTask() {
   demo.resetSession()
   history.replaceState(null, '', '/')
-  mobileStep.value = modelingAvailable.value ? 'prepare' : 'task'
   void nextTick(() => {
     if (isMobile.value) return
     const task = taskPane.value
@@ -659,8 +569,14 @@ onUnmounted(() => {
 <template>
   <div
     class="observatory"
-    :class="{ 'is-focus': focusStage, 'is-results': showResultsStage, 'is-mobile': isMobile }"
-    :data-mobile-step="isMobile ? mobileStep : undefined"
+    :class="{
+      'is-focus': focusStage,
+      'is-results': showResultsStage,
+      'is-mobile': isMobile,
+      'is-mobile-setup': isMobile && !demo.taskId,
+      'is-mobile-running': isMobile && !!demo.taskId && !showResultsStage,
+      'is-mobile-results': isMobile && showResultsStage,
+    }"
   >
     <header class="observatory-header">
       <a href="/" class="observatory-brand"><span class="brand-symbol" aria-hidden="true">≈</span><span>Hydro<span class="brand-light">Agent</span><small>水文智能体 · 观测台</small></span></a>
@@ -853,12 +769,7 @@ onUnmounted(() => {
     />
 
     <main class="observatory-grid">
-      <div
-        class="mobile-deck"
-        data-test="mobile-deck"
-        @touchstart.passive="onDeckTouchStart"
-        @touchend="onDeckTouchEnd"
-      >
+      <div class="mobile-deck" data-test="mobile-deck">
       <section ref="mainStage" class="main-stage glass-pane" :class="{ 'main-stage--focus': focusStage, 'main-stage--results': showResultsStage && !isMobile }">
         <LiveWorkflow v-if="showWorkflow" :action="action" :status="demo.run?.paused ? 'paused' : demo.run?.status" :completed-actions="completedActions" :gate-status="gateStatus" :expanded="focusStage" :workflow-version="demo.taskMeta?.workflow_version" />
         <template v-else-if="!demo.taskId">
@@ -1019,6 +930,11 @@ onUnmounted(() => {
           :error="error"
           @refresh="demo.refresh()"
         />
+        <div v-if="isMobile && (demo.isRunning || demo.isQueued)" class="mobile-run-actions">
+          <button type="button" class="mobile-primary-action" :disabled="busy" @click="cancelRun">
+            {{ busy ? '正在终止…' : '终止任务' }}
+          </button>
+        </div>
       </aside>
 
       <aside class="results-pane glass-pane" aria-label="运行结果">
@@ -1033,34 +949,11 @@ onUnmounted(() => {
           :subtitle="comparisonSubtitle"
           :meta="comparisonMeta"
         />
+        <div v-if="isMobile && showResultsStage" class="mobile-run-actions">
+          <button type="button" class="mobile-primary-action" @click="requestNewTask">新建任务</button>
+        </div>
       </aside>
       </div>
-
-      <nav v-if="isMobile" class="mobile-step-bar" aria-label="工作台步骤" data-test="mobile-step-bar">
-        <ol class="mobile-step-dots">
-          <li
-            v-for="step in MOBILE_STEPS"
-            :key="step"
-            :class="{
-              'is-current': mobileStep === step,
-              'is-reached': MOBILE_STEPS.indexOf(step) <= MOBILE_STEPS.indexOf(mobilePreferredStep),
-              'is-locked': mobileLocked && step !== mobilePreferredStep,
-            }"
-          >
-            <button
-              type="button"
-              :disabled="
-                (mobileLocked && step !== mobilePreferredStep) ||
-                MOBILE_STEPS.indexOf(step) > MOBILE_STEPS.indexOf(mobilePreferredStep)
-              "
-              :aria-current="mobileStep === step ? 'step' : undefined"
-              @click="goMobileStep(step)"
-            >
-              {{ MOBILE_STEP_LABEL[step] }}
-            </button>
-          </li>
-        </ol>
-      </nav>
     </main>
 
     <footer class="observatory-footer"><span>水文智能体 <span class="footer-divider">/</span> 观测台</span><span>{{ footerModelLabel }}模型 · 可追溯执行</span></footer>

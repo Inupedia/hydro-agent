@@ -366,6 +366,39 @@ onUnmounted(() => {
     max-height: calc(100dvh - 32px);
   }
 }
+@media (max-width: 520px) {
+  .glass-dialog-backdrop {
+    padding: 8px;
+    align-items: stretch;
+  }
+  .glass-dialog-panel,
+  .glass-dialog-panel.size-wide,
+  .glass-dialog-panel.size-workbench {
+    width: 100%;
+    height: min(100%, calc(100dvh - 16px));
+    max-height: calc(100dvh - 16px);
+    padding: 16px;
+    border-radius: 20px;
+  }
+  .glass-dialog-head { gap: 8px; padding-bottom: 10px; }
+  .glass-dialog-head h2 { font-size: 17px; }
+  .glass-dialog-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 9px;
+  }
+  .glass-dialog-body { padding-block: 9px; }
+  .glass-dialog-footer {
+    align-items: stretch;
+    gap: 8px;
+    padding-top: 10px;
+  }
+  .glass-dialog-footer :deep(button) {
+    width: 100%;
+    min-height: 44px;
+  }
+}
 @media (prefers-reduced-transparency: reduce) {
   .glass-dialog-backdrop {
     background: var(--scrim);

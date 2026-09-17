@@ -44,6 +44,7 @@ async function render() {
   const categories = props.forecasts.map((f) => String(f.issue_time).slice(0, 10))
   const dense = props.forecasts.length > 40
   const motion = chartMotion(900, dense)
+  const compact = el.value.clientWidth < 440
   const { base: chartBase, colors, ink, symbolBorder } = currentChartTheme()
   const names = ['提前 1 天', '提前 2 天', '提前 3 天']
   chart.setOption(
@@ -60,7 +61,14 @@ async function render() {
       legend: {
         ...chartBase.legend,
         data: names,
+        itemWidth: compact ? 10 : chartBase.legend.itemWidth,
+        itemGap: compact ? 10 : chartBase.legend.itemGap,
+        textStyle: {
+          ...chartBase.legend.textStyle,
+          fontSize: compact ? 10.5 : chartBase.legend.textStyle.fontSize,
+        },
       },
+      grid: { ...chartBase.grid, bottom: compact ? 58 : chartBase.grid.bottom },
       dataZoom: dense ? [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }] : undefined,
       xAxis: {
         ...axisCategory(ink),

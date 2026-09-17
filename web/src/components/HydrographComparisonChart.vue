@@ -112,6 +112,7 @@ async function render() {
   const lastWarmup = warmup.at(-1)
   const dense = rows.length > 80
   const motion = chartMotion(1_080, dense)
+  const compact = el.value.clientWidth < 440
   const { base: chartBase, colors, ink, symbolBorder } = currentChartTheme()
   const has = (key: 'baseline_m3s' | 'candidate_m3s' | 'frozen_m3s') =>
     rows.some((row) => typeof row[key] === 'number' && Number.isFinite(row[key] as number))
@@ -205,7 +206,14 @@ async function render() {
       legend: {
         ...chartBase.legend,
         data: series.map((row) => String(row.name)),
+        itemWidth: compact ? 10 : chartBase.legend.itemWidth,
+        itemGap: compact ? 10 : chartBase.legend.itemGap,
+        textStyle: {
+          ...chartBase.legend.textStyle,
+          fontSize: compact ? 10.5 : chartBase.legend.textStyle.fontSize,
+        },
       },
+      grid: { ...chartBase.grid, bottom: compact ? 58 : chartBase.grid.bottom },
       dataZoom: rows.length > 40 ? [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }] : undefined,
       xAxis: {
         ...axisCategory(ink),

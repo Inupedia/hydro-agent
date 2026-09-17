@@ -110,4 +110,19 @@ test('opens a glass dialog, creates a task from the workbench, and avoids hash t
   await page.locator('[data-test="start-run"]').click()
   await expect.poll(() => created).toBeTruthy()
   await expect(page).not.toHaveURL(/view=|focus=/)
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.locator('.observatory-header')).toBeHidden()
+  await expect(page.locator('[aria-label="运行结果"]')).toBeVisible()
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+    .toBeTruthy()
+
+  await page.getByRole('button', { name: '新建任务' }).click()
+  await expect(page.locator('.main-stage')).toBeVisible()
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight))
+    .toBeTruthy()
+  await page.evaluate(() => window.scrollTo(0, 320))
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
 })
