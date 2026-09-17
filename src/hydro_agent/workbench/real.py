@@ -421,7 +421,7 @@ class _TaskAwareOptimizeHandler:
                         )
                 objective = objective or gates.get("recommended_objective") or None
                 break
-        strategy_id = strategy_id or self._default_strategy_id(task_id)
+        strategy_id = strategy_id or self.kernel._default_strategy_id(task_id)
         handler = OptimizeHandler(
             self.kernel.repository,
             calibration_service=self.kernel.calibration,

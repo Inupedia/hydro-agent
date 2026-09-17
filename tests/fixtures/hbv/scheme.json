@@ -1,0 +1,18 @@
+{
+  "model_id": "hbv",
+  "warmup_days": 30,
+  "parameters": {
+    "TT": 0.0,
+    "CFMAX": 3.0,
+    "CFR": 0.05,
+    "CWH": 0.1,
+    "FC": 250.0,
+    "BETA": 2.0,
+    "LP": 0.7,
+    "K0": 0.2,
+    "K1": 0.08,
+    "K2": 0.02,
+    "PERC": 1.0,
+    "MAXBAS": 2.5
+  }
+}

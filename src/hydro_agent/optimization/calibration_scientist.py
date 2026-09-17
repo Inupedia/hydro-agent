@@ -220,7 +220,9 @@ def _progressive_strategy(
     if adjustment != "broaden_within_absolute_bounds":
         return recommended_strategy_id
     source_strategy_id = previous_strategy_id or recommended_strategy_id
-    model_prefix = source_strategy_id.split("-", 1)[0] if "-" in source_strategy_id else "xaj"
+    from hydro_agent.models.diagnosis_defaults import model_id_from_strategy_id
+
+    model_prefix = model_id_from_strategy_id(source_strategy_id) or "xaj"
     broadened = f"{model_prefix}-broadened-refine-v1"
     bounded = f"{model_prefix}-bounded-v1"
     if source_strategy_id == broadened:

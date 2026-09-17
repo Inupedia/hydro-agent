@@ -5,6 +5,9 @@ from __future__ import annotations
 from hydro_agent.execution.registry import RuntimeRegistry
 from hydro_agent.models.contracts import HydroModelPlugin, ModelDescriptor
 from hydro_agent.models.gr4j.plugin import Gr4jPlugin
+from hydro_agent.models.hbv.plugin import HbvPlugin
+from hydro_agent.models.sacsma.plugin import SacSmaPlugin
+from hydro_agent.models.tank.plugin import TankPlugin
 from hydro_agent.models.xaj.plugin import XajPlugin
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 
@@ -58,5 +61,8 @@ def default_model_registry() -> ModelRegistry:
         registry = ModelRegistry()
         registry.register(XajPlugin())
         registry.register(Gr4jPlugin())
+        registry.register(HbvPlugin())
+        registry.register(TankPlugin())
+        registry.register(SacSmaPlugin())
         _DEFAULT = registry
     return _DEFAULT

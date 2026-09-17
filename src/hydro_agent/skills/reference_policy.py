@@ -133,11 +133,29 @@ def _gr4j_calibration_refs(view: WorldStateView, declared: tuple[str, ...]) -> t
     return _filter_declared(declared, ["references/gr4j-parameter-semantics.md"])
 
 
+def _hbv_calibration_refs(view: WorldStateView, declared: tuple[str, ...]) -> tuple[str, ...]:
+    del view
+    return _filter_declared(declared, ["references/hbv-parameter-semantics.md"])
+
+
+def _tank_calibration_refs(view: WorldStateView, declared: tuple[str, ...]) -> tuple[str, ...]:
+    del view
+    return _filter_declared(declared, ["references/tank-parameter-semantics.md"])
+
+
+def _sac_sma_calibration_refs(view: WorldStateView, declared: tuple[str, ...]) -> tuple[str, ...]:
+    del view
+    return _filter_declared(declared, ["references/sac-sma-parameter-semantics.md"])
+
+
 def references_for_view(skill: LoadedSkill, view: WorldStateView) -> tuple[str, ...]:
     declared = skill.meta_list("prompt_references")
     selectors = {
         "xaj-calibration-diagnosis": _xaj_calibration_refs,
         "gr4j-calibration-diagnosis": _gr4j_calibration_refs,
+        "hbv-calibration-diagnosis": _hbv_calibration_refs,
+        "tank-calibration-diagnosis": _tank_calibration_refs,
+        "sac-sma-calibration-diagnosis": _sac_sma_calibration_refs,
         "hydrologic-evidence-review": _evidence_review_refs,
         "hydrology-data-review": _data_review_refs,
         "calibration-experiment-design": _experiment_design_refs,

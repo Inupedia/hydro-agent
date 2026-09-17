@@ -25,9 +25,7 @@ from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 from hydro_agent.skills import (
     EVIDENCE_REVIEW_SKILL_ID,
     EXPERIMENT_DESIGN_SKILL_ID,
-    GR4J_DIAGNOSIS_SKILL_ID,
     RESULT_REVIEW_SKILL_ID,
-    XAJ_DIAGNOSIS_SKILL_ID,
     SkillRegistry,
 )
 from hydro_agent.skills.expert import ExpertPriorEngine
@@ -41,13 +39,31 @@ OutputContractName = Literal[
     "ExperimentReview",
 ]
 
-SKILL_OUTPUT_CONTRACT: dict[str, OutputContractName] = {
+_BASE_SKILL_OUTPUT_CONTRACT: dict[str, OutputContractName] = {
     EVIDENCE_REVIEW_SKILL_ID: "EvidenceInterpretation",
-    XAJ_DIAGNOSIS_SKILL_ID: "DiagnosisHypothesis",
-    GR4J_DIAGNOSIS_SKILL_ID: "DiagnosisHypothesis",
     EXPERIMENT_DESIGN_SKILL_ID: "CalibrationPlan",
     RESULT_REVIEW_SKILL_ID: "ExperimentReview",
 }
+
+
+def skill_output_contract() -> dict[str, OutputContractName]:
+    """Core contracts plus every registered plugin diagnosis skill."""
+
+    contracts = dict(_BASE_SKILL_OUTPUT_CONTRACT)
+    try:
+        from hydro_agent.models.registry import default_model_registry
+
+        for descriptor in default_model_registry().descriptors():
+            skill_id = descriptor.diagnosis_skill_id
+            if skill_id:
+                contracts[skill_id] = "DiagnosisHypothesis"
+    except Exception:  # noqa: BLE001 — keep orchestration usable without registry
+        pass
+    return contracts
+
+
+# Tests and callers may import this name; it is refreshed inside invoke paths.
+SKILL_OUTPUT_CONTRACT = skill_output_contract()
 
 
 class SkillInvocation(FrozenModel):
@@ -92,7 +108,8 @@ class SkillOrchestrator:
     ) -> SkillInvocation:
         """Activate ``skill_id``, run its contract handler, return audited output."""
 
-        contract = SKILL_OUTPUT_CONTRACT.get(skill_id)
+        contracts = skill_output_contract()
+        contract = contracts.get(skill_id)
         if contract is None:
             raise ValueError(f"skill has no typed orchestration contract: {skill_id}")
 
@@ -101,9 +118,7 @@ class SkillOrchestrator:
 
         if skill_id == EVIDENCE_REVIEW_SKILL_ID:
             typed: FrozenModel = interpret_evidence(evidence)
-        elif skill_id in {XAJ_DIAGNOSIS_SKILL_ID, GR4J_DIAGNOSIS_SKILL_ID} or (
-            SKILL_OUTPUT_CONTRACT.get(skill_id) == "DiagnosisHypothesis"
-        ):
+        elif contracts.get(skill_id) == "DiagnosisHypothesis":
             reading = interpretation or interpret_evidence(diagnosis)
             typed = form_diagnosis_hypothesis(reading, diagnosis)
         elif skill_id == EXPERIMENT_DESIGN_SKILL_ID:
@@ -177,10 +192,11 @@ class SkillOrchestrator:
         diagnosis = dict(diagnosis)
         diagnosis.setdefault("model_id", model_id)
         diagnosis_skill_id = None
+        contracts = skill_output_contract()
         if self.skills is not None:
             candidates = self.skills._diagnosis_skill_ids(model_id)
             for skill_id in candidates:
-                if skill_id in SKILL_OUTPUT_CONTRACT:
+                if skill_id in contracts:
                     diagnosis_skill_id = skill_id
                     break
         if diagnosis_skill_id is None:
@@ -190,7 +206,7 @@ class SkillOrchestrator:
                 diagnosis_skill_id = default_model_registry().diagnosis_skill_id(model_id)
             except KeyError:
                 diagnosis_skill_id = None
-        if diagnosis_skill_id and diagnosis_skill_id in SKILL_OUTPUT_CONTRACT:
+        if diagnosis_skill_id and diagnosis_skill_id in contracts:
             hyp_inv = self.invoke_skill(
                 diagnosis_skill_id,
                 diagnosis=diagnosis,

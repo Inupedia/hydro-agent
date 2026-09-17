@@ -32,7 +32,7 @@ def test_load_xaj_inputs_rejects_wrong_columns(tmp_path):
     (workspace / "input/snapshot/forcing.csv").write_text(
         "date,precip,pet\n2025-12-28,1,1\n", encoding="utf-8"
     )
-    with pytest.raises(ValueError, match="invalid forcing columns"):
+    with pytest.raises(ValueError, match="forcing csv missing required column"):
         load_xaj_inputs(workspace)
 
 

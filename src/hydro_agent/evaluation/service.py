@@ -333,8 +333,6 @@ class EvaluationService:
         try:
             from datetime import date as date_cls
 
-            import numpy as np
-
             from hydro_agent.models.registry import default_model_registry
 
             model_id = str(scheme.model_id or cfg.get("model_id") or "xaj")
@@ -343,20 +341,21 @@ class EvaluationService:
             with forcing_path.open(encoding="utf-8", newline="") as handle:
                 rows = list(csv.DictReader(handle))
             dates = [date_cls.fromisoformat(row["date"]) for row in rows]
-            array = np.asarray(
-                [[float(row["precipitation_mm_day"]), float(row["pet_mm_day"])] for row in rows]
-            )
+            from hydro_agent.models.forcing import load_forcing_matrix
+
+            required = tuple(plugin.descriptor.required_forcings) or ("precipitation", "pet")
+            array = load_forcing_matrix(rows, required_forcings=required)
             warmup_days = int(cfg["warmup_days"])
             if len(dates) < warmup_days + 2:
                 return None
-            values = plugin.simulate(cfg, basin, array[:, None, :], include_warmup=True)
+            values = plugin.simulate(cfg, basin, array, include_warmup=True)
 
             baseline_values = None
             baseline_cfg = self._baseline_config_for_frozen(scheme)
             if baseline_cfg:
                 try:
                     baseline_values = plugin.simulate(
-                        baseline_cfg, basin, array[:, None, :], include_warmup=True
+                        baseline_cfg, basin, array, include_warmup=True
                     )
                 except Exception:  # noqa: BLE001
                     baseline_values = None

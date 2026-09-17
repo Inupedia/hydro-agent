@@ -8,7 +8,7 @@ const tasks = useTasksStore()
 const showAdvanced = ref(false)
 const form = reactive({
   basin_id: 'yaogu',
-  model_id: 'xaj' as 'xaj' | 'gr4j' | 'openhydronet',
+  model_id: 'xaj' as 'xaj' | 'gr4j' | 'hbv' | 'tank' | 'sac-sma' | 'openhydronet',
   start_date: '2020-04-29',
   end_date: '2020-05-01',
   forcing_mode: 'R' as 'R' | 'F',
@@ -49,6 +49,9 @@ async function onSubmit() {
         <select v-model="form.model_id" name="model_id">
           <option value="xaj">新安江（XAJ）</option>
           <option value="gr4j">GR4J</option>
+          <option value="hbv">HBV-light</option>
+          <option value="tank">水箱模型</option>
+          <option value="sac-sma">SAC-SMA</option>
           <option value="openhydronet" disabled>OpenHydroNet（稍后）</option>
         </select>
       </label>

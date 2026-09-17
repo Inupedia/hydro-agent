@@ -12,7 +12,8 @@ class FrozenApiModel(BaseModel):
 
 class TaskCreateRequest(FrozenApiModel):
     basin_id: str = Field(min_length=1)
-    model_id: Literal["xaj", "gr4j", "openhydronet"]
+    # Registry is the SSOT for installed models; API does not hardcode an enum.
+    model_id: str = Field(min_length=1, max_length=64)
     start_date: date
     end_date: date
     forcing_mode: Literal["R", "F"]

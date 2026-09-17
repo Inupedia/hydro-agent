@@ -119,6 +119,33 @@ def test_snapshot_contains_only_policy_selected_rows(
     assert all(len(f["sha256"]) == 64 for f in manifest["files"])
 
 
+def test_snapshot_fills_temperature_when_model_requires_it(
+    snapshot_builder, repository, f_context, forcing_rows, flow_rows, basin
+):
+    from hydro_agent.models.hbv.param_groups import DEFAULT_HBV_PARAMS
+
+    repository.create_scheme(
+        scheme_id="scheme-hbv",
+        task_id="task-f",
+        model_id="hbv",
+        status="base",
+        config={"model_id": "hbv", "warmup_days": 2, "parameters": dict(DEFAULT_HBV_PARAMS)},
+        content_hash="hbv-hash",
+    )
+    repository.ensure_task_state("task-f", current_scheme_id="scheme-hbv")
+    context = f_context.model_copy(update={"snapshot_id": "snap-hbv-t"})
+    path = snapshot_builder.build(
+        context, forcing_rows=forcing_rows, flow_rows=flow_rows, basin=basin
+    )
+    header = (path / "forcing.csv").read_text(encoding="utf-8").splitlines()[0]
+    assert "temperature_c" in header.split(",")
+    body = (path / "forcing.csv").read_text(encoding="utf-8").splitlines()[1]
+    temp = float(body.split(",")[-1])
+    assert -40 < temp < 50
+    manifest = json.loads((path / "snapshot-manifest.json").read_text())
+    assert manifest["source_metadata"]["temperature_fill"] == "seasonal_climatology"
+
+
 def test_rebuilding_same_snapshot_id_raises(
     snapshot_builder, f_context, forcing_rows, flow_rows, basin
 ):

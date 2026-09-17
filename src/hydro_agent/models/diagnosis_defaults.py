@@ -1,13 +1,14 @@
 """Model-scoped diagnosis → strategy/param-group defaults.
 
-Control-plane diagnosis must not hardcode XAJ strategy ids or groups.
-Plugins own the vocabulary; this module maps shared error phenotypes onto
-each model's registered strategies.
+Phenotype → experiment mapping lives on each plugin's ``DiagnosisPolicy``.
+This module only resolves the active model and reads that policy.
 """
 
 from __future__ import annotations
 
 from typing import Any
+
+from hydro_agent.models.contracts import DiagnosisPhenotype
 
 
 def resolve_model_id(*sources: Any, default: str = "xaj") -> str:
@@ -21,21 +22,45 @@ def resolve_model_id(*sources: Any, default: str = "xaj") -> str:
     return default
 
 
-def all_param_groups(model_id: str) -> list[str]:
+def model_id_from_strategy_id(strategy_id: str) -> str | None:
+    """Map ``sac-sma-bounded-v1`` to ``sac-sma`` using registered plugins."""
+
+    token = str(strategy_id or "").strip()
+    if not token:
+        return None
     try:
         from hydro_agent.models.registry import default_model_registry
 
-        return list(default_model_registry().get(model_id).descriptor.parameter_groups)
+        ids = sorted(default_model_registry().list_ids(), key=len, reverse=True)
+    except Exception:  # noqa: BLE001
+        ids = []
+    for model_id in ids:
+        if token == model_id or token.startswith(f"{model_id}-"):
+            return model_id
+    if "-" in token:
+        return token.rsplit("-", 1)[0] if token.count("-") == 1 else token.split("-", 1)[0]
+    return token
+
+
+def _plugin(model_id: str):
+    from hydro_agent.models.registry import default_model_registry
+
+    return default_model_registry().get(model_id)
+
+
+def all_param_groups(model_id: str) -> list[str]:
+    try:
+        return list(_plugin(model_id).descriptor.parameter_groups)
     except KeyError:
-        if model_id == "gr4j":
-            return ["production", "exchange", "routing"]
-        return ["evap", "runoff", "routing"]
+        return []
 
 
 def allowed_param_groups(model_id: str | None = None) -> set[str]:
     if model_id:
-        return set(all_param_groups(model_id))
-    # Union used when model is unknown but groups must not be silently dropped.
+        groups = all_param_groups(model_id)
+        if groups:
+            return set(groups)
+    # Union fallback when model is unknown but groups must not be silently dropped.
     return {
         "evap",
         "runoff",
@@ -45,48 +70,47 @@ def allowed_param_groups(model_id: str | None = None) -> set[str]:
         "snow",
         "soil",
         "groundwater",
+        "surface",
+        "intermediate",
+        "base",
+        "upper",
+        "lower",
+        "percolation",
     }
 
 
-def measurement_diagnosis_plan(model_id: str) -> tuple[str, list[str]]:
-    """Broad, policy-neutral first experiment after measurement-only diagnosis."""
+def _plan(model_id: str, phenotype: DiagnosisPhenotype) -> tuple[str, list[str]]:
+    plugin = _plugin(model_id)
+    policy = plugin.descriptor.diagnosis_policy
+    if policy is None:
+        groups = list(plugin.descriptor.parameter_groups)
+        return plugin.descriptor.default_strategy_id, groups
+    plan = policy.plan_for(phenotype)
+    return plan.strategy_id, list(plan.param_groups)
 
-    groups = all_param_groups(model_id)
-    if model_id == "gr4j":
-        return "gr4j-bounded-v1", groups
-    return "xaj-hydro-composite-v1", groups
+
+def measurement_diagnosis_plan(model_id: str) -> tuple[str, list[str]]:
+    return _plan(model_id, "measurement")
 
 
 def water_balance_plan(model_id: str) -> tuple[str, list[str]]:
-    if model_id == "gr4j":
-        return "gr4j-production-refine-v1", ["production", "exchange"]
-    return "xaj-water-balance-v1", ["evap", "runoff"]
+    return _plan(model_id, "water_balance")
 
 
 def timing_plan(model_id: str) -> tuple[str, list[str]]:
-    if model_id == "gr4j":
-        return "gr4j-routing-refine-v1", ["routing"]
-    return "xaj-routing-refine-v1", ["routing"]
+    return _plan(model_id, "timing")
 
 
 def peak_plan(model_id: str) -> tuple[str, list[str]]:
-    if model_id == "gr4j":
-        return "gr4j-bounded-v1", ["production", "routing"]
-    return "xaj-peak-bias-v1", ["runoff", "routing"]
+    return _plan(model_id, "peak")
 
 
 def composite_plan(model_id: str) -> tuple[str, list[str]]:
-    groups = all_param_groups(model_id)
-    if model_id == "gr4j":
-        return "gr4j-bounded-v1", groups
-    return "xaj-hydro-composite-v1", groups
+    return _plan(model_id, "composite")
 
 
 def local_refine_plan(model_id: str) -> tuple[str, list[str]]:
-    groups = all_param_groups(model_id)
-    if model_id == "gr4j":
-        return "gr4j-local-refine-v1", groups
-    return "xaj-local-refine-v1", groups
+    return _plan(model_id, "local")
 
 
 def broadened_plan(model_id: str) -> str:
@@ -98,14 +122,11 @@ def bounded_plan(model_id: str) -> tuple[str, list[str]]:
 
 
 def planner_fallbacks(model_id: str) -> tuple[str, ...]:
-    if model_id == "gr4j":
-        return (
-            "gr4j-bounded-v1",
-            "gr4j-local-refine-v1",
-            "gr4j-production-refine-v1",
-        )
-    return (
-        "xaj-hydro-composite-v1",
-        "xaj-bounded-v1",
-        "xaj-local-refine-v1",
-    )
+    try:
+        plugin = _plugin(model_id)
+    except KeyError:
+        return (f"{model_id}-bounded-v1",)
+    policy = plugin.descriptor.diagnosis_policy
+    if policy and policy.fallback_strategy_ids:
+        return policy.fallback_strategy_ids
+    return (plugin.descriptor.default_strategy_id,)

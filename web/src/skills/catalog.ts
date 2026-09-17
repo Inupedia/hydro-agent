@@ -1,10 +1,13 @@
-/** Product-facing catalog for the six Agent Skills packages. */
+/** Product-facing catalog for built-in Agent Skills packages. */
 
 export const CORE_SKILL_TITLES: Record<string, string> = {
   'hydrology-data-review': '水文资料审查',
   'hydrologic-evidence-review': '水文证据审查',
   'xaj-calibration-diagnosis': '新安江率定诊断',
   'gr4j-calibration-diagnosis': 'GR4J 率定诊断',
+  'hbv-calibration-diagnosis': 'HBV 率定诊断',
+  'tank-calibration-diagnosis': '水箱模型率定诊断',
+  'sac-sma-calibration-diagnosis': 'SAC-SMA 率定诊断',
   'calibration-experiment-design': '率定实验设计',
   'calibration-result-review': '率定结果复盘',
   'hydrology-reporting': '水文实验报告',

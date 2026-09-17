@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from hydro_agent.execution.hashing import sha256_file
+from hydro_agent.models.forcing import basin_latitude_deg, seasonal_temperature_c
 from hydro_agent.models.xaj.contracts import XajBasin
 
 from .contracts import SnapshotFile, SnapshotManifest
@@ -60,13 +61,25 @@ class SnapshotBuilder:
         path = parent / context.snapshot_id
         path.mkdir(exist_ok=False)
         try:
+            required = self._required_forcings(context.task_id)
+            forcing, temperature_fill = _complete_temperature(forcing, basin, required)
+            include_temperature = "temperature" in required or any(
+                r.temperature_c is not None for r in forcing
+            )
+            if temperature_fill:
+                source_metadata = dict(source_metadata or {})
+                source_metadata.setdefault("temperature_fill", "seasonal_climatology")
             with (path / "forcing.csv").open("w", encoding="utf-8", newline="") as f:
                 writer = csv.writer(f)
-                writer.writerow(["date", "precipitation_mm_day", "pet_mm_day"])
-                writer.writerows(
-                    (r.valid_date.isoformat(), r.precipitation_mm_day, r.pet_mm_day)
-                    for r in forcing
-                )
+                header = ["date", "precipitation_mm_day", "pet_mm_day"]
+                if include_temperature:
+                    header.append("temperature_c")
+                writer.writerow(header)
+                for r in forcing:
+                    row = [r.valid_date.isoformat(), r.precipitation_mm_day, r.pet_mm_day]
+                    if include_temperature:
+                        row.append("" if r.temperature_c is None else r.temperature_c)
+                    writer.writerow(row)
             with (path / "streamflow.csv").open("w", encoding="utf-8", newline="") as f:
                 writer = csv.writer(f)
                 writer.writerow(["date", "discharge_m3s"])
@@ -120,3 +133,34 @@ class SnapshotBuilder:
             shutil.rmtree(path)
             raise
         return path
+
+    def _required_forcings(self, task_id: str) -> tuple[str, ...]:
+        try:
+            state = self.repository.ensure_task_state(task_id)
+            if not getattr(state, "current_scheme_id", None):
+                return ()
+            scheme = self.repository.get_scheme(state.current_scheme_id)
+            from hydro_agent.models.registry import default_model_registry
+
+            return tuple(default_model_registry().get(scheme.model_id).descriptor.required_forcings)
+        except Exception:  # noqa: BLE001 — snapshots still build for scheme-less tests
+            return ()
+
+
+def _complete_temperature(forcing, basin, required: tuple[str, ...]):
+    if "temperature" not in required:
+        return forcing, False
+    latitude = basin_latitude_deg(basin if isinstance(basin, dict) else basin.model_dump())
+    filled = False
+    completed = []
+    for row in forcing:
+        if row.temperature_c is not None:
+            completed.append(row)
+            continue
+        filled = True
+        completed.append(
+            row.model_copy(
+                update={"temperature_c": seasonal_temperature_c(row.valid_date, latitude=latitude)}
+            )
+        )
+    return tuple(completed), filled

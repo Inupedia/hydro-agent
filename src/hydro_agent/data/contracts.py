@@ -11,6 +11,8 @@ class ForcingRow(FrozenModel):
     valid_date: date
     precipitation_mm_day: float = Field(ge=0, allow_inf_nan=False)
     pet_mm_day: float = Field(ge=0, allow_inf_nan=False)
+    # Optional air temperature for snow-aware models (e.g. HBV). Absent for P+PET models.
+    temperature_c: float | None = Field(default=None, allow_inf_nan=False)
     source_kind: Literal["observation", "reanalysis", "forecast"]
     source: str = Field(min_length=1)
     available_at: AwareDatetime

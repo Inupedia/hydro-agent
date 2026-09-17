@@ -49,14 +49,11 @@ def build_calibration_evidence(
 
     model_id = str(scheme_config.get("model_id") or "xaj")
     plugin = default_model_registry().get(model_id)
+    required = tuple(plugin.descriptor.required_forcings) or ("precipitation", "pet")
+    from hydro_agent.models.forcing import row_forcing_values
+
     forcing = np.asarray(
-        [
-            [
-                float(forcing_by_date[day].precipitation_mm_day),
-                float(forcing_by_date[day].pet_mm_day),
-            ]
-            for day in required_dates
-        ],
+        [row_forcing_values(forcing_by_date[day], required) for day in required_dates],
         dtype=float,
     )
     full_sim = plugin.simulate(
@@ -159,9 +156,7 @@ def apply_calibration_evidence_to_diagnosis(
         if pbias is not None and abs(pbias) >= water_balance_threshold:
             strategy, groups = water_balance_plan(model_id)
             phenomenon = (
-                f"完整率定期 PBIAS={pbias:.1f}% 显示系统水量偏差，优先处理产流/交换参数"
-                if model_id == "gr4j"
-                else f"完整率定期 PBIAS={pbias:.1f}% 显示系统水量偏差，优先处理蒸散发/产流参数"
+                f"完整率定期 PBIAS={pbias:.1f}% 显示系统水量偏差，优先处理水量相关参数组 {','.join(groups)}"
             )
             result.update(
                 {

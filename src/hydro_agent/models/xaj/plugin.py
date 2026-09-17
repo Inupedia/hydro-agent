@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from hydro_agent.models.contracts import ModelDescriptor
+from hydro_agent.models.contracts import DiagnosisPlan, DiagnosisPolicy, ModelDescriptor
 from hydro_agent.models.xaj.adapter import XajRuntimeAdapter
 from hydro_agent.models.xaj.contracts import XajBasin, XajScheme
 from hydro_agent.models.xaj.param_groups import (
@@ -69,6 +69,37 @@ class XajPlugin:
         default_strategy_id="xaj-bounded-v1",
         strategy_ids=tuple(s.strategy_id for s in _XAJ_STRATEGIES),
         diagnosis_skill_id="xaj-calibration-diagnosis",
+        diagnosis_policy=DiagnosisPolicy(
+            measurement=DiagnosisPlan(
+                strategy_id="xaj-hydro-composite-v1",
+                param_groups=("evap", "runoff", "routing"),
+            ),
+            water_balance=DiagnosisPlan(
+                strategy_id="xaj-water-balance-v1",
+                param_groups=("evap", "runoff"),
+            ),
+            timing=DiagnosisPlan(
+                strategy_id="xaj-routing-refine-v1",
+                param_groups=("routing",),
+            ),
+            peak=DiagnosisPlan(
+                strategy_id="xaj-peak-bias-v1",
+                param_groups=("runoff", "routing"),
+            ),
+            composite=DiagnosisPlan(
+                strategy_id="xaj-hydro-composite-v1",
+                param_groups=("evap", "runoff", "routing"),
+            ),
+            local=DiagnosisPlan(
+                strategy_id="xaj-local-refine-v1",
+                param_groups=("evap", "runoff", "routing"),
+            ),
+            fallback_strategy_ids=(
+                "xaj-hydro-composite-v1",
+                "xaj-bounded-v1",
+                "xaj-local-refine-v1",
+            ),
+        ),
         supports_forecast=True,
         supports_calibration=True,
         supports_resume=True,

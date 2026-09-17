@@ -16,6 +16,7 @@ from pydantic import Field
 from hydro_agent.execution.contracts import FrozenModel
 from hydro_agent.models.diagnosis_defaults import (
     broadened_plan,
+    model_id_from_strategy_id,
     peak_plan,
     planner_fallbacks,
     resolve_model_id,
@@ -166,10 +167,12 @@ class ExperimentPlanner:
         if not available:
             raise ValueError("no automatic calibration strategy is available")
 
-        model_id = resolve_model_id(
-            diagnosis,
-            next((sid.split("-", 1)[0] for sid in available if "-" in sid), None),
-        )
+        inferred = None
+        for sid in available:
+            inferred = model_id_from_strategy_id(sid)
+            if inferred:
+                break
+        model_id = resolve_model_id(diagnosis, inferred)
         recommended = str(diagnosis.get("recommended_strategy_id") or "").strip()
         groups = self._groups(diagnosis.get("recommended_param_groups"), model_id=model_id)
         objective = canonical_objective(str(diagnosis.get("recommended_objective") or "nse"))

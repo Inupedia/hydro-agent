@@ -145,6 +145,9 @@ class CalibrationStrategyRegistry:
     def __init__(self, strategies: tuple[CalibrationStrategy, ...] | None = None) -> None:
         if strategies is None:
             from hydro_agent.models.gr4j.strategies import GR4J_STRATEGIES
+            from hydro_agent.models.hbv.strategies import HBV_STRATEGIES
+            from hydro_agent.models.sacsma.strategies import SAC_SMA_STRATEGIES
+            from hydro_agent.models.tank.strategies import TANK_STRATEGIES
 
             strategies = (
                 XAJ_BOUNDED_V1,
@@ -158,6 +161,9 @@ class CalibrationStrategyRegistry:
                 XAJ_RANDOM_SEARCH_V1,
                 XAJ_HYDROLOGIST_MANUAL_V1,
                 *GR4J_STRATEGIES,
+                *HBV_STRATEGIES,
+                *TANK_STRATEGIES,
+                *SAC_SMA_STRATEGIES,
             )
         self._strategies = {s.strategy_id: s for s in strategies}
 

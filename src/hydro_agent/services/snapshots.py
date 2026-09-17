@@ -77,10 +77,11 @@ class SnapshotResolver:
                 == (history_end_date.isoformat() if history_end_date is not None else None)
             ):
                 matches.append(snapshot)
-        if len(matches) > 1:
+        ready = [row for row in matches if self._snapshot_has_required_forcings(task_id, row)]
+        if len(ready) > 1:
             raise DataAccessViolation("ambiguous legal snapshots")
-        if len(matches) == 1:
-            return matches[0].snapshot_id
+        if len(ready) == 1:
+            return ready[0].snapshot_id
         if self.builder is None or self.source is None:
             raise DataAccessViolation("no legal forcing")
         loaded = (
@@ -91,10 +92,14 @@ class SnapshotResolver:
         history_suffix = "" if history_days == self.history_days else f"--h{history_days}"
         if history_end_date is not None:
             history_suffix += f"--end{history_end_date.strftime('%Y%m%d')}"
+        forcing_suffix = self._forcing_suffix(task_id)
         snapshot_id = (
-            f"{task_id}--{task.phase}--{capability}{history_suffix}--"
+            f"{task_id}--{task.phase}--{capability}{history_suffix}{forcing_suffix}--"
             f"{issue.strftime('%Y%m%dT%H%M%SZ')}"
         )
+        existing = next((row for row in matches if row.snapshot_id == snapshot_id), None)
+        if existing is not None and self._snapshot_has_required_forcings(task_id, existing):
+            return existing.snapshot_id
         context = SnapshotContext(
             task_id=task_id,
             snapshot_id=snapshot_id,
@@ -117,6 +122,33 @@ class SnapshotResolver:
         if stored.content_hash != sha256_file(path / "snapshot-manifest.json"):
             raise DataAccessViolation("snapshot content hash mismatch")
         return snapshot_id
+
+    def _required_forcings(self, task_id: str) -> tuple[str, ...]:
+        try:
+            state = self.repository.ensure_task_state(task_id)
+            if not getattr(state, "current_scheme_id", None):
+                return ()
+            scheme = self.repository.get_scheme(state.current_scheme_id)
+            from hydro_agent.models.registry import default_model_registry
+
+            return tuple(default_model_registry().get(scheme.model_id).descriptor.required_forcings)
+        except Exception:  # noqa: BLE001
+            return ()
+
+    def _forcing_suffix(self, task_id: str) -> str:
+        required = self._required_forcings(task_id)
+        if "temperature" not in required:
+            return ""
+        return "--T"
+
+    def _snapshot_has_required_forcings(self, task_id: str, snapshot) -> bool:
+        required = self._required_forcings(task_id)
+        if "temperature" not in required:
+            return True
+        rows = (snapshot.manifest_json or {}).get("forcing_rows") or []
+        if not rows:
+            return False
+        return all(row.get("temperature_c") not in (None, "") for row in rows)
 
 
 def new_action_run_id() -> str:

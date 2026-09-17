@@ -16,6 +16,9 @@ def test_diagnosis_skill_resolved_from_plugin_not_hardcoded_branch():
     skills = SkillRegistry()
     skills.reload()
     assert "gr4j-calibration-diagnosis" in skills._diagnosis_skill_ids("gr4j")
+    assert "hbv-calibration-diagnosis" in skills._diagnosis_skill_ids("hbv")
+    assert "tank-calibration-diagnosis" in skills._diagnosis_skill_ids("tank")
+    assert "sac-sma-calibration-diagnosis" in skills._diagnosis_skill_ids("sac-sma")
     assert "xaj-calibration-diagnosis" in skills._diagnosis_skill_ids("xaj")
     assert "xaj-calibration-diagnosis" not in skills._diagnosis_skill_ids("gr4j")
 
@@ -43,4 +46,4 @@ def test_orchestrator_invokes_gr4j_diagnosis_skill():
 def test_xaj_still_default_plugin():
     registry = default_model_registry()
     assert registry.get("xaj").descriptor.default_strategy_id == "xaj-bounded-v1"
-    assert set(registry.list_ids()) >= {"xaj", "gr4j"}
+    assert set(registry.list_ids()) >= {"xaj", "gr4j", "hbv", "tank", "sac-sma"}

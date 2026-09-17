@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from hydro_agent.models.contracts import ModelDescriptor
+from hydro_agent.models.contracts import DiagnosisPlan, DiagnosisPolicy, ModelDescriptor
 from hydro_agent.models.gr4j.adapter import Gr4jRuntimeAdapter
 from hydro_agent.models.gr4j.contracts import Gr4jBasin, Gr4jScheme
 from hydro_agent.models.gr4j.engine import load_param_ranges, simulate
@@ -28,6 +28,37 @@ class Gr4jPlugin:
         default_strategy_id="gr4j-bounded-v1",
         strategy_ids=tuple(s.strategy_id for s in GR4J_STRATEGIES),
         diagnosis_skill_id="gr4j-calibration-diagnosis",
+        diagnosis_policy=DiagnosisPolicy(
+            measurement=DiagnosisPlan(
+                strategy_id="gr4j-bounded-v1",
+                param_groups=("production", "exchange", "routing"),
+            ),
+            water_balance=DiagnosisPlan(
+                strategy_id="gr4j-production-refine-v1",
+                param_groups=("production", "exchange"),
+            ),
+            timing=DiagnosisPlan(
+                strategy_id="gr4j-routing-refine-v1",
+                param_groups=("routing",),
+            ),
+            peak=DiagnosisPlan(
+                strategy_id="gr4j-bounded-v1",
+                param_groups=("production", "routing"),
+            ),
+            composite=DiagnosisPlan(
+                strategy_id="gr4j-bounded-v1",
+                param_groups=("production", "exchange", "routing"),
+            ),
+            local=DiagnosisPlan(
+                strategy_id="gr4j-local-refine-v1",
+                param_groups=("production", "exchange", "routing"),
+            ),
+            fallback_strategy_ids=(
+                "gr4j-bounded-v1",
+                "gr4j-local-refine-v1",
+                "gr4j-production-refine-v1",
+            ),
+        ),
         supports_forecast=True,
         supports_calibration=True,
         supports_resume=True,
