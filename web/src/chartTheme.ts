@@ -21,14 +21,71 @@ export const CHART_INK = {
 export const CHART_FONT =
   '-apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif'
 
+type ChartInk = typeof CHART_INK
+
+function cssToken(name: string, fallback: string): string {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return fallback
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
+}
+
+/** Canvas charts cannot inherit CSS variables, so resolve the app theme at render time. */
+export function currentChartTheme(): {
+  colors: readonly string[]
+  ink: ChartInk
+  symbolBorder: string
+  base: typeof chartBase
+} {
+  const dark = typeof document !== 'undefined' && document.documentElement.dataset.theme === 'dark'
+  const colors = dark
+    ? ['#4ea8ff', '#5bc9bb', '#aea9f0', '#e7b86e', '#e99bb3']
+    : [...CHART_COLORS]
+  const ink: ChartInk = {
+    text: cssToken('--text-primary', CHART_INK.text),
+    secondary: cssToken('--text-secondary', CHART_INK.secondary),
+    tertiary: cssToken('--text-tertiary', CHART_INK.tertiary),
+    muted: cssToken('--chart-axis', CHART_INK.muted),
+    grid: cssToken('--chart-grid', CHART_INK.grid),
+    gridSoft: dark ? 'rgba(57, 66, 80, 0.72)' : CHART_INK.gridSoft,
+    separator: cssToken('--separator', CHART_INK.separator),
+    tooltipBorder: cssToken('--border', CHART_INK.tooltipBorder),
+    warmup: dark ? 'rgba(81, 96, 116, 0.3)' : CHART_INK.warmup,
+    areaPrimary: dark ? 'rgba(78, 168, 255, 0.2)' : CHART_INK.areaPrimary,
+    areaAccent: dark ? 'rgba(174, 169, 240, 0.22)' : CHART_INK.areaAccent,
+  }
+  const base = {
+    ...chartBase,
+    color: [...colors],
+    textStyle: { ...chartBase.textStyle, color: ink.text },
+    tooltip: {
+      ...chartBase.tooltip,
+      backgroundColor: dark ? 'rgba(32,35,41,0.98)' : 'rgba(255,255,255,0.96)',
+      borderColor: ink.tooltipBorder,
+      textStyle: { ...chartBase.tooltip.textStyle, color: ink.text },
+      extraCssText: `border-radius:14px;box-shadow:${dark ? '0 12px 32px rgba(0,0,0,0.28)' : '0 8px 28px rgba(25,40,65,0.08)'};backdrop-filter:saturate(140%) blur(8px);`,
+      axisPointer: {
+        ...chartBase.tooltip.axisPointer,
+        lineStyle: { color: dark ? '#70839b' : '#9DBEDC', width: 1, type: 'dashed' as const },
+      },
+    },
+    legend: { ...chartBase.legend, textStyle: { ...chartBase.legend.textStyle, color: ink.muted } },
+  }
+  return { colors, ink, symbolBorder: cssToken('--surface', '#ffffff'), base }
+}
+
 export function prefersChartReducedMotion(): boolean {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
+/**
+ * Preserve one deliberate first-paint trace even for long hydrographs. Dense data
+ * used to disable motion entirely, which made the result screen feel abruptly
+ * assembled rather than calculated. Updates stay short so filters/theme changes
+ * never become a slideshow.
+ */
 export function chartMotion(ms = 480, dense = false): { duration: number; easing: string } {
-  if (dense || prefersChartReducedMotion()) return { duration: 0, easing: 'cubicOut' }
-  return { duration: ms, easing: 'cubicOut' }
+  if (prefersChartReducedMotion()) return { duration: 0, easing: 'cubicOut' }
+  return { duration: dense ? Math.min(ms, 760) : ms, easing: 'cubicOut' }
 }
 
 export const chartBase = {
@@ -91,13 +148,13 @@ export function hydrographTitleZh(item: {
   return '独立检验：最终方案是否贴住观测'
 }
 
-export function axisCategory(): EChartsOption['xAxis'] {
+export function axisCategory(ink = CHART_INK): EChartsOption['xAxis'] {
   return {
     type: 'category',
     axisTick: { show: false },
     axisLine: { show: false },
     axisLabel: {
-      color: CHART_INK.muted,
+      color: ink.muted,
       fontSize: 11,
       fontWeight: 500,
       fontFamily: CHART_FONT,
@@ -107,13 +164,13 @@ export function axisCategory(): EChartsOption['xAxis'] {
   }
 }
 
-export function axisValue(name = '流量 · m³/s'): EChartsOption['yAxis'] {
+export function axisValue(name = '流量 · m³/s', ink = CHART_INK): EChartsOption['yAxis'] {
   return {
     type: 'value',
     name,
     nameGap: 10,
     nameTextStyle: {
-      color: CHART_INK.tertiary,
+      color: ink.tertiary,
       fontSize: 11,
       fontWeight: 600,
       fontFamily: CHART_FONT,
@@ -123,7 +180,7 @@ export function axisValue(name = '流量 · m³/s'): EChartsOption['yAxis'] {
     splitNumber: 4,
     splitLine: {
       lineStyle: {
-        color: CHART_INK.grid,
+        color: ink.grid,
         type: 'dashed',
         width: 1,
         opacity: 0.9,
@@ -132,7 +189,7 @@ export function axisValue(name = '流量 · m³/s'): EChartsOption['yAxis'] {
     axisLine: { show: false },
     axisTick: { show: false },
     axisLabel: {
-      color: CHART_INK.muted,
+      color: ink.muted,
       fontSize: 11,
       fontWeight: 500,
       fontFamily: CHART_FONT,

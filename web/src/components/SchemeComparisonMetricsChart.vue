@@ -6,10 +6,8 @@ import {
   axisCategory,
   axisValue,
   BAR_CAPSULE,
-  chartBase,
   chartMotion,
-  CHART_COLORS,
-  CHART_INK,
+  currentChartTheme,
   formatMetric,
 } from '../chartTheme'
 
@@ -123,6 +121,7 @@ async function render() {
   if (typeof ResizeObserver === 'undefined') return
   if (!chart) chart = echarts.init(el.value)
   const motion = chartMotion(420)
+  const { base: chartBase, colors, ink } = currentChartTheme()
   chart.setOption(
     {
       ...chartBase,
@@ -138,17 +137,17 @@ async function render() {
       },
       grid: { left: 8, right: 12, top: 28, bottom: 48, containLabel: true },
       xAxis: {
-        ...axisCategory(),
+        ...axisCategory(ink),
         data: data.categories,
         axisLabel: {
-          color: CHART_INK.secondary,
+          color: ink.secondary,
           fontSize: 12,
           fontWeight: 600,
           fontFamily: chartBase.textStyle.fontFamily,
         },
       },
       yAxis: {
-        ...axisValue('指标值'),
+        ...axisValue('指标值', ink),
         min: (extent: { min: number; max: number }) => {
           const floor = Math.min(0, extent.min)
           return Number.isFinite(floor) ? Math.floor(floor * 10) / 10 : 0
@@ -161,13 +160,13 @@ async function render() {
           barMaxWidth: 36,
           barGap: '28%',
           itemStyle: {
-            color: CHART_COLORS[1],
+            color: colors[1],
             borderRadius: [...BAR_CAPSULE],
           },
           label: {
             show: data.categories.length <= 3,
             position: 'top',
-            color: CHART_INK.secondary,
+            color: ink.secondary,
             fontSize: 11,
             fontWeight: 700,
             fontFamily: chartBase.textStyle.fontFamily,
@@ -182,13 +181,13 @@ async function render() {
           type: 'bar',
           barMaxWidth: 36,
           itemStyle: {
-            color: CHART_COLORS[2],
+            color: colors[2],
             borderRadius: [...BAR_CAPSULE],
           },
           label: {
             show: data.categories.length <= 3,
             position: 'top',
-            color: CHART_INK.text,
+            color: ink.text,
             fontSize: 11,
             fontWeight: 700,
             fontFamily: chartBase.textStyle.fontFamily,
@@ -208,10 +207,14 @@ async function render() {
 function onResize() {
   chart?.resize()
 }
+function onThemeChange() {
+  void render()
+}
 
 onMounted(() => {
   void render()
   window.addEventListener('resize', onResize)
+  window.addEventListener('hydro-theme-change', onThemeChange)
   if (typeof ResizeObserver !== 'undefined') {
     observer = new ResizeObserver(onResize)
     if (el.value) observer.observe(el.value)
@@ -219,6 +222,7 @@ onMounted(() => {
 })
 onUnmounted(() => {
   window.removeEventListener('resize', onResize)
+  window.removeEventListener('hydro-theme-change', onThemeChange)
   observer?.disconnect()
   chart?.dispose()
 })

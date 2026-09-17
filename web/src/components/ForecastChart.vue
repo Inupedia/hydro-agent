@@ -4,10 +4,8 @@ import * as echarts from 'echarts'
 import {
   axisCategory,
   axisValue,
-  chartBase,
   chartMotion,
-  CHART_COLORS,
-  CHART_INK,
+  currentChartTheme,
   formatFlow,
 } from '../chartTheme'
 
@@ -46,6 +44,7 @@ async function render() {
   const categories = props.forecasts.map((f) => String(f.issue_time).slice(0, 10))
   const dense = props.forecasts.length > 40
   const motion = chartMotion(900, dense)
+  const { base: chartBase, colors, ink, symbolBorder } = currentChartTheme()
   const names = ['提前 1 天', '提前 2 天', '提前 3 天']
   chart.setOption(
     {
@@ -64,11 +63,11 @@ async function render() {
       },
       dataZoom: dense ? [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }] : undefined,
       xAxis: {
-        ...axisCategory(),
+        ...axisCategory(ink),
         data: categories,
         boundaryGap: false,
         axisLabel: {
-          color: CHART_INK.muted,
+          color: ink.muted,
           fontSize: 11,
           fontWeight: 500,
           margin: 14,
@@ -76,7 +75,7 @@ async function render() {
           formatter: (value: string) => value.slice(5).replace('-', '/'),
         },
       },
-      yAxis: axisValue(),
+      yAxis: axisValue('流量 · m³/s', ink),
       series: [1, 2, 3].map((lead, index) => ({
         name: names[index],
         type: 'line' as const,
@@ -87,8 +86,8 @@ async function render() {
         showSymbol: props.forecasts.length < 8,
         z: 3 - index,
         itemStyle: {
-          color: CHART_COLORS[index],
-          borderColor: '#fff',
+          color: colors[index],
+          borderColor: symbolBorder,
           borderWidth: dense ? 0 : 1.5,
         },
         lineStyle: {
@@ -107,8 +106,8 @@ async function render() {
                   x2: 0,
                   y2: 1,
                   colorStops: [
-                    { offset: 0, color: CHART_INK.areaPrimary },
-                    { offset: 1, color: 'rgba(24,137,238,0)' },
+                    { offset: 0, color: ink.areaPrimary },
+                    { offset: 1, color: 'transparent' },
                   ],
                 },
               }
@@ -129,15 +128,20 @@ async function render() {
 function onResize() {
   chart?.resize()
 }
+function onThemeChange() {
+  void render()
+}
 
 onMounted(() => {
   render()
   window.addEventListener('resize', onResize)
+  window.addEventListener('hydro-theme-change', onThemeChange)
   observer = new ResizeObserver(onResize)
   if (el.value) observer.observe(el.value)
 })
 onUnmounted(() => {
   window.removeEventListener('resize', onResize)
+  window.removeEventListener('hydro-theme-change', onThemeChange)
   observer?.disconnect()
   chart?.dispose()
 })

@@ -108,7 +108,7 @@ async function save() {
 <template>
   <GlassDialog
     :open="open"
-    overline="工作台"
+    :overline="section === 'root' ? '工作台' : undefined"
     :title="section === 'root' ? '配置' : section === 'theme' ? '主题配色' : '服务商配置'"
     labelled-by="llm-config-title"
     test-id="llm-settings"

@@ -113,7 +113,7 @@ onUnmounted(() => {
         <header class="glass-dialog-head">
           <slot name="leading" />
           <div>
-            <span class="dialog-overline">{{ overline }}</span>
+            <span v-if="overline" class="dialog-overline">{{ overline }}</span>
             <h2 :id="labelledBy || 'glass-dialog-title'">{{ title }}</h2>
           </div>
           <button type="button" class="glass-dialog-close" aria-label="关闭" @click="close">

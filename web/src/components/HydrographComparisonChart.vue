@@ -5,10 +5,8 @@ import type { HydrographComparison } from '../types/api'
 import {
   axisCategory,
   axisValue,
-  chartBase,
   chartMotion,
-  CHART_COLORS,
-  CHART_INK,
+  currentChartTheme,
   formatFlow,
   hydrographTitleZh,
 } from '../chartTheme'
@@ -114,6 +112,7 @@ async function render() {
   const lastWarmup = warmup.at(-1)
   const dense = rows.length > 80
   const motion = chartMotion(1_080, dense)
+  const { base: chartBase, colors, ink, symbolBorder } = currentChartTheme()
   const has = (key: 'baseline_m3s' | 'candidate_m3s' | 'frozen_m3s') =>
     rows.some((row) => typeof row[key] === 'number' && Number.isFinite(row[key] as number))
 
@@ -127,16 +126,16 @@ async function render() {
       symbolSize: 5,
       connectNulls: false,
       z: 5,
-      lineStyle: { width: 2.5, color: CHART_COLORS[0], cap: 'round', join: 'round' },
-      itemStyle: { color: CHART_COLORS[0], borderColor: '#fff', borderWidth: 1.5 },
+      lineStyle: { width: 2.5, color: colors[0], cap: 'round', join: 'round' },
+      itemStyle: { color: colors[0], borderColor: symbolBorder, borderWidth: 1.5 },
       data: rows.map((row) => row.observed_m3s ?? null),
       markArea:
         firstWarmup && lastWarmup
           ? {
               silent: true,
-              itemStyle: { color: CHART_INK.warmup },
+              itemStyle: { color: ink.warmup },
               label: {
-                color: CHART_INK.tertiary,
+                color: ink.tertiary,
                 fontSize: 10.5,
                 fontWeight: 600,
                 fontFamily: chartBase.textStyle.fontFamily,
@@ -153,8 +152,8 @@ async function render() {
       showSymbol: false,
       connectNulls: false,
       z: 2,
-      lineStyle: { width: 1.25, color: CHART_COLORS[1], type: 'dashed', cap: 'round' },
-      itemStyle: { color: CHART_COLORS[1] },
+      lineStyle: { width: 1.25, color: colors[1], type: 'dashed', cap: 'round' },
+      itemStyle: { color: colors[1] },
       data: rows.map((row) => row.baseline_m3s ?? null),
     })
   }
@@ -165,8 +164,8 @@ async function render() {
       showSymbol: false,
       connectNulls: false,
       z: 3,
-      lineStyle: { width: 1.75, color: CHART_COLORS[2], cap: 'round', join: 'round' },
-      itemStyle: { color: CHART_COLORS[2] },
+      lineStyle: { width: 1.75, color: colors[2], cap: 'round', join: 'round' },
+      itemStyle: { color: colors[2] },
       data: rows.map((row) => row.candidate_m3s ?? null),
     })
   }
@@ -177,12 +176,12 @@ async function render() {
       showSymbol: false,
       connectNulls: false,
       z: 4,
-      lineStyle: { width: 2.75, color: CHART_COLORS[2], cap: 'round', join: 'round' },
-      itemStyle: { color: CHART_COLORS[2] },
+      lineStyle: { width: 2.75, color: colors[2], cap: 'round', join: 'round' },
+      itemStyle: { color: colors[2] },
       areaStyle: {
         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-          { offset: 0, color: 'rgba(142,139,212,0.22)' },
-          { offset: 1, color: 'rgba(142,139,212,0)' },
+          { offset: 0, color: ink.areaAccent },
+          { offset: 1, color: 'transparent' },
         ]),
       },
       data: rows.map((row) => row.frozen_m3s ?? null),
@@ -209,11 +208,11 @@ async function render() {
       },
       dataZoom: rows.length > 40 ? [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }] : undefined,
       xAxis: {
-        ...axisCategory(),
+        ...axisCategory(ink),
         data: categories,
         boundaryGap: false,
         axisLabel: {
-          color: CHART_INK.muted,
+          color: ink.muted,
           fontSize: 11,
           fontWeight: 500,
           hideOverlap: true,
@@ -222,10 +221,10 @@ async function render() {
         },
       },
       yAxis: {
-        ...axisValue(),
+        ...axisValue('流量 · m³/s', ink),
         splitLine: {
           lineStyle: {
-            color: CHART_INK.grid,
+            color: ink.grid,
             type: 'solid',
             width: 1,
             opacity: 0.55,
@@ -242,15 +241,20 @@ async function render() {
 function onResize() {
   chart?.resize()
 }
+function onThemeChange() {
+  void render()
+}
 
 onMounted(() => {
   render()
   window.addEventListener('resize', onResize)
+  window.addEventListener('hydro-theme-change', onThemeChange)
   observer = new ResizeObserver(onResize)
   if (el.value) observer.observe(el.value)
 })
 onUnmounted(() => {
   window.removeEventListener('resize', onResize)
+  window.removeEventListener('hydro-theme-change', onThemeChange)
   observer?.disconnect()
   chart?.dispose()
 })
@@ -276,7 +280,7 @@ watch(() => props.comparison, render, { deep: true })
 
 <style scoped>
 .wrap {
-  --ledger-line: rgba(105, 129, 151, 0.12);
+  --ledger-line: color-mix(in srgb, var(--chart-grid) 32%, transparent);
   position: relative;
   overflow: hidden;
   margin-top: 16px;
@@ -284,16 +288,16 @@ watch(() => props.comparison, render, { deep: true })
   border: 1px solid var(--separator, #e8e9ee);
   border-radius: 24px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.96)),
     repeating-linear-gradient(
       to bottom,
       transparent 0,
       transparent 27px,
       var(--ledger-line) 27px,
       var(--ledger-line) 28px
-    );
+    ),
+    var(--surface);
   background-color: var(--surface, #ffffff);
-  box-shadow: 0 2px 8px rgba(25, 40, 65, 0.04);
+  box-shadow: var(--shadow);
 }
 .wrap::before {
   content: '';
@@ -365,7 +369,7 @@ watch(() => props.comparison, render, { deep: true })
   margin: 0;
   padding: 8px 10px;
   border-radius: 12px;
-  background: rgba(248, 249, 251, 0.92);
+  background: var(--surface-secondary);
   border: 1px solid var(--separator, #e8e9ee);
 }
 

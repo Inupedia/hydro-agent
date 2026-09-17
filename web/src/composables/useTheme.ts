@@ -32,6 +32,7 @@ export function useTheme() {
     const resolved = resolvedTheme(theme.value)
     root.dataset.theme = resolved
     root.style.colorScheme = resolved
+    window.dispatchEvent(new CustomEvent('hydro-theme-change', { detail: resolved }))
   }
 
   function persistTheme(value: ThemePreference) {
