@@ -133,14 +133,8 @@ class CalibrationService:
         from hydro_agent.models.registry import default_model_registry
 
         plugin = default_model_registry().get(model_id)
-        workbench = dict((base.config_json or {}).get("workbench") or {})
-        if (
-            not plugin.descriptor.supports_calibration
-            and not bool(workbench.get("allow_unverified_model_calibration", False))
-        ):
-            raise ValueError(
-                f"model {model_id} calibration blocked until numerical-kernel validation passes"
-            )
+        if not plugin.descriptor.supports_calibration:
+            raise ValueError(f"model {model_id} does not support numerical calibration")
         if self.model_id is not None and model_id != self.model_id:
             raise ValueError("scheme model mismatch")
         strategy = self.strategies.get(strategy_id, model_id=model_id)
