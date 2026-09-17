@@ -64,6 +64,11 @@ RUN (uv pip install --python .venv --index-url https://mirrors.aliyun.com/pypi/s
 
 COPY --from=web /web/dist /app/web/dist
 
+# Keep the source fingerprint in the final metadata layer so changing it does
+# not invalidate dependency installation and other expensive runtime layers.
+ARG HYDRO_BUILD_REVISION=unknown
+LABEL org.opencontainers.image.revision="${HYDRO_BUILD_REVISION}"
+
 ENV UV_NO_SYNC=1
 
 EXPOSE 8000

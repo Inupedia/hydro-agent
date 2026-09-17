@@ -22,14 +22,15 @@
 同一脚本覆盖本机和 `tencent_gpu`（Traefik 域名 `https://hhu.ai.swhisxy.cn`）。先复制 `.env.example` 为 `.env` 并填写 `SILICONFLOW_API_KEY`。
 
 ```sh
-./scripts/deploy.sh local     # 本机 http://127.0.0.1:8000 ，源码 bind-mount
-./scripts/deploy.sh server    # rsync 到 GPU 机并发布公网 HTTPS
+./scripts/deploy.sh local     # 重建最新前端+后端，本机发布到 http://127.0.0.1:8000
+./scripts/deploy.sh server    # 同步并重建最新前端+后端，发布公网 HTTPS
+./scripts/deploy.sh local --fresh   # Docker 缓存异常时执行无缓存全量重建
 ./scripts/deploy.sh logs      # 跟随当前环境的 workbench 日志
 ./scripts/deploy.sh status
 ./scripts/deploy.sh down
 ```
 
-在 GPU 机仓库目录里直接 `./scripts/deploy.sh up` 会走 `docker-compose.prod.yml`（镜像内前端、loopback:8000、Traefik 出网）。本机 `docker compose up --build -d` 仍然可用。数据持久化在 Docker volume `hydro-agent-data`。
+脚本会先计算当前前后端源码指纹，显式构建镜像并强制重建容器，随后同时检查 `/api/health`、首页和首页引用的 hashed JavaScript 资产；镜像标签与源码指纹不一致时部署直接失败。在 GPU 机仓库目录里执行 `./scripts/deploy.sh up` 会走 `docker-compose.prod.yml`（镜像内前端、loopback:8000、Traefik 出网）。数据持久化在 Docker volume `hydro-agent-data`。
 
 当前镜像内置脚本化 demo Agent（不跑真实 XAJ 数值引擎），用于完整体验任务 / 时间线 / 结果页。
 

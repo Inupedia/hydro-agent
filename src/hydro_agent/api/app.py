@@ -36,7 +36,9 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
     )
     executor = TaskExecutor(deps)
     deps.executor = executor  # type: ignore[attr-defined]
-    skill_registry = deps.skills if deps.skills is not None else SkillRegistry(repository=deps.repository)
+    skill_registry = (
+        deps.skills if deps.skills is not None else SkillRegistry(repository=deps.repository)
+    )
     if skill_registry.repository is None:
         skill_registry.repository = deps.repository
     deps.skills = skill_registry
@@ -87,10 +89,20 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
             if full_path.startswith("api/"):
                 return {"detail": "Not Found"}
             candidate = (root / full_path).resolve()
-            if full_path and candidate.is_file() and (
-                candidate == root or root in candidate.parents
+            if (
+                full_path
+                and candidate.is_file()
+                and (candidate == root or root in candidate.parents)
             ):
-                return FileResponse(candidate)
-            return FileResponse(root / "index.html")
+                headers = (
+                    {"Cache-Control": "no-store, max-age=0"}
+                    if candidate.suffix.lower() == ".html"
+                    else None
+                )
+                return FileResponse(candidate, headers=headers)
+            return FileResponse(
+                root / "index.html",
+                headers={"Cache-Control": "no-store, max-age=0"},
+            )
 
     return app

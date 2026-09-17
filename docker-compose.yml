@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        HYDRO_BUILD_REVISION: ${HYDRO_BUILD_REVISION:-unknown}
     image: hydro-agent-workbench:local
     ports:
       - "8000:8000"
