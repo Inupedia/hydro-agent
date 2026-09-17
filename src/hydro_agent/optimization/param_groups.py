@@ -7,7 +7,11 @@ from typing import Literal
 from hydro_agent.models.xaj.param_groups import (
     ALL_PARAM_GROUPS,
     XAJ_PARAM_GROUPS,
+)
+from hydro_agent.models.xaj.param_groups import (
     normalize_param_groups as normalize_xaj_param_groups,
+)
+from hydro_agent.models.xaj.param_groups import (
     resolve_param_names as resolve_xaj_param_names,
 )
 

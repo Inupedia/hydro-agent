@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from hydro_agent.skills import SkillRegistry
 from hydro_agent.skills.aliases import (
     LEGACY_SKILL_ALIASES,
     canonical_skill_id,
     migrate_user_skill_overrides,
 )
 from hydro_agent.skills.manager import SkillManager
-from hydro_agent.skills import SkillRegistry
 
 
 def test_canonical_skill_id_maps_former_twelve():

@@ -55,7 +55,7 @@ def _outlet_wgs84(outlet_geojson: Path) -> tuple[float, float]:
 def _mosaic_skadi(dem_dir: Path, sources: dict[str, Any], grid, height: int, width: int, crs: str):
     import numpy as np
     import rasterio
-    from rasterio.warp import reproject, Resampling
+    from rasterio.warp import Resampling, reproject
 
     dem = np.full((height, width), -32768, dtype="float32")
     for record in sources["tiles"]:
@@ -100,7 +100,7 @@ def _mosaic_geotiff(
 ):
     import numpy as np
     import rasterio
-    from rasterio.warp import reproject, Resampling
+    from rasterio.warp import Resampling, reproject
 
     relative = (sources.get("downloaded") or {}).get("file") or ""
     # Manifest stores paths like "dem/leaf_river_3dep_30m.tif" or just the filename.
