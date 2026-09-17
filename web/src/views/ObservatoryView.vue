@@ -11,6 +11,7 @@ import GlassDialog from '../components/GlassDialog.vue'
 import RenameDialog from '../components/RenameDialog.vue'
 import SkillsLibrarySheet from '../components/SkillsLibrarySheet.vue'
 import { RippleButton } from '../components/ui'
+import { PhBookOpenText, PhFolderSimple, PhPlay, PhPlus, PhSlidersHorizontal, PhTrash } from '@phosphor-icons/vue'
 import { useDemoStore } from '../stores/demo'
 import { api } from '../api/client'
 import { gsap, motionDuration, prefersReducedMotion } from '../motion/gsap'
@@ -630,6 +631,7 @@ onUnmounted(() => {
           data-test="header-skills-library"
           @click="openSkillsLibrary"
         >
+          <PhBookOpenText :size="16" weight="duotone" aria-hidden="true" />
           专业技能
         </button>
         <div class="header-actions">
@@ -639,14 +641,20 @@ onUnmounted(() => {
             class="manage-button"
             :disabled="demo.isRunning || demo.isQueued || busy"
             @click="openCaseLibrary"
-          >案例库</button>
+          >
+            <PhFolderSimple :size="16" weight="duotone" aria-hidden="true" />
+            案例库
+          </button>
           <button
             v-if="demo.taskId"
             data-test="header-new-task"
             type="button"
             class="header-new-task"
             @click="newTask"
-          >新建任务</button>
+          >
+            <PhPlus :size="16" weight="bold" aria-hidden="true" />
+            新建任务
+          </button>
         </div>
         <div v-if="showResultsStage" class="header-actions header-actions--result">
           <label class="header-case-picker">已有案例
@@ -659,7 +667,10 @@ onUnmounted(() => {
               :options="caseSelectOptions"
             />
           </label>
-          <button data-test="header-delete-case" type="button" class="manage-button" :disabled="demo.isRunning || demo.isQueued || busy || !demo.caseLibrary.length" @click="openCaseManager">管理</button>
+          <button data-test="header-delete-case" type="button" class="manage-button" :disabled="demo.isRunning || demo.isQueued || busy || !demo.caseLibrary.length" @click="openCaseManager">
+            <PhSlidersHorizontal :size="16" weight="duotone" aria-hidden="true" />
+            管理
+          </button>
         </div>
         <div class="connection"><i :class="{ online: connected }" />{{ mode }}</div>
       </div>
@@ -735,7 +746,10 @@ onUnmounted(() => {
       </label>
       <template #footer>
         <span>已选 {{ selectedCaseIds.length }} 份</span>
-        <button type="button" class="danger-button" data-test="delete-selected-cases" :disabled="!selectedCaseIds.length || busy" @click="deleteSelectedCases">删除选中</button>
+        <button type="button" class="danger-button" data-test="delete-selected-cases" :disabled="!selectedCaseIds.length || busy" @click="deleteSelectedCases">
+          <PhTrash :size="16" weight="bold" aria-hidden="true" />
+          删除选中
+        </button>
       </template>
     </GlassDialog>
 
@@ -869,10 +883,27 @@ onUnmounted(() => {
             <RippleButton
               v-if="!demo.run || demo.run.status === 'created'"
               class="start-button"
+              data-test="start-run"
+              :beam="!busy && connected && (serviceMode !== 'real' || planReady)"
+              :beam-radius="12"
+              :beam-size="64"
+              :beam-duration="6"
               :disabled="busy || !connected || (serviceMode === 'real' && !demo.draft.model_plan_id)"
               type="submit"
             >
-              {{ busy ? '正在启动…' : planReady ? '开始运行' : '请先完成建模' }}
+              <PhPlay
+                v-if="!busy && (serviceMode !== 'real' || planReady)"
+                :size="16"
+                weight="fill"
+                aria-hidden="true"
+              />
+              {{
+                busy
+                  ? '正在启动…'
+                  : serviceMode === 'real' && !planReady
+                    ? '请先完成建模'
+                    : '开始运行'
+              }}
             </RippleButton>
             <RippleButton
               v-else-if="demo.run.paused && demo.mode !== 'replay'"

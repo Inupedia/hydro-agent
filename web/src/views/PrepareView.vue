@@ -194,7 +194,7 @@ function statusZh(status: string) {
               <li v-for="task in demo.caseLibrary" :key="task.task_id">
                 <div>
                   <strong>{{ basinLabel(task.basin_id) }}</strong>
-                  <span>{{ task.start_date || '—' }} · {{ statusZh(task.status) }}</span>
+                  <span>{{ task.start_date || '-' }} · {{ statusZh(task.status) }}</span>
                 </div>
                 <button type="button" class="ghost" :disabled="busy" @click="enterCase(task)">
                   回放

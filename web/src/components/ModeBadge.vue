@@ -26,11 +26,12 @@ const labels: Record<RunMode, string> = {
   min-height: 24px;
   padding: 0 0.5rem;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid var(--separator);
+  background: var(--glass-light);
+  border: 1px solid var(--glass-edge);
   color: var(--secondary);
   font-size: 11px;
   font-weight: 550;
+  box-shadow: var(--glass-inset-soft);
 }
 .mode-badge[data-mode='live'] {
   color: var(--blue);

@@ -134,7 +134,7 @@ const schemePlain = computed(() => {
 const modelPlain = computed(() => {
   const id = props.result?.scheme?.model_id
   if (id === 'xaj') return '新安江模型（XAJ）：一种常见的流域产汇流概念模型，用来把降雨转换成河川流量。'
-  if (id === 'gr4j') return 'GR4J：四参数日尺度降雨—径流模型，用产流库、地下水交换与汇流单元描述流域响应。'
+  if (id === 'gr4j') return 'GR4J：四参数日尺度降雨-径流模型，用产流库、地下水交换与汇流单元描述流域响应。'
   if (id === 'hbv') return 'HBV-light：积雪、土壤、UZL 快流与连续 MAXBAS 汇流的日模型（Seibert & Vis / hydromad 对齐）。'
   if (id === 'tank') return '三层 Tank + Nash：表层/中间/基流水箱串联离散 Nash 汇流（Sugawara 族产品结构，非唯一四层全图）。'
   if (id === 'sac-sma') return 'SAC-SMA（NOAA-OWP）：16 参数无冻土土壤湿度核算；当前不含积雪、融雪和冻土过程。'
@@ -193,8 +193,9 @@ const modelPlain = computed(() => {
 
 .story-hero {
   padding: 1.25rem 1.35rem;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(16, 35, 28, 0.1);
+  background: var(--glass-light);
+  border: 1px solid var(--separator);
+  box-shadow: var(--glass-inset-soft), var(--shadow);
 }
 
 .eyebrow {
@@ -202,7 +203,7 @@ const modelPlain = computed(() => {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   font-size: 0.75rem;
-  color: rgba(16, 35, 28, 0.55);
+  color: var(--text-tertiary);
 }
 
 .story-hero h2 {
@@ -224,8 +225,8 @@ const modelPlain = computed(() => {
   gap: 0.75rem;
   align-items: flex-start;
   padding: 0.7rem 0.85rem;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(16, 35, 28, 0.08);
+  background: var(--glass-light);
+  border: 1px solid var(--separator);
 }
 
 .step-n {
@@ -247,8 +248,9 @@ const modelPlain = computed(() => {
 
 .metric-card {
   padding: 0.85rem 0.95rem;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(16, 35, 28, 0.08);
+  background: var(--glass-light);
+  border: 1px solid var(--separator);
+  box-shadow: var(--glass-inset-soft), var(--shadow);
 }
 
 .metric-name {
@@ -257,7 +259,7 @@ const modelPlain = computed(() => {
 }
 
 .metric-key {
-  color: rgba(16, 35, 28, 0.45);
+  color: var(--text-tertiary);
   font-size: 0.8rem;
 }
 

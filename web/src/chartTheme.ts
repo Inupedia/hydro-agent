@@ -1,6 +1,6 @@
 import type { EChartsOption } from 'echarts'
 
-/** macOS Liquid Glass series palette — keep as product chart colors. */
+/** macOS Liquid Glass series palette - keep as product chart colors. */
 export const CHART_COLORS = ['#1889EE', '#47B8B0', '#8E8BD4', '#DCA45A', '#D67C96'] as const
 
 /** Editorial ink ladder on the macOS surface (lieflat hierarchy, not mono paper). */
@@ -73,7 +73,7 @@ export function formatFlow(value: unknown): string {
 }
 
 export function formatMetric(value: unknown, digits = 3): string {
-  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : '—'
+  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : '-'
 }
 
 /** Conclusion-style titles (lieflat) while staying product Chinese. */
@@ -140,5 +140,5 @@ export function axisValue(name = '流量 · m³/s'): EChartsOption['yAxis'] {
   }
 }
 
-/** Capsule bar ends — lieflat SHAPE.barRadius, kept on macOS surfaces. */
+/** Capsule bar ends - lieflat SHAPE.barRadius, kept on macOS surfaces. */
 export const BAR_CAPSULE = [999, 999, 4, 4] as const

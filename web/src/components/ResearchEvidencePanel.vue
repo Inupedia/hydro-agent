@@ -35,12 +35,12 @@ const annualStabilityStatus = computed(() => {
 })
 
 function range(start?: string, end?: string) {
-  if (!start && !end) return '—'
-  return `${start || '—'} → ${end || '—'}`
+  if (!start && !end) return '-'
+  return `${start || '-'} → ${end || '-'}`
 }
 
 function formatMetric(value: number | undefined) {
-  if (value == null || !Number.isFinite(value)) return '—'
+  if (value == null || !Number.isFinite(value)) return '-'
   if (Math.abs(value) >= 100) return value.toFixed(1)
   return value.toFixed(3)
 }
@@ -59,7 +59,7 @@ function statusLabel(value: string) {
     refuted: '假设被证伪',
     inconclusive: '证据不足',
   }
-  return labels[value] || value || '—'
+  return labels[value] || value || '-'
 }
 
 function statusTone(value: string) {
@@ -76,7 +76,7 @@ function optimizerLabel(value?: string | null) {
     'random-search': '随机搜索',
     manual: '手工',
   }
-  return labels[value || ''] || value || '—'
+  return labels[value || ''] || value || '-'
 }
 
 function objectiveLabel(value?: string | null) {
@@ -86,7 +86,7 @@ function objectiveLabel(value?: string | null) {
     peak: '洪峰',
     composite: 'KGE',
   }
-  return labels[value || ''] || (value ? value.toUpperCase() : '—')
+  return labels[value || ''] || (value ? value.toUpperCase() : '-')
 }
 
 function paramGroupLabel(value: string) {
@@ -104,7 +104,7 @@ function sourceLabel(value?: string | null) {
     composite_to_kge: '综合目标记为 KGE',
     'composite->kge': '综合目标记为 KGE',
   }
-  return labels[value || ''] || value || '—'
+  return labels[value || ''] || value || '-'
 }
 
 function sliceState(slice: EvidenceSlice | undefined) {
@@ -187,11 +187,11 @@ watch(() => props.taskId, load)
           <span v-if="plan?.sensitivity_method" class="audit-chip neutral">{{ plan.sensitivity_method === 'morris' ? '全局敏感性筛选' : plan.sensitivity_method }}</span>
         </div>
         <div v-if="plan" class="plan-grid">
-          <div><small>策略</small><strong>{{ plan.strategy_id || '—' }}</strong></div>
+          <div><small>策略</small><strong>{{ plan.strategy_id || '-' }}</strong></div>
           <div><small>优化器</small><strong>{{ optimizerLabel(plan.optimizer) }}</strong></div>
           <div><small>目标</small><strong>{{ objectiveLabel(plan.objective) }}</strong></div>
-          <div><small>模型评估预算</small><strong>{{ plan.evaluation_budget ?? '—' }}</strong></div>
-          <div class="plan-wide"><small>参数组</small><strong>{{ plan.param_groups.length ? plan.param_groups.map(paramGroupLabel).join(' · ') : '—' }}</strong></div>
+          <div><small>模型评估预算</small><strong>{{ plan.evaluation_budget ?? '-' }}</strong></div>
+          <div class="plan-wide"><small>参数组</small><strong>{{ plan.param_groups.length ? plan.param_groups.map(paramGroupLabel).join(' · ') : '-' }}</strong></div>
           <div class="plan-wide"><small>本轮依据</small><span>{{ plan.reason_codes.length ? plan.reason_codes.join(' · ') : '由当前诊断证据生成' }}</span></div>
           <div v-if="plan.active_parameters.length" class="plan-wide"><small>活动参数</small><span>{{ plan.active_parameters.join(' · ') }}</span></div>
         </div>

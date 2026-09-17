@@ -99,9 +99,9 @@ const startLabel = computed(() => {
 })
 
 const summaryRows = computed(() => [
-  { label: '研究流域', value: props.selectedBasin?.label || props.basinId || '—' },
+  { label: '研究流域', value: props.selectedBasin?.label || props.basinId || '-' },
   { label: '模型方案', value: props.modelPlanId || (props.serviceMode === 'real' ? '尚未绑定' : '演示模式可直接启动') },
-  { label: '计算时段', value: props.startDate && props.endDate ? `${props.startDate} → ${props.endDate}` : '—' },
+  { label: '计算时段', value: props.startDate && props.endDate ? `${props.startDate} → ${props.endDate}` : '-' },
   { label: '计算模型', value: props.modelSelectOptions.find((o) => o.value === props.modelId)?.label || props.modelId },
   { label: '气象资料', value: props.forcingSelectOptions.find((o) => o.value === props.forcingMode)?.label || props.forcingMode },
   { label: '改进方案', value: props.allowOptimization ? '允许尝试' : '不自动改进' },
@@ -664,7 +664,7 @@ function onSubmit() {
 .ghost-button {
   appearance: none;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--glass-light);
   color: var(--text-primary);
   border-radius: 12px;
   min-height: 40px;
@@ -672,6 +672,7 @@ function onSubmit() {
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
+  box-shadow: var(--glass-inset-soft);
 }
 
 .ghost-button:disabled {

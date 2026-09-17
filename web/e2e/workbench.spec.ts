@@ -1,8 +1,39 @@
 import { expect, test } from '@playwright/test'
 
-test('click first Archify step to input, then run without hash thrash', async ({ page }) => {
+test('opens a glass dialog, creates a task from the workbench, and avoids hash thrash', async ({ page }) => {
   let created = false
+  await page.route('**/api/health', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        mode: 'demo',
+        model_preparation: true,
+        basin_catalog: true,
+      }),
+    })
+  })
+
+  await page.route('**/api/basins', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { basin_id: 'yaogu', label: '腰古', ready_for_build: true },
+      ]),
+    })
+  })
+
+  await page.route('**/api/model-plans', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
+  })
+
   await page.route('**/api/tasks', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
+      return
+    }
     if (route.request().method() === 'POST') {
       created = true
       await route.fulfill({
@@ -63,12 +94,20 @@ test('click first Archify step to input, then run without hash thrash', async ({
     })
   })
 
+  await page.route('**/api/tasks/task-demo/results', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
+  })
+
   await page.goto('/')
-  await expect(page.locator('#hydro-badge')).toBeVisible()
-  await expect(page.locator('#hydro-panel')).toBeHidden()
-  await page.locator('[data-node-id="user"]').first().click({ force: true })
-  await expect(page.locator('#hydro-panel')).toBeVisible()
-  await page.locator('#hydro-run').click()
+  await expect(page.locator('.observatory-header')).toBeVisible()
+  await expect(page.locator('[data-test="start-run"]')).toBeVisible()
+
+  await page.locator('[data-test="header-skills-library"]').click()
+  await expect(page.locator('.glass-dialog-backdrop')).toBeVisible()
+  await page.locator('.glass-dialog-close').click()
+  await expect(page.locator('.glass-dialog-backdrop')).toBeHidden()
+
+  await page.locator('[data-test="start-run"]').click()
   await expect.poll(() => created).toBeTruthy()
   await expect(page).not.toHaveURL(/view=|focus=/)
 })

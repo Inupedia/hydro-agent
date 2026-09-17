@@ -51,7 +51,7 @@ li {
   min-height: 36px;
   padding: 0.25rem 0.55rem;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.4);
+  background: var(--glass-light);
   border: 1px solid transparent;
   color: var(--secondary);
 }
@@ -59,7 +59,7 @@ li {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #c7c7cc;
+  background: var(--stage-mark);
   flex: 0 0 auto;
 }
 .copy {
@@ -97,7 +97,7 @@ li[data-status='skipped'] {
   color: var(--tertiary);
 }
 li[data-status='skipped'] .mark {
-  background: #d1d1d6;
+  background: var(--stage-mark);
   box-shadow: none;
 }
 li[data-status='blocked'] {

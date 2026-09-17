@@ -196,7 +196,7 @@ async function render() {
       tooltip: {
         ...chartBase.tooltip,
         valueFormatter: (value: unknown) =>
-          typeof value === 'number' && Number.isFinite(value) ? formatFlow(value) : '—',
+          typeof value === 'number' && Number.isFinite(value) ? formatFlow(value) : '-',
       },
       legend: {
         ...chartBase.legend,

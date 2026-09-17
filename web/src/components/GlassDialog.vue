@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { PhX } from '@phosphor-icons/vue'
 
 const props = withDefaults(
   defineProps<{
@@ -114,7 +115,9 @@ onUnmounted(() => {
             <span class="overline">{{ overline }}</span>
             <h2 :id="labelledBy || 'glass-dialog-title'">{{ title }}</h2>
           </div>
-          <button type="button" class="glass-dialog-close" aria-label="关闭" @click="close">×</button>
+          <button type="button" class="glass-dialog-close" aria-label="关闭" @click="close">
+            <PhX :size="17" weight="bold" aria-hidden="true" />
+          </button>
         </header>
         <div v-if="$slots.toolbar" class="glass-dialog-toolbar">
           <slot name="toolbar" />
@@ -138,11 +141,12 @@ onUnmounted(() => {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(26, 28, 34, 0.2);
+  background: var(--scrim);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   overflow-x: clip;
   overscroll-behavior: none;
+  animation: dialog-backdrop-enter 180ms var(--ease) both;
 }
 .glass-dialog-panel {
   width: min(520px, 100%);
@@ -151,12 +155,15 @@ onUnmounted(() => {
   padding: 20px;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
+  background: var(--glass-thick);
   border-radius: 24px;
-  box-shadow: var(--shadow-modal);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-inset), var(--shadow-modal);
   overflow: hidden;
   min-width: 0;
   justify-self: center;
   align-self: center;
+  animation: dialog-panel-enter 240ms var(--ease) both;
 }
 .glass-dialog-panel.size-wide {
   width: min(720px, 100%);
@@ -194,14 +201,26 @@ onUnmounted(() => {
   overflow-wrap: anywhere;
 }
 .glass-dialog-close {
+  display: inline-grid;
+  place-items: center;
   width: 34px;
   height: 34px;
-  border: 0;
-  border-radius: 50%;
-  background: var(--neutral-soft);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--button-secondary);
   color: var(--text-secondary);
-  font-size: 20px;
   cursor: pointer;
+  transition: background-color 140ms var(--ease), border-color 140ms var(--ease), transform 120ms var(--ease);
+}
+.glass-dialog-close:hover {
+  background: var(--button-secondary-hover);
+}
+.glass-dialog-close:active {
+  transform: scale(0.96);
+}
+.glass-dialog-close svg {
+  flex-shrink: 0;
 }
 .glass-dialog-toolbar {
   padding: 12px 0 10px;
@@ -285,6 +304,20 @@ onUnmounted(() => {
   justify-self: end;
   white-space: nowrap;
 }
+@keyframes dialog-backdrop-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes dialog-panel-enter {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .glass-dialog-backdrop,
+  .glass-dialog-panel {
+    animation: none;
+  }
+}
 @media (max-height: 640px) {
   .glass-dialog-backdrop {
     padding: 16px;
@@ -304,7 +337,14 @@ onUnmounted(() => {
 }
 @media (prefers-reduced-transparency: reduce) {
   .glass-dialog-backdrop {
-    background: rgba(26, 28, 34, 0.32);
+    background: var(--scrim);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass-dialog-panel {
+    background: var(--surface);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }

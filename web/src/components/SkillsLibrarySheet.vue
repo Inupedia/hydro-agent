@@ -561,7 +561,7 @@ watch(
                   :key="`${item.decision_id || index}-${item.skill_id}`"
                   data-test="skills-usage-invocation"
                 >
-                  <span class="round">R{{ item.round_number ?? '—' }}</span>
+                  <span class="round">R{{ item.round_number ?? '-' }}</span>
                   <span>{{ skillTitle(item.skill_id) }}</span>
                   <span class="chip">{{ item.output_contract || 'AgentDecision' }}</span>
                   <span class="muted">{{ item.action || '' }}</span>

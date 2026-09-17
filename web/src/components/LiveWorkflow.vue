@@ -435,18 +435,18 @@ function branchState(id: string): NodeState {
 
 <style scoped>
 .workflow-canvas {
-  --wf-bg: rgba(248, 249, 251, 0.92);
-  --wf-surface: rgba(255, 255, 255, 0.94);
-  --wf-surface-soft: rgba(255, 255, 255, 0.72);
-  --wf-text: #1d1d1f;
-  --wf-secondary: #62626a;
-  --wf-tertiary: #8a8a93;
-  --wf-border: rgba(255, 255, 255, 0.98);
-  --wf-separator: rgba(210, 212, 219, 0.86);
-  --wf-line: rgba(93, 96, 105, 0.34);
-  --wf-blue: #007aff;
-  --wf-amber: #9a6200;
-  --wf-red: #c80018;
+  --wf-bg: var(--glass-strong);
+  --wf-surface: var(--control-hover);
+  --wf-surface-soft: var(--glass-light);
+  --wf-text: var(--text-primary);
+  --wf-secondary: var(--text-secondary);
+  --wf-tertiary: var(--text-tertiary);
+  --wf-border: var(--glass-edge);
+  --wf-separator: var(--separator);
+  --wf-line: color-mix(in srgb, var(--text-tertiary) 45%, transparent);
+  --wf-blue: var(--accent);
+  --wf-amber: var(--caution);
+  --wf-red: var(--danger);
   position: relative;
   display: flex;
   min-height: 520px;
@@ -454,9 +454,9 @@ function branchState(id: string): NodeState {
   margin: 20px 0 10px;
   overflow: hidden;
   border: 1px solid var(--wf-border);
-  border-radius: 24px;
+  border-radius: var(--radius-2xl);
   background: var(--wf-bg);
-  box-shadow: 0 10px 34px rgba(16, 24, 40, 0.08), inset 0 1px 0 #fff;
+  box-shadow: var(--shadow-panel), var(--glass-inset);
   backdrop-filter: blur(24px) saturate(1.08);
   -webkit-backdrop-filter: blur(24px) saturate(1.08);
   color: var(--wf-text);
@@ -469,8 +469,8 @@ function branchState(id: string): NodeState {
   justify-content: space-between;
   gap: 18px;
   padding: 18px 20px 14px;
-  border-bottom: 1px solid rgba(225, 226, 231, 0.72);
-  background: rgba(255, 255, 255, 0.54);
+  border-bottom: 1px solid var(--wf-separator);
+  background: var(--wf-surface-soft);
 }
 .workflow-title-group { min-width: 0; }
 .eyebrow { margin-bottom: 5px; color: var(--wf-tertiary); font-size: 9px; font-weight: 700; letter-spacing: 0.14em; }
@@ -478,10 +478,10 @@ function branchState(id: string): NodeState {
 .title-row h3 { margin: 0; font-size: 18px; line-height: 1.2; letter-spacing: -0.02em; }
 .version-pill {
   padding: 3px 7px;
-  border: 1px solid rgba(0, 122, 255, 0.18);
+  border: 1px solid color-mix(in srgb, var(--wf-blue) 22%, transparent);
   border-radius: 999px;
-  background: #fff;
-  color: #005fcc;
+  background: var(--wf-surface);
+  color: var(--accent-text);
   font-size: 9px;
   font-weight: 700;
 }
@@ -493,26 +493,26 @@ function branchState(id: string): NodeState {
   gap: 8px;
   max-width: 260px;
   padding: 8px 11px;
-  border: 1px solid rgba(0, 122, 255, 0.22);
+  border: 1px solid color-mix(in srgb, var(--wf-blue) 26%, transparent);
   border-radius: 999px;
-  background: #fff;
-  color: #005fcc;
+  background: var(--wf-surface);
+  color: var(--accent-text);
   font-size: 10px;
   font-weight: 650;
-  box-shadow: 0 3px 14px rgba(16, 24, 40, 0.05), inset 0 1px 0 #fff;
+  box-shadow: var(--shadow), var(--glass-inset-soft);
 }
 .current-chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--wf-blue); box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.1); }
-.current-chip.is-paused { border-color: rgba(154, 98, 0, 0.28); color: var(--wf-amber); }
+.current-chip.is-paused { border-color: color-mix(in srgb, var(--wf-amber) 34%, transparent); color: var(--wf-amber); }
 .current-chip.is-paused i { background: var(--wf-amber); box-shadow: 0 0 0 4px rgba(154, 98, 0, 0.1); }
-.current-chip.is-failed, .current-chip.is-error { border-color: rgba(200, 0, 24, 0.24); color: var(--wf-red); }
+.current-chip.is-failed, .current-chip.is-error { border-color: color-mix(in srgb, var(--wf-red) 32%, transparent); color: var(--wf-red); }
 .current-chip.is-failed i, .current-chip.is-error i { background: var(--wf-red); box-shadow: 0 0 0 4px rgba(200, 0, 24, 0.09); }
 .stage-summary {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
   padding: 12px 14px;
-  border-bottom: 1px solid rgba(225, 226, 231, 0.72);
-  background: rgba(255, 255, 255, 0.36);
+  border-bottom: 1px solid var(--wf-separator);
+  background: var(--wf-surface-soft);
 }
 .stage-summary-item {
   min-width: 0;
@@ -522,15 +522,15 @@ function branchState(id: string): NodeState {
   gap: 8px;
   min-height: 48px;
   padding: 8px 9px;
-  border: 1px solid rgba(211, 213, 220, 0.78);
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
   border-radius: 14px;
-  background: #fff;
-  box-shadow: 0 2px 9px rgba(16, 24, 40, 0.035), inset 0 1px 0 #fff;
+  background: var(--wf-surface);
+  box-shadow: var(--shadow), var(--glass-inset-soft);
   transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease, opacity 180ms ease;
 }
 .stage-summary-item.is-current {
-  border-color: rgba(0, 122, 255, 0.48);
-  box-shadow: 0 7px 20px rgba(0, 122, 255, 0.1), inset 0 1px 0 #fff;
+  border-color: color-mix(in srgb, var(--wf-blue) 52%, transparent);
+  box-shadow: 0 7px 20px color-mix(in srgb, var(--wf-blue) 12%, transparent), var(--glass-inset-soft);
   transform: translateY(-1px);
 }
 .stage-summary-item.is-pending { opacity: 0.54; }
@@ -539,9 +539,9 @@ function branchState(id: string): NodeState {
   place-items: center;
   width: 28px;
   height: 28px;
-  border: 1px solid rgba(193, 195, 202, 0.82);
+  border: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
   border-radius: 9px;
-  background: #fff;
+  background: var(--wf-surface);
   color: var(--wf-secondary);
   font-size: 9px;
   font-weight: 760;
@@ -550,7 +550,7 @@ function branchState(id: string): NodeState {
 .stage-summary-copy { min-width: 0; }
 .stage-summary-copy strong { display: block; overflow: hidden; font-size: 10px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
 .stage-summary-copy small { display: block; margin-top: 3px; color: var(--wf-tertiary); font-size: 8px; white-space: nowrap; }
-.stage-summary-item.is-current small { color: #006ee6; }
+.stage-summary-item.is-current small { color: var(--wf-blue); }
 .workflow-focus {
   flex: 1;
   min-height: 340px;
@@ -561,10 +561,10 @@ function branchState(id: string): NodeState {
   height: 100%;
   min-height: 320px;
   padding: 14px 16px 16px;
-  border: 1px solid rgba(255, 255, 255, 0.98);
+  border: 1px solid var(--wf-border);
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.7);
-  box-shadow: 0 4px 18px rgba(16, 24, 40, 0.045), inset 0 1px 0 #fff;
+  background: var(--wf-surface-soft);
+  box-shadow: var(--shadow-panel), var(--glass-inset-soft);
 }
 .focus-head {
   display: flex;
@@ -572,7 +572,7 @@ function branchState(id: string): NodeState {
   justify-content: space-between;
   gap: 20px;
   padding: 0 2px 12px;
-  border-bottom: 1px solid rgba(222, 224, 230, 0.72);
+  border-bottom: 1px solid var(--wf-separator);
 }
 .focus-head > div { flex: 0 0 auto; }
 .focus-head span { display: block; color: var(--wf-tertiary); font-size: 8px; font-weight: 740; letter-spacing: 0.14em; }
@@ -594,9 +594,9 @@ function branchState(id: string): NodeState {
 .route-card,
 .context-anchor {
   box-sizing: border-box;
-  border: 1px solid rgba(204, 206, 214, 0.88);
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
   background: var(--wf-surface);
-  box-shadow: 0 5px 16px rgba(16, 24, 40, 0.055), inset 0 1px 0 #fff;
+  box-shadow: var(--shadow-panel), var(--glass-inset-soft);
 }
 .workflow-node {
   position: relative;
@@ -615,24 +615,24 @@ function branchState(id: string): NodeState {
 .workflow-node.hero-node { width: min(320px, 32vw); max-width: 340px; min-height: 104px; }
 .workflow-node.is-pending { opacity: 0.48; }
 .workflow-node.is-current {
-  border-color: rgba(0, 122, 255, 0.52);
-  box-shadow: 0 12px 30px rgba(0, 122, 255, 0.11), inset 0 1px 0 #fff;
+  border-color: color-mix(in srgb, var(--wf-blue) 56%, transparent);
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--wf-blue) 14%, transparent), var(--glass-inset-soft);
   transform: translateY(-2px);
 }
-.workflow-node.is-visited { border-color: rgba(175, 178, 186, 0.92); }
-.workflow-node.is-paused { border-color: rgba(154, 98, 0, 0.42); }
-.workflow-node.is-blocked { border-color: rgba(200, 0, 24, 0.38); }
+.workflow-node.is-visited { border-color: color-mix(in srgb, var(--border) 92%, transparent); }
+.workflow-node.is-paused { border-color: color-mix(in srgb, var(--wf-amber) 48%, transparent); }
+.workflow-node.is-blocked { border-color: color-mix(in srgb, var(--wf-red) 44%, transparent); }
 .node-status { display: grid; place-items: center; }
 .node-status span {
   width: 9px;
   height: 9px;
-  border: 2px solid #b6b9c1;
+  border: 2px solid var(--stage-mark);
   border-radius: 50%;
-  background: #fff;
+  background: var(--wf-surface);
   box-shadow: 0 0 0 4px rgba(133, 133, 142, 0.06);
 }
 .is-current .node-status span { border-color: var(--wf-blue); box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.1); animation: node-pulse 1.8s ease-in-out infinite; }
-.is-visited .node-status span { border-color: #7f828a; }
+.is-visited .node-status span { border-color: var(--wf-tertiary); }
 .is-paused .node-status span { border-color: var(--wf-amber); }
 .is-blocked .node-status span { border-color: var(--wf-red); }
 .node-copy { min-width: 0; }
@@ -677,10 +677,10 @@ function branchState(id: string): NodeState {
   bottom: 6px;
   transform: translateX(-50%);
   padding: 7px 11px;
-  border: 1px dashed rgba(0, 122, 255, 0.3);
+  border: 1px dashed color-mix(in srgb, var(--wf-blue) 38%, transparent);
   border-radius: 999px;
-  background: #fff;
-  color: #366181;
+  background: var(--wf-surface);
+  color: var(--accent-text);
   font-size: 9px;
   white-space: nowrap;
 }
@@ -704,10 +704,10 @@ function branchState(id: string): NodeState {
 .gate-branches { grid-column: 5; grid-row: 1 / span 4; display: grid; grid-template-rows: repeat(4, 62px); gap: 8px; }
 .branch-card { min-height: 62px; padding: 9px 12px; transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease, opacity 180ms ease; }
 .branch-card.is-pending { opacity: 0.48; }
-.branch-card.is-current { border-color: rgba(0, 122, 255, 0.52); box-shadow: 0 10px 26px rgba(0, 122, 255, 0.1), inset 0 1px 0 #fff; transform: translateX(2px); }
-.branch-card.is-visited { border-color: rgba(175, 178, 186, 0.92); }
-.branch-card.is-paused { border-color: rgba(154, 98, 0, 0.42); }
-.branch-card.is-blocked { border-color: rgba(200, 0, 24, 0.38); }
+.branch-card.is-current { border-color: color-mix(in srgb, var(--wf-blue) 56%, transparent); box-shadow: 0 10px 26px color-mix(in srgb, var(--wf-blue) 12%, transparent), var(--glass-inset-soft); transform: translateX(2px); }
+.branch-card.is-visited { border-color: color-mix(in srgb, var(--border) 92%, transparent); }
+.branch-card.is-paused { border-color: color-mix(in srgb, var(--wf-amber) 48%, transparent); }
+.branch-card.is-blocked { border-color: color-mix(in srgb, var(--wf-red) 44%, transparent); }
 .gate-loop { position: relative; grid-column: 1 / -1; grid-row: 5; height: 62px; }
 .gate-loop svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .gate-loop path:first-child { stroke-dasharray: 6 5; }
@@ -718,17 +718,17 @@ function branchState(id: string): NodeState {
   transform: translate(-50%, -50%);
   padding: 4px 9px;
   border-radius: 999px;
-  background: #fff;
-  color: #4f6070;
+  background: var(--wf-surface);
+  color: var(--wf-secondary);
   font-size: 8px;
   font-weight: 650;
   white-space: nowrap;
 }
 .workflow-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; padding: 6px 14px 12px; color: var(--wf-secondary); font-size: 9px; }
 .workflow-legend span { display: inline-flex; align-items: center; gap: 5px; }
-.legend-dot { width: 7px; height: 7px; border: 2px solid #b6b9c1; border-radius: 50%; background: #fff; }
+.legend-dot { width: 7px; height: 7px; border: 2px solid var(--stage-mark); border-radius: 50%; background: var(--wf-surface); }
 .legend-dot.current { border-color: var(--wf-blue); }
-.legend-dot.visited { border-color: #7f828a; }
+.legend-dot.visited { border-color: var(--wf-tertiary); }
 .legend-dot.paused { border-color: var(--wf-amber); }
 .legend-dot.blocked { border-color: var(--wf-red); }
 .stage-shift-enter-active,

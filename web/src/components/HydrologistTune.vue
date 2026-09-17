@@ -100,7 +100,7 @@ async function step(stepName: 'baseline' | 'update_params' | 'compare' | 'submit
 }
 
 function fmt(value: unknown) {
-  if (value == null || value === '') return '—'
+  if (value == null || value === '') return '-'
   const n = Number(value)
   return Number.isFinite(n) ? n.toFixed(4) : String(value)
 }

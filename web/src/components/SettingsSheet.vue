@@ -66,7 +66,7 @@ const demo = useDemoStore()
   position: fixed;
   inset: 0;
   z-index: 80;
-  background: rgba(29, 29, 31, 0.28);
+  background: var(--scrim);
   display: grid;
   place-items: center;
   padding: 1.5rem;
@@ -76,10 +76,10 @@ const demo = useDemoStore()
   max-height: min(80dvh, 720px);
   overflow: auto;
   border-radius: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.95);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-inset), var(--shadow-modal);
   padding: 1.25rem 1.35rem 1.4rem;
-  background: rgba(246, 246, 248, 0.94);
+  background: var(--glass-thick);
   backdrop-filter: saturate(180%) blur(32px);
   -webkit-backdrop-filter: saturate(180%) blur(32px);
   display: grid;
@@ -114,7 +114,7 @@ dl > div {
   gap: 0.15rem;
   padding: 0.7rem 0.8rem;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--surface-secondary);
   border: 1px solid var(--separator);
 }
 dt {
@@ -143,11 +143,32 @@ small {
   height: 28px;
   min-height: 28px;
   padding: 0 0.65rem;
-  border-radius: 6px;
-  background: rgba(120, 120, 128, 0.1);
+  border-radius: 8px;
+  background: var(--button-secondary);
   color: var(--label);
   cursor: pointer;
   font-weight: 550;
   font-size: 12px;
+}
+.ghost:hover {
+  background: var(--button-secondary-hover);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .overlay {
+    background: var(--scrim);
+  }
+  .sheet {
+    background: var(--surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+@media (max-height: 640px) {
+  .overlay {
+    padding: 12px;
+  }
+  .sheet {
+    max-height: calc(100dvh - 24px);
+  }
 }
 </style>

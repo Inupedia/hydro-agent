@@ -24,7 +24,7 @@ const props = withDefaults(defineProps<NumberTickerProps>(), {
   duration: 1000,
   decimalPlaces: 3,
   transition: 'easeOutCubic',
-  empty: '—',
+  empty: '-',
 })
 
 const spanRef = ref<HTMLElement>()

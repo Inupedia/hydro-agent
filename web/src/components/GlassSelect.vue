@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useAttrs, watch } from 'vue'
+import { PhCaretDown, PhCheck } from '@phosphor-icons/vue'
 
 defineOptions({ inheritAttrs: false })
 
@@ -183,6 +184,7 @@ watch(
       @keydown="onTriggerKey"
     >
       <span class="glass-select-label">{{ label }}</span>
+      <PhCaretDown :size="14" weight="bold" class="glass-select-caret" aria-hidden="true" />
     </button>
     <Teleport to="body">
       <ul
@@ -214,7 +216,14 @@ watch(
           @pointerenter="option.disabled ? undefined : (activeIndex = index)"
           @click="choose(option)"
         >
-          {{ option.label }}
+          <span class="glass-select-option-copy">{{ option.label }}</span>
+          <PhCheck
+            v-if="option.value === modelValue"
+            :size="15"
+            weight="bold"
+            class="glass-select-option-check"
+            aria-hidden="true"
+          />
         </li>
       </ul>
     </Teleport>
@@ -257,14 +266,13 @@ watch(
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.glass-select-trigger::after {
-  content: '';
+.glass-select-caret {
   position: absolute;
   right: 14px;
-  width: 12px;
-  height: 8px;
-  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'><path d='M1.5 1.75L6 6.25L10.5 1.75' stroke='%2362626A' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>")
-    center / 12px 8px no-repeat;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  flex-shrink: 0;
   pointer-events: none;
 }
 .glass-select-trigger:focus-visible {
@@ -294,6 +302,10 @@ watch(
   outline: none;
 }
 .glass-select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   min-height: 40px;
   padding: 8px 12px;
   border-radius: var(--radius-xs);
@@ -301,6 +313,15 @@ watch(
   font-size: 14px;
   line-height: 1.4;
   cursor: pointer;
+}
+.glass-select-option-copy {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.glass-select-option-check {
+  flex-shrink: 0;
+  color: var(--accent-text);
 }
 .glass-select-option.is-active,
 .glass-select-option:hover:not(.is-disabled) {

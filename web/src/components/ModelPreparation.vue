@@ -801,13 +801,13 @@ onUnmounted(() => {
   transform: scale(0.98);
 }
 .manage-button { background: var(--neutral-soft); color: var(--text-primary); white-space: nowrap; }
-.manage-button:hover:not(:disabled) { background: #e7e8ec; }
+.manage-button:hover:not(:disabled) { background: var(--neutral-hover); }
 .danger-button {
   background: var(--danger-soft);
   color: var(--danger);
   white-space: nowrap;
 }
-.danger-button:hover:not(:disabled) { background: #ffe3e5; }
+.danger-button:hover:not(:disabled) { background: var(--danger-hover); }
 .text-button {
   display: inline;
   border: 0;

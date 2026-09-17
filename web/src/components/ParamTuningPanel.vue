@@ -166,12 +166,12 @@ const showPanel = computed(
 )
 
 function fmt(value: number | null) {
-  if (value == null || !Number.isFinite(value)) return '—'
+  if (value == null || !Number.isFinite(value)) return '-'
   return Math.abs(value) >= 10 ? value.toFixed(2) : value.toFixed(3)
 }
 
 function fmtDelta(value: number | null) {
-  if (value == null || !Number.isFinite(value)) return '—'
+  if (value == null || !Number.isFinite(value)) return '-'
   const sign = value > 0 ? '+' : ''
   return `${sign}${fmt(value)}`
 }
@@ -238,7 +238,7 @@ function fmtDelta(value: number | null) {
               :class="{ changed: row.change != null && Math.abs(row.change) > 1e-12 }"
             >
               <td>{{ row.key }}</td>
-              <td>{{ GROUP_ZH[row.group] || '—' }}</td>
+              <td>{{ GROUP_ZH[row.group] || '-' }}</td>
               <td>{{ fmt(row.before) }}</td>
               <td>{{ fmt(row.after) }}</td>
               <td :class="{ up: (row.change || 0) > 0, down: (row.change || 0) < 0 }">
@@ -270,7 +270,7 @@ function fmtDelta(value: number | null) {
               :class="{ changed: row.change != null && Math.abs(row.change) > 1e-12 }"
             >
               <td>{{ row.key }}</td>
-              <td>{{ GROUP_ZH[row.group] || '—' }}</td>
+              <td>{{ GROUP_ZH[row.group] || '-' }}</td>
               <td>{{ fmt(row.before) }}</td>
               <td>{{ fmt(row.after) }}</td>
               <td :class="{ up: (row.change || 0) > 0, down: (row.change || 0) < 0 }">

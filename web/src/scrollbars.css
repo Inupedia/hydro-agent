@@ -1,8 +1,6 @@
 /*
- * Product rule: scrolling remains functional, but scrollbar chrome is never
- * visible. Keep this stylesheet loaded after component/global styles so local
- * overflow containers (execution journal, evidence tables, result panes, etc.)
- * cannot accidentally re-introduce a visible track or thumb.
+ * Scrollbar policy: functional scrolling, no visible scrollbar chrome.
+ * The user chose this for the workbench; scrolling itself is untouched.
  */
 html,
 body,
@@ -20,4 +18,8 @@ body::-webkit-scrollbar,
   width: 0 !important;
   height: 0 !important;
   display: none !important;
+}
+
+body {
+  overflow-x: clip;
 }

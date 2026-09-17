@@ -45,7 +45,7 @@ const visible = computed(
 )
 
 function formatMetric(value: number | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return '—'
+  if (value == null || !Number.isFinite(value)) return '-'
   return value.toFixed(3)
 }
 

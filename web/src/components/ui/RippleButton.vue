@@ -2,11 +2,16 @@
 import type { HTMLAttributes } from 'vue'
 import { cn } from '@inspira-ui/plugins'
 import { ref, watchEffect } from 'vue'
+import BorderBeam from './BorderBeam.vue'
 
 interface RippleButtonProps {
   class?: HTMLAttributes['class']
   rippleColor?: string
   duration?: number
+  beam?: boolean
+  beamSize?: number
+  beamRadius?: number
+  beamDuration?: number
   type?: 'button' | 'submit' | 'reset'
   disabled?: boolean
 }
@@ -14,6 +19,10 @@ interface RippleButtonProps {
 const props = withDefaults(defineProps<RippleButtonProps>(), {
   rippleColor: 'rgba(255, 255, 255, 0.45)',
   duration: 600,
+  beam: false,
+  beamSize: 56,
+  beamRadius: 12,
+  beamDuration: 6,
   type: 'button',
   disabled: false,
 })
@@ -65,7 +74,16 @@ watchEffect(() => {
     "
     @click="handleClick"
   >
-    <span class="relative z-10"><slot /></span>
+    <BorderBeam
+      v-if="beam"
+      class="z-0"
+      :size="beamSize"
+      :radius="beamRadius"
+      :duration="beamDuration"
+    />
+    <span class="relative z-10 inline-flex items-center justify-center gap-[0.6em]">
+      <slot />
+    </span>
     <span
       v-for="ripple in buttonRipples"
       :key="ripple.key"

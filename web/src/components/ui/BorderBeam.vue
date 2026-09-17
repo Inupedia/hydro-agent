@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * Inspira UI Border Beam — ported for this workbench.
+ * Inspira UI Border Beam --- ported for this workbench.
  * offset-path round must follow the card radius, not the beam size
  * (registry default `round(var(--size))` makes a large block crawl the border).
  */
@@ -25,8 +25,8 @@ const props = withDefaults(defineProps<BorderBeamProps>(), {
   anchor: 90,
   borderWidth: 1.5,
   radius: 12,
-  colorFrom: '#409cff',
-  colorTo: '#007aff',
+  colorFrom: 'var(--accent)',
+  colorTo: 'var(--accent-hover)',
   delay: 0,
 })
 
