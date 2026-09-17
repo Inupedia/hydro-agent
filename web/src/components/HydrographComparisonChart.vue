@@ -113,7 +113,7 @@ async function render() {
   const firstWarmup = warmup.at(0)
   const lastWarmup = warmup.at(-1)
   const dense = rows.length > 80
-  const motion = chartMotion(720, dense)
+  const motion = chartMotion(1_080, dense)
   const has = (key: 'baseline_m3s' | 'candidate_m3s' | 'frozen_m3s') =>
     rows.some((row) => typeof row[key] === 'number' && Number.isFinite(row[key] as number))
 
@@ -188,11 +188,16 @@ async function render() {
       data: rows.map((row) => row.frozen_m3s ?? null),
     })
   }
+  series.forEach((item, index) => {
+    item.animationDelay = motion.duration ? index * 110 : 0
+  })
   chart.setOption(
     {
       ...chartBase,
       animationDuration: motion.duration,
       animationEasing: motion.easing,
+      animationDurationUpdate: motion.duration,
+      animationEasingUpdate: motion.easing,
       tooltip: {
         ...chartBase.tooltip,
         valueFormatter: (value: unknown) =>

@@ -12,6 +12,7 @@ from hydro_agent.api.executor import TaskExecutor
 from hydro_agent.api.routes import (
     basins,
     hydrologist,
+    llm_settings,
     model_plans,
     research,
     results,
@@ -71,6 +72,7 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
     app.include_router(basins.router)
     app.include_router(model_plans.router)
     app.include_router(hydrologist.router)
+    app.include_router(llm_settings.router)
     app.include_router(tasks.router)
     app.include_router(runs.router)
     app.include_router(results.router)

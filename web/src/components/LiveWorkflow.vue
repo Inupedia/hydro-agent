@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { BorderBeam } from './ui'
 import { WORKFLOW, displayNodeFor } from '../generated/workflow'
 import { CURRENT_TO_LEGACY, currentActionId } from '../workflow/legacyActions'
 
@@ -201,6 +202,7 @@ function branchState(id: string): NodeState {
     <div class="workflow-focus">
       <Transition name="stage-shift" mode="out-in">
         <section :key="activeStage.id" class="focus-stage" :data-focus-stage="activeStage.id">
+          <BorderBeam v-if="props.status === 'running'" :size="72" :radius="18" :duration="5" color-from="var(--wf-blue)" color-to="var(--wf-cyan)" />
           <header class="focus-head">
             <div>
               <span>{{ activeStage.eyebrow }}</span>
@@ -598,6 +600,7 @@ function branchState(id: string): NodeState {
   background: var(--wf-surface);
   box-shadow: var(--shadow-panel), var(--glass-inset-soft);
 }
+.focus-stage { position: relative; overflow: hidden; }
 .workflow-node {
   position: relative;
   display: grid;

@@ -55,6 +55,24 @@ export type HydrologistSession = {
   notes?: string[]
 }
 
+export type LLMConfigPayload = {
+  provider_id: string
+  base_url: string
+  model: string
+  api_key: string
+  timeout_seconds: number
+  max_retries: number
+}
+
+export type LLMSettingsResult = {
+  provider_id: string
+  base_url: string
+  model: string
+  api_key_set: boolean
+  timeout_seconds: number
+  max_retries: number
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
@@ -122,6 +140,15 @@ export const api = {
   health() {
     return request<HealthResponse>('/api/health')
   },
+  getLLMSettings() {
+    return request<LLMSettingsResult>('/api/llm/settings')
+  },
+  saveLLMSettings(payload: LLMConfigPayload) {
+    return request<LLMSettingsResult & { ok: boolean }>('/api/llm/settings', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    })
+  },
   createTask(body: TaskCreateRequest) {
     return request<TaskSummary>('/api/tasks', { method: 'POST', body: JSON.stringify(body) })
   },
@@ -148,6 +175,9 @@ export const api = {
   },
   resumeRun(taskId: string) {
     return request<RunSummary>(`/api/tasks/${taskId}/resume`, { method: 'POST' })
+  },
+  cancelRun(taskId: string) {
+    return request<RunSummary>(`/api/tasks/${taskId}/cancel`, { method: 'POST' })
   },
   getRun(taskId: string) {
     return request<RunSummary>(`/api/tasks/${taskId}/run`)

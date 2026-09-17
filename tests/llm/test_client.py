@@ -24,13 +24,20 @@ def test_settings_secret_and_override(tmp_path, monkeypatch):
     "url",
     [
         "http://api.siliconflow.cn/v1",
-        "https://evil.example/v1",
         "https://api.siliconflow.cn@evil.example/v1",
     ],
 )
 def test_endpoint_rejection(url):
     with pytest.raises(ValidationError):
         LLMSettings(base_url=url, api_key="test-secret")
+
+
+def test_endpoint_allows_openai_compatible_hosts():
+    settings = LLMSettings(
+        base_url="https://deepseek.example.com/v1",
+        api_key="test-secret",
+    )
+    assert settings.base_url == "https://deepseek.example.com/v1"
 
 
 def test_request_and_usage(monkeypatch):

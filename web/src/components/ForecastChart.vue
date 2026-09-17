@@ -45,13 +45,15 @@ async function render() {
   if (!chart) chart = echarts.init(el.value)
   const categories = props.forecasts.map((f) => String(f.issue_time).slice(0, 10))
   const dense = props.forecasts.length > 40
-  const motion = chartMotion(520, dense)
+  const motion = chartMotion(900, dense)
   const names = ['提前 1 天', '提前 2 天', '提前 3 天']
   chart.setOption(
     {
       ...chartBase,
       animationDuration: motion.duration,
       animationEasing: motion.easing,
+      animationDurationUpdate: motion.duration,
+      animationEasingUpdate: motion.easing,
       tooltip: {
         ...chartBase.tooltip,
         valueFormatter: formatFlow,

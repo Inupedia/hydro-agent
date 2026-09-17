@@ -42,6 +42,15 @@ def resume_run(task_id: str, request: Request) -> RunSummary:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+@router.post("/{task_id}/cancel", response_model=RunSummary)
+def cancel_run(task_id: str, request: Request) -> RunSummary:
+    executor = request.app.state.executor
+    try:
+        return executor.cancel(task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="task not found") from exc
+
+
 @router.get("/{task_id}/run", response_model=RunSummary)
 def get_run(task_id: str, request: Request) -> RunSummary:
     executor = request.app.state.executor

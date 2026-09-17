@@ -226,16 +226,17 @@ def _build_real(
     env_file = Path(os.getenv("HYDRO_AGENT_ENV_FILE", ".env"))
     settings = LLMSettings.from_env(env_file if env_file.exists() else None)
 
-    class TracingProvider:
-        def __init__(self):
-            self._provider = None
+    def current_runtime_llm_settings():
+        if deps.runtime_llm_settings is not None:
+            return deps.runtime_llm_settings
+        return settings
 
-        def bind(self, provider):
-            self._provider = provider
+    class TracingProvider:
+        def __init__(self, provider_factory):
+            self._provider_factory = provider_factory
 
         def decide(self, view):
-            if self._provider is None:
-                raise RuntimeError("decision provider not bound")
+            provider = self._provider_factory()
             task_id = view.task.task_id
             state = repository.ensure_task_state(task_id)
             round_number = state.agent_rounds_used + 1
@@ -248,7 +249,7 @@ def _build_real(
                 f"已有证据 {[e.action.value for e in view.evidence_summary]}"
             )
             try:
-                decision = self._provider.decide(
+                decision = provider.decide(
                     view, on_delta=lambda token: deps.append_llm_trace(task_id, token)
                 )
                 deps.finish_llm_trace(task_id, action=decision.action.value)
@@ -301,7 +302,12 @@ def _build_real(
                 )
                 raise
 
-    provider = TracingProvider()
+    provider = TracingProvider(
+        provider_factory=lambda: SiliconFlowDecisionProvider(
+            settings=current_runtime_llm_settings(),
+            skills=kernel.skills,
+        )
+    )
     kernel = RealWorkbenchKernel(
         repository=repository,
         work_root=work_root,
@@ -311,7 +317,6 @@ def _build_real(
         warmup_days=int(os.getenv("HYDRO_AGENT_WARMUP_DAYS", "30")),
     )
     deps.skills = kernel.skills
-    provider.bind(SiliconFlowDecisionProvider(settings=settings, skills=kernel.skills))
     tools = kernel.build_tools(task_configs=deps.task_configs)
     deps.base_scheme_config = kernel.scheme_config
     deps.mode = "real"
@@ -338,8 +343,8 @@ def _build_real(
                 skills=kernel.skills,
                 strategies=kernel.strategies,
             ),
-            provider_name="siliconflow",
-            provider_model=settings.model,
+            provider_name=deps.runtime_llm_provider_id or "siliconflow",
+            provider_model=current_runtime_llm_settings().model,
         )
 
     deps.runtime_factory = runtime_factory
@@ -365,7 +370,8 @@ def _build_real(
         return LoggedRuntime(
             repository, provider=provider, tools=task_kernel.build_tools(task_configs=deps.task_configs),
             world_state=WorldStateBuilder(repository, skills=task_kernel.skills, strategies=task_kernel.strategies),
-            provider_name="siliconflow", provider_model=settings.model,
+            provider_name=deps.runtime_llm_provider_id or "siliconflow",
+            provider_model=current_runtime_llm_settings().model,
         )
 
     deps.runtime_for_task = runtime_for_task

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import BusinessTimeline from '../components/BusinessTimeline.vue'
 import ArchifyWorkflow from '../components/ArchifyWorkflow.vue'
@@ -9,6 +9,7 @@ const route = useRoute()
 const router = useRouter()
 const store = useRunStore()
 const taskId = computed(() => String(route.params.taskId))
+const cancelling = ref(false)
 
 const statusPlain = computed(() => {
   const status = store.run?.status
@@ -16,6 +17,7 @@ const statusPlain = computed(() => {
   if (status === 'completed') return '已跑完'
   if (status === 'paused') return '已暂停'
   if (status === 'created') return '刚创建，准备启动'
+  if (status === 'cancelled') return '已终止'
   return status || '加载中'
 })
 
@@ -30,6 +32,16 @@ onMounted(async () => {
   store.startPolling(taskId.value)
 })
 onUnmounted(() => store.stopPolling())
+
+async function cancelRun() {
+  if (cancelling.value || !confirm('终止后将结束本次任务，已产生的过程记录会保留。确定终止吗？')) return
+  cancelling.value = true
+  try {
+    await store.cancel(taskId.value)
+  } finally {
+    cancelling.value = false
+  }
+}
 </script>
 
 <template>
@@ -44,8 +56,9 @@ onUnmounted(() => store.stopPolling())
         <p><strong>{{ statusPlain }}</strong></p>
       </div>
       <div class="actions">
-        <button type="button" @click="store.pause(taskId)">暂停</button>
-        <button type="button" @click="store.resume(taskId)">继续</button>
+        <button v-if="store.run?.worker_active || store.run?.status === 'queued'" type="button" class="danger" :disabled="cancelling" @click="cancelRun">{{ cancelling ? '正在终止…' : '终止任务' }}</button>
+        <button v-if="store.run?.worker_active" type="button" @click="store.pause(taskId)">暂停</button>
+        <button v-if="store.run?.paused" type="button" @click="store.resume(taskId)">继续</button>
         <button type="button" @click="router.push(`/tasks/${taskId}/results`)">看结果说明</button>
       </div>
     </header>
@@ -54,3 +67,7 @@ onUnmounted(() => store.stopPolling())
     <BusinessTimeline :items="store.timeline" />
   </section>
 </template>
+
+<style scoped>
+.danger { color: #b42318; border-color: rgba(180, 35, 24, .22); }
+</style>

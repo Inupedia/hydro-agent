@@ -331,9 +331,9 @@ function displayTitle(event: TimelineItem) {
 
 <template>
   <div class="execution-journal">
-    <div class="pane-head journal-head">
-      <div class="section-heading"><span class="overline">执行记录</span></div>
-      <h2>完整执行记录</h2>
+  <div class="pane-head journal-head">
+    <div class="section-heading"><span class="overline">执行记录</span></div>
+    <h2>完整执行记录</h2>
       <p class="journal-intro">直接展示智能体每轮给出的观察、分析与决定；工具结果来自真实执行证据，程序数据统一收在“技术详情”里。</p>
       <div class="journal-status">
         <span :class="{ 'blue-dot': running }">{{ statusLabel }}</span>

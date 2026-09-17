@@ -9,9 +9,11 @@ import GlassSelect from '../components/GlassSelect.vue'
 import ObservatoryResultsStack from '../components/ObservatoryResultsStack.vue'
 import GlassDialog from '../components/GlassDialog.vue'
 import RenameDialog from '../components/RenameDialog.vue'
+import CaseSkillUsageDialog from '../components/CaseSkillUsageDialog.vue'
 import SkillsLibrarySheet from '../components/SkillsLibrarySheet.vue'
+import LLMSettingsSheet from '../components/LLMSettingsSheet.vue'
 import { RippleButton } from '../components/ui'
-import { PhBookOpenText, PhFolderSimple, PhPlay, PhPlus, PhSlidersHorizontal, PhTrash } from '@phosphor-icons/vue'
+import { PhBookOpenText, PhFolderSimple, PhPlay, PhPlus, PhSlidersHorizontal, PhStop, PhTrash } from '@phosphor-icons/vue'
 import { useDemoStore } from '../stores/demo'
 import { api } from '../api/client'
 import { gsap, motionDuration, prefersReducedMotion } from '../motion/gsap'
@@ -187,6 +189,9 @@ const desktopResultsStack = ref<{ forecastSurface: HTMLElement | null; tuningMou
 const caseManagerOpen = ref(false)
 const caseLibraryOpen = ref(false)
 const skillsLibraryOpen = ref(false)
+const caseSkillUsageOpen = ref(false)
+const llmConfigOpen = ref(false)
+const newTaskConfirmOpen = ref(false)
 const selectedCaseIds = ref<string[]>([])
 const renameCaseTarget = ref<{ task_id: string; name?: string | null; start_date?: string | null; basin_id: string } | null>(null)
 const renameCaseBusy = ref(false)
@@ -240,7 +245,7 @@ const headerCaption = computed(() => {
   if (focusStage.value) return '执行中'
   if (demo.mode === 'replay') return '案例回放'
   if (showResultsStage.value) return '运行结果'
-  return '工作台'
+  return ''
 })
 
 let deckTouchX = 0
@@ -396,6 +401,17 @@ async function resume() {
     busy.value = false
   }
 }
+async function cancelRun() {
+  if (!demo.taskId || busy.value || !confirm('终止后将结束本次任务，已产生的过程记录会保留。确定终止吗？')) return
+  busy.value = true
+  try {
+    await demo.cancelCompute()
+  } catch (err) {
+    demo.error = String((err as Error).message || err)
+  } finally {
+    busy.value = false
+  }
+}
 async function openCase(id: string) {
   const task = demo.caseLibrary.find((t) => t.task_id === id)
   if (task) await demo.openCaseReplay(task)
@@ -425,8 +441,14 @@ function closeCaseManager() {
 function openSkillsLibrary() {
   skillsLibraryOpen.value = true
 }
+function openSkillUsage() {
+  caseSkillUsageOpen.value = true
+}
 function closeSkillsLibrary() {
   skillsLibraryOpen.value = false
+}
+function openLLMConfig() {
+  llmConfigOpen.value = true
 }
 function toggleAllCases() {
   selectedCaseIds.value = allCasesSelected.value
@@ -458,6 +480,25 @@ function newTask() {
     const task = taskPane.value
     if (task) gsap.set(task, { autoAlpha: 1, pointerEvents: 'auto', clearProps: 'transform,opacity,visibility' })
   })
+}
+function requestNewTask() {
+  if (demo.taskId && (demo.isRunning || demo.isQueued)) {
+    newTaskConfirmOpen.value = true
+    return
+  }
+  newTask()
+}
+async function confirmNewTask() {
+  newTaskConfirmOpen.value = false
+  busy.value = true
+  try {
+    await demo.cancelCompute()
+    newTask()
+  } catch (err) {
+    demo.error = String((err as Error).message || err)
+  } finally {
+    busy.value = false
+  }
 }
 
 function animateFocus(enter: boolean) {
@@ -623,9 +664,10 @@ onUnmounted(() => {
   >
     <header class="observatory-header">
       <a href="/" class="observatory-brand"><span class="brand-symbol" aria-hidden="true">≈</span><span>Hydro<span class="brand-light">Agent</span><small>水文智能体 · 观测台</small></span></a>
-      <div class="header-caption">{{ headerCaption }}</div>
+      <div v-if="headerCaption" class="header-caption">{{ headerCaption }}</div>
       <div class="header-end">
         <button
+          v-if="demo.mode !== 'replay'"
           type="button"
           class="manage-button"
           data-test="header-skills-library"
@@ -634,8 +676,19 @@ onUnmounted(() => {
           <PhBookOpenText :size="16" weight="duotone" aria-hidden="true" />
           专业技能
         </button>
+        <button
+          v-else
+          type="button"
+          class="manage-button"
+          data-test="header-skill-usage"
+          @click="openSkillUsage"
+        >
+          <PhBookOpenText :size="16" weight="duotone" aria-hidden="true" />
+          查看使用技能
+        </button>
         <div class="header-actions">
           <button
+            v-if="demo.mode !== 'replay'"
             data-test="header-case-library"
             type="button"
             class="manage-button"
@@ -646,14 +699,15 @@ onUnmounted(() => {
             案例库
           </button>
           <button
-            v-if="demo.taskId"
+          v-if="demo.taskId"
             data-test="header-new-task"
             type="button"
             class="header-new-task"
-            @click="newTask"
+            @click="requestNewTask"
           >
-            <PhPlus :size="16" weight="bold" aria-hidden="true" />
-            新建任务
+            <PhStop v-if="demo.isRunning || demo.isQueued" :size="16" weight="fill" aria-hidden="true" />
+            <PhPlus v-else :size="16" weight="bold" aria-hidden="true" />
+            {{ demo.isRunning || demo.isQueued ? '停止任务' : '新建任务' }}
           </button>
         </div>
         <div v-if="showResultsStage" class="header-actions header-actions--result">
@@ -667,16 +721,44 @@ onUnmounted(() => {
               :options="caseSelectOptions"
             />
           </label>
-          <button data-test="header-delete-case" type="button" class="manage-button" :disabled="demo.isRunning || demo.isQueued || busy || !demo.caseLibrary.length" @click="openCaseManager">
+          <button v-if="demo.mode !== 'replay'" data-test="header-delete-case" type="button" class="manage-button" :disabled="demo.isRunning || demo.isQueued || busy || !demo.caseLibrary.length" @click="openCaseManager">
             <PhSlidersHorizontal :size="16" weight="duotone" aria-hidden="true" />
             管理
           </button>
         </div>
-        <div class="connection"><i :class="{ online: connected }" />{{ mode }}</div>
+        <button
+          v-if="demo.mode !== 'replay'"
+          type="button"
+          class="header-control llm-config-button"
+          data-test="llm-config"
+          :aria-label="`模型服务配置，当前 ${mode}`"
+          :title="mode"
+          @click="openLLMConfig"
+        >
+          <PhSlidersHorizontal :size="16" aria-hidden="true" />
+          配置
+          <span class="visually-hidden">{{ mode }}</span>
+        </button>
       </div>
     </header>
 
     <SkillsLibrarySheet :open="skillsLibraryOpen" :task-id="demo.taskId" @close="closeSkillsLibrary" />
+    <CaseSkillUsageDialog :open="caseSkillUsageOpen" :task-id="demo.taskId" @close="caseSkillUsageOpen = false" />
+    <LLMSettingsSheet :open="llmConfigOpen" @close="llmConfigOpen = false" />
+
+    <GlassDialog
+      :open="newTaskConfirmOpen"
+      test-id="new-task-confirm"
+      overline="新建任务"
+      title="退出本次运行？"
+      labelled-by="new-task-confirm-title"
+      @close="newTaskConfirmOpen = false"
+    >
+      <p>当前运行记录会保留，但新建任务后将离开本次运行。确定继续吗？</p>
+      <template #footer>
+        <button type="button" class="start-button" :disabled="busy" @click="confirmNewTask">停止任务</button>
+      </template>
+    </GlassDialog>
 
     <GlassDialog
       :open="!!runNotice"
@@ -698,10 +780,14 @@ onUnmounted(() => {
       overline="案例库"
       title="已完成任务"
       labelled-by="case-library-title"
+      size="wide"
       @close="closeCaseLibrary"
     >
       <template #toolbar>
-        <span>选择一份记录进入只读回放</span>
+        <div class="case-library-toolbar-copy">
+          <span>选择一份记录进入只读回放</span>
+          <small>共 {{ demo.caseLibrary.length }} 份记录</small>
+        </div>
         <button type="button" class="text-button" :disabled="!demo.caseLibrary.length" @click="openCaseManager">管理案例</button>
       </template>
       <div v-if="!demo.caseLibrary.length" class="case-library-empty">
@@ -712,7 +798,7 @@ onUnmounted(() => {
         v-for="task in demo.caseLibrary"
         :key="task.task_id"
         type="button"
-        class="case-library-item"
+        class="glass-dialog-item case-library-item"
         :disabled="busy"
         @click="openCaseFromLibrary(task.task_id)"
       >
@@ -720,7 +806,7 @@ onUnmounted(() => {
           <strong>{{ task.name?.trim() || task.start_date || task.task_id }}</strong>
           <small>{{ basinLabel(task.basin_id) }} · {{ task.start_date || task.task_id }}</small>
         </span>
-        <span aria-hidden="true">查看</span>
+        <span class="case-library-item-chevron" aria-hidden="true">›</span>
       </button>
     </GlassDialog>
 
@@ -915,9 +1001,8 @@ onUnmounted(() => {
               继续计算
             </RippleButton>
             <button v-else-if="demo.isQueued" type="button" class="start-button" disabled>排队等待计算席位{{ demo.run.queue_position ? `（第 ${demo.run.queue_position} 位）` : '' }}</button>
-            <button v-else-if="demo.isRunning" type="button" class="start-button" disabled>正在计算<span class="activity-dot" /></button>
-            <RippleButton v-else type="button" class="start-button" @click="newTask">新建任务</RippleButton>
-            <p class="source-note">{{ demo.draft.forcing_mode === 'R' ? `使用 ${selectedBasin?.label || demo.draft.basin_id} 本地日资料做历史率定与检验，不代表业务预报。` : '预报资料可用性将在运行时检查。' }}</p>
+            <button v-if="demo.isQueued || demo.isRunning" type="button" class="start-button cancel-button" :disabled="busy" @click="cancelRun">{{ busy ? '正在终止…' : '终止任务' }}</button>
+            <RippleButton v-else-if="demo.run && !demo.isQueued && !demo.isRunning" type="button" class="start-button" @click="requestNewTask">新建任务</RippleButton>
           </div>
         </form>
       </aside>

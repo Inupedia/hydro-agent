@@ -26,6 +26,11 @@ export const useRunStore = defineStore('run', () => {
     run.value = await api.resumeRun(taskId)
   }
 
+  async function cancel(taskId: string) {
+    run.value = await api.cancelRun(taskId)
+    stopPolling()
+  }
+
   function startPolling(taskId: string) {
     stopPolling()
     void refresh(taskId)
@@ -45,5 +50,5 @@ export const useRunStore = defineStore('run', () => {
     }
   }
 
-  return { run, timeline, refresh, start, pause, resume, startPolling, stopPolling }
+  return { run, timeline, refresh, start, pause, resume, cancel, startPolling, stopPolling }
 })

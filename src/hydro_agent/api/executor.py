@@ -69,6 +69,15 @@ class TaskExecutor:
         with self._lock:
             return self._admit_locked(task_id)
 
+    def cancel(self, task_id: str) -> RunSummary:
+        self.deps.repository.ensure_task_state(task_id)
+        self.deps.repository.set_task_terminal_status(task_id, "cancelled")
+        self.deps.repository.update_task_state(task_id, paused=False, needs_follow_up=False)
+        with self._lock:
+            if task_id in self._queued:
+                self._queued.remove(task_id)
+            return self._status_locked(task_id)
+
     def status(self, task_id: str) -> RunSummary:
         with self._lock:
             return self._status_locked(task_id)

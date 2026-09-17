@@ -10,6 +10,7 @@ import type {
   SkillValidateResult,
 } from '../types/skills'
 import GlassDialog from './GlassDialog.vue'
+import GlassSelect from './GlassSelect.vue'
 import { RippleButton } from './ui'
 
 const props = defineProps<{ open: boolean; taskId?: string | null }>()
@@ -28,6 +29,7 @@ const SKILL_STAGE_OPTIONS: { id: SkillStage; label: string; hint: string }[] = [
 const SKILL_STAGE_LABEL: Record<SkillStage, string> = Object.fromEntries(
   SKILL_STAGE_OPTIONS.map((item) => [item.id, item.label]),
 ) as Record<SkillStage, string>
+const skillStageSelectOptions = SKILL_STAGE_OPTIONS.map(({ id, label }) => ({ value: id, label }))
 type CreateDraft = { skill_id: string; title_zh: string; description: string; stage: SkillStage }
 
 const skills = ref<SkillSummary[]>([])
@@ -725,9 +727,6 @@ watch(
           >
             校验
           </button>
-          <button type="button" class="ghost-button" data-test="skills-close" :disabled="saving" @click="close">
-            关闭
-          </button>
           <span v-if="detail && !canEdit" class="readonly-footer" data-test="skills-readonly-footer">
             内置只读，无法保存
           </span>
@@ -774,11 +773,12 @@ watch(
     </label>
     <label class="create-field">
       <span>进入 Agent 的环节</span>
-      <select v-model="createDraft.stage" data-test="skills-create-stage">
-        <option v-for="option in SKILL_STAGE_OPTIONS" :key="option.id" :value="option.id">
-          {{ option.label }}
-        </option>
-      </select>
+      <GlassSelect
+        v-model="createDraft.stage"
+        data-test="skills-create-stage"
+        :options="skillStageSelectOptions"
+        aria-label="进入 Agent 的环节"
+      />
       <small>
         与工作台流程一致：任务准备 → 执行计算 → 结果诊断 → 参数调整 → 质量把关 → 结果确认。
         「执行计算」本身不单独挂 Skill，预报完成后进入「结果诊断」。
@@ -786,8 +786,7 @@ watch(
       </small>
     </label>
     <template #footer>
-      <button type="button" class="ghost-button" :disabled="saving" @click="closeCreate">取消</button>
-      <RippleButton class="primary-button" data-test="skills-create-submit" :disabled="saving" @click="createSkill">
+      <RippleButton class="primary-button skills-create-submit" data-test="skills-create-submit" :disabled="saving" @click="createSkill">
         {{ saving ? '创建中…' : '创建' }}
       </RippleButton>
     </template>
@@ -1258,6 +1257,9 @@ watch(
   justify-content: space-between;
 }
 .footer-end {
+  margin-left: auto;
+}
+.skills-create-submit {
   margin-left: auto;
 }
 .ghost-button,

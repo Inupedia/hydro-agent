@@ -21,6 +21,17 @@ defineProps<{
 </template>
 
 <style scoped>
+.overline {
+  display: inline-block;
+  padding-bottom: 3px;
+  text-decoration: none;
+  border-bottom: 1px solid var(--accent);
+  border-top: 0 !important;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  color: var(--text-secondary);
+}
 .report-section-head {
   display: flex;
   align-items: flex-start;
@@ -29,13 +40,6 @@ defineProps<{
 }
 .report-section-copy {
   min-width: 0;
-}
-.overline {
-  display: block;
-  color: var(--text-tertiary);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
 }
 .report-section-head h2 {
   margin: 4px 0 0;

@@ -19,7 +19,7 @@ class LLMSettings(FrozenModel):
     @classmethod
     def nonempty_key(cls, value):
         if not value.get_secret_value().strip():
-            raise ValueError("SILICONFLOW_API_KEY is required")
+            raise ValueError("LLM API key is required")
         return value
 
     @field_validator("base_url")
@@ -27,16 +27,17 @@ class LLMSettings(FrozenModel):
     def provider_url(cls, value):
         parsed = urlparse(value)
         if (
-            parsed.scheme != "https"
-            or parsed.hostname not in ("api.siliconflow.cn", "api.siliconflow.com")
+            parsed.scheme not in ("https", "http")
             or parsed.username
             or parsed.password
-            or parsed.port not in (None, 443)
             or parsed.query
             or parsed.fragment
-            or parsed.path.rstrip("/") != "/v1"
         ):
-            raise ValueError("expected official SiliconFlow HTTPS /v1 endpoint")
+            raise ValueError(
+                "expected an OpenAI-compatible HTTPS endpoint without query/fragment"
+            )
+        if parsed.scheme == "http" and parsed.hostname not in ("localhost", "127.0.0.1", "::1"):
+            raise ValueError("http is only allowed for localhost endpoints")
         return value.rstrip("/")
 
     @classmethod
@@ -47,7 +48,11 @@ class LLMSettings(FrozenModel):
         return cls(
             base_url=values.get("HYDRO_LLM_BASE_URL", cls.model_fields["base_url"].default),
             model=values.get("HYDRO_LLM_MODEL", cls.model_fields["model"].default),
-            api_key=SecretStr(values.get("SILICONFLOW_API_KEY") or ""),
+            api_key=SecretStr(
+                values.get("HYDRO_LLM_API_KEY")
+                or values.get("SILICONFLOW_API_KEY")
+                or ""
+            ),
             timeout_seconds=values.get("HYDRO_LLM_TIMEOUT_SECONDS", 60),
             max_retries=values.get("HYDRO_LLM_MAX_RETRIES", 4),
         )

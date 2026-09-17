@@ -173,8 +173,8 @@ describe("single page observatory", () => {
     expect(children[2].className).toContain("journal-pane");
     expect(wrapper.find(".main-stage [data-test=\"basin-selector\"]").exists()).toBe(true);
     expect(wrapper.find(".task-pane [data-test=\"basin-selector\"]").exists()).toBe(false);
-    expect(wrapper.find(".task-pane .overline").text()).toBe("配置运行");
-    expect(wrapper.find(".journal-pane .overline").text()).toBe("执行记录");
+    expect(wrapper.find(".task-pane h2").text()).toBe("本次运行");
+    expect(wrapper.find(".journal-pane h2").text()).toBe("完整执行记录");
     expect(wrapper.find(".record-count").exists()).toBe(false);
     expect(wrapper.find(".water-scene").exists()).toBe(false);
     expect(wrapper.find(".stage-track").exists()).toBe(false);
@@ -195,9 +195,7 @@ describe("single page observatory", () => {
     option?.click();
     await flushPromises();
     expect(store.draft.basin_id).toBe("usgs_02472000");
-    expect(wrapper.text()).toContain(
-      "使用 Leaf River near Collins (MS) 本地日资料",
-    );
+    expect(wrapper.find('.source-note').exists()).toBe(false);
     expect(wrapper.find('[data-test="demo-preset"]').exists()).toBe(false);
     wrapper.unmount();
   });
@@ -533,7 +531,7 @@ describe("single page observatory", () => {
     expect(wrapper.find('[data-test="research-evidence-panel"]').exists()).toBe(
       true,
     );
-    expect(wrapper.text()).toContain("过程线整理中");
+    expect(wrapper.text()).toContain("最终方案对比");
     expect(wrapper.text()).toContain("指标先对照");
     expect(wrapper.find(".observatory").classes()).toContain("is-results");
     expect(wrapper.find('[data-test="header-new-task"]').exists()).toBe(true);

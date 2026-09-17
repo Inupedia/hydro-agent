@@ -69,7 +69,7 @@ function placeMenu() {
     left: `${left}px`,
     width: `${width}px`,
     maxHeight: `${height}px`,
-    zIndex: '30',
+    zIndex: '1000',
     ...(openUp
       ? { bottom: `${window.innerHeight - rect.top + 6}px`, top: 'auto' }
       : { top: `${rect.bottom + 6}px`, bottom: 'auto' }),

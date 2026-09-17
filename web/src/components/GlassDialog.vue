@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { PhX } from '@phosphor-icons/vue'
+import { PhArrowLeft, PhX } from '@phosphor-icons/vue'
 
 const props = withDefaults(
   defineProps<{
-    open: boolean
-    overline: string
-    title: string
+  open: boolean
+  overline?: string
+  title: string
     testId?: string
     labelledBy?: string
     size?: 'default' | 'wide' | 'workbench'
@@ -111,8 +111,9 @@ onUnmounted(() => {
         :aria-labelledby="labelledBy || 'glass-dialog-title'"
       >
         <header class="glass-dialog-head">
+          <slot name="leading" />
           <div>
-            <span class="overline">{{ overline }}</span>
+            <span class="dialog-overline">{{ overline }}</span>
             <h2 :id="labelledBy || 'glass-dialog-title'">{{ title }}</h2>
           </div>
           <button type="button" class="glass-dialog-close" aria-label="关闭" @click="close">
@@ -134,6 +135,17 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.dialog-overline,
+.overline {
+  display: inline-block;
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--accent);
+  border-top: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  color: var(--text-secondary);
+}
 .glass-dialog-backdrop {
   position: fixed;
   inset: 0;
@@ -167,6 +179,7 @@ onUnmounted(() => {
 }
 .glass-dialog-panel.size-wide {
   width: min(720px, 100%);
+  height: min(80dvh, 760px);
 }
 .glass-dialog-panel.size-workbench {
   width: min(1100px, calc(100vw - 32px));
@@ -190,9 +203,28 @@ onUnmounted(() => {
   gap: 12px;
   min-width: 0;
 }
+.glass-dialog-head {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--separator);
+}
 .glass-dialog-head > div {
   min-width: 0;
 }
+.glass-dialog-head :deep(.glass-dialog-back) {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--button-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.glass-dialog-head :deep(.glass-dialog-back:hover) { background: var(--button-secondary-hover); }
+.glass-dialog-head :deep(.glass-dialog-back:active),
+.glass-dialog-close:active { transform: scale(.96); }
 .glass-dialog-head h2 {
   margin: 4px 0 0;
   font-size: 18px;
@@ -216,15 +248,11 @@ onUnmounted(() => {
 .glass-dialog-close:hover {
   background: var(--button-secondary-hover);
 }
-.glass-dialog-close:active {
-  transform: scale(0.96);
-}
 .glass-dialog-close svg {
   flex-shrink: 0;
 }
 .glass-dialog-toolbar {
-  padding: 12px 0 10px;
-  border-bottom: 1px solid var(--separator);
+  padding: 10px 0 2px;
   color: var(--text-secondary);
   font-size: 12px;
 }
@@ -247,6 +275,9 @@ onUnmounted(() => {
   color: var(--text-secondary);
   font-size: 14px;
   line-height: 1.6;
+}
+.glass-dialog-body :deep(button:active:not(:disabled)) {
+  transform: none !important;
 }
 .glass-dialog-footer {
   flex-wrap: wrap;

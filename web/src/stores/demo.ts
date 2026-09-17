@@ -353,6 +353,12 @@ export const useDemoStore = defineStore('demo', () => {
     startPolling()
   }
 
+  async function cancelCompute() {
+    if (!taskId.value || mode.value !== 'live') return
+    run.value = await api.cancelRun(taskId.value)
+    stopPolling()
+  }
+
   function restoreTask(id: string, nextMode?: RunMode) {
     taskId.value = id
     if (nextMode) mode.value = nextMode
@@ -435,6 +441,7 @@ export const useDemoStore = defineStore('demo', () => {
     resumeFollow,
     pauseCompute,
     resumeCompute,
+    cancelCompute,
     restoreTask,
     openSettings,
     closeSettings,

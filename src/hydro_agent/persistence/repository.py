@@ -225,6 +225,15 @@ class HydroRepository:
             session.flush()
             return task
 
+    def set_task_terminal_status(self, task_id: str, status: str | None):
+        with self.database.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                raise KeyError(task_id)
+            task.terminal_status = status
+            session.flush()
+            return task
+
     def create_action_run(self, **kwargs):
         # Validate identifiers/capability before they can become execution paths.
         request = ExecutionRequest(

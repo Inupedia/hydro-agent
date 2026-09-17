@@ -1036,14 +1036,6 @@ onUnmounted(() => {
   overflow-wrap: anywhere;
 }
 .model-ready { color: var(--success) !important; }
-.overline {
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 1.2px;
-  text-transform: none;
-  color: var(--text-secondary);
-}
-
 @media (max-width: 720px) {
   .reuse-row {
     grid-template-columns: 1fr;

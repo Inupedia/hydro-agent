@@ -200,8 +200,10 @@ describe('SkillsLibrarySheet', () => {
     portal('skills-create')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await flushPromises()
     const create = portal('skills-create-dialog')
-    const options = Array.from(create?.querySelectorAll('[data-test="skills-create-stage"] option') || []).map(
-      (node) => (node as HTMLOptionElement).textContent?.trim(),
+    ;(create?.querySelector('[data-test="skills-create-stage"]') as HTMLButtonElement).click()
+    await flushPromises()
+    const options = Array.from(document.querySelectorAll('[role="listbox"][aria-label="进入 Agent 的环节"] .glass-select-option-copy')).map(
+      (node) => node.textContent?.trim(),
     )
     expect(options).toEqual(['任务准备', '结果诊断', '参数调整', '质量把关', '结果确认'])
     expect(create?.textContent).toContain('执行计算')
