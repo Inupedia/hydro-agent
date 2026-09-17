@@ -81,20 +81,21 @@ def test_xaj_still_default_plugin():
     assert set(registry.list_ids()) >= {"xaj", "gr4j", "hbv", "tank", "sac-sma"}
 
 
-def test_only_source_verified_kernel_advertises_product_calibration():
+def test_all_registered_models_advertise_numerical_calibration():
     registry = default_model_registry()
-    assert registry.get("xaj").descriptor.validation_status == "source_verified"
-    assert registry.get("xaj").descriptor.supports_calibration is True
-    assert registry.get("gr4j").descriptor.validation_status == "source_verified"
-    assert registry.get("gr4j").descriptor.supports_calibration is True
-    assert registry.get("hbv").descriptor.validation_status == "source_verified"
-    assert registry.get("hbv").descriptor.supports_calibration is True
-    assert registry.get("tank").descriptor.validation_status == "source_verified"
-    assert registry.get("tank").descriptor.supports_calibration is True
-    for model_id in ("sac-sma",):
-        descriptor = registry.get(model_id).descriptor
-        assert descriptor.validation_status != "source_verified"
-        assert descriptor.supports_calibration is False
+    for model_id in ("xaj", "gr4j", "hbv", "tank", "sac-sma"):
+        assert registry.get(model_id).descriptor.supports_calibration is True
+
+
+def test_validation_status_is_independent_from_runtime_calibration_capability():
+    registry = default_model_registry()
+    for model_id in ("xaj", "gr4j", "hbv", "tank"):
+        assert registry.get(model_id).descriptor.validation_status == "source_verified"
+
+    sac_sma = registry.get("sac-sma").descriptor
+    assert sac_sma.supports_calibration is True
+    assert sac_sma.validation_status == "experimental_variant"
+    assert any("实验变体" in limitation for limitation in sac_sma.limitations)
 
 
 def test_runtime_adapters_advertise_only_commands_they_implement():
