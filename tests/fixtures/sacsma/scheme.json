@@ -1,18 +1,23 @@
 {
   "model_id": "sac-sma",
   "warmup_days": 30,
+  "routing": { "HOURS": 4.0 },
   "parameters": {
     "UZTWM": 50.0,
     "UZFWM": 40.0,
     "UZK": 0.3,
     "PCTIM": 0.01,
+    "ADIMP": 0.15,
+    "RIVA": 0.02,
+    "ZPERC": 20.0,
+    "REXP": 2.0,
     "LZTWM": 120.0,
     "LZFSM": 40.0,
     "LZFPM": 150.0,
     "LZSK": 0.08,
     "LZPK": 0.01,
-    "ZPERC": 20.0,
-    "REXP": 2.0,
-    "UHK": 2.5
+    "PFREE": 0.3,
+    "SIDE": 0.1,
+    "RSERV": 0.3
   }
 }

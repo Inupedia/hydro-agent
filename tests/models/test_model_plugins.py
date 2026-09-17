@@ -91,10 +91,8 @@ def test_only_source_verified_kernel_advertises_product_calibration():
     assert registry.get("hbv").descriptor.supports_calibration is True
     assert registry.get("tank").descriptor.validation_status == "source_verified"
     assert registry.get("tank").descriptor.supports_calibration is True
-    for model_id in ("sac-sma",):
-        descriptor = registry.get(model_id).descriptor
-        assert descriptor.validation_status != "source_verified"
-        assert descriptor.supports_calibration is False
+    assert registry.get("sac-sma").descriptor.validation_status == "source_verified"
+    assert registry.get("sac-sma").descriptor.supports_calibration is True
 
 
 def test_runtime_adapters_advertise_only_commands_they_implement():

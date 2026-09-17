@@ -18,6 +18,7 @@ def load_sacsma_inputs(workspace: Path):
     scheme = SacSmaScheme(
         model_id=scheme_payload.get("model_id", "sac-sma"),
         warmup_days=scheme_payload["warmup_days"],
+        routing=scheme_payload.get("routing", {"HOURS": 4.0}),
         parameters=scheme_payload["parameters"],
     )
     basin = SacSmaBasin.model_validate(basin_payload)

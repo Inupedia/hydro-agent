@@ -124,13 +124,13 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
     if "routing" in defaults:
         config["routing"] = copy.deepcopy(defaults["routing"])
     if plan_config is not None:
-        # Basin/data plan may still ship an XAJ scheme.json. Reuse its warmup and
-        # plan binding for any model; only adopt parameters when the plan scheme
-        # already matches the requested model_id (today: XAJ).
+        # Basin/data plans may still ship an XAJ scheme.json. Warmup, routing,
+        # and parameters are model-specific and must only cross the boundary
+        # when the plan already targets the requested model.
         plan_model = str(plan_config.get("model_id") or "xaj")
-        if plan_config.get("warmup_days") is not None:
-            config["warmup_days"] = int(plan_config["warmup_days"])
         if plan_model == payload.model_id:
+            if plan_config.get("warmup_days") is not None:
+                config["warmup_days"] = int(plan_config["warmup_days"])
             for key in ("routing", "model_version"):
                 if key in plan_config:
                     config[key] = copy.deepcopy(plan_config[key])

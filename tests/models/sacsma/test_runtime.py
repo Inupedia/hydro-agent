@@ -41,9 +41,12 @@ def prepared_sacsma_workspace(tmp_path):
 
 
 def test_sacsma_scheme_contract():
-    scheme = SacSmaScheme.model_validate_json((FIXTURES / "scheme.json").read_text(encoding="utf-8"))
+    scheme = SacSmaScheme.model_validate_json(
+        (FIXTURES / "scheme.json").read_text(encoding="utf-8")
+    )
     assert scheme.model_id == "sac-sma"
-    assert len(scheme.parameter_vector()) == 12
+    assert len(scheme.parameter_vector()) == 16
+    assert scheme.routing == {"HOURS": 4.0}
 
 
 def test_sacsma_plugin_registered():
@@ -53,6 +56,15 @@ def test_sacsma_plugin_registered():
     assert plugin.descriptor.diagnosis_skill_id == "sac-sma-calibration-diagnosis"
     assert plugin.descriptor.required_forcings == ("precipitation", "pet")
     assert "upper" in plugin.descriptor.parameter_groups
+    assert plugin.descriptor.supports_calibration is True
+    assert plugin.descriptor.validation_status == "source_verified"
+    assert plugin.descriptor.default_warmup_days == 730
+    bounded = plugin.strategy_registry().get("sac-sma-bounded-v1", model_id="sac-sma")
+    assert bounded.evaluation_budget == 1024
+    water_balance = plugin.strategy_registry().get(
+        "sac-sma-water-balance-refine-v1", model_id="sac-sma"
+    )
+    assert {"evap", "baseflow"}.issubset(water_balance.param_groups)
     adapter = registry.runtime_registry().get("sac-sma", "forecast")
     assert adapter.model_id == "sac-sma"
 
@@ -67,7 +79,9 @@ def test_sacsma_runtime_forecast(prepared_sacsma_workspace):
     )
     completed = subprocess.run(argv, check=True, capture_output=True, text=True)
     assert completed.returncode == 0
-    payload = json.loads((prepared_sacsma_workspace / "output" / "result.json").read_text(encoding="utf-8"))
+    payload = json.loads(
+        (prepared_sacsma_workspace / "output" / "result.json").read_text(encoding="utf-8")
+    )
     assert payload["model_id"] == "sac-sma"
     assert [row["lead"] for row in payload["forecast"]] == [1, 2, 3]
     assert all(row["value"] >= 0 for row in payload["forecast"])

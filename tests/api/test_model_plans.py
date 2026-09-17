@@ -1,8 +1,6 @@
 import json
 from pathlib import Path
 
-import pytest
-
 from hydro_agent.agent.world_state import WorldStateBuilder
 from hydro_agent.modeling.basins import BasinCatalog
 from hydro_agent.modeling.plans import ModelPlanService, digest, write_json
@@ -78,25 +76,29 @@ def test_gr4j_task_reuses_plan_data_without_xaj_parameters(client, app_dependenc
     assert set(scheme.config_json['parameters']) == {'X1', 'X2', 'X3', 'X4'}
     assert 'K' not in scheme.config_json['parameters']
     assert scheme.config_json['model_plan_hash'] == 'v1'
-    assert scheme.config_json['warmup_days'] == 5
+    assert scheme.config_json['warmup_days'] == 30
     view = WorldStateBuilder(app_dependencies.repository).build(body['task_id'])
     assert view.model.validation_status == 'source_verified'
     assert 'calibrate' in view.model.capabilities
     service.pool.shutdown()
 
 
-@pytest.mark.parametrize('model_id', ('sac-sma',))
-def test_unverified_model_rejects_optimization_before_kernel_validation(
-    client, app_dependencies, tmp_path, model_id
+def test_source_verified_sacsma_allows_product_optimization(
+    client, app_dependencies, tmp_path
 ):
     service, plan_id = setup_plan(app_dependencies, tmp_path)
     response = client.post(
         '/api/tasks',
-        json={**payload(plan_id), 'model_id': model_id, 'allow_optimization': True},
+        json={**payload(plan_id), 'model_id': 'sac-sma', 'allow_optimization': True},
     )
-    assert response.status_code == 400
-    assert '尚未通过数值内核技术验收' in response.json()['detail']
-    assert app_dependencies.repository.list_tasks() == []
+    assert response.status_code == 201
+    body = response.json()
+    assert body['model_id'] == 'sac-sma'
+    scheme = app_dependencies.repository.get_scheme(body['current_scheme_id'])
+    assert scheme.config_json['warmup_days'] == 730
+    view = WorldStateBuilder(app_dependencies.repository).build(body['task_id'])
+    assert view.model.validation_status == 'source_verified'
+    assert 'calibrate' in view.model.capabilities
     service.pool.shutdown()
 
 

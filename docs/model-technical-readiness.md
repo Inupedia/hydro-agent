@@ -10,7 +10,7 @@
 | GR4J | Hydro-Agent NumPy GR4J | `source_verified` | 开放 | 已与 GRsuite/airGR-1.7.9 对齐完成逐日状态与流量 parity（阈值见 `models/gr4j/parity.py`）；UH 90% 分割使用 airGR 同款 `float32(0.9)` |
 | HBV | Hydro-Agent NumPy HBV-light | `source_verified` | 开放 | 已对齐 Seibert & Vis / hydromad HBV-light（含 `UZL`、`SFCF`、连续 `MAXBAS`）；阈值见 `models/hbv/parity.py`；分区与 CET 重建不在 lumped 产品范围 |
 | Tank | Hydro-Agent NumPy 3-tank + discrete Nash | `source_verified` | 开放 | 产品固定三层水箱 + 整数 Nash 级数（`N` 采样后取整）；独立方程 oracle parity（见 `models/tank/parity.py`）；不宣称等同经典四层 Sugawara 全图 |
-| SAC-SMA | reduced SAC-SMA-inspired variant | `experimental_variant` | 阻断 | 省略 `ADIMP`、`PFREE`、`RIVA`、`SIDE`、`RSERV` 等标准过程，并加入非原生 `UHK` 路由参数；尚无 NOAA parity |
+| SAC-SMA | Hydro-Agent NumPy NOAA-OWP SAC-SMA（16 参数、无冻土过程） | `source_verified` | 开放 | 移植 NOAA-OWP `SAC1`/`EXSAC` 的无冻土结构：增量子步长、`ADIMP` 饱和产流、`PFREE` 分配、`RIVA` 河岸蒸散、`SIDE` 非河道基流、`RSERV` 补给；与固定版本 NOAA-OWP Fortran 可执行输出完成逐日状态/分量 parity（阈值与 revision 见 `models/sacsma/parity.py`）；当前预报输出另接仓库自定义日尺度三角单位线，`HOURS<=24` 时退化为同日响应，不属于 NOAA parity 范围 |
 
 技术参考：
 

@@ -1,4 +1,4 @@
-"""Simplified SAC-SMA HydroModelPlugin (model_id ``sac-sma``)."""
+"""NOAA-OWP SAC-SMA HydroModelPlugin (model_id ``sac-sma``)."""
 
 from __future__ import annotations
 
@@ -16,11 +16,54 @@ from hydro_agent.models.sacsma.engine import (
 from hydro_agent.models.sacsma.param_groups import (
     ALL_PARAM_GROUPS,
     DEFAULT_SAC_SMA_PARAMS,
+    DEFAULT_SAC_SMA_ROUTING,
+    FULL_PARAM_GROUPS,
     normalize_param_groups,
     resolve_param_names,
 )
+from hydro_agent.models.sacsma.parity import REFERENCE_ORACLE
 from hydro_agent.models.sacsma.strategies import SAC_SMA_STRATEGIES
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
+
+
+def _canonicalize_parameters(values: dict[str, float]) -> dict[str, float]:
+    """Normalize coupled SAC-SMA parameters to feasible ranges."""
+    out = {
+        name: min(max(float(value), 0.0), 1.0)
+        if name
+        in {
+            "UZK",
+            "LZSK",
+            "LZPK",
+            "PCTIM",
+            "ADIMP",
+            "RIVA",
+            "PFREE",
+            "SIDE",
+            "RSERV",
+        }
+        else float(value)
+        for name, value in values.items()
+    }
+    if out.get("UZTWM", 1.0) <= 0.0:
+        out["UZTWM"] = 1.0
+    if out.get("UZFWM", 1.0) <= 0.0:
+        out["UZFWM"] = 1.0
+    if out.get("LZTWM", 1.0) <= 0.0:
+        out["LZTWM"] = 1.0
+    if out.get("LZFSM", 1.0) <= 0.0:
+        out["LZFSM"] = 1.0
+    if out.get("LZFPM", 1.0) <= 0.0:
+        out["LZFPM"] = 1.0
+    if out.get("ZPERC", 1.0) <= 0.0:
+        out["ZPERC"] = 1.0
+    if out.get("REXP", 0.0) < 0.0:
+        out["REXP"] = 0.0
+    if out.get("PCTIM", 0.0) + out.get("ADIMP", 0.0) >= 1.0:
+        scale = 0.99 / max(out.get("PCTIM", 0.0) + out.get("ADIMP", 0.0), 1e-12)
+        out["PCTIM"] = min(out.get("PCTIM", 0.0) * scale, 1.0)
+        out["ADIMP"] = min(out.get("ADIMP", 0.0) * scale, 1.0)
+    return out
 
 
 class SacSmaPlugin:
@@ -28,7 +71,7 @@ class SacSmaPlugin:
     MODEL_SHA256 = MODEL_SHA256
     descriptor = ModelDescriptor(
         model_id="sac-sma",
-        title="SAC-SMA-inspired reduced（实验实现）",
+        title="NOAA-OWP SAC-SMA（16 参数无冻土核）",
         required_forcings=("precipitation", "pet"),
         parameter_groups=ALL_PARAM_GROUPS,
         parameter_names=SacSmaScheme.PARAMETER_ORDER,
@@ -38,11 +81,11 @@ class SacSmaPlugin:
         diagnosis_policy=DiagnosisPolicy(
             measurement=DiagnosisPlan(
                 strategy_id="sac-sma-bounded-v1",
-                param_groups=("upper", "lower", "percolation", "routing"),
+                param_groups=FULL_PARAM_GROUPS,
             ),
             water_balance=DiagnosisPlan(
                 strategy_id="sac-sma-water-balance-refine-v1",
-                param_groups=("upper", "lower", "percolation"),
+                param_groups=("upper", "lower", "percolation", "evap", "baseflow"),
             ),
             timing=DiagnosisPlan(
                 strategy_id="sac-sma-routing-refine-v1",
@@ -54,11 +97,11 @@ class SacSmaPlugin:
             ),
             composite=DiagnosisPlan(
                 strategy_id="sac-sma-bounded-v1",
-                param_groups=("upper", "lower", "percolation", "routing"),
+                param_groups=FULL_PARAM_GROUPS,
             ),
             local=DiagnosisPlan(
                 strategy_id="sac-sma-local-refine-v1",
-                param_groups=("upper", "lower", "percolation", "routing"),
+                param_groups=FULL_PARAM_GROUPS,
             ),
             fallback_strategy_ids=(
                 "sac-sma-bounded-v1",
@@ -67,15 +110,20 @@ class SacSmaPlugin:
             ),
         ),
         supports_forecast=True,
-        supports_calibration=False,
+        supports_calibration=True,
         supports_resume=True,
-        default_warmup_days=30,
-        validation_status="experimental_variant",
-        implementation_name="Hydro-Agent reduced SAC-SMA-inspired variant",
-        technical_reference="Burnash et al. (1973); NOAA-OWP sac-sma",
+        default_warmup_days=730,
+        validation_status="source_verified",
+        implementation_name="Hydro-Agent NumPy NOAA-OWP SAC-SMA",
+        technical_reference=(
+            "NOAA-OWP sac-sma (SAC1/EXSAC); Burnash et al. (1973); "
+            f"parity vs {REFERENCE_ORACLE}; "
+            "see models/sacsma/parity.py"
+        ),
         limitations=(
-            "省略 ADIMP、PFREE、RIVA、SIDE、RSERV 等标准 SAC-SMA 参数和过程",
-            "当前渗漏和路由方程未与 NOAA-OWP SAC-SMA 完成 parity",
+            "仅覆盖 NOAA-OWP SAC1 的无冻土土壤湿度核算，不含积雪、融雪和冻土过程",
+            "默认使用 730 天冷启动预热；正式实验仍须检查状态稳定性",
+            "输出在 NOAA TCI 之外使用仓库自定义日尺度三角单位线；HOURS<=24 在日尺度退化为同日响应",
         ),
     )
     runtime_adapter = SacSmaRuntimeAdapter()
@@ -84,6 +132,7 @@ class SacSmaPlugin:
         SacSmaScheme(
             model_id=config.get("model_id", "sac-sma"),
             warmup_days=int(config["warmup_days"]),
+            routing=config.get("routing", DEFAULT_SAC_SMA_ROUTING),
             parameters=config["parameters"],
         )
 
@@ -94,6 +143,7 @@ class SacSmaPlugin:
         return {
             "model_id": "sac-sma",
             "warmup_days": self.descriptor.default_warmup_days,
+            "routing": dict(DEFAULT_SAC_SMA_ROUTING),
             "parameters": dict(DEFAULT_SAC_SMA_PARAMS),
         }
 
@@ -106,6 +156,9 @@ class SacSmaPlugin:
     def parameter_bounds(self) -> dict[str, tuple[float, float]]:
         return load_param_ranges()
 
+    def canonicalize_parameters(self, values: dict[str, float]) -> dict[str, float]:
+        return _canonicalize_parameters(values)
+
     def simulate(
         self,
         scheme_config: dict,
@@ -117,6 +170,7 @@ class SacSmaPlugin:
         scheme = SacSmaScheme(
             model_id=scheme_config.get("model_id", "sac-sma"),
             warmup_days=int(scheme_config["warmup_days"]),
+            routing=scheme_config.get("routing", DEFAULT_SAC_SMA_ROUTING),
             parameters=scheme_config["parameters"],
         )
         basin_model = SacSmaBasin.model_validate(basin)
