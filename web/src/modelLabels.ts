@@ -5,7 +5,7 @@ const MODEL_LABELS: Record<string, string> = {
   gr4j: 'GR4J',
   hbv: 'HBV-light',
   tank: '三层 Tank + Nash',
-  'sac-sma': 'SAC-SMA-inspired reduced（实验）',
+  'sac-sma': 'SAC-SMA（NOAA-OWP）',
   openhydronet: 'OpenHydroNet',
 }
 
@@ -14,7 +14,7 @@ const MODEL_SHORT: Record<string, string> = {
   gr4j: 'GR4J',
   hbv: 'HBV',
   tank: '水箱',
-  'sac-sma': 'SAC-SMA',
+  'sac-sma': 'SAC-SMA（NOAA-OWP）',
   openhydronet: 'OpenHydroNet',
 }
 
