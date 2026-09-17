@@ -12,7 +12,6 @@ import RenameDialog from '../components/RenameDialog.vue'
 import SkillsLibrarySheet from '../components/SkillsLibrarySheet.vue'
 import { RippleButton } from '../components/ui'
 import { useDemoStore } from '../stores/demo'
-import { DEMO_PRESET } from '../demo/preset'
 import { api } from '../api/client'
 import { gsap, motionDuration, prefersReducedMotion } from '../motion/gsap'
 import { basinLabel, providerErrorZh, workbenchErrorZh } from '../demo/stages'
@@ -23,7 +22,7 @@ type MobileStep = 'prepare' | 'task' | 'journal' | 'results'
 const MOBILE_STEPS: MobileStep[] = ['prepare', 'task', 'journal', 'results']
 const MOBILE_STEP_LABEL: Record<MobileStep, string> = {
   prepare: '数据准备',
-  task: '流域与任务',
+  task: '配置运行',
   journal: '执行记录',
   results: '运行结果',
 }
@@ -150,18 +149,6 @@ const planReady = computed(() => !!demo.draft.model_plan_id)
 const boundPlan = ref<ModelPlan | null>(null)
 const planDateMin = computed(() => boundPlan.value?.data_start || boundPlan.value?.suggested_start || undefined)
 const planDateMax = computed(() => boundPlan.value?.data_end || undefined)
-const demoPresetLoaded = computed(
-  () =>
-    demo.draft.basin_id === DEMO_PRESET.basin_id &&
-    demo.draft.start_date === DEMO_PRESET.start_date &&
-    demo.draft.end_date === DEMO_PRESET.end_date &&
-    demo.draft.validation_days === DEMO_PRESET.validation_days &&
-    demo.draft.final_test_days === DEMO_PRESET.final_test_days &&
-    demo.draft.max_agent_decision_rounds === DEMO_PRESET.max_agent_decision_rounds &&
-    demo.draft.max_optimization_cycles === DEMO_PRESET.max_optimization_cycles &&
-    demo.draft.campaign_mode === DEMO_PRESET.campaign_mode &&
-    demo.draft.campaign_max_model_evaluations === DEMO_PRESET.campaign_max_model_evaluations,
-)
 let syncingPlanBasin = false
 function selectPlan(plan: ModelPlan | null) {
   if (demo.taskId) return
@@ -197,6 +184,7 @@ const forecastSurface = ref<HTMLElement | null>(null)
 const tuningMount = ref<HTMLElement | null>(null)
 const desktopResultsStack = ref<{ forecastSurface: HTMLElement | null; tuningMount: HTMLElement | null } | null>(null)
 const caseManagerOpen = ref(false)
+const caseLibraryOpen = ref(false)
 const skillsLibraryOpen = ref(false)
 const selectedCaseIds = ref<string[]>([])
 const renameCaseTarget = ref<{ task_id: string; name?: string | null; start_date?: string | null; basin_id: string } | null>(null)
@@ -215,7 +203,7 @@ const finalComparison = computed(() => {
 })
 const hasHydrograph = computed(() => !!finalComparison.value)
 const showResultsStage = computed(() => demo.isCompleted && !demo.isFailed && !!demo.results)
-const isMobile = useMediaQuery('(max-width: 900px)')
+const isMobile = useMediaQuery('(max-width: 1100px)')
 const showRunActivity = computed(
   () =>
     busy.value ||
@@ -418,6 +406,16 @@ function openCaseManager() {
       ? [demo.taskId]
       : []
   caseManagerOpen.value = true
+}
+function openCaseLibrary() {
+  caseLibraryOpen.value = true
+}
+function closeCaseLibrary() {
+  caseLibraryOpen.value = false
+}
+async function openCaseFromLibrary(id: string) {
+  await openCase(id)
+  closeCaseLibrary()
 }
 function closeCaseManager() {
   caseManagerOpen.value = false
@@ -634,7 +632,23 @@ onUnmounted(() => {
         >
           专业技能
         </button>
-        <div v-if="showResultsStage" class="header-actions">
+        <div class="header-actions">
+          <button
+            data-test="header-case-library"
+            type="button"
+            class="manage-button"
+            :disabled="demo.isRunning || demo.isQueued || busy"
+            @click="openCaseLibrary"
+          >案例库</button>
+          <button
+            v-if="demo.taskId"
+            data-test="header-new-task"
+            type="button"
+            class="header-new-task"
+            @click="newTask"
+          >新建任务</button>
+        </div>
+        <div v-if="showResultsStage" class="header-actions header-actions--result">
           <label class="header-case-picker">已有案例
             <GlassSelect
               v-model="selectedCaseId"
@@ -646,7 +660,6 @@ onUnmounted(() => {
             />
           </label>
           <button data-test="header-delete-case" type="button" class="manage-button" :disabled="demo.isRunning || demo.isQueued || busy || !demo.caseLibrary.length" @click="openCaseManager">管理</button>
-          <button data-test="header-new-task" type="button" class="header-new-task" @click="newTask">新建任务</button>
         </div>
         <div class="connection"><i :class="{ online: connected }" />{{ mode }}</div>
       </div>
@@ -666,6 +679,38 @@ onUnmounted(() => {
       <template #footer>
         <button class="start-button" data-test="run-notice-ack" type="button" @click="closeRunNotice">知道了</button>
       </template>
+    </GlassDialog>
+
+    <GlassDialog
+      :open="caseLibraryOpen"
+      test-id="case-library"
+      overline="案例库"
+      title="已完成任务"
+      labelled-by="case-library-title"
+      @close="closeCaseLibrary"
+    >
+      <template #toolbar>
+        <span>选择一份记录进入只读回放</span>
+        <button type="button" class="text-button" :disabled="!demo.caseLibrary.length" @click="openCaseManager">管理案例</button>
+      </template>
+      <div v-if="!demo.caseLibrary.length" class="case-library-empty">
+        <strong>还没有已完成案例</strong>
+        <span>完成一次运行后，记录会保存在这里。</span>
+      </div>
+      <button
+        v-for="task in demo.caseLibrary"
+        :key="task.task_id"
+        type="button"
+        class="case-library-item"
+        :disabled="busy"
+        @click="openCaseFromLibrary(task.task_id)"
+      >
+        <span>
+          <strong>{{ task.name?.trim() || task.start_date || task.task_id }}</strong>
+          <small>{{ basinLabel(task.basin_id) }} · {{ task.start_date || task.task_id }}</small>
+        </span>
+        <span aria-hidden="true">查看</span>
+      </button>
     </GlassDialog>
 
     <GlassDialog
@@ -716,7 +761,45 @@ onUnmounted(() => {
       >
       <section ref="mainStage" class="main-stage glass-pane" :class="{ 'main-stage--focus': focusStage, 'main-stage--results': showResultsStage && !isMobile }">
         <LiveWorkflow v-if="showWorkflow" :action="action" :status="demo.run?.paused ? 'paused' : demo.run?.status" :completed-actions="completedActions" :gate-status="gateStatus" :expanded="focusStage" :workflow-version="demo.taskMeta?.workflow_version" />
-        <ModelPreparation v-else-if="modelingAvailable && !demo.taskId" :basin-id="demo.draft.basin_id" :selected-id="demo.draft.model_plan_id" :locked="busy" @selected="selectPlan" />
+        <template v-else-if="!demo.taskId">
+          <div class="setup-route">
+            <div>
+              <span class="overline">新建任务</span>
+              <h2>先确定研究流域，再准备计算模型</h2>
+            </div>
+            <ol aria-label="任务创建流程">
+              <li class="is-current">选择流域</li>
+              <li :class="{ 'is-current': planReady }">准备模型</li>
+              <li :class="{ 'is-ready': planReady }">配置运行</li>
+            </ol>
+          </div>
+          <div class="basin-picker">
+            <div class="basin-picker-heading">
+              <h3>研究流域</h3>
+              <p class="basin-picker-subtitle">{{ selectedBasin?.ready_for_build === false ? '该流域资料尚未齐全，暂不能建立模型。' : '流域确定后，可复用既有方案或建立新的计算单元。' }}</p>
+            </div>
+            <GlassSelect
+              v-model="demo.draft.basin_id"
+              data-test="basin-selector"
+              aria-label="研究流域"
+              :disabled="locked"
+              :options="basinSelectOptions"
+            />
+          </div>
+          <ModelPreparation
+            v-if="modelingAvailable"
+            :basin-id="demo.draft.basin_id"
+            :selected-id="demo.draft.model_plan_id"
+            :locked="busy"
+            embedded
+            @selected="selectPlan"
+          />
+          <div v-else class="prep-placeholder">
+            <span class="overline">模型准备</span>
+            <h2>建模服务暂未连接</h2>
+            <p>可以先配置任务参数；连接建模服务后，将在此建立计算单元并复核流域边界。</p>
+          </div>
+        </template>
         <ObservatoryResultsStack
           v-else-if="showResultsStage && !isMobile"
           ref="desktopResultsStack"
@@ -734,35 +817,15 @@ onUnmounted(() => {
 
       <aside ref="taskPane" class="task-pane glass-pane">
         <div class="pane-head">
-          <div class="section-heading"><span class="overline">流域与任务</span></div>
-          <h2>研究流域</h2>
-          <p class="muted">选择本地资料完整的流域，再建立并复核计算方案。</p>
+          <div class="section-heading"><span class="overline">配置运行</span></div>
+          <h2>本次运行</h2>
+          <p class="muted">{{ planReady ? `已使用 ${basinLabel(demo.draft.basin_id)} 的模型方案。` : '请先在左侧完成流域选择和模型准备。' }}</p>
         </div>
         <form class="pane-form" @submit.prevent="begin">
           <div class="pane-body">
             <fieldset :disabled="locked">
-              <label>研究流域
-                <GlassSelect
-                  v-model="demo.draft.basin_id"
-                  data-test="basin-selector"
-                  aria-label="研究流域"
-                  :disabled="locked"
-                  :options="basinSelectOptions"
-                />
-              </label>
               <p v-if="demo.draft.model_plan_id" class="basin-caption">已绑定方案：{{ planCaption(boundPlan, demo.draft.model_plan_id) }}</p>
               <p v-else-if="serviceMode === 'real'" class="basin-caption">请先在左侧完成数据准备</p>
-              <div class="section-heading subsection">
-                <span class="overline">预报任务</span>
-                <button
-                  v-if="demo.draft.basin_id === 'yaogu'"
-                  class="text-button"
-                  data-test="demo-preset"
-                  type="button"
-                  @click="demo.applyDemoPreset()"
-                >{{ demoPresetLoaded ? '重新载入演示默认值' : '载入演示默认值' }}</button>
-              </div>
-              <p v-if="demo.draft.basin_id === 'yaogu'" class="basin-caption">演示窗口 {{ DEMO_PRESET.start_date }} 至 {{ DEMO_PRESET.end_date }}，按开发期筛选，不代表正式研究结论。复现请使用 365 天预热、单元集总方案。</p>
               <div :class="{ 'is-locked': serviceMode === 'real' && !planReady }">
                 <fieldset :disabled="locked || (serviceMode === 'real' && !planReady)">
                   <label>运行名称（可选）
@@ -824,17 +887,6 @@ onUnmounted(() => {
             <button v-else-if="demo.isRunning" type="button" class="start-button" disabled>正在计算<span class="activity-dot" /></button>
             <RippleButton v-else type="button" class="start-button" @click="newTask">新建任务</RippleButton>
             <p class="source-note">{{ demo.draft.forcing_mode === 'R' ? `使用 ${selectedBasin?.label || demo.draft.basin_id} 本地日资料做历史率定与检验，不代表业务预报。` : '预报资料可用性将在运行时检查。' }}</p>
-            <div class="case-picker-row">
-              <label class="case-picker">已有案例
-                <GlassSelect
-                  v-model="selectedCaseId"
-                  aria-label="已有案例"
-                  :disabled="demo.isRunning || demo.isQueued || busy"
-                  :options="caseSelectOptions"
-                />
-              </label>
-              <button data-test="delete-case" type="button" class="manage-button" :disabled="demo.isRunning || demo.isQueued || busy || !demo.caseLibrary.length" @click="openCaseManager">管理</button>
-            </div>
           </div>
         </form>
       </aside>

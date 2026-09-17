@@ -570,7 +570,7 @@ onUnmounted(() => {
                     :value="areaKm2Raw"
                     :decimal-places="2"
                     :duration="700"
-                    empty="—"
+                    empty="-"
                   />
                   km² ·
                   {{ current.unit_count || 1 }} 套 XAJ · {{ current.model_mode }}
@@ -627,7 +627,7 @@ onUnmounted(() => {
   padding: 0;
 }
 .model-preparation.is-embedded {
-  gap: 12px;
+  gap: 14px;
 }
 .model-preparation header { flex: 0 0 auto; }
 .prep-body {
@@ -636,7 +636,7 @@ onUnmounted(() => {
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
   padding-right: 4px;
   scrollbar-gutter: stable;
 }
@@ -648,7 +648,7 @@ onUnmounted(() => {
   padding: 14px 0 calc(10px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--separator);
   background:
-    linear-gradient(180deg, rgba(250, 251, 253, 0.42), rgba(250, 251, 253, 0.78));
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 42%, transparent), color-mix(in srgb, var(--surface) 92%, transparent));
   backdrop-filter: blur(18px) saturate(140%);
   -webkit-backdrop-filter: blur(18px) saturate(140%);
 }
@@ -725,12 +725,12 @@ onUnmounted(() => {
 }
 .structure-block {
   margin: 0;
-  padding: 16px;
+  padding: 16px 0 0;
   display: grid;
   gap: 14px;
-  background: var(--surface);
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-md);
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--separator);
 }
 .model-preparation label {
   display: grid;
@@ -744,6 +744,8 @@ onUnmounted(() => {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: end;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--separator);
 }
 .reuse-actions { display: flex; gap: 8px; align-items: center; }
 .model-settings {
@@ -819,14 +821,10 @@ onUnmounted(() => {
 .materials {
   display: grid;
   gap: 12px;
-  padding: 18px 20px;
-  background: var(--surface);
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-md);
-}
-.materials[data-ready='true'] {
-  border-color: rgba(36, 138, 61, 0.22);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  padding: 0 0 16px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--separator);
 }
 .materials-head {
   display: flex;
@@ -878,10 +876,11 @@ onUnmounted(() => {
   grid-template-columns: 18px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
-  min-height: 40px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: var(--surface-secondary);
+  min-height: 44px;
+  padding: 8px 0;
+  border-radius: 0;
+  background: transparent;
+  border-bottom: 1px solid var(--separator);
   font-size: 13px;
 }
 .mat-mark {

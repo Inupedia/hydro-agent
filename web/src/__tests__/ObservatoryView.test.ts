@@ -160,7 +160,7 @@ describe("single page observatory", () => {
     wrapper.unmount();
   });
 
-  it("places data preparation left of the task pane and leaves workflow sections unnumbered", async () => {
+  it("keeps basin selection with preparation and keeps runtime configuration separate", async () => {
     const { wrapper } = await setup();
     const children = [...wrapper.find(".observatory-grid").element.children].flatMap((node) => {
       if ((node as HTMLElement).classList?.contains("mobile-deck")) {
@@ -171,7 +171,9 @@ describe("single page observatory", () => {
     expect(children[0].className).toContain("main-stage");
     expect(children[1].className).toContain("task-pane");
     expect(children[2].className).toContain("journal-pane");
-    expect(wrapper.find(".task-pane .overline").text()).toBe("流域与任务");
+    expect(wrapper.find(".main-stage [data-test=\"basin-selector\"]").exists()).toBe(true);
+    expect(wrapper.find(".task-pane [data-test=\"basin-selector\"]").exists()).toBe(false);
+    expect(wrapper.find(".task-pane .overline").text()).toBe("配置运行");
     expect(wrapper.find(".journal-pane .overline").text()).toBe("执行记录");
     expect(wrapper.find(".record-count").exists()).toBe(false);
     expect(wrapper.find(".water-scene").exists()).toBe(false);
@@ -266,7 +268,7 @@ describe("single page observatory", () => {
     wrapper.unmount();
   });
 
-  it("loads the verified preset without discarding a prepared Yaogu plan", async () => {
+  it("uses the verified demo defaults without exposing a reload control", async () => {
     const { wrapper, store } = await setup();
     expect(store.draft).toMatchObject(DEMO_PRESET);
     expect(
@@ -277,23 +279,7 @@ describe("single page observatory", () => {
       (wrapper.find('[data-test="end-date"]').element as HTMLInputElement)
         .value,
     ).toBe("2000-08-31");
-    expect(wrapper.text()).toContain("2000-04-01");
-    expect(wrapper.find('[data-test="demo-preset"]').text()).toBe(
-      "重新载入演示默认值",
-    );
-    store.draft.model_plan_id = "plan-ready";
-    store.draft.start_date = "1991-01-01";
-    await flushPromises();
-    expect(wrapper.find('[data-test="demo-preset"]').text()).toBe(
-      "载入演示默认值",
-    );
-    await wrapper.find('[data-test="demo-preset"]').trigger("click");
-    expect(store.draft).toMatchObject(DEMO_PRESET);
-    expect(store.draft.model_plan_id).toBe("plan-ready");
-    store.taskId = "running-task";
-    store.draft.start_date = "1992-01-01";
-    store.applyDemoPreset();
-    expect(store.draft.start_date).toBe("1992-01-01");
+    expect(wrapper.find('[data-test="demo-preset"]').exists()).toBe(false);
     wrapper.unmount();
   });
 
@@ -492,7 +478,14 @@ describe("single page observatory", () => {
     ];
     await flushPromises();
 
-    await wrapper.find('[data-test="delete-case"]').trigger("click");
+    await wrapper.find('[data-test="header-case-library"]').trigger("click");
+    await flushPromises();
+    const library = portal("case-library");
+    expect(library).not.toBeNull();
+    library
+      ?.querySelector<HTMLButtonElement>(".text-button")
+      ?.click();
+    await flushPromises();
     await flushPromises();
     const manager = portal("case-manager");
     expect(manager).not.toBeNull();
