@@ -87,8 +87,8 @@ function statusZh(status: string) {
                 <option value="xaj">新安江（XAJ）</option>
                 <option value="gr4j">GR4J</option>
                 <option value="hbv">HBV-light</option>
-                <option value="tank">水箱模型</option>
-                <option value="sac-sma">SAC-SMA</option>
+                <option value="tank">三层 Tank + Nash</option>
+                <option value="sac-sma">SAC-SMA-inspired reduced（实验）</option>
                 <option value="openhydronet" disabled>OpenHydroNet（未启用）</option>
               </select>
             </div>

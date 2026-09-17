@@ -79,6 +79,9 @@ class TaskSummary(FrozenModel):
 class ModelSummary(FrozenModel):
     model_id: Identifier
     capabilities: tuple[str, ...]
+    validation_status: str = "unknown"
+    implementation_name: str = "unspecified"
+    limitations: tuple[str, ...] = ()
 
 
 class SchemeSummary(FrozenModel):

@@ -1,4 +1,6 @@
-# 简化 SAC-SMA 参数语义（诊断用）
+# Reduced SAC-SMA-inspired 参数语义（诊断用）
+
+这些名称借用 SAC-SMA 术语，但当前 Core 缺少完整的 additional impervious、direct free-water percolation、riparian ET、side flow 与 reserved storage 过程。`UHK` 是本实现追加的三角单位线路由参数，并非 NOAA SAC-SMA 原生参数。
 
 | 组 | 参数 | 主要现象 |
 | --- | --- | --- |

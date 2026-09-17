@@ -53,6 +53,8 @@ def test_world_state_contains_only_decision_relevant_projection(seeded_repositor
     view = WorldStateBuilder(seeded_repository).build("task-1")
     assert view.task.task_id == "task-1"
     assert view.model.model_id == "xaj"
+    assert view.model.validation_status == "source_verified"
+    assert view.model.implementation_name == "pinned hydromodel XAJ teacher kernel"
     assert view.scheme.scheme_id == "scheme-base"
     assert view.hydro.campaign_objective == "composite"
     assert view.hydro.allow_unverified_expert_priors is True

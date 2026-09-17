@@ -89,7 +89,10 @@ class CalibrationScientistDecisionProvider:
             return AgentDecision(
                 action=action,
                 hypothesis=ProblemHypothesis.MODEL,
-                rationale_summary="先验证 XAJ 方案与参数契约，再进行任何预报或率定。",
+                rationale_summary=(
+                    f"先验证 {view.model.model_id} 方案、强迫资料与参数契约，"
+                    "再进行任何预报或率定。"
+                ),
             )
 
         if latest.action == ActionCode.A02_VALIDATE_SCHEME:

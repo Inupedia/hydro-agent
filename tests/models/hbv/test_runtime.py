@@ -43,7 +43,7 @@ def prepared_hbv_workspace(tmp_path):
 def test_hbv_scheme_contract():
     scheme = HbvScheme.model_validate_json((FIXTURES / "scheme.json").read_text(encoding="utf-8"))
     assert scheme.model_id == "hbv"
-    assert len(scheme.parameter_vector()) == 12
+    assert len(scheme.parameter_vector()) == 14
 
 
 def test_hbv_plugin_registered():

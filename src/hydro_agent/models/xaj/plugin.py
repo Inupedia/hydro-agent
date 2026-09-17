@@ -104,6 +104,10 @@ class XajPlugin:
         supports_calibration=True,
         supports_resume=True,
         default_warmup_days=30,
+        validation_status="source_verified",
+        implementation_name="pinned hydromodel XAJ teacher kernel",
+        technical_reference="hydromodel@89d7a8ed1d72ce4fffbbd9897490b089382ecbac",
+        limitations=("当前传统 ModelPlan 仅覆盖内置腰古资料链",),
     )
     runtime_adapter = XajRuntimeAdapter()
 

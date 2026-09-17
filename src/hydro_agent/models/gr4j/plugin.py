@@ -63,6 +63,15 @@ class Gr4jPlugin:
         supports_calibration=True,
         supports_resume=True,
         default_warmup_days=30,
+        validation_status="source_verified",
+        implementation_name="Hydro-Agent NumPy GR4J",
+        technical_reference=(
+            "Perrin, Michel & Andréassian (2003), DOI 10.1016/S0022-1694(03)00225-7; "
+            "parity vs GRsuite/airGR-1.7.9-aligned (see models/gr4j/parity.py)"
+        ),
+        limitations=(
+            "日尺度集总结构，无雪过程；传统 ModelPlan 资料链仍可能只覆盖内置演示流域",
+        ),
     )
     runtime_adapter = Gr4jRuntimeAdapter()
 

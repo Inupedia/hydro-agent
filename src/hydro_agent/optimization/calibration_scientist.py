@@ -30,6 +30,12 @@ ProcessLayer = Literal[
     "routing",
     "production",
     "exchange",
+    "surface",
+    "intermediate",
+    "base",
+    "upper",
+    "lower",
+    "percolation",
     "mixed",
     "unknown",
 ]
@@ -146,7 +152,12 @@ class ExperimentReview(FrozenModel):
         )
 
 
-def _normalize_groups(raw_groups: object, fallback: tuple[str, ...]) -> tuple[str, ...]:
+def _normalize_groups(
+    raw_groups: object,
+    fallback: tuple[str, ...],
+    *,
+    model_id: str | None = None,
+) -> tuple[str, ...]:
     if isinstance(raw_groups, str):
         groups = tuple(item.strip() for item in raw_groups.split(",") if item.strip())
     elif isinstance(raw_groups, (list, tuple)):
@@ -155,7 +166,7 @@ def _normalize_groups(raw_groups: object, fallback: tuple[str, ...]) -> tuple[st
         groups = ()
     from hydro_agent.models.diagnosis_defaults import allowed_param_groups
 
-    allowed = allowed_param_groups()
+    allowed = allowed_param_groups(model_id)
     if not groups or any(item not in allowed for item in groups):
         return tuple(fallback)
     return groups
@@ -180,6 +191,12 @@ def _process_layer(groups: tuple[str, ...]) -> ProcessLayer:
         "routing",
         "production",
         "exchange",
+        "surface",
+        "intermediate",
+        "base",
+        "upper",
+        "lower",
+        "percolation",
     }
     if len(unique) == 1 and unique[0] in known:
         return unique[0]  # type: ignore[return-value]
@@ -322,8 +339,9 @@ def form_diagnosis_hypothesis(
                 confidence = 0.5
             break
     confidence = max(0.0, min(1.0, confidence))
+    model_id = str(payload.get("model_id") or "xaj")
     groups = _normalize_groups(
-        parameter_groups or payload.get("recommended_param_groups"), ()
+        parameter_groups or payload.get("recommended_param_groups"), (), model_id=model_id
     )
     layer = _process_layer(groups)
     phenomenon = str(payload.get("phenomenon") or interpretation.dominant_patterns[0])
@@ -376,16 +394,17 @@ def plan_from_hypothesis(
     """Compile a legal ``CalibrationPlan`` from a typed diagnosis hypothesis."""
 
     registry = strategies or CalibrationStrategyRegistry()
+    model_id = str(diagnosis.get("model_id") or "xaj")
     fallback = _default_strategy_id(diagnosis)
     recommended_strategy_id = hypothesis.recommended_strategy_id or fallback
     try:
-        strategy = registry.get(recommended_strategy_id)
+        strategy = registry.get(recommended_strategy_id, model_id=model_id)
     except KeyError:
         recommended_strategy_id = fallback
-        strategy = registry.get(recommended_strategy_id)
+        strategy = registry.get(recommended_strategy_id, model_id=model_id)
 
     groups = hypothesis.parameter_groups or tuple(strategy.param_groups)
-    groups = _normalize_groups(groups, tuple(strategy.param_groups))
+    groups = _normalize_groups(groups, tuple(strategy.param_groups), model_id=model_id)
     objective = str(hypothesis.recommended_objective or strategy.objective)
     if objective not in {"nse", "peak", "composite"}:
         objective = strategy.objective
@@ -399,7 +418,7 @@ def plan_from_hypothesis(
         governance_context=knowledge_context,
     )
     if advice.recommended_param_groups:
-        groups = _normalize_groups(advice.recommended_param_groups, groups)
+        groups = _normalize_groups(advice.recommended_param_groups, groups, model_id=model_id)
     if locked_objective is None and advice.recommended_objective in {"nse", "peak", "composite"}:
         objective = advice.recommended_objective
     if locked_objective is not None:
@@ -415,10 +434,10 @@ def plan_from_hypothesis(
             adjustment=adjustment,
             registry=registry,
         )
-        strategy = registry.get(strategy_id)
+        strategy = registry.get(strategy_id, model_id=model_id)
     except KeyError:
         strategy_id = recommended_strategy_id
-        strategy = registry.get(strategy_id)
+        strategy = registry.get(strategy_id, model_id=model_id)
 
     scope: SearchScope = "local" if strategy.local_scale is not None else "global"
     prior_text = ""

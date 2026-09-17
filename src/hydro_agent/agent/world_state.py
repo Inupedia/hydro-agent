@@ -136,9 +136,21 @@ class WorldStateBuilder:
         try:
             plugin = self.models.get(model_id)
             param_groups = tuple(plugin.descriptor.parameter_groups)
-            capabilities = tuple(sorted(plugin.runtime_adapter.capabilities))
+            validation_status = plugin.descriptor.validation_status
+            implementation_name = plugin.descriptor.implementation_name
+            limitations = plugin.descriptor.limitations
+            capability_set = set(plugin.runtime_adapter.capabilities)
+            if (
+                not plugin.descriptor.supports_calibration
+                and not bool(workbench.get("allow_unverified_model_calibration", False))
+            ):
+                capability_set.discard("calibrate")
+            capabilities = tuple(sorted(capability_set))
         except KeyError:
             param_groups = ("evap", "runoff", "routing")
+            validation_status = "unknown"
+            implementation_name = model_id
+            limitations = ()
             capabilities = tuple(
                 sorted(self.capabilities or frozenset({"forecast", "calibrate", "validate"}))
             )
@@ -187,7 +199,13 @@ class WorldStateBuilder:
                 terminal_status=task.terminal_status,
                 allow_optimization=allow_optimization,
             ),
-            model=ModelSummary(model_id=model_id, capabilities=capabilities),
+            model=ModelSummary(
+                model_id=model_id,
+                capabilities=capabilities,
+                validation_status=validation_status,
+                implementation_name=implementation_name,
+                limitations=limitations,
+            ),
             scheme=SchemeSummary(
                 scheme_id=scheme.scheme_id,
                 status=scheme.status,

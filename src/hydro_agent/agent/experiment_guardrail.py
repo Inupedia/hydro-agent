@@ -26,11 +26,11 @@ def apply_experiment_plan_guardrail(
 ) -> AgentDecision:
     """Replace novelty-based A05 choices with an evidence-conditioned registered plan.
 
-    The LLM still decides whether optimization is warranted. Once A05 is chosen,
-    however, strategy/groups are selected from persisted diagnosis and prior trial
-    outcomes while the objective is fixed by the campaign workbench contract. If
-    planning context is unavailable, the original legal decision is retained rather
-    than inventing evidence.
+    The provider decides whether optimization is warranted. Once A05 is chosen,
+    a typed Skill plan is preserved when present, then checked against registered
+    strategies and prior-trial boundary evidence. The campaign workbench still owns
+    the objective. If planning context is unavailable, the original legal decision
+    is retained rather than inventing evidence.
     """
 
     if decision.action != ActionCode.A05_OPTIMIZE:
@@ -41,6 +41,12 @@ def apply_experiment_plan_guardrail(
 
     diagnosis = dict(view.hydro.diagnosis or {})
     diagnostic_objective = str(diagnosis.get("recommended_objective") or "").strip()
+    skill_plan_bound = "calibration-experiment-design" in decision.activated_skill_ids
+    if skill_plan_bound:
+        if decision.strategy_id in available:
+            diagnosis["recommended_strategy_id"] = decision.strategy_id
+        if decision.param_groups:
+            diagnosis["recommended_param_groups"] = list(decision.param_groups)
     # A diagnosis/expert prior may say which error pattern deserves attention,
     # but cannot swap the scoring ruler between experiments. The workbench value
     # is pre-registered in WorldStateBuilder and defaults to the historical NSE.
@@ -91,7 +97,13 @@ def apply_experiment_plan_guardrail(
     plan = plan.model_copy(
         update={
             "reason_codes": tuple(
-                dict.fromkeys((*plan.reason_codes, "campaign_objective_locked"))
+                dict.fromkeys(
+                    (
+                        *plan.reason_codes,
+                        *(("skill_contract_preserved",) if skill_plan_bound else ()),
+                        "campaign_objective_locked",
+                    )
+                )
             )
         }
     )

@@ -1,0 +1,27 @@
+{
+  "oracle": "GRsuite/airGR-1.7.9-aligned",
+  "grsuite_version": "1.1.1",
+  "n_days": 400,
+  "start_date": "2001-01-01",
+  "parameters": {
+    "X1": 257.238,
+    "X2": 1.012,
+    "X3": 88.235,
+    "X4": 2.208
+  },
+  "thresholds_mm_day": {
+    "Qsim": 1e-06,
+    "Prod": 1e-06,
+    "Rout": 1e-06,
+    "Pn": 1e-06,
+    "Ps": 1e-06,
+    "Perc": 1e-06,
+    "PR": 1e-06,
+    "Q9": 1e-06,
+    "Q1": 1e-06,
+    "Exch": 1e-06,
+    "QR": 1e-06,
+    "QD": 1e-06
+  },
+  "notes": "Generated with GRsuite RunModel_GR4J, zero warm-up, default IniResLevels 0.3/0.5."
+}

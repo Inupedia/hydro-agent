@@ -1,4 +1,4 @@
-"""Classic multi-tank scheme and basin contracts."""
+"""Classic multi-tank scheme and basin contracts (Sugawara-family 3-tank + Nash)."""
 
 from __future__ import annotations
 
@@ -10,9 +10,12 @@ from pydantic import Field, model_validator
 
 from hydro_agent.execution.contracts import FrozenModel
 
+NASH_N_MIN = 1
+NASH_N_MAX = 5
+
 
 class TankScheme(FrozenModel):
-    """Sugawara-style daily multi-tank rainfall-runoff scheme."""
+    """Daily three-tank rainfall-runoff scheme with discrete Nash cascade length ``N``."""
 
     PARAMETER_ORDER: ClassVar[tuple[str, ...]] = (
         "H1",
@@ -39,8 +42,12 @@ class TankScheme(FrozenModel):
             raise ValueError("tank outlet heights must be nonnegative")
         if any(p[k] <= 0 or p[k] >= 1 for k in ("A11", "A12", "B1", "A2", "B2", "A3", "K")):
             raise ValueError("tank coefficients must lie in (0, 1)")
-        if p["N"] < 1:
-            raise ValueError("Nash cascade length must be at least 1")
+        n = float(p["N"])
+        if abs(n - round(n)) > 1e-9:
+            raise ValueError("N must be an integer Nash cascade length")
+        n_int = int(round(n))
+        if not NASH_N_MIN <= n_int <= NASH_N_MAX:
+            raise ValueError(f"N must be an integer in [{NASH_N_MIN}, {NASH_N_MAX}]")
         return self
 
     def parameter_vector(self) -> tuple[float, ...]:

@@ -1,0 +1,27 @@
+{
+  "oracle": "hydro-agent-tank-3nash/Sugawara-family",
+  "parameters": {
+    "H1": 15.0,
+    "A11": 0.2,
+    "A12": 0.1,
+    "B1": 0.2,
+    "H2": 8.0,
+    "A2": 0.08,
+    "B2": 0.08,
+    "A3": 0.02,
+    "K": 0.4,
+    "N": 2.0
+  },
+  "thresholds_mm_day": {
+    "Qsim": 1e-06,
+    "S1": 1e-06,
+    "S2": 1e-06,
+    "S3": 1e-06,
+    "Qsurface": 1e-06,
+    "Qinter": 1e-06,
+    "Qbase": 1e-06,
+    "ET": 1e-06
+  },
+  "n_days": 120,
+  "notes": "Frozen from independent Hydro-Agent 3-tank + discrete Nash oracle."
+}

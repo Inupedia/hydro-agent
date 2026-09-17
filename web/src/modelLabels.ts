@@ -4,8 +4,8 @@ const MODEL_LABELS: Record<string, string> = {
   xaj: '新安江（XAJ）',
   gr4j: 'GR4J',
   hbv: 'HBV-light',
-  tank: '水箱模型',
-  'sac-sma': 'SAC-SMA',
+  tank: '三层 Tank + Nash',
+  'sac-sma': 'SAC-SMA-inspired reduced（实验）',
   openhydronet: 'OpenHydroNet',
 }
 

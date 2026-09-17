@@ -123,10 +123,18 @@ def test_plugin_pdca_forecast_calibrate_freeze(tmp_path, model_id):
     repository.create_task(task_id=task_id, basin_id=basin_id, phase="B", forcing_mode="R")
     scheme = dict(scheme)
     scheme["warmup_days"] = min(int(scheme.get("warmup_days") or 30), max(1, history_days - 3))
-    scheme.setdefault(
-        "workbench",
-        {"campaign_mode": "smoke", "campaign_max_model_evaluations": 8, "allow_optimization": True},
+    workbench = dict(scheme.get("workbench") or {})
+    workbench.update(
+        {
+            "campaign_mode": "smoke",
+            "campaign_max_model_evaluations": 8,
+            "allow_optimization": True,
+            # This test exercises plumbing only. Product/API tasks cannot opt in;
+            # scientific calibration remains blocked until each kernel is validated.
+            "allow_unverified_model_calibration": True,
+        }
     )
+    scheme["workbench"] = workbench
     repository.create_scheme(
         scheme_id="scheme-base",
         task_id=task_id,

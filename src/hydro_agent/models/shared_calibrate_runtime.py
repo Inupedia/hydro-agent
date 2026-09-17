@@ -182,8 +182,14 @@ def run(workspace: Path) -> dict:
     def evaluate(values: dict[str, float]) -> float | None:
         nonlocal model_evaluations
         tuned = _canonical_tunable(values, bounds)
+        canonicalize = getattr(plugin, "canonicalize_parameters", None)
+        if callable(canonicalize):
+            tuned = canonicalize(tuned)
         merged = dict(base_parameters)
         merged.update(tuned)
+        canonicalize_full = getattr(plugin, "canonicalize_parameters", None)
+        if callable(canonicalize_full):
+            merged = canonicalize_full(merged)
         key = tuple((name, float(merged[name])) for name in all_names)
         cached = cache.get(key)
         if cached is not None:
@@ -368,8 +374,14 @@ def run(workspace: Path) -> dict:
     else:
         raise ValueError(f"unsupported optimizer: {strategy.optimizer}")
 
+    canonicalize = getattr(plugin, "canonicalize_parameters", None)
+    if callable(canonicalize):
+        best_tunable = canonicalize(best_tunable)
+
     best_merged = dict(base_parameters)
     best_merged.update(best_tunable)
+    if callable(canonicalize):
+        best_merged = canonicalize(best_merged)
     best_key = tuple((name, float(best_merged[name])) for name in all_names)
     best_cached = cache.get(best_key)
     if best_cached is None:
@@ -383,8 +395,12 @@ def run(workspace: Path) -> dict:
     best_score = float(cached_best_score)
 
     baseline_tunable = _canonical_tunable(initial_tunable, bounds)
+    if callable(canonicalize):
+        baseline_tunable = canonicalize(baseline_tunable)
     baseline_merged = dict(base_parameters)
     baseline_merged.update(baseline_tunable)
+    if callable(canonicalize):
+        baseline_merged = canonicalize(baseline_merged)
     baseline_key = tuple((name, float(baseline_merged[name])) for name in all_names)
     baseline_cached = cache.get(baseline_key)
     if baseline_cached is None:

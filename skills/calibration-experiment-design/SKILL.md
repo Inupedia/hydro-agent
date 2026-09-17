@@ -13,3 +13,5 @@ metadata:
 输入包括 DiagnosisHypothesis、上一轮 Gate/Resolve、敏感性证据、合法参数组与边界、已花费的物理模型评估数、剩余预算和搜索历史。输出应明确假设、参数组、合法 strategy/objective、实验窗口、数值预算、预期现象、反证条件与停止或换假设条件。
 
 不要重复同一参数组、目标和 seed 的无信息搜索；不得在 Campaign 内改锁定的目标或数据分区。Morris/DDS/SCE-UA、物理模型运行和具体 XAJ 参数值由 Core/优化器执行。预算耗尽应按 Campaign 的 `BUDGET_EXHAUSTED` 收口，不能称作收敛。
+
+策略和参数组必须属于当前 `model_id`。运行时 `peak` 只表示峰值量级分数，不包含峰现时间；`composite` 当前等价于 KGE。不得根据名称臆造额外指标含义。

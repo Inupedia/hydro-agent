@@ -93,6 +93,29 @@ def test_guardrail_obeys_fresh_diagnosis_but_keeps_campaign_objective_locked():
     assert "diagnostic_objective_ignored=composite" in planned.rationale_summary
 
 
+def test_guardrail_preserves_typed_skill_plan_over_raw_diagnosis_recommendation():
+    state = view(
+        diagnosis={
+            "phenomenon": "旧诊断先给出全局水量搜索，Skill 已根据证据收窄",
+            "recommended_strategy_id": "xaj-water-balance-v1",
+            "recommended_param_groups": ["evap", "runoff"],
+            "recommended_objective": "composite",
+            "metrics": {"nse": 0.1, "pbias_percent": 25.0},
+        },
+        evidence=(diagnosis_row(),),
+        campaign_objective="nse",
+    )
+    decision = optimize_decision("xaj-local-refine-v1").model_copy(
+        update={"activated_skill_ids": ("calibration-experiment-design",)}
+    )
+
+    planned = apply_experiment_plan_guardrail(state, decision)
+
+    assert planned.strategy_id == "xaj-local-refine-v1"
+    assert planned.param_groups == ("evap", "runoff", "routing")
+    assert "skill_contract_preserved" in planned.experiment_reason_codes
+
+
 def test_guardrail_can_lock_kge_profile_via_runtime_composite_alias():
     state = view(
         diagnosis={

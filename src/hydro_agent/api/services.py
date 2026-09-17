@@ -49,6 +49,11 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
         raise ValueError(f"unsupported model_id: {payload.model_id}") from exc
     if payload.forcing_mode not in ("R", "F"):
         raise ValueError("invalid forcing_mode")
+    if payload.allow_optimization and not plugin.descriptor.supports_calibration:
+        raise ValueError(
+            f"模型 {plugin.descriptor.title} 尚未通过数值内核技术验收，"
+            "当前只允许关闭自动优化后用于受限预报检查"
+        )
 
     plan = None
     plan_config = None

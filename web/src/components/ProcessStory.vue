@@ -135,9 +135,9 @@ const modelPlain = computed(() => {
   const id = props.result?.scheme?.model_id
   if (id === 'xaj') return '新安江模型（XAJ）：一种常见的流域产汇流概念模型，用来把降雨转换成河川流量。'
   if (id === 'gr4j') return 'GR4J：四参数日尺度降雨—径流模型，用产流库、地下水交换与汇流单元描述流域响应。'
-  if (id === 'hbv') return 'HBV-light：带积雪、土壤与地下水的概念性日模型，需要降水、气温与潜在蒸散发。'
-  if (id === 'tank') return '水箱模型：多层水箱串联描述地表、中间流与基流。'
-  if (id === 'sac-sma') return 'SAC-SMA：Sacramento 土壤水分模型，以上下带蓄量和下渗过程描述产流。'
+  if (id === 'hbv') return 'HBV-light：积雪、土壤、UZL 快流与连续 MAXBAS 汇流的日模型（Seibert & Vis / hydromad 对齐）。'
+  if (id === 'tank') return '三层 Tank + Nash：表层/中间/基流水箱串联离散 Nash 汇流（Sugawara 族产品结构，非唯一四层全图）。'
+  if (id === 'sac-sma') return 'SAC-SMA-inspired reduced（实验）：保留部分上下层蓄量语义，省略若干标准 SAC-SMA 过程。'
   return id ? `模型：${id}` : ''
 })
 </script>

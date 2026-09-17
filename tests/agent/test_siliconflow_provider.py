@@ -167,8 +167,9 @@ def test_nse_progress_calibrates_when_nse_poor():
         safe_actions={"A05_OPTIMIZE", "A08_FREEZE", "A06_GATE"},
     )
     assert out["action"] == "A05_OPTIMIZE"
-    # Guardrail only forces A05; typed strategy comes from SkillOrchestrator bind.
-    assert out["strategy_id"] == "xaj-bounded-v1"
+    # Guardrail forces A05 while preserving the fresh diagnosis direction; the
+    # SkillOrchestrator subsequently validates and binds it to a typed plan.
+    assert out["strategy_id"] == "xaj-peak-bias-v1"
 
 
 def test_diagnosis_progress_freezes_when_dc_bing_floor_met():

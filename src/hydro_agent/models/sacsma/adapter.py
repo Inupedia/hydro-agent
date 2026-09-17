@@ -6,7 +6,7 @@ from hydro_agent.execution.contracts import ExecutionRequest
 
 class SacSmaRuntimeAdapter:
     model_id = "sac-sma"
-    capabilities = frozenset({"validate", "rebuild_state", "forecast", "calibrate"})
+    capabilities = frozenset({"forecast", "calibrate"})
 
     def command(self, request: ExecutionRequest, workspace: Path) -> list[str]:
         if request.model_id != "sac-sma" or request.policy.device != "cpu":

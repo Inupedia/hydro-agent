@@ -3,11 +3,13 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from hydro_agent.execution.contracts import ExecutionPolicy, ExecutionRequest
 from hydro_agent.models.gr4j.adapter import Gr4jRuntimeAdapter
-from hydro_agent.models.gr4j.contracts import Gr4jScheme
+from hydro_agent.models.gr4j.contracts import Gr4jBasin, Gr4jScheme
+from hydro_agent.models.gr4j.engine import simulate
 from hydro_agent.models.registry import default_model_registry
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "gr4j"
@@ -54,6 +56,26 @@ def test_gr4j_plugin_registered():
     assert "production" in plugin.descriptor.parameter_groups
     adapter = registry.runtime_registry().get("gr4j", "forecast")
     assert adapter.model_id == "gr4j"
+
+
+def test_gr4j_zero_exchange_does_not_duplicate_effective_rainfall():
+    """The fixed 90/10 routing split must conserve effective rainfall."""
+
+    days = 500
+    precipitation = 10.0
+    inputs = np.zeros((days, 1, 2), dtype=float)
+    inputs[:, 0, 0] = precipitation
+    scheme = Gr4jScheme(
+        warmup_days=1,
+        parameters={"X1": 350.0, "X2": 0.0, "X3": 90.0, "X4": 1.7},
+    )
+    basin = Gr4jBasin(basin_id="water-balance", area_km2=1.0)
+
+    discharge = simulate(scheme, basin, inputs, include_warmup=True)
+    runoff_mm = float(discharge.sum()) * 86400.0 / (basin.area_km2 * 1000.0)
+
+    initial_storage_mm = 0.3 * scheme.parameters["X1"] + 0.5 * scheme.parameters["X3"]
+    assert runoff_mm <= days * precipitation + initial_storage_mm + 1e-9
 
 
 def test_gr4j_runtime_forecast(prepared_gr4j_workspace):

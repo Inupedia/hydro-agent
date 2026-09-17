@@ -105,6 +105,9 @@ class SkillOrchestrator:
         gate_status: str | None = None,
         qualification_status: str = "NOT_EVALUATED",
         reasons: tuple[str, ...] = (),
+        proposed_strategy_id: str | None = None,
+        proposed_param_groups: tuple[str, ...] = (),
+        proposed_objective: str | None = None,
     ) -> SkillInvocation:
         """Activate ``skill_id``, run its contract handler, return audited output."""
 
@@ -120,7 +123,17 @@ class SkillOrchestrator:
             typed: FrozenModel = interpret_evidence(evidence)
         elif contracts.get(skill_id) == "DiagnosisHypothesis":
             reading = interpretation or interpret_evidence(diagnosis)
-            typed = form_diagnosis_hypothesis(reading, diagnosis)
+            typed = form_diagnosis_hypothesis(
+                reading,
+                diagnosis,
+                parameter_groups=proposed_param_groups,
+                recommended_strategy_id=proposed_strategy_id,
+                recommended_objective=(
+                    proposed_objective
+                    if proposed_objective in {"nse", "peak", "composite"}
+                    else None
+                ),
+            )
         elif skill_id == EXPERIMENT_DESIGN_SKILL_ID:
             reading = interpretation or interpret_evidence(diagnosis)
             hyp = hypothesis or form_diagnosis_hypothesis(reading, diagnosis)
@@ -175,6 +188,9 @@ class SkillOrchestrator:
         view: Any | None = None,
         campaign_objective: str | None = None,
         knowledge_context: KnowledgeQueryContext | None = None,
+        proposed_strategy_id: str | None = None,
+        proposed_param_groups: tuple[str, ...] = (),
+        proposed_objective: str | None = None,
     ) -> tuple[CalibrationPlan, tuple[SkillInvocation, ...]]:
         """Evidence → Hypothesis → Plan through Skill invocations."""
 
@@ -212,6 +228,9 @@ class SkillOrchestrator:
                 diagnosis=diagnosis,
                 view=view,
                 interpretation=interpretation,
+                proposed_strategy_id=proposed_strategy_id,
+                proposed_param_groups=proposed_param_groups,
+                proposed_objective=proposed_objective,
             )
             hypothesis = DiagnosisHypothesis.model_validate(hyp_inv.output)
             invocations.append(hyp_inv)

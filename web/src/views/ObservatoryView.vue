@@ -54,8 +54,8 @@ const modelSelectOptions = [
   { value: 'xaj', label: '新安江' },
   { value: 'gr4j', label: 'GR4J' },
   { value: 'hbv', label: 'HBV-light' },
-  { value: 'tank', label: '水箱模型' },
-  { value: 'sac-sma', label: 'SAC-SMA' },
+  { value: 'tank', label: '三层 Tank + Nash' },
+  { value: 'sac-sma', label: 'SAC-SMA-inspired reduced · 实验' },
   { value: 'openhydronet', label: 'OpenHydroNet · 尚未启用', disabled: true },
 ]
 const footerModelLabel = computed(() =>

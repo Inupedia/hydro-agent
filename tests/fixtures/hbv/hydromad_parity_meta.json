@@ -1,0 +1,33 @@
+{
+  "oracle": "hydromad-hbv-light/Seibert-Vis-2012",
+  "parameters": {
+    "TT": 0.0,
+    "CFMAX": 3.0,
+    "SFCF": 1.0,
+    "CFR": 0.05,
+    "CWH": 0.1,
+    "FC": 250.0,
+    "BETA": 2.0,
+    "LP": 0.7,
+    "K0": 0.2,
+    "K1": 0.08,
+    "K2": 0.02,
+    "PERC": 1.0,
+    "UZL": 40.0,
+    "MAXBAS": 2.5
+  },
+  "thresholds_mm_day": {
+    "Qsim": 1e-06,
+    "Snow": 1e-06,
+    "SM": 1e-06,
+    "SUZ": 1e-06,
+    "SLZ": 1e-06,
+    "Recharge": 1e-06,
+    "AET": 1e-06,
+    "Q0": 1e-06,
+    "Q1": 1e-06,
+    "Q2": 1e-06
+  },
+  "n_days": 120,
+  "notes": "Frozen from hydromad pure-R algorithm port (Seibert & Vis 2012)."
+}

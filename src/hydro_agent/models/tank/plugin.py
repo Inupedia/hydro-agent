@@ -1,4 +1,4 @@
-"""Classic multi-tank HydroModelPlugin."""
+"""Classic multi-tank HydroModelPlugin (Sugawara-family 3-tank + discrete Nash)."""
 
 from __future__ import annotations
 
@@ -11,9 +11,12 @@ from hydro_agent.models.tank.engine import MODEL_SHA256, MODEL_VERSION, load_par
 from hydro_agent.models.tank.param_groups import (
     ALL_PARAM_GROUPS,
     DEFAULT_TANK_PARAMS,
+    DISCRETE_PARAMETER_NAMES,
     normalize_param_groups,
     resolve_param_names,
+    snap_discrete_parameters,
 )
+from hydro_agent.models.tank.parity import REFERENCE_ORACLE
 from hydro_agent.models.tank.strategies import TANK_STRATEGIES
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 
@@ -21,9 +24,10 @@ from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 class TankPlugin:
     MODEL_VERSION = MODEL_VERSION
     MODEL_SHA256 = MODEL_SHA256
+    discrete_parameter_names = DISCRETE_PARAMETER_NAMES
     descriptor = ModelDescriptor(
         model_id="tank",
-        title="水箱模型",
+        title="三层 Tank + Nash",
         required_forcings=("precipitation", "pet"),
         parameter_groups=ALL_PARAM_GROUPS,
         parameter_names=TankScheme.PARAMETER_ORDER,
@@ -65,14 +69,25 @@ class TankPlugin:
         supports_calibration=True,
         supports_resume=True,
         default_warmup_days=30,
+        validation_status="source_verified",
+        implementation_name="Hydro-Agent NumPy 3-tank + discrete Nash cascade",
+        technical_reference=(
+            "Sugawara-family tank structure (product-fixed 3 tanks + Nash); "
+            f"parity vs {REFERENCE_ORACLE} (see models/tank/parity.py)"
+        ),
+        limitations=(
+            "Product-fixed three-tank layout; not the unique classical four-tank Sugawara diagram",
+            "Nash length N is discrete (integer 1–5); continuous samples are snapped before evaluation",
+        ),
     )
     runtime_adapter = TankRuntimeAdapter()
 
     def validate_scheme(self, config: dict) -> None:
+        parameters = snap_discrete_parameters(dict(config["parameters"]))
         TankScheme(
             model_id=config.get("model_id", "tank"),
             warmup_days=int(config["warmup_days"]),
-            parameters=config["parameters"],
+            parameters=parameters,
         )
 
     def strategy_registry(self) -> CalibrationStrategyRegistry:
@@ -84,6 +99,9 @@ class TankPlugin:
             "warmup_days": self.descriptor.default_warmup_days,
             "parameters": dict(DEFAULT_TANK_PARAMS),
         }
+
+    def canonicalize_parameters(self, parameters: dict[str, float]) -> dict[str, float]:
+        return snap_discrete_parameters(parameters)
 
     def resolve_param_names(self, groups: tuple[str, ...] | list[str] | None) -> tuple[str, ...]:
         return resolve_param_names(groups)
@@ -102,10 +120,11 @@ class TankPlugin:
         *,
         include_warmup: bool = False,
     ) -> Any:
+        parameters = snap_discrete_parameters(dict(scheme_config["parameters"]))
         scheme = TankScheme(
             model_id=scheme_config.get("model_id", "tank"),
             warmup_days=int(scheme_config["warmup_days"]),
-            parameters=scheme_config["parameters"],
+            parameters=parameters,
         )
         basin_model = TankBasin.model_validate(basin)
         return simulate(scheme, basin_model, forcing, include_warmup=include_warmup)

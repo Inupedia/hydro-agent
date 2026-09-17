@@ -14,6 +14,7 @@ from hydro_agent.models.hbv.param_groups import (
     normalize_param_groups,
     resolve_param_names,
 )
+from hydro_agent.models.hbv.parity import REFERENCE_ORACLE
 from hydro_agent.models.hbv.strategies import HBV_STRATEGIES
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 
@@ -65,6 +66,16 @@ class HbvPlugin:
         supports_calibration=True,
         supports_resume=True,
         default_warmup_days=30,
+        validation_status="source_verified",
+        implementation_name="Hydro-Agent NumPy HBV-light",
+        technical_reference=(
+            "Seibert & Vis (2012), DOI 10.5194/hess-16-3315-2012; "
+            f"parity vs {REFERENCE_ORACLE} (see models/hbv/parity.py)"
+        ),
+        limitations=(
+            "Lumped single-zone product scope: elevation/vegetation zones not modelled",
+            "Daily PET required as forcing; CET mean-PET reconstruction not used",
+        ),
     )
     runtime_adapter = HbvRuntimeAdapter()
 

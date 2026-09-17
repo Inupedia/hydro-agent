@@ -25,6 +25,11 @@ DiagnosisPhenotype = Literal[
     "composite",
     "local",
 ]
+ModelValidationStatus = Literal[
+    "source_verified",
+    "reference_alignment_pending",
+    "experimental_variant",
+]
 
 
 class DiagnosisPlan(FrozenModel):
@@ -63,6 +68,10 @@ class ModelDescriptor(FrozenModel):
     supports_calibration: bool = True
     supports_resume: bool = True
     default_warmup_days: int = Field(default=30, ge=1)
+    validation_status: ModelValidationStatus = "experimental_variant"
+    implementation_name: str = Field(default="unspecified", min_length=1)
+    technical_reference: str | None = None
+    limitations: tuple[str, ...] = ()
 
 
 @runtime_checkable

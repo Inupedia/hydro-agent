@@ -34,8 +34,9 @@ Choose exactly one ActionCode from permissions.safe_actions.
 Never invent continuous parameter vectors or call model processes directly.
 Follow activated Agent Skills below for diagnosis and experiment design guidance.
 Normative thresholds (GB/T DC floors, Gate policy) come from Standards, not Skills.
-Do NOT invent continuous XAJ parameters.
-Do NOT choose xaj-hydrologist-manual-v1 in the automatic loop.
+Do NOT invent continuous parameters for any hydrologic model.
+Choose strategy_id and param_groups only from the current model's advertised lists.
+Do NOT choose any hydrologist-manual strategy in the automatic loop.
 
 Preferred B-phase path:
 A01/A02 -> A03_FORECAST -> A04_DIAGNOSE -> (calibrate if evidence requires it) ->
@@ -61,8 +62,8 @@ They are NOT hidden chain-of-thought. Do not expose private scratch work, step-b
 JSON field names, ActionCode values, raw arrays, or internal strategy IDs in these user-facing fields.
 Write them as normal Chinese a hydrologist or project leader can understand.
 
-Example:
-{{"action":"A05_OPTIMIZE","hypothesis":"MODEL","strategy_id":"xaj-peak-bias-v1","param_groups":["runoff","routing"],"objective":"composite","rationale_summary":"洪峰低估，优先调整产汇流参数并用综合目标验证。","observation_zh":"当前洪峰持续偏低，整体过程线也与观测存在明显偏差。","analysis_zh":"误差更像来自模型参数，而不是资料缺失。应先针对产流和汇流做有限调整，避免无方向地搜索全部参数。","decision_zh":"生成一组有边界的候选参数，再交给独立质量检查判断是否采用。"}}
+Example for a non-optimization step:
+{{"action":"A04_DIAGNOSE","hypothesis":"MODEL","strategy_id":null,"param_groups":null,"objective":null,"rationale_summary":"已有预报证据，需要先诊断误差形态再设计实验。","observation_zh":"当前过程线与观测存在系统性偏差。","analysis_zh":"现有证据只能支持模型误差假设，尚不足以直接指定连续参数。","decision_zh":"先形成可审计诊断，再决定是否进入有边界的优化。"}}
 
 No markdown fences. No extra keys. No prose outside JSON.
 """
@@ -116,6 +117,9 @@ class SiliconFlowDecisionProvider:
             view=view,
             campaign_objective=view.hydro.campaign_objective,
             knowledge_context=knowledge_context_from_view(view),
+            proposed_strategy_id=decision.strategy_id,
+            proposed_param_groups=tuple(decision.param_groups or ()),
+            proposed_objective=decision.objective,
         )
         skill_ids, audits = orchestrator.decision_audit(invocations)
         return decision.model_copy(
@@ -195,17 +199,43 @@ def _optimize_payload(view: WorldStateView, *, rationale: str) -> dict:
     """Legal A05 shell; typed strategy/groups/objective are bound after decide()."""
 
     model_id = str(view.model.model_id or "xaj")
-    groups = list(view.hydro.available_param_groups or ())
+    diagnosis = dict(view.hydro.diagnosis or {})
+    available_strategies = tuple(view.hydro.available_strategies or ())
+    available_groups = tuple(view.hydro.available_param_groups or ())
+    if not available_strategies or not available_groups:
+        from hydro_agent.models.registry import default_model_registry
+
+        try:
+            descriptor = default_model_registry().get(model_id).descriptor
+        except KeyError:
+            descriptor = None
+        if descriptor is not None:
+            available_strategies = available_strategies or tuple(descriptor.strategy_ids)
+            available_groups = available_groups or tuple(descriptor.parameter_groups)
+    proposed_strategy = str(diagnosis.get("recommended_strategy_id") or "").strip()
+    strategy_id = (
+        proposed_strategy
+        if proposed_strategy in available_strategies
+        else f"{model_id}-bounded-v1"
+    )
+    raw_groups = diagnosis.get("recommended_param_groups") or ()
+    if isinstance(raw_groups, str):
+        raw_groups = tuple(item.strip() for item in raw_groups.split(",") if item.strip())
+    groups = [str(item) for item in raw_groups if str(item) in available_groups]
+    if not groups:
+        groups = list(available_groups)
     if not groups:
         from hydro_agent.models.diagnosis_defaults import all_param_groups
 
         groups = all_param_groups(model_id)
+    proposed_objective = str(diagnosis.get("recommended_objective") or "").strip()
+    objective = proposed_objective if proposed_objective in {"nse", "peak", "composite"} else "nse"
     return {
         "action": ActionCode.A05_OPTIMIZE.value,
         "hypothesis": ProblemHypothesis.MODEL.value,
-        "strategy_id": f"{model_id}-bounded-v1",
+        "strategy_id": strategy_id,
         "param_groups": groups,
-        "objective": "nse",
+        "objective": objective,
         "rationale_summary": rationale,
     }
 

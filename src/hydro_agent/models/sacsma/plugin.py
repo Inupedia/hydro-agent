@@ -28,7 +28,7 @@ class SacSmaPlugin:
     MODEL_SHA256 = MODEL_SHA256
     descriptor = ModelDescriptor(
         model_id="sac-sma",
-        title="SAC-SMA",
+        title="SAC-SMA-inspired reduced（实验实现）",
         required_forcings=("precipitation", "pet"),
         parameter_groups=ALL_PARAM_GROUPS,
         parameter_names=SacSmaScheme.PARAMETER_ORDER,
@@ -67,9 +67,16 @@ class SacSmaPlugin:
             ),
         ),
         supports_forecast=True,
-        supports_calibration=True,
+        supports_calibration=False,
         supports_resume=True,
         default_warmup_days=30,
+        validation_status="experimental_variant",
+        implementation_name="Hydro-Agent reduced SAC-SMA-inspired variant",
+        technical_reference="Burnash et al. (1973); NOAA-OWP sac-sma",
+        limitations=(
+            "省略 ADIMP、PFREE、RIVA、SIDE、RSERV 等标准 SAC-SMA 参数和过程",
+            "当前渗漏和路由方程未与 NOAA-OWP SAC-SMA 完成 parity",
+        ),
     )
     runtime_adapter = SacSmaRuntimeAdapter()
 

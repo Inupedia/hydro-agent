@@ -1,4 +1,4 @@
-"""HBV-light scheme and basin contracts."""
+"""HBV-light scheme and basin contracts (Seibert & Vis / hydromad)."""
 
 from __future__ import annotations
 
@@ -12,11 +12,12 @@ from hydro_agent.execution.contracts import FrozenModel
 
 
 class HbvScheme(FrozenModel):
-    """HBV-light daily snow + soil + groundwater scheme."""
+    """Lumped HBV-light daily snow + soil + groundwater + MAXBAS scheme."""
 
     PARAMETER_ORDER: ClassVar[tuple[str, ...]] = (
         "TT",
         "CFMAX",
+        "SFCF",
         "CFR",
         "CWH",
         "FC",
@@ -26,6 +27,7 @@ class HbvScheme(FrozenModel):
         "K1",
         "K2",
         "PERC",
+        "UZL",
         "MAXBAS",
     )
     model_id: Literal["hbv"] = "hbv"
@@ -39,6 +41,10 @@ class HbvScheme(FrozenModel):
             raise ValueError("exact finite HBV parameter set required")
         if p["CFMAX"] <= 0 or p["FC"] <= 0 or p["BETA"] <= 0 or p["PERC"] < 0:
             raise ValueError("invalid HBV capacity or melt factor")
+        if p["SFCF"] <= 0:
+            raise ValueError("SFCF must be positive")
+        if p["UZL"] < 0:
+            raise ValueError("UZL must be non-negative")
         if not 0 <= p["CFR"] < 1 or not 0 <= p["CWH"] < 1 or not 0 < p["LP"] <= 1:
             raise ValueError("invalid HBV snow-hold or ET threshold")
         if any(not 0 < p[k] < 1 for k in ("K0", "K1", "K2")):

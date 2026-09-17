@@ -6,7 +6,7 @@ from hydro_agent.execution.contracts import ExecutionRequest
 
 class TankRuntimeAdapter:
     model_id = "tank"
-    capabilities = frozenset({"validate", "rebuild_state", "forecast", "calibrate"})
+    capabilities = frozenset({"forecast", "calibrate"})
 
     def command(self, request: ExecutionRequest, workspace: Path) -> list[str]:
         if request.model_id != "tank" or request.policy.device != "cpu":

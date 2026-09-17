@@ -22,7 +22,6 @@
       "priority": 110,
       "recommendation": {
         "parameter_groups": ["routing"],
-        "objective": "peak_timing",
         "message": "峰现时差显著时优先检验汇流记忆与退水，确认总量大致合理后再动 routing。"
       }
     },

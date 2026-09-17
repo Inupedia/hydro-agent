@@ -6,7 +6,7 @@ from hydro_agent.execution.contracts import ExecutionRequest
 
 class HbvRuntimeAdapter:
     model_id = "hbv"
-    capabilities = frozenset({"validate", "rebuild_state", "forecast", "calibrate"})
+    capabilities = frozenset({"forecast", "calibrate"})
 
     def command(self, request: ExecutionRequest, workspace: Path) -> list[str]:
         if request.model_id != "hbv" or request.policy.device != "cpu":
