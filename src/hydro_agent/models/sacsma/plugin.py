@@ -67,7 +67,10 @@ class SacSmaPlugin:
             ),
         ),
         supports_forecast=True,
-        supports_calibration=False,
+        # Numerical calibration is a runtime capability, independent from
+        # reference-kernel validation. Keep validation_status experimental until
+        # the reduced formulation is replaced/aligned with NOAA-OWP SAC-SMA.
+        supports_calibration=True,
         supports_resume=True,
         default_warmup_days=30,
         validation_status="experimental_variant",
@@ -76,6 +79,7 @@ class SacSmaPlugin:
         limitations=(
             "省略 ADIMP、PFREE、RIVA、SIDE、RSERV 等标准 SAC-SMA 参数和过程",
             "当前渗漏和路由方程未与 NOAA-OWP SAC-SMA 完成 parity",
+            "自动率定结果属于实验变体参数，不应解释为 NOAA-OWP 标准 SAC-SMA 参数集",
         ),
     )
     runtime_adapter = SacSmaRuntimeAdapter()
