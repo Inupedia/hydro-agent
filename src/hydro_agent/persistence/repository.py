@@ -386,6 +386,31 @@ class HydroRepository:
                 raise ValueError(f"Skill Snapshot already frozen for task {task_id}")
             return state
 
+    def set_experience_state_snapshot(self, task_id: str, snapshot: dict):
+        """Freeze the Experience revision map once for deterministic task replay."""
+        from hydro_agent.experience.snapshot import verify_experience_state_snapshot
+
+        verify_experience_state_snapshot(snapshot)
+        with self.database.session() as session:
+            changed = session.execute(
+                update(TaskState)
+                .where(
+                    TaskState.task_id == task_id,
+                    TaskState.experience_state_snapshot_json.is_(None),
+                )
+                .values(experience_state_snapshot_json=snapshot)
+            )
+            if changed.rowcount == 1:
+                return session.get(TaskState, task_id)
+            state = session.get(TaskState, task_id)
+            if state is None:
+                raise KeyError(task_id)
+            if state.experience_state_snapshot_json != snapshot:
+                raise ValueError(
+                    f"Experience State Snapshot already frozen for task {task_id}"
+                )
+            return state
+
     def update_task_state(self, task_id: str, **fields):
         allowed = {
             "current_scheme_id",
