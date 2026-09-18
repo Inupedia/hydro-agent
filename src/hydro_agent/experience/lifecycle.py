@@ -284,10 +284,6 @@ class ExperienceEvolutionService:
             for event in self.repository.list_experience_evolution_events()
             if event.task_id == task_id
         ]
-        structural_change = any(
-            event.event_type in {"CREATE", "MERGE", "SPLIT", "SUPERSEDE"}
-            for event in prior_events
-        )
         structural_diffs: tuple[ExperienceDiff, ...] = ()
 
         if not prior_events:
@@ -299,7 +295,6 @@ class ExperienceEvolutionService:
                 task_id,
                 reflection.diffs,
             )
-            structural_change = applied.structural_change
             structural_diffs = tuple(
                 diff
                 for diff in applied.accepted
@@ -319,8 +314,16 @@ class ExperienceEvolutionService:
                     reasons=tuple(applied.rejected),
                 )
 
-        if not structural_change and not self._structure_differs_from_promoted():
-            reasons = ["STATE_OPTIMIZATION_ONLY"]
+        # Versioning is driven by an unpublished structure delta, not by the
+        # historical presence of a CREATE/MERGE/SPLIT/SUPERSEDE event. Once the
+        # active structure matches the promoted Skill, retrying task finalization
+        # is idempotent and must not mint another equivalent version.
+        if not self._structure_differs_from_promoted():
+            reasons = [
+                "ALREADY_PROCESSED"
+                if prior_events
+                else "STATE_OPTIMIZATION_ONLY"
+            ]
             if pending_decision is not None:
                 reasons = [*pending_decision.reasons, *reasons]
             return ExperienceEvolutionOutcome(

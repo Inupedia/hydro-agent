@@ -32,10 +32,11 @@ class ExperienceRegressionSelector:
             raise ValueError("limit_per_tag must be >= 1")
 
         discovered = [
-            self._case(repository, task)
+            case
             for task in repository.list_tasks()
+            if (case := self._case(repository, task)) is not None
+            and case.tags
         ]
-        discovered = [case for case in discovered if case.tags]
         discovered.sort(key=lambda case: (not case.hard_case, case.task_id))
 
         selected: dict[str, RegressionCase] = {}
@@ -72,8 +73,31 @@ class ExperienceRegressionSelector:
             )
         )
 
-    def _case(self, repository, task) -> RegressionCase:
+    def _case(self, repository, task) -> RegressionCase | None:
+        try:
+            state = repository.get_task_state(task.task_id)
+            schemes = repository.list_schemes(task_id=task.task_id)
+        except KeyError:
+            return None
+        if not schemes:
+            return None
+        if (
+            str(getattr(task, "phase", "")) != "E"
+            or bool(state.paused)
+            or bool(state.needs_follow_up)
+            or str(getattr(task, "terminal_status", "") or "").lower()
+            in {"cancelled", "failed", "error"}
+        ):
+            return None
+
         evidence = repository.list_evidence(task.task_id)
+        if not evidence or not any(
+            str(getattr(row, "action", "")) == "A10_EVALUATE_REPORT"
+            and _successful_status(getattr(row, "status", ""))
+            for row in evidence
+        ):
+            return None
+
         tags = {f"basin:{task.basin_id}"}
         hard_case = False
 
@@ -216,3 +240,17 @@ def _number(value) -> float | None:
     if isinstance(value, (int, float)):
         return float(value)
     return None
+
+
+
+def _successful_status(value: object) -> bool:
+    return str(value or "").strip().lower() in {
+        "success",
+        "succeeded",
+        "completed",
+        "accept",
+        "accepted",
+        "keep",
+        "rollback",
+        "qualified",
+    }

@@ -164,16 +164,15 @@ class ExperiencePolicy:
                 for group in _groups(match.decision.get("prefer_param_groups"))
             )
         )
+        # The final choice must follow the same composite ranking we expose in
+        # audit logs. Experience preference controls exploitation breadth, not
+        # membership: stronger failure evidence or hydrologic plausibility may
+        # move a different group into that focused selection.
         if mode == "exploitation" and preferred_by_experience:
-            preferred = set(preferred_by_experience)
-            selected_groups = tuple(
-                item.candidate_id
-                for item in scores
-                if item.candidate_id in preferred
-            )
+            count = max(1, min(len(scores), len(preferred_by_experience)))
         else:
             count = max(1, min(len(scores), len(recommended) or 1))
-            selected_groups = tuple(item.candidate_id for item in scores[:count])
+        selected_groups = tuple(item.candidate_id for item in scores[:count])
 
         strategy_id = None
         influence: list[str] = []

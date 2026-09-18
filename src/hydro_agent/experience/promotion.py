@@ -15,10 +15,18 @@ class PromotionDecision(FrozenModel):
 
 
 class PromotionGate:
-    def __init__(self, *, quality_tolerance: float = 0.01):
+    def __init__(
+        self,
+        *,
+        quality_tolerance: float = 0.01,
+        max_repeated_failure_increase: int = 0,
+    ):
         if quality_tolerance < 0:
             raise ValueError("quality_tolerance must be >= 0")
+        if max_repeated_failure_increase < 0:
+            raise ValueError("max_repeated_failure_increase must be >= 0")
         self.quality_tolerance = quality_tolerance
+        self.max_repeated_failure_increase = max_repeated_failure_increase
 
     def evaluate(self, comparison: RegressionComparison) -> PromotionDecision:
         if not comparison.cases:
@@ -31,12 +39,15 @@ class PromotionGate:
         repeated_failure_reduction = False
 
         for row in comparison.cases:
-            if (
-                row.case.hard_case
-                and _succeeded(row.current.terminal_status)
-                and not _succeeded(row.candidate.terminal_status)
-            ):
-                failures.append(f"HARD_CASE_REGRESSION:{row.case.task_id}")
+            current_succeeded = _succeeded(row.current.terminal_status)
+            candidate_succeeded = _succeeded(row.candidate.terminal_status)
+            if current_succeeded and not candidate_succeeded:
+                prefix = (
+                    "HARD_CASE_REGRESSION"
+                    if row.case.hard_case
+                    else "TERMINAL_STATUS_REGRESSION"
+                )
+                failures.append(f"{prefix}:{row.case.task_id}")
 
             new_violations = set(row.candidate.guardrail_violations) - set(
                 row.current.guardrail_violations
@@ -47,16 +58,27 @@ class PromotionGate:
                     f"{row.case.task_id}:{','.join(sorted(new_violations))}"
                 )
 
-            quality_delta = row.quality_delta
             if (
-                quality_delta is not None
-                and quality_delta < -self.quality_tolerance
+                row.current.quality_score is not None
+                and row.candidate.quality_score is None
             ):
-                failures.append(
-                    f"QUALITY_REGRESSION:{row.case.task_id}:{quality_delta:.6f}"
-                )
+                failures.append(f"QUALITY_MISSING:{row.case.task_id}")
+            else:
+                quality_delta = row.quality_delta
+                if (
+                    quality_delta is not None
+                    and quality_delta < -self.quality_tolerance
+                ):
+                    failures.append(
+                        f"QUALITY_REGRESSION:{row.case.task_id}:{quality_delta:.6f}"
+                    )
 
-            if row.repeated_failure_delta < 0:
+            if row.repeated_failure_delta > self.max_repeated_failure_increase:
+                failures.append(
+                    "REPEATED_FAILURE_REGRESSION:"
+                    f"{row.case.task_id}:+{row.repeated_failure_delta}"
+                )
+            elif row.repeated_failure_delta < 0:
                 repeated_failure_reduction = True
 
         if failures:

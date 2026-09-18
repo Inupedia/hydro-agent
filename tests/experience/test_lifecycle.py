@@ -154,6 +154,36 @@ def test_completed_tasks_create_then_reinforce_without_version_churn(
     }
 
 
+def test_reprocessing_same_completed_task_does_not_mint_new_version(
+    repository,
+    tmp_path,
+):
+    store = ExperienceSkillVersionStore(
+        tmp_path / "experience-store-idempotent",
+        repository=repository,
+    )
+    service = ExperienceEvolutionService(
+        repository,
+        version_store=store,
+        promotion_service=AlwaysPromote(store),
+    )
+    service.ensure_baseline()
+
+    seed_completed_task(repository, "task-once")
+    first = service.process_completed_task("task-once")
+    second = service.process_completed_task("task-once")
+
+    assert first.candidate_version == 2
+    assert first.promotion_accepted is True
+    assert second.structural_change is False
+    assert second.candidate_version is None
+    assert "ALREADY_PROCESSED" in second.reasons
+    assert [
+        row.version
+        for row in repository.list_experience_skill_versions()
+    ] == [1, 2]
+
+
 def test_opposite_outcome_weakens_old_rule_and_creates_negative_rule(
     repository,
     tmp_path,

@@ -7,8 +7,18 @@ from hydro_agent.skills.loader import parse_skill_md
 from hydro_agent.skills.snapshot import snapshot_file_bytes
 
 
-def build_experience_state_snapshot(repository, version_row) -> dict:
-    """Freeze latest state revisions that still belong to one promoted rule structure."""
+def build_experience_state_snapshot(
+    repository,
+    version_row,
+    *,
+    revision_map: dict[str, int] | None = None,
+) -> dict:
+    """Freeze one deterministic Experience State for a Skill version.
+
+    Normal task start uses the latest active revisions for the promoted rule
+    structure. Regression replay may instead pass an explicit revision map
+    captured by the historical task or by the version manifest.
+    """
 
     manifest = dict(version_row.manifest_json or {})
     source_ids = tuple(
@@ -20,18 +30,34 @@ def build_experience_state_snapshot(repository, version_row) -> dict:
     )
     revisions: dict[str, int] = {}
     hashes: dict[str, str] = {}
+    explicit = (
+        {str(key): int(value) for key, value in revision_map.items()}
+        if revision_map is not None
+        else None
+    )
     for experience_id in sorted(set(source_ids)):
-        active = [
-            entry
-            for entry in repository.list_experience_revisions(experience_id)
-            if entry.status == "active"
-        ]
-        if not active:
-            continue
-        latest = max(active, key=lambda entry: entry.revision)
-        revisions[experience_id] = latest.revision
-        if latest.source_hash:
-            hashes[experience_id] = latest.source_hash
+        if explicit is not None:
+            if experience_id not in explicit:
+                raise ValueError(
+                    f"Experience revision map missing {experience_id} "
+                    f"for Skill v{version_row.version}"
+                )
+            entry = repository.get_experience(
+                experience_id,
+                revision=explicit[experience_id],
+            )
+        else:
+            active = [
+                item
+                for item in repository.list_experience_revisions(experience_id)
+                if item.status == "active"
+            ]
+            if not active:
+                continue
+            entry = max(active, key=lambda item: item.revision)
+        revisions[experience_id] = entry.revision
+        if entry.source_hash:
+            hashes[experience_id] = entry.source_hash
 
     payload = {
         "schema_version": 1,
@@ -43,6 +69,22 @@ def build_experience_state_snapshot(repository, version_row) -> dict:
     payload["sha256"] = _snapshot_hash(payload)
     return payload
 
+
+
+
+def build_version_experience_state_snapshot(repository, version_row) -> dict:
+    """Freeze exactly the Experience revisions compiled into one Skill version."""
+
+    manifest = dict(version_row.manifest_json or {})
+    revisions = {
+        str(key): int(value)
+        for key, value in dict(manifest.get("source_revisions") or {}).items()
+    }
+    return build_experience_state_snapshot(
+        repository,
+        version_row,
+        revision_map=revisions,
+    )
 
 def freeze_experience_state_for_task(
     repository,
