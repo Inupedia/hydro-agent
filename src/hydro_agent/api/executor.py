@@ -276,6 +276,9 @@ def _agent_evolution_enabled(deps, task_id: str) -> bool:
             return False
         scheme = deps.repository.get_scheme(state.current_scheme_id)
         workbench = dict((scheme.config_json or {}).get("workbench") or {})
-        return bool(workbench.get("agent_evolution_enabled", False))
+        raw = workbench.get("agent_evolution_enabled")
+        if raw is not None:
+            return bool(raw)
+        return state.experience_state_snapshot_json is not None
     except KeyError:
         return False
