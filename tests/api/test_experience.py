@@ -52,6 +52,18 @@ def test_experience_api_exposes_summary_versions_and_provenance(app_dependencies
         manifest={
             "source_experience_ids": ["EXP-XAJ-1", "EXP-XAJ-2"],
             "source_revisions": {"EXP-XAJ-1": 2, "EXP-XAJ-2": 1},
+            "structural_changes": [
+                {
+                    "operation": "CREATE",
+                    "experience_id": None,
+                    "source_ids": [],
+                    "proposal_ids": ["EXP-XAJ-2"],
+                    "reason": "new routing rule",
+                    "evidence_refs": [],
+                }
+            ],
+            "split": [],
+            "merged": [],
         },
         regression={"passed": True},
     )
@@ -94,6 +106,8 @@ def test_experience_api_exposes_summary_versions_and_provenance(app_dependencies
         assert diff.status_code == 200
         assert diff.json()["added"] == ["EXP-XAJ-2"]
         assert diff.json()["modified"] == ["EXP-XAJ-1"]
+        assert diff.json()["structural_changes"][0]["operation"] == "CREATE"
+        assert diff.json()["structural_changes"][0]["reason"] == "new routing rule"
 
         evolution = client.get("/api/experience/evolution")
         assert evolution.json()[0]["evidence_refs"][0]["task_id"] == "task-source"
