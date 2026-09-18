@@ -187,7 +187,7 @@ class ExperienceDiffApplier:
                     "supporting_evidence": supporting,
                     "confidence": min(
                         1.0,
-                        current.confidence + self.reinforce_step * added,
+                        current.confidence + (self.reinforce_step if added else 0.0),
                     ),
                     "source_hash": None,
                 }
@@ -206,7 +206,7 @@ class ExperienceDiffApplier:
                     "contradicting_evidence": contradicting,
                     "confidence": max(
                         0.0,
-                        current.confidence - self.weaken_step * added,
+                        current.confidence - (self.weaken_step if added else 0.0),
                     ),
                     "source_hash": None,
                 }
