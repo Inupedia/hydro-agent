@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from hydro_agent.api.deps import AppDependencies
 from hydro_agent.api.executor import TaskExecutor
+from hydro_agent.api.experience_regression import AppExperienceReplayRunner
 from hydro_agent.api.routes import (
     basins,
     experience,
@@ -24,6 +25,10 @@ from hydro_agent.api.routes import (
 from hydro_agent.api.routes import (
     skills as skill_routes,
 )
+from hydro_agent.experience.lifecycle import ExperienceEvolutionService
+from hydro_agent.experience.promotion import ExperiencePromotionService
+from hydro_agent.experience.regression import ExperienceRegressionService
+from hydro_agent.experience.skill_versions import ExperienceSkillVersionStore
 from hydro_agent.skills import SkillRegistry
 from hydro_agent.skills.manager import SkillManager
 
@@ -36,18 +41,44 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    executor = TaskExecutor(deps)
-    deps.executor = executor  # type: ignore[attr-defined]
     skill_registry = (
         deps.skills if deps.skills is not None else SkillRegistry(repository=deps.repository)
     )
     if skill_registry.repository is None:
         skill_registry.repository = deps.repository
     deps.skills = skill_registry
+
+    version_store = ExperienceSkillVersionStore(
+        skill_registry.agent_root.parent / ".experience-skill-history",
+        repository=deps.repository,
+        active_root=skill_registry.agent_root,
+    )
+    replay_runner = AppExperienceReplayRunner(
+        deps,
+        version_store=version_store,
+    )
+    regression_service = ExperienceRegressionService(replay_runner)
+    promotion_service = ExperiencePromotionService(
+        deps.repository,
+        version_store=version_store,
+        regression_service=regression_service,
+    )
+    experience_evolution = ExperienceEvolutionService(
+        deps.repository,
+        version_store=version_store,
+        promotion_service=promotion_service,
+        skill_registry=skill_registry,
+    )
+    experience_evolution.ensure_baseline()
+    deps.experience_evolution = experience_evolution
+
+    executor = TaskExecutor(deps)
+    deps.executor = executor  # type: ignore[attr-defined]
     app.state.deps = deps
     app.state.executor = executor
     app.state.skills = skill_registry
     app.state.skill_manager = SkillManager(skill_registry)
+    app.state.experience_evolution = experience_evolution
 
     @app.get("/api/health")
     def health():
