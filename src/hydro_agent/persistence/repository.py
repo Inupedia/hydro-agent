@@ -809,6 +809,64 @@ class HydroRepository:
             session.flush()
         return row
 
+    def reject_experience_skill_candidate_with_rollback(
+        self,
+        *,
+        version: int,
+        regression: dict,
+        reason: str,
+        rollback_entries: tuple[ExperienceEntry, ...] = (),
+        version_before: int | None = None,
+    ) -> ExperienceSkillVersion:
+        """Reject one candidate and restore the promoted Experience structure atomically."""
+
+        if not reason.strip():
+            raise ValueError("rejection reason required")
+        with self.database.session() as session:
+            candidate = session.get(ExperienceSkillVersion, version)
+            if candidate is None:
+                raise KeyError(version)
+            if candidate.status != "candidate":
+                raise ValueError(
+                    f"experience skill version {version} is not candidate"
+                )
+
+            for entry in rollback_entries:
+                latest = session.scalar(
+                    select(ExperienceRevision)
+                    .where(
+                        ExperienceRevision.experience_id == entry.experience_id
+                    )
+                    .order_by(ExperienceRevision.revision.desc())
+                    .limit(1)
+                )
+                if latest is None:
+                    raise KeyError(entry.experience_id)
+                if entry.revision != int(latest.revision) + 1:
+                    raise ValueError(
+                        f"experience {entry.experience_id} rollback revision "
+                        f"{entry.revision} does not follow {latest.revision}"
+                    )
+                session.add(self._experience_revision_row(entry))
+
+            candidate.status = "rejected"
+            candidate.regression_json = regression
+            session.add(
+                ExperienceEvolutionEvent(
+                    task_id=None,
+                    experience_id=None,
+                    event_type="REJECT",
+                    from_revision=None,
+                    to_revision=None,
+                    version_before=version_before,
+                    version_after=version,
+                    reason=reason.strip(),
+                    evidence_refs_json=[],
+                )
+            )
+            session.flush()
+            return candidate
+
     def list_experience_evolution_events(
         self,
     ) -> list[ExperienceEvolutionEvent]:
