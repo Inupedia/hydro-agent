@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -33,6 +34,16 @@ from hydro_agent.skills import SkillRegistry
 from hydro_agent.skills.manager import SkillManager
 
 
+def _experience_store_root(deps: AppDependencies) -> Path:
+    configured = os.getenv("HYDRO_AGENT_EXPERIENCE_SKILL_STORE", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    database_path = str(deps.repository.database.engine.url.database or "").strip()
+    if database_path and database_path != ":memory:":
+        return Path(database_path).expanduser().resolve().parent / "experience-skill-store"
+    return Path.cwd() / ".agents" / "experience-skill-store"
+
+
 def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> FastAPI:
     app = FastAPI(title="Hydro-Agent Workbench", version="0.1.0")
     app.add_middleware(
@@ -41,15 +52,21 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    experience_store_root = _experience_store_root(deps)
     skill_registry = (
-        deps.skills if deps.skills is not None else SkillRegistry(repository=deps.repository)
+        deps.skills
+        if deps.skills is not None
+        else SkillRegistry(
+            agent_root=experience_store_root / "current",
+            repository=deps.repository,
+        )
     )
     if skill_registry.repository is None:
         skill_registry.repository = deps.repository
     deps.skills = skill_registry
 
     version_store = ExperienceSkillVersionStore(
-        skill_registry.agent_root.parent / ".experience-skill-history",
+        experience_store_root,
         repository=deps.repository,
         active_root=skill_registry.agent_root,
     )
