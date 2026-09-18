@@ -510,6 +510,14 @@ watch(focusStage, async (enter, was) => {
 })
 
 watch(
+  () => route.params.section,
+  (section) => {
+    if (section === 'evolution') openExperience()
+  },
+  { immediate: true },
+)
+
+watch(
   () => demo.draft.basin_id,
   (id, prev) => {
     if (syncingPlanBasin) return
