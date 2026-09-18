@@ -14,9 +14,7 @@ on:
       - "tests/api/**"
       - "tests/skills/**"
       - ".github/workflows/experience-evolution.yml"
-  push:
-    branches:
-      - "docs/experience-skill-evolution-plan"
+  workflow_dispatch:
 
 jobs:
   backend:
@@ -36,16 +34,14 @@ jobs:
           src/hydro_agent/persistence
           src/hydro_agent/api
           tests/experience
-      - name: Run focused backend tests
+      - name: Run adjacent backend regression suite
         run: >
           uv run pytest -q
           tests/experience
-          tests/agent/test_world_state.py
-          tests/api/test_experience.py
-          tests/api/test_results.py
-          tests/api/test_executor.py
-          tests/skills/test_manager.py
-          tests/skills/test_snapshot.py
+          tests/agent
+          tests/api
+          tests/skills
+          tests/replay
 
   frontend:
     runs-on: ubuntu-latest
@@ -63,13 +59,8 @@ jobs:
         run: npm ci
       - name: Type check
         run: npx vue-tsc --noEmit
-      - name: Run focused frontend tests
-        run: >
-          npm test --
-          src/__tests__/ExperienceEvolutionPanel.test.ts
-          src/__tests__/AgentActivityPanel.test.ts
-          src/__tests__/ObservatoryView.test.ts
-          src/stores/experience.test.ts
+      - name: Run frontend test suite
+        run: npm test
       - name: Build frontend
         run: npm run build
       - name: Install Playwright browser
