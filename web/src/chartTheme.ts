@@ -21,7 +21,7 @@ export const CHART_INK = {
 export const CHART_FONT =
   '-apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif'
 
-type ChartInk = typeof CHART_INK
+type ChartInk = { [K in keyof typeof CHART_INK]: string }
 
 function cssToken(name: string, fallback: string): string {
   if (typeof window === 'undefined' || typeof document === 'undefined') return fallback
@@ -29,12 +29,7 @@ function cssToken(name: string, fallback: string): string {
 }
 
 /** Canvas charts cannot inherit CSS variables, so resolve the app theme at render time. */
-export function currentChartTheme(): {
-  colors: readonly string[]
-  ink: ChartInk
-  symbolBorder: string
-  base: typeof chartBase
-} {
+export function currentChartTheme() {
   const dark = typeof document !== 'undefined' && document.documentElement.dataset.theme === 'dark'
   const colors = dark
     ? ['#4ea8ff', '#5bc9bb', '#aea9f0', '#e7b86e', '#e99bb3']
@@ -83,7 +78,10 @@ export function prefersChartReducedMotion(): boolean {
  * assembled rather than calculated. Updates stay short so filters/theme changes
  * never become a slideshow.
  */
-export function chartMotion(ms = 480, dense = false): { duration: number; easing: string } {
+export function chartMotion(
+  ms = 480,
+  dense = false,
+): { duration: number; easing: 'cubicOut' } {
   if (prefersChartReducedMotion()) return { duration: 0, easing: 'cubicOut' }
   return { duration: dense ? Math.min(ms, 760) : ms, easing: 'cubicOut' }
 }
