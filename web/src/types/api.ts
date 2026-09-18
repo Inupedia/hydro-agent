@@ -317,14 +317,24 @@ export type ExperienceVersion = {
   created_at: string
 }
 
+export type ExperienceStructuralChange = {
+  operation: 'CREATE' | 'MERGE' | 'SPLIT' | 'SUPERSEDE' | string
+  experience_id?: string | null
+  source_ids?: string[]
+  proposal_ids?: string[]
+  reason: string
+  evidence_refs?: ExperienceEvidenceRef[]
+}
+
 export type ExperienceVersionDiff = {
   version: number
   parent_version?: number | null
   added: string[]
   modified: string[]
   superseded: string[]
-  split: unknown[]
-  merged: unknown[]
+  split: ExperienceStructuralChange[]
+  merged: ExperienceStructuralChange[]
+  structural_changes?: ExperienceStructuralChange[]
 }
 
 export type ExperienceRegressionItem = {
