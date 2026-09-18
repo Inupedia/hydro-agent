@@ -7,6 +7,7 @@ from hydro_agent.agent.contracts import (
     MAX_OPTIMIZATION_CYCLES,
     BudgetSummary,
     EvidenceSummary,
+    ExperienceContext,
     HydroContext,
     ModelSummary,
     PermissionSummary,
@@ -16,10 +17,15 @@ from hydro_agent.agent.contracts import (
 )
 from hydro_agent.agent.permissions import PermissionGate
 from hydro_agent.execution.hashing import sha256_bytes
+from hydro_agent.experience.convergence import compute_convergence
+from hydro_agent.experience.policy import ExperiencePolicy
+from hydro_agent.experience.retrieval import ExperienceRetriever
 from hydro_agent.models.registry import ModelRegistry, default_model_registry
 from hydro_agent.optimization.campaign import rebuild_campaign_from_evidence
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 from hydro_agent.skills import SkillRegistry
+from hydro_agent.skills.loader import parse_skill_md
+from hydro_agent.skills.snapshot import snapshot_file_bytes
 from hydro_agent.workbench.validation_gate import latest_candidate_scheme_id
 
 
@@ -33,13 +39,17 @@ class WorldStateBuilder:
         skills: SkillRegistry | None = None,
         strategies: CalibrationStrategyRegistry | None = None,
         model_registry: ModelRegistry | None = None,
+        experience_retriever: ExperienceRetriever | None = None,
+        experience_policy: ExperiencePolicy | None = None,
     ):
         self.repository = repository
         self.model_id = model_id
         self.capabilities = capabilities
-        self.skills = skills or SkillRegistry()
+        self.skills = skills or SkillRegistry(repository=repository)
         self.models = model_registry or default_model_registry()
         self.strategies = strategies or self.models.strategy_registry()
+        self.experience_retriever = experience_retriever or ExperienceRetriever(repository)
+        self.experience_policy = experience_policy or ExperiencePolicy()
 
     def build(self, task_id: str) -> WorldStateView:
         task = self.repository.get_task(task_id)
@@ -158,6 +168,13 @@ class WorldStateBuilder:
         strategy_ids = tuple(
             sid for sid in strategy_ids if not sid.endswith("-hydrologist-manual-v1")
         ) or strategy_ids
+
+        experience = self._experience_context(
+            task_id=task_id,
+            model_id=model_id,
+            basin_id=task.basin_id,
+            diagnosis=diagnosis,
+        )
         hydro = HydroContext(
             current_parameters={k: float(v) for k, v in current_params.items()},
             candidate_parameters=candidate_params,
@@ -180,6 +197,7 @@ class WorldStateBuilder:
             diagnosis=diagnosis,
             experiment_history=history,
             skill_cards=tuple(self.skills.cards_for_prompt()),
+            experience=experience,
         )
         allow_optimization = bool(workbench.get("allow_optimization", True))
         max_rounds = int(workbench.get("max_agent_decision_rounds") or MAX_AGENT_ROUNDS)
@@ -230,6 +248,69 @@ class WorldStateBuilder:
             update={
                 "permissions": PermissionSummary(safe_actions=safe, paused=view.permissions.paused)
             }
+        )
+
+    def _experience_context(
+        self,
+        *,
+        task_id: str,
+        model_id: str,
+        basin_id: str,
+        diagnosis: dict[str, object],
+    ) -> ExperienceContext:
+        state = self.repository.get_task_state(task_id)
+        snapshot = state.skill_snapshot_json
+        if snapshot is None:
+            if self.skills.repository is self.repository:
+                snapshot = self.skills.freeze_for_task(task_id)
+            else:
+                frozen_registry = SkillRegistry(
+                    builtin_root=self.skills.builtin_root,
+                    agent_root=self.skills.agent_root,
+                    user_root=self.skills.user_root,
+                    repository=self.repository,
+                )
+                snapshot = frozen_registry.freeze_for_task(task_id)
+
+        events = self.repository.list_experience_evolution_events()
+        convergence = compute_convergence(events)
+        package = (snapshot.get("skills") or {}).get("calibration-experience")
+        if not isinstance(package, dict) or package.get("source") != "agent":
+            return ExperienceContext(
+                status=convergence.status,
+                exploration_level=0.75,
+            )
+
+        try:
+            raw = snapshot_file_bytes(package["files"], "SKILL.md").decode("utf-8")
+            loaded = parse_skill_md(raw, directory_name="calibration-experience")
+            version = int(loaded.meta("hydro-agent-version"))
+            version_row = self.repository.get_experience_skill_version(version)
+        except (KeyError, TypeError, ValueError):
+            return ExperienceContext(
+                status=convergence.status,
+                exploration_level=0.75,
+            )
+
+        source_revisions_raw = dict(version_row.manifest_json or {}).get("source_revisions") or {}
+        source_revisions = {
+            str(experience_id): int(revision)
+            for experience_id, revision in dict(source_revisions_raw).items()
+        }
+        matches = self.experience_retriever.retrieve(
+            model_id=model_id,
+            basin_id=basin_id,
+            diagnosis=diagnosis,
+            revision_map=source_revisions,
+        )
+        _mode, exploration_level = self.experience_policy.choose_mode(matches)
+        return ExperienceContext(
+            skill_version=version,
+            skill_hash=version_row.skill_hash,
+            status=convergence.status,
+            matches=matches,
+            source_revisions=source_revisions,
+            exploration_level=exploration_level,
         )
 
 

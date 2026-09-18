@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import Field
 
 from hydro_agent.execution.contracts import FrozenModel, Identifier
+from hydro_agent.experience.retrieval import ExperienceMatch
 from hydro_agent.optimization.campaign import CampaignSnapshot
 
 
@@ -112,6 +113,15 @@ class EvidenceSummary(FrozenModel):
     gates: dict[str, str] = Field(default_factory=dict)
 
 
+class ExperienceContext(FrozenModel):
+    skill_version: int | None = Field(default=None, ge=1)
+    skill_hash: str | None = None
+    status: Literal["learning", "converging", "converged", "reopened"] = "learning"
+    matches: tuple[ExperienceMatch, ...] = ()
+    source_revisions: dict[str, int] = Field(default_factory=dict)
+    exploration_level: float = Field(default=0.75, ge=0.0, le=1.0)
+
+
 class HydroContext(FrozenModel):
     """Decision-relevant hydrologic context beyond ids/hashes."""
 
@@ -134,6 +144,7 @@ class HydroContext(FrozenModel):
     diagnosis: dict[str, object] = Field(default_factory=dict)
     experiment_history: tuple[str, ...] = ()
     skill_cards: tuple[dict[str, object], ...] = ()
+    experience: ExperienceContext = Field(default_factory=ExperienceContext)
 
 
 class WorldStateView(FrozenModel):
