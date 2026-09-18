@@ -78,6 +78,7 @@ export type ToolCallAudit = {
   tool_id: string
   tool_name?: string
   tool_name_zh: string
+  description_zh?: string
   category: 'data' | 'model' | 'diagnosis' | 'optimization' | 'validation' | 'governance' | 'replay' | 'report'
   status: 'pending' | 'running' | 'completed' | 'failed' | 'blocked' | string
   input_summary?: Record<string, unknown>
@@ -87,8 +88,18 @@ export type ToolCallAudit = {
   duration_ms?: number
   action_run_id?: string | null
   evidence_id?: string | null
+  artifact_ids?: string[]
   child_calls?: ToolCallAudit[]
   metrics?: Record<string, unknown>
+}
+
+export type EvidenceAuditSummary = {
+  evidence_id?: string | null
+  action?: string | null
+  status?: string | null
+  observations?: string[]
+  metrics?: Record<string, number>
+  gates?: Record<string, unknown>
 }
 
 export type AgentRoundLogItem = {
@@ -109,6 +120,7 @@ export type AgentRoundLogItem = {
   tool_observations: string[]
   tool_metrics: Record<string, number>
   tool_calls?: ToolCallAudit[]
+  evidence_summary?: EvidenceAuditSummary | null
   activated_skill_ids?: string[]
   activated_skills_audit?: Array<{
     skill_id: string

@@ -1,4 +1,6 @@
 :root {
+  /* Inspector overlays are local to the workflow focus, below menus and dialogs. */
+  --layer-inspector: 10;
   --background: #f4f5f7;
   --background-secondary: #eceef2;
   --surface: #ffffff;

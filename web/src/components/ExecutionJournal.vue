@@ -318,7 +318,12 @@ type DisplayToolCall = ToolCallAudit & { descriptionZh?: string; algorithm?: str
 function toolCalls(event: TimelineItem): DisplayToolCall[] {
   const round = matchingRound(event)
   if (round?.tool_calls?.length) {
-    return round.tool_calls.map((call) => ({ ...call, result: toolResult(event, round) }))
+    return round.tool_calls.map((call) => ({
+      ...call,
+      descriptionZh: call.description_zh,
+      algorithm: typeof call.input_summary?.optimizer === 'string' ? optimizerLabel(call.input_summary.optimizer) : undefined,
+      result: toolResult(event, round),
+    }))
   }
   const descriptor = toolForAction(event.action)
   if (!descriptor) return []
@@ -525,6 +530,9 @@ function displayTitle(event: TimelineItem) {
 .disclosure-kind { color: var(--text-primary); font-size: 11px; font-weight: 680; white-space: nowrap; }
 .disclosure-kind small { margin-left: 4px; color: var(--text-tertiary); font-size: 8px; font-weight: 700; letter-spacing: 0.05em; }
 .tool-details .disclosure-kind small { color: var(--accent-text); }
+.skill-details .disclosure-kind, .skill-details .disclosure-kind small { color: var(--trace-skill); }
+.skill-details { border-left: 3px solid var(--trace-skill); }
+.tool-details { border-left: 3px solid var(--trace-tool); }
 .disclosure-preview { min-width: 0; overflow: hidden; color: var(--text-tertiary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .disclosure-count { color: var(--text-tertiary); font-size: 9px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .disclosure-chevron { color: var(--text-tertiary); font-size: 18px; line-height: 1; transition: transform 160ms ease; }
@@ -545,7 +553,8 @@ function displayTitle(event: TimelineItem) {
 .tool-call-list dd { margin: 0; color: var(--text-secondary); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
 .skill-chip-list {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: stretch;
   gap: 5px;
   margin: 0;
   padding: 8px;
@@ -554,6 +563,7 @@ function displayTitle(event: TimelineItem) {
 .skill-chip-list li {
   display: grid;
   gap: 2px;
+  width: 100%;
   max-width: 100%;
   border: 1px solid var(--separator);
   border-radius: var(--radius-xs, 6px);

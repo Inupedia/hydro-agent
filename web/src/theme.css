@@ -1,4 +1,9 @@
 :root[data-theme='light'] {
+  --trace-observation: #167079;
+  --trace-skill: #7251a2;
+  --trace-decision: #946014;
+  --trace-tool: #005fcc;
+  --trace-evidence: #257743;
   color-scheme: light;
   --background: #f4f5f7;
   --background-secondary: #eceef2;
@@ -7,7 +12,7 @@
   --surface-tertiary: #f0f2f5;
   --text-primary: #1c1d21;
   --text-secondary: #5f6670;
-  --text-tertiary: #868e99;
+  --text-tertiary: #69727f;
   --border: #c9ced8;
   --separator: #e0e3e9;
   --accent: #007aff;
@@ -66,6 +71,11 @@
 }
 
 :root[data-theme='dark'] {
+  --trace-observation: #79cbd0;
+  --trace-skill: #c4a4ef;
+  --trace-decision: #e4bd7a;
+  --trace-tool: #79baff;
+  --trace-evidence: #86d8a1;
   color-scheme: dark;
   --background: #15171b;
   --background-secondary: #1a1d22;

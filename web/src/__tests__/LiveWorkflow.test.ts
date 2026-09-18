@@ -20,6 +20,7 @@ describe('live workflow map', () => {
     expect(wrapper.find('[data-stage="prepare"]').classes()).toContain('is-visited')
     expect(wrapper.find('[data-focus-stage="forecast"]').exists()).toBe(true)
     expect(wrapper.find('[data-node-id="forecast"]').classes()).toContain('is-current')
+    expect(wrapper.find('[data-node-id="forecast"]').text()).toContain('TOOL · 水文模型运行器')
     expect(wrapper.find('[data-node-id="check_data"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('v2.0.0')
   })

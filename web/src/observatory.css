@@ -242,12 +242,10 @@
 }
 
 .glass-pane {
-  background: color-mix(in srgb, var(--glass) 92%, var(--surface));
-  border: 1px solid var(--glass-edge);
+  background: var(--surface);
+  border: 1px solid var(--separator);
   border-radius: var(--radius-xl);
   box-shadow: var(--glass-inset), var(--shadow-panel);
-  backdrop-filter: blur(24px) saturate(140%);
-  -webkit-backdrop-filter: blur(24px) saturate(140%);
   padding: clamp(18px, 1.5vw, 22px);
   display: flex;
   flex-direction: column;
@@ -456,6 +454,7 @@
 .start-button svg { flex-shrink: 0; }
 
 .main-stage {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -749,6 +748,10 @@
   line-height: 1.5;
   text-align: right;
 }
+.report-module { container-type: inline-size; }
+@container (max-width: 520px) {
+  .module-meta { max-width: none; text-align: left; }
+}
 .report-module .chart {
   flex: none;
   min-height: 200px;
@@ -796,6 +799,7 @@
 .locked-basin small { font-weight: 500; color: var(--text-secondary); }
 
 .main-stage .live-workflow { min-height: 270px; flex: 1; }
+.main-stage .agent-activity-panel { flex: 0 0 auto; }
 .main-stage.main-stage--focus {
   /* Workflow owns the full pane; glass-pane padding would leave a dead frame. */
   padding: 0;

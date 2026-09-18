@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { BorderBeam } from './ui'
 import { WORKFLOW, displayNodeFor } from '../generated/workflow'
 import { CURRENT_TO_LEGACY, currentActionId } from '../workflow/legacyActions'
+import { toolForAction } from '../tools/catalog'
 
 const props = defineProps<{
   action?: string | null
@@ -20,6 +21,7 @@ type RuntimeNode = {
   action: string
   label: string
   detail: string
+  toolName: string
 }
 type PresentationStage = {
   id: StageId
@@ -102,6 +104,7 @@ function runtimeNode(actionId: string): RuntimeNode | null {
     action: actionId,
     label: item.label_zh,
     detail: item.explain_zh,
+    toolName: toolForAction(actionId)?.nameZh || '',
   }
 }
 
@@ -174,7 +177,7 @@ function branchState(id: string): NodeState {
           <h3>实时执行地图</h3>
           <span class="version-pill">v{{ workflowVersionLabel }}</span>
         </div>
-        <p>顶部只说明当前所处阶段；中央只放大当前阶段的真实路径，分支与回退不再伪装成线性“完成进度”。</p>
+        <p>查看当前阶段、执行分支与回退路径。</p>
       </div>
       <div class="current-chip" :class="`is-${status || 'idle'}`" aria-live="polite">
         <i aria-hidden="true" />
@@ -200,6 +203,7 @@ function branchState(id: string): NodeState {
     </div>
 
     <div class="workflow-focus">
+      <div class="workflow-focus-scroll" tabindex="0" aria-label="当前阶段流程">
       <Transition name="stage-shift" mode="out-in">
         <section :key="activeStage.id" class="focus-stage" :data-focus-stage="activeStage.id">
           <BorderBeam v-if="props.status === 'running'" :size="72" :radius="18" :duration="5" color-from="var(--wf-blue)" color-to="var(--wf-cyan)" />
@@ -225,6 +229,7 @@ function branchState(id: string): NodeState {
                 <div class="node-copy">
                   <strong>{{ node.label }}</strong>
                   <span>{{ node.detail }}</span>
+                  <small v-if="actionState(node.action) === 'current'" class="node-tool">TOOL · {{ node.toolName }}</small>
                 </div>
                 <span class="action-code">{{ actionCodeLabel(node.action) }}</span>
               </article>
@@ -257,6 +262,7 @@ function branchState(id: string): NodeState {
               <div class="node-copy">
                 <strong>{{ activeStage.nodes[0].label }}</strong>
                 <span>{{ activeStage.nodes[0].detail }}</span>
+                <small v-if="actionState(activeStage.nodes[0].action) === 'current'" class="node-tool">TOOL · {{ activeStage.nodes[0].toolName }}</small>
               </div>
               <span class="action-code">{{ actionCodeLabel(activeStage.nodes[0].action) }}</span>
             </article>
@@ -284,6 +290,7 @@ function branchState(id: string): NodeState {
               <div class="node-copy">
                 <strong>{{ activeStage.nodes[0].label }}</strong>
                 <span>{{ activeStage.nodes[0].detail }}</span>
+                <small v-if="actionState(activeStage.nodes[0].action) === 'current'" class="node-tool">TOOL · {{ activeStage.nodes[0].toolName }}</small>
               </div>
               <span class="action-code">{{ actionCodeLabel(activeStage.nodes[0].action) }}</span>
             </article>
@@ -333,6 +340,7 @@ function branchState(id: string): NodeState {
               <div class="node-copy">
                 <strong>{{ activeStage.nodes[0].label }}</strong>
                 <span>{{ activeStage.nodes[0].detail }}</span>
+                <small v-if="actionState(activeStage.nodes[0].action) === 'current'" class="node-tool">TOOL · {{ activeStage.nodes[0].toolName }}</small>
               </div>
               <span class="action-code">{{ actionCodeLabel(activeStage.nodes[0].action) }}</span>
             </article>
@@ -374,6 +382,7 @@ function branchState(id: string): NodeState {
               <div class="node-copy">
                 <strong>{{ activeStage.nodes[0].label }}</strong>
                 <span>{{ activeStage.nodes[0].detail }}</span>
+                <small v-if="actionState('A06_GATE') === 'current'" class="node-tool">TOOL · {{ activeStage.nodes[0].toolName }}</small>
               </div>
               <span class="action-code">{{ actionCodeLabel('A06_GATE') }}</span>
             </article>
@@ -424,6 +433,8 @@ function branchState(id: string): NodeState {
           </div>
         </section>
       </Transition>
+      </div>
+      <div v-if="$slots.inspector" class="workflow-inspector"><slot name="inspector" /></div>
     </div>
 
     <footer class="workflow-legend">
@@ -437,7 +448,7 @@ function branchState(id: string): NodeState {
 
 <style scoped>
 .workflow-canvas {
-  --wf-bg: var(--glass-strong);
+  --wf-bg: var(--surface-secondary);
   --wf-surface: var(--control-hover);
   --wf-surface-soft: var(--glass-light);
   --wf-text: var(--text-primary);
@@ -459,8 +470,7 @@ function branchState(id: string): NodeState {
   border-radius: var(--radius-2xl);
   background: var(--wf-bg);
   box-shadow: var(--shadow-panel), var(--glass-inset);
-  backdrop-filter: blur(24px) saturate(1.08);
-  -webkit-backdrop-filter: blur(24px) saturate(1.08);
+  container-type: inline-size;
   color: var(--wf-text);
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', 'Segoe UI', sans-serif;
 }
@@ -535,7 +545,7 @@ function branchState(id: string): NodeState {
   box-shadow: 0 7px 20px color-mix(in srgb, var(--wf-blue) 12%, transparent), var(--glass-inset-soft);
   transform: translateY(-1px);
 }
-.stage-summary-item.is-pending { opacity: 0.54; }
+.stage-summary-item.is-pending { box-shadow: none; background: var(--surface-secondary); }
 .stage-summary-index {
   display: grid;
   place-items: center;
@@ -554,19 +564,25 @@ function branchState(id: string): NodeState {
 .stage-summary-copy small { display: block; margin-top: 3px; color: var(--wf-tertiary); font-size: 8px; white-space: nowrap; }
 .stage-summary-item.is-current small { color: var(--wf-blue); }
 .workflow-focus {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
   flex: 1;
-  min-height: 340px;
-  padding: 14px 18px 10px;
+  min-height: 0;
+  padding: 0;
   overflow: hidden;
 }
+.workflow-focus-scroll { flex: 1; min-height: 0; overflow: auto; padding: 16px; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.workflow-inspector { flex: 0 0 58px; }
+.workflow-head, .stage-summary, .workflow-legend { flex-shrink: 0; }
 .focus-stage {
-  height: 100%;
-  min-height: 320px;
+  min-height: 100%;
   padding: 14px 16px 16px;
   border: 1px solid var(--wf-border);
   border-radius: 20px;
-  background: var(--wf-surface-soft);
-  box-shadow: var(--shadow-panel), var(--glass-inset-soft);
+  background: var(--surface);
+  box-shadow: none;
 }
 .focus-head {
   display: flex;
@@ -641,6 +657,7 @@ function branchState(id: string): NodeState {
 .node-copy { min-width: 0; }
 .node-copy strong { display: block; color: var(--wf-text); font-size: 14px; font-weight: 690; line-height: 1.22; }
 .node-copy span { display: block; margin-top: 5px; color: var(--wf-secondary); font-size: 10px; line-height: 1.42; }
+.node-copy .node-tool { display: inline-block; margin-top: 7px; border: 1px solid color-mix(in srgb, var(--wf-blue) 30%, var(--wf-line)); border-radius: 5px; background: color-mix(in srgb, var(--wf-blue) 8%, transparent); padding: 3px 5px; color: var(--wf-blue); font-size: 8px; font-weight: 720; line-height: 1.2; }
 .action-code { align-self: start; color: var(--wf-tertiary); font-size: 8px; font-weight: 680; letter-spacing: 0.02em; }
 .flow-arrow { flex: 0 0 58px; width: 58px; height: 24px; overflow: visible; }
 .flow-arrow.wide { flex-basis: 76px; width: 76px; }
@@ -706,7 +723,7 @@ function branchState(id: string): NodeState {
 .branch-fan svg { width: 100%; height: 100%; overflow: visible; }
 .gate-branches { grid-column: 5; grid-row: 1 / span 4; display: grid; grid-template-rows: repeat(4, 62px); gap: 8px; }
 .branch-card { min-height: 62px; padding: 9px 12px; transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease, opacity 180ms ease; }
-.branch-card.is-pending { opacity: 0.48; }
+.branch-card.is-pending { box-shadow: none; }
 .branch-card.is-current { border-color: color-mix(in srgb, var(--wf-blue) 56%, transparent); box-shadow: 0 10px 26px color-mix(in srgb, var(--wf-blue) 12%, transparent), var(--glass-inset-soft); transform: translateX(2px); }
 .branch-card.is-visited { border-color: color-mix(in srgb, var(--border) 92%, transparent); }
 .branch-card.is-paused { border-color: color-mix(in srgb, var(--wf-amber) 48%, transparent); }
@@ -752,16 +769,16 @@ function branchState(id: string): NodeState {
   .stage-summary-item { grid-template-columns: 24px minmax(0, 1fr); gap: 6px; padding: 7px; }
   .stage-summary-index { width: 24px; height: 24px; }
   .stage-summary-copy small { display: none; }
-  .workflow-focus { padding-inline: 12px; }
+  .workflow-focus-scroll { padding: 12px; }
   .workflow-node.hero-node { width: min(300px, 34vw); }
   .gate-flow { grid-template-columns: minmax(110px, 0.75fr) 54px minmax(170px, 1fr) 68px minmax(220px, 1.2fr); }
 }
-@media (max-width: 760px) {
+@container (max-width: 760px) {
   .workflow-canvas { min-height: 0; }
   .workflow-head { flex-direction: column; padding: 15px; }
   .current-chip { max-width: 100%; }
   .stage-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .workflow-focus { min-height: 0; overflow: visible; }
+  .workflow-focus { min-height: 280px; overflow: hidden; }
   .focus-stage { min-height: 0; }
   .focus-head { flex-direction: column; gap: 5px; }
   .focus-head p { text-align: left; }

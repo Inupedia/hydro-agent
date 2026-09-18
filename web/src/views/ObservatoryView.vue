@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import ExecutionJournal from '../components/ExecutionJournal.vue'
+import AgentActivityPanel from '../components/AgentActivityPanel.vue'
 import LiveWorkflow from '../components/LiveWorkflow.vue'
 import ModelPreparation from '../components/ModelPreparation.vue'
 import type { ModelPlan } from '../types/api'
@@ -590,7 +591,7 @@ onUnmounted(() => {
           @click="openSkillsLibrary"
         >
           <PhBookOpenText :size="16" weight="duotone" aria-hidden="true" />
-          专业技能
+          Agent 能力
         </button>
         <button
           v-else
@@ -600,7 +601,7 @@ onUnmounted(() => {
           @click="openSkillUsage"
         >
           <PhBookOpenText :size="16" weight="duotone" aria-hidden="true" />
-          查看使用技能
+          查看 Skills / Tools
         </button>
         <div class="header-actions">
           <button
@@ -771,7 +772,18 @@ onUnmounted(() => {
     <main class="observatory-grid">
       <div class="mobile-deck" data-test="mobile-deck">
       <section ref="mainStage" class="main-stage glass-pane" :class="{ 'main-stage--focus': focusStage, 'main-stage--results': showResultsStage && !isMobile }">
-        <LiveWorkflow v-if="showWorkflow" :action="action" :status="demo.run?.paused ? 'paused' : demo.run?.status" :completed-actions="completedActions" :gate-status="gateStatus" :expanded="focusStage" :workflow-version="demo.taskMeta?.workflow_version" />
+        <template v-if="showWorkflow">
+          <LiveWorkflow :action="action" :status="demo.run?.paused ? 'paused' : demo.run?.status" :completed-actions="completedActions" :gate-status="gateStatus" :expanded="focusStage" :workflow-version="demo.taskMeta?.workflow_version">
+          <template #inspector>
+          <AgentActivityPanel
+            :task-id="demo.taskId"
+            :event-count="demo.timeline.length"
+            :current-action="action"
+            :running="demo.isRunning"
+          />
+          </template>
+          </LiveWorkflow>
+        </template>
         <template v-else-if="!demo.taskId">
           <div class="setup-route">
             <div>
