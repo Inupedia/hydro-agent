@@ -12,6 +12,7 @@ import GlassDialog from '../components/GlassDialog.vue'
 import RenameDialog from '../components/RenameDialog.vue'
 import CaseSkillUsageDialog from '../components/CaseSkillUsageDialog.vue'
 import SkillsLibrarySheet from '../components/SkillsLibrarySheet.vue'
+import ExperienceEvolutionPanel from '../components/ExperienceEvolutionPanel.vue'
 import LLMSettingsSheet from '../components/LLMSettingsSheet.vue'
 import { RippleButton } from '../components/ui'
 import { PhBookOpenText, PhFolderSimple, PhPlay, PhPlus, PhSlidersHorizontal, PhStop, PhTrash } from '@phosphor-icons/vue'
@@ -181,6 +182,8 @@ const desktopResultsStack = ref<{ forecastSurface: HTMLElement | null; tuningMou
 const caseManagerOpen = ref(false)
 const caseLibraryOpen = ref(false)
 const skillsLibraryOpen = ref(false)
+const experienceOpen = ref(false)
+const requestedExperienceId = ref<string | null>(null)
 const caseSkillUsageOpen = ref(false)
 const llmConfigOpen = ref(false)
 const newTaskConfirmOpen = ref(false)
@@ -352,6 +355,14 @@ function closeCaseManager() {
 }
 function openSkillsLibrary() {
   skillsLibraryOpen.value = true
+}
+function openExperience(experienceId?: string) {
+  requestedExperienceId.value = experienceId || null
+  experienceOpen.value = true
+}
+function closeExperience() {
+  experienceOpen.value = false
+  requestedExperienceId.value = null
 }
 function openSkillUsage() {
   caseSkillUsageOpen.value = true
@@ -584,6 +595,14 @@ onUnmounted(() => {
       <div v-if="headerCaption" class="header-caption">{{ headerCaption }}</div>
       <div class="header-end">
         <button
+          type="button"
+          class="manage-button"
+          data-test="header-experience-evolution"
+          @click="openExperience()"
+        >
+          智能体进化
+        </button>
+        <button
           v-if="demo.mode !== 'replay'"
           type="button"
           class="manage-button"
@@ -662,6 +681,21 @@ onUnmounted(() => {
     <SkillsLibrarySheet :open="skillsLibraryOpen" :task-id="demo.taskId" @close="closeSkillsLibrary" />
     <CaseSkillUsageDialog :open="caseSkillUsageOpen" :task-id="demo.taskId" @close="caseSkillUsageOpen = false" />
     <LLMSettingsSheet :open="llmConfigOpen" @close="llmConfigOpen = false" />
+    <GlassDialog
+      :open="experienceOpen"
+      size="workbench"
+      test-id="experience-evolution-dialog"
+      overline="Agent Evolution"
+      title="智能体进化"
+      labelled-by="experience-evolution-title"
+      :close-on-backdrop="false"
+      @close="closeExperience"
+    >
+      <ExperienceEvolutionPanel
+        :task-id="demo.taskId"
+        :initial-experience-id="requestedExperienceId"
+      />
+    </GlassDialog>
 
     <GlassDialog
       :open="newTaskConfirmOpen"
@@ -781,6 +815,7 @@ onUnmounted(() => {
             :current-action="action"
             :current-round-number="demo.run?.current_round_number"
             :running="demo.isRunning"
+            @open-experience="openExperience"
           />
           </template>
           </LiveWorkflow>
