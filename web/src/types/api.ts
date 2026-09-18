@@ -51,6 +51,8 @@ export type RunSummary = {
   agent_rounds_remaining: number
   optimization_cycles_remaining: number
   current_scheme_id: string | null
+  current_round_number?: number | null
+  current_decision_id?: string | null
   last_action: string | null
   last_hypothesis: string | null
   llm_streaming?: boolean
@@ -81,6 +83,7 @@ export type ToolCallAudit = {
   description_zh?: string
   category: 'data' | 'model' | 'diagnosis' | 'optimization' | 'validation' | 'governance' | 'replay' | 'report'
   status: 'pending' | 'running' | 'completed' | 'failed' | 'blocked' | string
+  trace_source?: 'runtime' | 'evidence_inferred' | 'legacy_inferred'
   input_summary?: Record<string, unknown>
   output_summary?: Record<string, unknown>
   started_at?: string
@@ -104,6 +107,7 @@ export type EvidenceAuditSummary = {
 
 export type AgentRoundLogItem = {
   round_number: number
+  decision_id?: string | null
   occurred_at?: string | null
   action?: string | null
   action_zh: string

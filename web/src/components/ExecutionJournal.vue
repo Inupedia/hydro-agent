@@ -16,6 +16,7 @@ const props = defineProps<{
   failed: boolean
   elapsed: string
   currentAction?: string | null
+  currentRoundNumber?: number | null
   error?: string | null
 }>()
 
@@ -38,7 +39,9 @@ const currentWorkingEvent = computed<TimelineItem | null>(() => {
   const last = orderedEvents.value.at(-1)
   if (last?.action === props.currentAction && String(last.status).toLowerCase() === 'running') return null
 
-  const round = [...agentRounds.value].reverse().find((item) => item.action === props.currentAction)
+  const round = props.currentRoundNumber
+    ? agentRounds.value.find((item) => item.round_number === props.currentRoundNumber)
+    : [...agentRounds.value].reverse().find((item) => item.action === props.currentAction)
   const lastTime = parsedTime(last?.occurred_at)
   const roundTime = parsedTime(round?.occurred_at)
   if (

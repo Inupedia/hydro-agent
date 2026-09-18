@@ -59,6 +59,8 @@ class EvidencePacket(FrozenModel):
     evidence_id: Identifier
     task_id: Identifier
     action_run_id: Identifier | None = None
+    decision_id: Identifier | None = None
+    round_number: int | None = None
     action: ActionCode
     status: Literal["succeeded", "failed", "blocked", "KEEP", "ACCEPT", "ROLLBACK"]
     observations: tuple[str, ...] = ()

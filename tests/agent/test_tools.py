@@ -4,7 +4,15 @@ from types import SimpleNamespace
 import pytest
 
 from hydro_agent.agent.contracts import ActionCode, AgentDecision, EvidencePacket, ProblemHypothesis
-from hydro_agent.agent.tools import ForecastHandler, OptimizeHandler, ToolRouter, ToolUnavailable
+from hydro_agent.agent.tools import (
+    DependencyToolTraceRecorder,
+    ForecastHandler,
+    OptimizeHandler,
+    ToolExecutionContext,
+    ToolRouter,
+    ToolUnavailable,
+)
+from hydro_agent.api.deps import AppDependencies
 from hydro_agent.persistence.database import Database
 from hydro_agent.persistence.repository import HydroRepository
 from hydro_agent.services.calibration import CalibrationExecutionFailed
@@ -160,6 +168,74 @@ def test_forecast_action_calls_forecast_service_not_sandbox_directly(
     assert spy_forecast_service.calls == 1
     assert evidence.action == ActionCode.A03_FORECAST
     assert evidence.status == "succeeded"
+
+
+def test_tool_router_records_native_runtime_trace(repository):
+    class InstantRuntime:
+        def run_until_terminal(self, task_id):
+            return []
+
+    deps = AppDependencies(repository=repository, runtime_factory=lambda: InstantRuntime())
+
+    class TracedForecastHandler:
+        def execute(self, task_id, decision):
+            return EvidencePacket(
+                evidence_id="ev-trace",
+                task_id=task_id,
+                action=ActionCode.A03_FORECAST,
+                status="KEEP",
+                observations=("observed",),
+                metrics={"NSE": 0.8},
+                new_information_hash="hash-trace",
+            )
+
+    router = ToolRouter(trace_recorder=DependencyToolTraceRecorder(deps))
+    router.register(ActionCode.A03_FORECAST, TracedForecastHandler())
+    decision = AgentDecision(
+        action=ActionCode.A03_FORECAST,
+        hypothesis=ProblemHypothesis.MODEL,
+        strategy_id="forecast-strategy",
+        rationale_summary="Run forecast.",
+    )
+    packet = router.execute("task-1", decision, ToolExecutionContext("dec-trace", 1))
+    row = deps.list_agent_round_logs("task-1")[0]
+    call = row["tool_calls"][0]
+
+    assert packet.decision_id == "dec-trace"
+    assert row["decision_id"] == "dec-trace"
+    assert call["trace_source"] == "runtime"
+    assert call["tool_id"] == "hydrology.forecast"
+    assert call["status"] == "completed"
+    assert call["evidence_id"] == "ev-trace"
+    assert call["duration_ms"] >= 0
+    assert row["tool_status"] == "completed"
+
+
+def test_tool_router_records_failed_runtime_trace(repository):
+    class InstantRuntime:
+        def run_until_terminal(self, task_id):
+            return []
+
+    deps = AppDependencies(repository=repository, runtime_factory=lambda: InstantRuntime())
+
+    class FailingHandler:
+        def execute(self, task_id, decision):
+            raise RuntimeError("tool failed")
+
+    router = ToolRouter(trace_recorder=DependencyToolTraceRecorder(deps))
+    router.register(ActionCode.A04_DIAGNOSE, FailingHandler())
+    decision = AgentDecision(
+        action=ActionCode.A04_DIAGNOSE,
+        hypothesis=ProblemHypothesis.MODEL,
+        rationale_summary="Diagnose errors.",
+    )
+    with pytest.raises(RuntimeError, match="tool failed"):
+        router.execute("task-1", decision, ToolExecutionContext("dec-failed", 1))
+    row = deps.list_agent_round_logs("task-1")[0]
+    call = row["tool_calls"][0]
+    assert call["trace_source"] == "runtime"
+    assert call["status"] == "failed"
+    assert call["output_summary"]["error"] == "tool failed"
 
 
 def test_unregistered_action_raises_tool_unavailable(tool_router):

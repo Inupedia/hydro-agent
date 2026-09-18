@@ -23,7 +23,7 @@ from hydro_agent.agent.contracts import (
     WorldStateView,
 )
 from hydro_agent.agent.runtime import AgentRuntime
-from hydro_agent.agent.tools import ToolRouter
+from hydro_agent.agent.tools import DependencyToolTraceRecorder, ToolRouter
 from hydro_agent.agent.world_state import WorldStateBuilder
 from hydro_agent.api.app import create_app
 from hydro_agent.api.deps import AppDependencies
@@ -140,7 +140,7 @@ class DemoDecisionProvider:
 
 
 def _build_demo(deps: AppDependencies, repository) -> None:
-    tools = ToolRouter()
+    tools = ToolRouter(trace_recorder=DependencyToolTraceRecorder(deps))
     tools.register(
         ActionCode.A03_FORECAST, StubHandler(repository, deps, ActionCode.A03_FORECAST)
     )
@@ -318,6 +318,7 @@ def _build_real(
     )
     deps.skills = kernel.skills
     tools = kernel.build_tools(task_configs=deps.task_configs)
+    tools.trace_recorder = DependencyToolTraceRecorder(deps)
     deps.base_scheme_config = kernel.scheme_config
     deps.mode = "real"
     deps.provider_model = settings.model
@@ -367,8 +368,12 @@ def _build_real(
             source_dir=directory/"normalized", scheme_path=directory/"scheme.json",
             report_root=report_root, warmup_days=int(config["warmup_days"]),
         )
+        task_tools = task_kernel.build_tools(task_configs=deps.task_configs)
+        task_tools.trace_recorder = DependencyToolTraceRecorder(deps)
         return LoggedRuntime(
-            repository, provider=provider, tools=task_kernel.build_tools(task_configs=deps.task_configs),
+            repository,
+            provider=provider,
+            tools=task_tools,
             world_state=WorldStateBuilder(repository, skills=task_kernel.skills, strategies=task_kernel.strategies),
             provider_name=deps.runtime_llm_provider_id or "siliconflow",
             provider_model=current_runtime_llm_settings().model,

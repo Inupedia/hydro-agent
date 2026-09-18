@@ -45,8 +45,10 @@ def test_agent_log_exposes_persisted_skill_invocation_audit(client, repository, 
     fallback = client.get("/api/tasks/skill-audit-task/agent-log").json()["rounds"][0]
     assert fallback["activated_skill_ids"] == ["hydro-error-diagnosis"]
     assert fallback["activated_skills_audit"] == [manifest]
+    assert fallback["decision_id"] == "dec-skill-audit"
     assert fallback["tool_calls"][0]["tool_id"] == "hydrology.diagnose"
     assert fallback["tool_calls"][0]["status"] == "pending"
+    assert fallback["tool_calls"][0]["trace_source"] == "legacy_inferred"
     app_dependencies.append_agent_round_log(
         "skill-audit-task",
         {"round_number": 1, "action": "A04_DIAGNOSE", "rationale_summary": "Review evidence."},
@@ -54,6 +56,8 @@ def test_agent_log_exposes_persisted_skill_invocation_audit(client, repository, 
     streamed = client.get("/api/tasks/skill-audit-task/agent-log").json()["rounds"][0]
     assert streamed["activated_skills_audit"] == [manifest]
     assert streamed["tool_calls"][0]["tool_name_zh"] == "模型诊断工具"
+    assert streamed["decision_id"] == "dec-skill-audit"
+    assert streamed["tool_calls"][0]["trace_source"] == "legacy_inferred"
 
 
 def test_agent_log_combines_skills_tools_and_evidence_for_legacy_rows(
@@ -91,9 +95,111 @@ def test_agent_log_combines_skills_tools_and_evidence_for_legacy_rows(
     assert payload["activated_skill_ids"] == ["xaj-calibration-diagnosis"]
     assert payload["tool_calls"][0]["tool_id"] == "calibration.optimize"
     assert payload["tool_calls"][0]["status"] == "completed"
+    assert payload["tool_calls"][0]["trace_source"] == "evidence_inferred"
     assert payload["tool_calls"][0]["input_summary"]["optimizer"] == "sce-ua"
     assert payload["tool_calls"][0]["metrics"]["model_evaluations"] == 48
     assert payload["evidence_summary"]["evidence_id"] == "ev-tool-audit"
+
+
+def test_run_summary_exposes_current_round_coordinates(client, repository):
+    task_id = client.post("/api/tasks", json=CREATE_BODY).json()["task_id"]
+    repository.record_agent_decision(
+        decision_id="dec-run-round",
+        task_id=task_id,
+        round_number=1,
+        provider="fixture",
+        model="fixture",
+        world_state_hash="view-hash",
+        action="A04_DIAGNOSE",
+        hypothesis="MODEL",
+        strategy_id=None,
+        rationale_summary="Inspect errors.",
+        input_tokens=None,
+        output_tokens=None,
+        activated_skills_json=[],
+    )
+    payload = client.get(f"/api/tasks/{task_id}/run").json()
+    assert payload["current_round_number"] == 1
+    assert payload["current_decision_id"] == "dec-run-round"
+
+
+def test_paused_run_returns_last_real_round(client, repository, app_dependencies):
+    task_id = client.post("/api/tasks", json=CREATE_BODY).json()["task_id"]
+    repository.update_task_state(
+        task_id,
+        agent_rounds_used=6,
+        paused=True,
+        needs_follow_up=True,
+    )
+    repository.record_agent_decision(
+        decision_id="dec-paused-round",
+        task_id=task_id,
+        round_number=6,
+        provider="fixture",
+        model="fixture",
+        world_state_hash="view-hash",
+        action="A05_OPTIMIZE",
+        hypothesis="MODEL",
+        strategy_id="xaj-bounded-v1",
+        rationale_summary="Blocked for manual review.",
+        input_tokens=None,
+        output_tokens=None,
+        activated_skills_json=[],
+    )
+    app_dependencies.begin_llm_trace(task_id, round_number=6)
+    app_dependencies.finish_llm_trace(task_id, action="A05_OPTIMIZE")
+    payload = client.get(f"/api/tasks/{task_id}/run").json()
+    assert payload["current_round_number"] == 6
+    assert payload["current_decision_id"] == "dec-paused-round"
+
+
+def test_agent_log_binds_evidence_by_decision_id(client, repository, app_dependencies):
+    task_id = client.post("/api/tasks", json=CREATE_BODY).json()["task_id"]
+    for decision_id, evidence_id in (
+        ("dec-earlier-a05", "ev-earlier-a05"),
+        ("dec-current-a05", "ev-current-a05"),
+    ):
+        repository.record_agent_decision(
+            decision_id=decision_id,
+            task_id=task_id,
+            round_number=1 if decision_id == "dec-earlier-a05" else 2,
+            provider="fixture",
+            model="fixture",
+            world_state_hash="view-hash",
+            action="A05_OPTIMIZE",
+            hypothesis="MODEL",
+            strategy_id="xaj-bounded-v1",
+            rationale_summary="Run bounded optimization.",
+            input_tokens=None,
+            output_tokens=None,
+            activated_skills_json=[],
+        )
+        repository.add_evidence(
+            EvidencePacket(
+                evidence_id=evidence_id,
+                task_id=task_id,
+                decision_id=decision_id,
+                round_number=1 if decision_id == "dec-earlier-a05" else 2,
+                action=ActionCode.A05_OPTIMIZE,
+                status="succeeded",
+                observations=("model_evaluations=48",),
+                metrics={"NSE": 0.78},
+                new_information_hash=f"hash-{evidence_id}",
+            )
+        )
+    app_dependencies.append_agent_round_log(
+        task_id,
+        {
+            "round_number": 2,
+            "decision_id": "dec-current-a05",
+            "action": "A05_OPTIMIZE",
+            "rationale_summary": "Current optimization.",
+        },
+    )
+    payload = client.get(f"/api/tasks/{task_id}/agent-log").json()["rounds"][0]
+    assert payload["decision_id"] == "dec-current-a05"
+    assert payload["tool_calls"][0]["evidence_id"] == "ev-current-a05"
+    assert payload["evidence_summary"]["evidence_id"] == "ev-current-a05"
 
 
 def test_results_are_read_from_persisted_scheme_forecast_gate_report(

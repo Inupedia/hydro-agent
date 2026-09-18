@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
 
@@ -16,8 +18,31 @@ class ToolUnavailable(LookupError):
     pass
 
 
+@dataclass(frozen=True)
+class ToolExecutionContext:
+    decision_id: str
+    round_number: int
+
+
 class ToolHandler(Protocol):
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket: ...
+
+
+class ToolTraceRecorder(Protocol):
+    def start(self, *, task_id: str, decision: AgentDecision, context: ToolExecutionContext): ...
+
+    def progress(self, *, task_id: str, context: ToolExecutionContext, **payload): ...
+
+    def complete(
+        self,
+        *,
+        task_id: str,
+        context: ToolExecutionContext,
+        packet: EvidencePacket,
+        started_at: datetime,
+    ): ...
+
+    def fail(self, *, task_id: str, context: ToolExecutionContext, error: Exception): ...
 
 
 def _evidence_id() -> str:
@@ -37,18 +62,189 @@ def information_hash(
 
 
 class ToolRouter:
-    def __init__(self):
+    def __init__(self, trace_recorder: ToolTraceRecorder | None = None):
         self._handlers: dict[ActionCode, ToolHandler] = {}
+        self.trace_recorder = trace_recorder
 
     def register(self, action: ActionCode, handler: ToolHandler) -> None:
         self._handlers[action] = handler
 
-    def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
+    def execute(
+        self,
+        task_id: str,
+        decision: AgentDecision,
+        context: ToolExecutionContext | None = None,
+    ) -> EvidencePacket:
         handler = self._handlers.get(decision.action)
         if handler is None:
             raise ToolUnavailable(f"no handler for {decision.action}")
-        packet = handler.execute(task_id, decision)
+        if self.trace_recorder is not None and context is not None:
+            self.trace_recorder.start(task_id=task_id, decision=decision, context=context)
+        started_at = datetime.now(timezone.utc)
+        try:
+            packet = handler.execute(task_id, decision)
+        except Exception as exc:
+            if self.trace_recorder is not None and context is not None:
+                self.trace_recorder.fail(task_id=task_id, context=context, error=exc)
+            raise
+        if context is not None:
+            packet = packet.model_copy(
+                update={"decision_id": context.decision_id, "round_number": context.round_number}
+            )
+        if self.trace_recorder is not None and context is not None:
+            self.trace_recorder.complete(
+                task_id=task_id,
+                context=context,
+                packet=packet,
+                started_at=started_at,
+            )
         return packet
+
+
+class DependencyToolTraceRecorder:
+    """Persist native tool runtime traces in the existing agent-round log."""
+
+    def __init__(self, deps):
+        self.deps = deps
+
+    def _base_call(self, *, decision: AgentDecision, context: ToolExecutionContext, status: str):
+        from hydro_agent.agent.tool_catalog import TOOL_CATALOG
+
+        descriptor = TOOL_CATALOG[decision.action]
+        input_summary = {
+            key: value
+            for key, value in {
+                "strategy_id": decision.strategy_id,
+                "param_groups": ",".join(decision.param_groups or ()),
+                "objective": decision.objective,
+            }.items()
+            if value
+        }
+        return {
+            "tool_call_id": f"{context.decision_id}:{descriptor.tool_id}",
+            **descriptor.to_dict(),
+            "trace_source": "runtime",
+            "status": status,
+            "input_summary": input_summary,
+        }
+
+    def _upsert(self, task_id: str, context: ToolExecutionContext, call: dict, **fields):
+        self.deps.update_last_agent_round_log(
+            task_id,
+            decision_id=context.decision_id,
+            tool_calls=[call],
+            **fields,
+        )
+
+    def start(self, *, task_id: str, decision: AgentDecision, context: ToolExecutionContext):
+        existing = next(
+            (
+                row
+                for row in reversed(self.deps.list_agent_round_logs(task_id))
+                if row.get("round_number") == context.round_number
+            ),
+            None,
+        )
+        if existing is None:
+            self.deps.append_agent_round_log(
+                task_id,
+                {
+                    "round_number": context.round_number,
+                    "action": decision.action.value,
+                    "hypothesis": decision.hypothesis.value,
+                    "strategy_id": decision.strategy_id,
+                    "activated_skill_ids": list(decision.activated_skill_ids),
+                    "rationale_summary": decision.rationale_summary,
+                    "llm_output": "",
+                    "input_world_state": {},
+                    "tool_status": "running",
+                    "tool_observations": [],
+                    "tool_metrics": {},
+                    "error": None,
+                },
+            )
+        self._upsert(
+            task_id,
+            context,
+            self._base_call(decision=decision, context=context, status="running"),
+        )
+
+    def progress(self, *, task_id: str, context: ToolExecutionContext, **payload):
+        rows = self.deps.list_agent_round_logs(task_id)
+        call = next(
+            (
+                row.get("tool_calls", [None])[-1]
+                for row in reversed(rows)
+                if row.get("round_number") == context.round_number and row.get("tool_calls")
+            ),
+            None,
+        )
+        if call is None:
+            return
+        call = {**call, **payload}
+        self._upsert(task_id, context, call)
+
+    def complete(
+        self,
+        *,
+        task_id: str,
+        context: ToolExecutionContext,
+        packet: EvidencePacket,
+        started_at: datetime,
+    ):
+        from hydro_agent.agent.tool_catalog import normalize_tool_status
+
+        rows = self.deps.list_agent_round_logs(task_id)
+        call = next(
+            (
+                row.get("tool_calls", [None])[-1]
+                for row in reversed(rows)
+                if row.get("round_number") == context.round_number and row.get("tool_calls")
+            ),
+            None,
+        )
+        if call is None:
+            return
+        finished_at = datetime.now(timezone.utc)
+        completed = {
+            **call,
+            "status": normalize_tool_status(packet.status),
+            "started_at": started_at.isoformat(),
+            "finished_at": finished_at.isoformat(),
+            "duration_ms": max(0, round((finished_at - started_at).total_seconds() * 1000)),
+            "action_run_id": packet.action_run_id,
+            "evidence_id": packet.evidence_id,
+            "artifact_ids": list(packet.artifact_ids),
+            "output_summary": {
+                "observations": list(packet.observations[:6]),
+                "metrics": dict(packet.metrics),
+                "gates": dict(packet.gates),
+            },
+            "metrics": dict(packet.metrics),
+        }
+        self._upsert(
+            task_id,
+            context,
+            completed,
+            tool_status=completed["status"],
+            tool_observations=list(packet.observations),
+            tool_metrics=dict(packet.metrics),
+        )
+
+    def fail(self, *, task_id: str, context: ToolExecutionContext, error: Exception):
+        rows = self.deps.list_agent_round_logs(task_id)
+        call = next(
+            (
+                row.get("tool_calls", [None])[-1]
+                for row in reversed(rows)
+                if row.get("round_number") == context.round_number and row.get("tool_calls")
+            ),
+            None,
+        )
+        if call is None:
+            return
+        failed = {**call, "status": "failed", "output_summary": {"error": str(error)}}
+        self._upsert(task_id, context, failed, tool_status="failed", error=str(error))
 
 
 class CheckDataHandler:

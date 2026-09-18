@@ -136,6 +136,7 @@ def synthesize_tool_call(
     artifact_ids: list[str] | tuple[str, ...] = (),
     gates: dict[str, object] | None = None,
     error: str | None = None,
+    trace_source: str = "evidence_inferred",
 ) -> dict[str, object] | None:
     descriptor = tool_for_action(action)
     if descriptor is None:
@@ -171,6 +172,7 @@ def synthesize_tool_call(
     return {
         "tool_call_id": f"{evidence_id or 'legacy'}:{descriptor.tool_id}",
         **descriptor.to_dict(),
+        "trace_source": trace_source,
         "status": normalize_tool_status(status),
         "input_summary": input_summary,
         "output_summary": output_summary,

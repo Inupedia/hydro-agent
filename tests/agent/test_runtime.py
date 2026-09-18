@@ -69,3 +69,46 @@ def test_runtime_persists_decision_and_evidence(tmp_path):
     assert state.last_information_hash == "hash-forecast"
     decision = repo.list_agent_decisions("task-1")[0]
     assert decision.activated_skills_json[0]["skill_sha256"] == "a" * 64
+
+
+def test_runtime_persists_decision_before_tool_execution(tmp_path):
+    db = Database(f"sqlite+pysqlite:///{tmp_path}/hydro.db")
+    db.create_schema()
+    repo = HydroRepository(db)
+    repo.create_task(task_id="task-1", basin_id="b1", phase="B", forcing_mode="R")
+    repo.create_scheme(
+        scheme_id="scheme-base",
+        task_id="task-1",
+        model_id="xaj",
+        status="base",
+        config={"parameters": {"K": 0.7}},
+        content_hash="h",
+    )
+    repo.ensure_task_state("task-1", current_scheme_id="scheme-base")
+
+    class ContextAwareHandler(StubForecastHandler):
+        def __init__(self):
+            self.decisions_at_execute = None
+
+        def execute(self, task_id, decision):
+            self.decisions_at_execute = repo.list_agent_decisions(task_id)
+            return super().execute(task_id, decision)
+
+    handler = ContextAwareHandler()
+    provider = ScriptedDecisionProvider([
+        AgentDecision(
+            action=ActionCode.A03_FORECAST,
+            hypothesis=ProblemHypothesis.MODEL,
+            rationale_summary="Run the base forecast.",
+        )
+    ])
+    router = ToolRouter()
+    router.register(ActionCode.A03_FORECAST, handler)
+    runtime = AgentRuntime(repo, provider=provider, tools=router, world_state=WorldStateBuilder(repo))
+    packet = runtime.run_round("task-1")
+
+    assert len(handler.decisions_at_execute) == 1
+    decision = handler.decisions_at_execute[0]
+    assert decision.round_number == 1
+    assert packet.decision_id == decision.decision_id
+    assert packet.round_number == decision.round_number

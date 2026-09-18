@@ -125,6 +125,8 @@ class RunSummary(FrozenApiModel):
     agent_rounds_remaining: int
     optimization_cycles_remaining: int
     current_scheme_id: str | None
+    current_round_number: int | None = None
+    current_decision_id: str | None = None
     last_action: str | None = None
     last_hypothesis: str | None = None
     llm_streaming: bool = False
@@ -232,6 +234,7 @@ class ToolCallAudit(FrozenApiModel):
     ]
     description_zh: str = ""
     status: str
+    trace_source: Literal["runtime", "evidence_inferred", "legacy_inferred"] = "evidence_inferred"
     input_summary: dict[str, object] = Field(default_factory=dict)
     output_summary: dict[str, object] = Field(default_factory=dict)
     started_at: str | None = None
@@ -255,6 +258,7 @@ class EvidenceAuditSummary(FrozenApiModel):
 
 class AgentRoundLogItem(FrozenApiModel):
     round_number: int
+    decision_id: str | None = None
     occurred_at: str | None = None
     action: str | None = None
     action_zh: str = ""
