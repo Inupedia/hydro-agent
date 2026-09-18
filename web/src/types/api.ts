@@ -245,3 +245,85 @@ export type BasinInfo = {
   default_start?: string
   default_end?: string
 }
+
+
+export type ExperienceStatus = 'active' | 'superseded' | 'rejected' | 'inactive'
+export type ExperienceConvergenceStatus = 'learning' | 'converging' | 'converged' | 'reopened'
+
+export type ExperienceEvidenceRef = {
+  task_id: string
+  experiment_id?: string | null
+  evidence_id?: string | null
+}
+
+export type ExperienceEntry = {
+  experience_id: string
+  revision: number
+  category: string
+  scope: {
+    model_ids?: string[]
+    basin_ids?: string[]
+  }
+  pattern: Record<string, unknown>
+  decision: Record<string, unknown>
+  supporting_evidence: ExperienceEvidenceRef[]
+  contradicting_evidence: ExperienceEvidenceRef[]
+  confidence: number
+  status: ExperienceStatus | string
+  source_hash?: string | null
+}
+
+export type ExperienceEntryDetail = ExperienceEntry & {
+  revisions: ExperienceEntry[]
+}
+
+export type ExperienceSummary = {
+  current_version: number | null
+  current_skill_hash: string | null
+  status: ExperienceConvergenceStatus
+  active_count: number
+  high_confidence_count: number
+  candidate_count: number
+  version_count: number
+  reason: string
+}
+
+export type ExperienceEvolutionEvent = {
+  event_id: number
+  task_id?: string | null
+  experience_id?: string | null
+  event_type: string
+  from_revision?: number | null
+  to_revision?: number | null
+  version_before?: number | null
+  version_after?: number | null
+  reason: string
+  evidence_refs: ExperienceEvidenceRef[]
+  created_at: string
+}
+
+export type ExperienceVersion = {
+  version: number
+  parent_version?: number | null
+  status: string
+  skill_hash: string
+  manifest: Record<string, unknown>
+  regression?: Record<string, unknown> | null
+  created_at: string
+}
+
+export type ExperienceVersionDiff = {
+  version: number
+  parent_version?: number | null
+  added: string[]
+  modified: string[]
+  superseded: string[]
+  split: unknown[]
+  merged: unknown[]
+}
+
+export type ExperienceRegressionItem = {
+  version: number
+  status: string
+  regression: Record<string, unknown>
+}
