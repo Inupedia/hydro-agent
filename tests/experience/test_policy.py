@@ -216,3 +216,38 @@ def test_policy_ranking_is_stable_for_same_inputs():
     policy = ExperiencePolicy()
 
     assert policy.score_param_groups(**kwargs) == policy.score_param_groups(**kwargs)
+
+
+
+def test_stronger_negative_experience_can_override_positive_preference():
+    from hydro_agent.experience.policy import ExperiencePolicy
+
+    advice = ExperiencePolicy().advise_plan(
+        matches=(
+            _match(
+                "EXP-POSITIVE",
+                confidence=0.65,
+                decision={"prefer_param_groups": ["routing"]},
+            ),
+            _match(
+                "EXP-NEGATIVE",
+                confidence=0.95,
+                decision={
+                    "failed_param_groups": ["routing"],
+                    "avoid_param_groups": ["routing"],
+                },
+            ),
+        ),
+        diagnosis={"recommended_param_groups": ["runoff"]},
+        available_param_groups=("runoff", "routing"),
+        available_strategies=("xaj-bounded-v1",),
+    )
+
+    assert advice.mode == "exploitation"
+    assert advice.candidate_scores[0].candidate_id == "runoff"
+    assert advice.param_groups == ("runoff",)
+    routing = next(
+        row for row in advice.candidate_scores
+        if row.candidate_id == "routing"
+    )
+    assert routing.failure_penalty > routing.experience_score
