@@ -3,7 +3,7 @@ from pathlib import PurePosixPath
 from threading import Lock
 
 from pydantic import AwareDatetime, TypeAdapter
-from sqlalchemy import delete, select, text, update
+from sqlalchemy import delete, func, select, text, update
 
 from hydro_agent.execution.contracts import ExecutionPolicy, ExecutionRequest, ExecutionResult
 from hydro_agent.services.contracts import ForecastCreate, ForecastRecord
@@ -29,6 +29,17 @@ def timestamp(value):
     if value is None:
         return None
     return TypeAdapter(AwareDatetime).validate_python(value).astimezone(timezone.utc)
+
+
+def experience_source_hash(entry: ExperienceEntry) -> str:
+    payload = entry.model_dump(mode="json", exclude={"source_hash"})
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
 
 
 class HydroRepository:
@@ -423,5 +434,249 @@ class HydroRepository:
                     select(AgentDecisionRun)
                     .where(AgentDecisionRun.task_id == task_id)
                     .order_by(AgentDecisionRun.round_number, AgentDecisionRun.decision_id)
+                )
+            )
+
+
+    @staticmethod
+    def _experience_from_row(row: ExperienceRevision) -> ExperienceEntry:
+        return ExperienceEntry(
+            experience_id=row.experience_id,
+            revision=row.revision,
+            category=row.category,
+            scope=ExperienceScope.model_validate(row.scope_json),
+            pattern=dict(row.pattern_json),
+            decision=dict(row.decision_json),
+            supporting_evidence=tuple(
+                ExperienceEvidenceRef.model_validate(ref)
+                for ref in row.supporting_evidence_json
+            ),
+            contradicting_evidence=tuple(
+                ExperienceEvidenceRef.model_validate(ref)
+                for ref in row.contradicting_evidence_json
+            ),
+            confidence=row.confidence,
+            status=row.status,
+            source_hash=row.source_hash,
+        )
+
+    def append_experience_revision(self, entry: ExperienceEntry) -> ExperienceEntry:
+        source_hash = entry.source_hash or experience_source_hash(entry)
+        row = ExperienceRevision(
+            experience_id=entry.experience_id,
+            revision=entry.revision,
+            category=entry.category,
+            scope_json=entry.scope.model_dump(mode="json"),
+            pattern_json=entry.pattern,
+            decision_json=entry.decision,
+            supporting_evidence_json=[
+                ref.model_dump(mode="json") for ref in entry.supporting_evidence
+            ],
+            contradicting_evidence_json=[
+                ref.model_dump(mode="json") for ref in entry.contradicting_evidence
+            ],
+            confidence=entry.confidence,
+            status=entry.status,
+            source_hash=source_hash,
+        )
+        with self.database.session() as session:
+            session.add(row)
+            session.flush()
+        return self._experience_from_row(row)
+
+    def get_experience(
+        self,
+        experience_id: str,
+        revision: int | None = None,
+    ) -> ExperienceEntry:
+        with self.database.session() as session:
+            stmt = select(ExperienceRevision).where(
+                ExperienceRevision.experience_id == experience_id
+            )
+            if revision is None:
+                stmt = stmt.order_by(ExperienceRevision.revision.desc()).limit(1)
+            else:
+                stmt = stmt.where(ExperienceRevision.revision == revision)
+            row = session.scalar(stmt)
+            if row is None:
+                key = (experience_id, revision) if revision is not None else experience_id
+                raise KeyError(key)
+            return self._experience_from_row(row)
+
+    def list_active_experiences(
+        self,
+        model_id: str | None = None,
+        basin_id: str | None = None,
+    ) -> list[ExperienceEntry]:
+        latest = (
+            select(
+                ExperienceRevision.experience_id,
+                func.max(ExperienceRevision.revision).label("revision"),
+            )
+            .group_by(ExperienceRevision.experience_id)
+            .subquery()
+        )
+        with self.database.session() as session:
+            rows = list(
+                session.scalars(
+                    select(ExperienceRevision)
+                    .join(
+                        latest,
+                        (ExperienceRevision.experience_id == latest.c.experience_id)
+                        & (ExperienceRevision.revision == latest.c.revision),
+                    )
+                    .where(ExperienceRevision.status == "active")
+                    .order_by(ExperienceRevision.experience_id)
+                )
+            )
+
+        entries = [self._experience_from_row(row) for row in rows]
+        if model_id is not None:
+            entries = [
+                entry
+                for entry in entries
+                if not entry.scope.model_ids or model_id in entry.scope.model_ids
+            ]
+        if basin_id is not None:
+            entries = [
+                entry
+                for entry in entries
+                if not entry.scope.basin_ids or basin_id in entry.scope.basin_ids
+            ]
+        return entries
+
+    def create_experience_skill_version(
+        self,
+        *,
+        version: int,
+        parent_version: int | None,
+        status: ExperienceSkillVersionStatus,
+        skill_hash: str,
+        manifest: dict,
+        regression: dict | None = None,
+    ) -> ExperienceSkillVersion:
+        if status not in ("candidate", "promoted", "rejected", "superseded"):
+            raise ValueError(f"invalid experience skill version status: {status}")
+        row = ExperienceSkillVersion(
+            version=version,
+            parent_version=parent_version,
+            status=status,
+            skill_hash=skill_hash,
+            manifest_json=manifest,
+            regression_json=regression,
+        )
+        with self.database.session() as session:
+            session.add(row)
+            session.flush()
+        return row
+
+    def get_experience_skill_version(self, version: int) -> ExperienceSkillVersion:
+        with self.database.session() as session:
+            row = session.get(ExperienceSkillVersion, version)
+            if row is None:
+                raise KeyError(version)
+            return row
+
+    def list_experience_skill_versions(self) -> list[ExperienceSkillVersion]:
+        with self.database.session() as session:
+            return list(
+                session.scalars(
+                    select(ExperienceSkillVersion).order_by(
+                        ExperienceSkillVersion.version
+                    )
+                )
+            )
+
+    def get_current_experience_skill_version(
+        self,
+    ) -> ExperienceSkillVersion | None:
+        with self.database.session() as session:
+            return session.scalar(
+                select(ExperienceSkillVersion)
+                .where(ExperienceSkillVersion.status == "promoted")
+                .order_by(ExperienceSkillVersion.version.desc())
+                .limit(1)
+            )
+
+    def set_experience_skill_version_status(
+        self,
+        version: int,
+        status: ExperienceSkillVersionStatus,
+        *,
+        regression: dict | None = None,
+    ) -> ExperienceSkillVersion:
+        allowed = {
+            "candidate": {"promoted", "rejected"},
+            "promoted": {"superseded"},
+            "rejected": set(),
+            "superseded": set(),
+        }
+        with self.database.session() as session:
+            row = session.get(ExperienceSkillVersion, version)
+            if row is None:
+                raise KeyError(version)
+            if status != row.status and status not in allowed.get(row.status, set()):
+                raise ValueError(
+                    "invalid experience skill version transition "
+                    f"{row.status}->{status}"
+                )
+            row.status = status
+            if regression is not None:
+                row.regression_json = regression
+            session.flush()
+            return row
+
+    def append_experience_evolution_event(
+        self,
+        *,
+        event_type: ExperienceEvolutionEventType,
+        reason: str,
+        task_id: str | None = None,
+        experience_id: str | None = None,
+        from_revision: int | None = None,
+        to_revision: int | None = None,
+        version_before: int | None = None,
+        version_after: int | None = None,
+        evidence_refs: tuple[ExperienceEvidenceRef, ...] = (),
+    ) -> ExperienceEvolutionEvent:
+        if event_type not in (
+            "KEEP",
+            "REINFORCE",
+            "WEAKEN",
+            "CREATE",
+            "MERGE",
+            "SPLIT",
+            "SUPERSEDE",
+            "REJECT",
+        ):
+            raise ValueError(f"invalid experience evolution event type: {event_type}")
+        row = ExperienceEvolutionEvent(
+            task_id=task_id,
+            experience_id=experience_id,
+            event_type=event_type,
+            from_revision=from_revision,
+            to_revision=to_revision,
+            version_before=version_before,
+            version_after=version_after,
+            reason=reason,
+            evidence_refs_json=[
+                ref.model_dump(mode="json") for ref in evidence_refs
+            ],
+        )
+        with self.database.session() as session:
+            session.add(row)
+            session.flush()
+        return row
+
+    def list_experience_evolution_events(
+        self,
+    ) -> list[ExperienceEvolutionEvent]:
+        with self.database.session() as session:
+            return list(
+                session.scalars(
+                    select(ExperienceEvolutionEvent).order_by(
+                        ExperienceEvolutionEvent.created_at,
+                        ExperienceEvolutionEvent.event_id,
+                    )
                 )
             )
