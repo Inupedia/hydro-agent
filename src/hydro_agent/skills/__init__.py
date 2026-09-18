@@ -16,6 +16,7 @@ from hydro_agent.execution.contracts import FrozenModel
 from hydro_agent.skills.binding import read_binding
 from hydro_agent.skills.loader import (
     LoadedSkill,
+    default_agent_skills_root,
     default_skills_root,
     default_user_skills_root,
     load_skill_content,
@@ -46,7 +47,7 @@ SAC_SMA_DIAGNOSIS_SKILL_ID = "sac-sma-calibration-diagnosis"
 EXPERIMENT_DESIGN_SKILL_ID = "calibration-experiment-design"
 RESULT_REVIEW_SKILL_ID = "calibration-result-review"
 REPORTING_SKILL_ID = "hydrology-reporting"
-SkillSource = Literal["builtin", "user", "memory"]
+SkillSource = Literal["builtin", "agent", "user", "memory"]
 ActivationStage = Literal["data", "diagnosis", "experiment", "gate", "report"]
 
 
@@ -85,6 +86,7 @@ class SkillRegistry:
         *,
         root: Path | None = None,
         builtin_root: Path | None = None,
+        agent_root: Path | None = None,
         user_root: Path | None = None,
         loaded: dict[str, LoadedSkill] | None = None,
         standards: StandardRepository | None = None,
@@ -96,6 +98,14 @@ class SkillRegistry:
         self._snapshot_bindings: dict[str, dict] = {}
         self._snapshot_sha256: str | None = None
         self._static = loaded is not None or skills is not None
+        if agent_root is not None:
+            self._agent_root = Path(agent_root)
+        elif user_root is not None:
+            self._agent_root = Path(user_root).parent / "agent"
+        elif root is not None:
+            self._agent_root = Path(root).parent / "agent"
+        else:
+            self._agent_root = default_agent_skills_root()
         if root is not None:
             self._builtin_root: Path | None = None
             self._user_root = Path(root)
@@ -127,6 +137,10 @@ class SkillRegistry:
     def builtin_root(self) -> Path | None:
         return self._builtin_root
 
+    @property
+    def agent_root(self) -> Path:
+        return self._agent_root
+
     def reload(self) -> tuple[str, ...]:
         if self._static:
             return tuple(sorted(self._cards))
@@ -136,6 +150,9 @@ class SkillRegistry:
             for skill_id, skill in load_skills(self._builtin_root).items():
                 loaded[skill_id] = skill
                 sources[skill_id] = "builtin"
+        for skill_id, skill in load_skills(self._agent_root).items():
+            loaded[skill_id] = skill
+            sources[skill_id] = "agent"
         for skill_id, skill in load_skills(self._user_root).items():
             loaded[skill_id] = skill
             sources[skill_id] = "user"
@@ -167,6 +184,10 @@ class SkillRegistry:
             return self._snapshot_bindings[skill_id]
         if self._sources.get(skill_id) == "user":
             binding = read_binding(self._user_root, skill_id)
+            if binding is not None:
+                return binding
+        if self._sources.get(skill_id) == "agent":
+            binding = read_binding(self._agent_root, skill_id)
             if binding is not None:
                 return binding
         if self._builtin_root is not None:
@@ -355,7 +376,7 @@ class SkillRegistry:
             if stage in stages and (not models or view.model.model_id in models):
                 output.append(skill_id)
         for skill_id in sorted(self._loaded):
-            if self._sources.get(skill_id) != "user" or skill_id in output:
+            if self._sources.get(skill_id) not in {"agent", "user"} or skill_id in output:
                 continue
             binding = self.binding_for(skill_id)
             stages = binding["activation_stages"]

@@ -96,3 +96,58 @@ metadata:
         assert len(audit[0]["binding_sha256"]) == 64
     with pytest.raises(ValueError, match="already frozen"):
         repository.set_skill_snapshot("task-snapshot", build_snapshot({}))
+
+
+
+def test_agent_skill_is_captured_in_task_snapshot(tmp_path: Path):
+    builtin_root = tmp_path / "builtin"
+    agent_root = tmp_path / "agent"
+    user_root = tmp_path / "user"
+    skill_dir = agent_root / "calibration-experience"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        """---
+name: calibration-experience
+description: Uses learned calibration experience during experiment planning.
+metadata:
+  activation_stages: "diagnosis,experiment"
+---
+
+# Agent experience
+""",
+        encoding="utf-8",
+    )
+
+    db = Database(f"sqlite+pysqlite:///{tmp_path}/agent-snapshot.db")
+    db.create_schema()
+    repository = HydroRepository(db)
+    repository.create_task(
+        task_id="task-agent-snapshot",
+        basin_id="basin-a",
+        phase="B",
+        forcing_mode="R",
+    )
+    repository.create_scheme(
+        scheme_id="base-agent",
+        task_id="task-agent-snapshot",
+        model_id="xaj",
+        status="base",
+        config={},
+        content_hash="base-agent-hash",
+    )
+    repository.ensure_task_state(
+        "task-agent-snapshot",
+        current_scheme_id="base-agent",
+    )
+
+    registry = SkillRegistry(
+        builtin_root=builtin_root,
+        agent_root=agent_root,
+        user_root=user_root,
+        repository=repository,
+    )
+    snapshot = registry.freeze_for_task("task-agent-snapshot")
+
+    assert snapshot["skills"]["calibration-experience"]["source"] == "agent"
+    frozen = SkillRegistry.from_snapshot(snapshot)
+    assert frozen.source("calibration-experience") == "agent"

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import yaml
 
-from hydro_agent.skill_paths import builtin_skills_root, user_skills_root
+from hydro_agent.skill_paths import agent_skills_root, builtin_skills_root, user_skills_root
 
 _FRONTMATTER_RE = re.compile(r"\A\ufeff?---\s*\n(.*?)\n---\s*\n?(.*)\Z", re.DOTALL)
 
@@ -42,6 +42,10 @@ class LoadedSkill:
 
 def default_skills_root() -> Path:
     return builtin_skills_root()
+
+
+def default_agent_skills_root() -> Path:
+    return agent_skills_root()
 
 
 def default_user_skills_root() -> Path:
