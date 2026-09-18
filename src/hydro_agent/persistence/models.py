@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import (\n    JSON,\n    Boolean,\n    CheckConstraint,\n    DateTime,\n    Float,\n    ForeignKey,\n    Integer,\n    String,\n    UniqueConstraint,\n)
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
@@ -161,3 +161,55 @@ class AgentDecisionRun(Created, Base):
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
     activated_skills_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+
+
+class ExperienceRevision(Created, Base):
+    __tablename__ = "experience_revisions"
+    revision_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    experience_id: Mapped[str] = mapped_column(String, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    category: Mapped[str] = mapped_column(String, nullable=False)
+    scope_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    pattern_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    decision_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    supporting_evidence_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    contradicting_evidence_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    source_hash: Mapped[str] = mapped_column(String, nullable=False)
+    __table_args__ = (
+        UniqueConstraint("experience_id", "revision", name="uq_experience_revision"),
+        CheckConstraint("revision >= 1", name="ck_experience_revision_positive"),
+        CheckConstraint(
+            "confidence >= 0 AND confidence <= 1",
+            name="ck_experience_confidence",
+        ),
+    )
+
+
+class ExperienceSkillVersion(Created, Base):
+    __tablename__ = "experience_skill_versions"
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    parent_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    skill_hash: Mapped[str] = mapped_column(String, nullable=False)
+    manifest_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    regression_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    __table_args__ = (
+        CheckConstraint("version >= 1", name="ck_experience_skill_version_positive"),
+    )
+
+
+class ExperienceEvolutionEvent(Created, Base):
+    __tablename__ = "experience_evolution_events"
+    event_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    experience_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    event_type: Mapped[str] = mapped_column(String, nullable=False)
+    from_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    to_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    version_before: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    version_after: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reason: Mapped[str] = mapped_column(String, nullable=False)
+    evidence_refs_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
