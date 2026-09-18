@@ -8,7 +8,7 @@ from langgraph.graph import END, START, StateGraph
 from hydro_agent.agent.contracts import ActionCode, EvidencePacket
 from hydro_agent.agent.experiment_guardrail import apply_experiment_plan_guardrail
 from hydro_agent.agent.permissions import PermissionGate, decision_fingerprint
-from hydro_agent.agent.tools import information_hash
+from hydro_agent.agent.tools import ToolExecutionContext, information_hash
 from hydro_agent.agent.world_state import world_state_hash
 
 
@@ -135,10 +135,33 @@ def build_forecast_graph(
 
             decision = apply_experiment_plan_guardrail(view, AD.model_validate(fallback))
             gate.authorize(view, decision)
-        packet = _attach_experiment_plan(tools.execute(task_id, decision), decision)
-        repository.add_evidence(packet)
         task_state = repository.get_task_state(task_id)
-        rounds_used = task_state.agent_rounds_used + 1
+        round_number = task_state.agent_rounds_used + 1
+        decision_id = f"dec-{uuid.uuid4().hex[:12]}"
+        repository.record_agent_decision(
+            decision_id=decision_id,
+            task_id=task_id,
+            round_number=round_number,
+            provider=provider_name,
+            model=provider_model,
+            world_state_hash=world_state_hash(view),
+            action=decision.action.value,
+            hypothesis=decision.hypothesis.value,
+            strategy_id=decision.strategy_id,
+            rationale_summary=decision.rationale_summary,
+            input_tokens=None,
+            output_tokens=None,
+            activated_skills_json=list(decision.activated_skills_audit),
+        )
+        packet = _attach_experiment_plan(
+            tools.execute(
+                task_id,
+                decision,
+                ToolExecutionContext(decision_id=decision_id, round_number=round_number),
+            ),
+            decision,
+        )
+        repository.add_evidence(packet)
         opt_used = task_state.optimization_cycles_used + (
             1 if decision.action == ActionCode.A05_OPTIMIZE else 0
         )
@@ -161,7 +184,7 @@ def build_forecast_graph(
             1 for item in view.evidence_summary if item.action == ActionCode.A05_OPTIMIZE
         )
         update_kwargs = dict(
-            agent_rounds_used=rounds_used,
+            agent_rounds_used=round_number,
             optimization_cycles_used=opt_used,
             last_information_hash=packet.new_information_hash,
             last_decision_fingerprint=decision_fingerprint(
@@ -172,21 +195,6 @@ def build_forecast_graph(
         if paused is not None:
             update_kwargs["paused"] = paused
         repository.update_task_state(task_id, **update_kwargs)
-        repository.record_agent_decision(
-            decision_id=f"dec-{uuid.uuid4().hex[:12]}",
-            task_id=task_id,
-            round_number=rounds_used,
-            provider=provider_name,
-            model=provider_model,
-            world_state_hash=world_state_hash(view),
-            action=decision.action.value,
-            hypothesis=decision.hypothesis.value,
-            strategy_id=decision.strategy_id,
-            rationale_summary=decision.rationale_summary,
-            input_tokens=None,
-            output_tokens=None,
-            activated_skills_json=list(decision.activated_skills_audit),
-        )
         return {"last_packet": packet, "stop": False, "stop_reason": ""}
 
     def route_after_observe(state: ForecastGraphState) -> str:

@@ -143,14 +143,16 @@ class TaskExecutor:
             ),
             current_scheme_id=state.current_scheme_id,
             current_round_number=(
-                state.agent_rounds_used + 1
-                if running or trace.decision_action
+                trace.round_number
+                if running and trace.round_number > 0
+                else state.agent_rounds_used + 1
+                if running
                 else (latest_decision.round_number if latest_decision else None)
             ),
             current_decision_id=(
-                None
-                if running or trace.decision_action
-                else (latest_decision.decision_id if latest_decision else None)
+                latest_decision.decision_id
+                if latest_decision
+                else None
             ),
             last_action=last.action if last else None,
             last_hypothesis=None,

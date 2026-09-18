@@ -234,7 +234,7 @@ class ToolCallAudit(FrozenApiModel):
     ]
     description_zh: str = ""
     status: str
-    trace_source: Literal["runtime", "evidence_inferred", "legacy_inferred"] = "runtime"
+    trace_source: Literal["runtime", "evidence_inferred", "legacy_inferred"] = "evidence_inferred"
     input_summary: dict[str, object] = Field(default_factory=dict)
     output_summary: dict[str, object] = Field(default_factory=dict)
     started_at: str | None = None

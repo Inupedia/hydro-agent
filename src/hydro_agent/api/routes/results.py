@@ -355,10 +355,14 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
         # Fallback: reconstruct a thin log from persisted decisions + evidence.
         decisions = deps.repository.list_agent_decisions(task_id)
         by_action = {}
+        by_decision = {}
         for item in evidence_rows:
+            payload = dict(item.payload_json or {})
             by_action.setdefault(item.action, []).append(item)
+            if payload.get("decision_id"):
+                by_decision.setdefault(payload["decision_id"], []).append(item)
         for decision in decisions:
-            bucket = by_action.get(decision.action) or []
+            bucket = by_decision.get(decision.decision_id) or by_action.get(decision.action) or []
             ev = bucket.pop(0) if bucket else None
             rows.append(
                 {
@@ -417,8 +421,15 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
         for decision in deps.repository.list_agent_decisions(task_id)
     }
     evidence_by_action: dict[str, list] = {}
+    evidence_by_decision: dict[str, list] = {}
+    evidence_by_round: dict[int, list] = {}
     for item in evidence_rows:
         evidence_by_action.setdefault(item.action, []).append(item)
+        payload = dict(item.payload_json or {})
+        if payload.get("decision_id"):
+            evidence_by_decision.setdefault(payload["decision_id"], []).append(item)
+        if payload.get("round_number"):
+            evidence_by_round.setdefault(int(payload["round_number"]), []).append(item)
     rounds = []
     for row in rows:
         persisted = persisted_by_round.get(int(row.get("round_number") or 0))
@@ -432,14 +443,19 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
         action = row.get("action")
         tool_status = row.get("tool_status")
         decision_id = row.get("decision_id") or (persisted.decision_id if persisted else None)
-        evidence_bucket = evidence_by_action.get(str(action)) or []
+        evidence_bucket = (
+            evidence_by_decision.get(str(decision_id) or "")
+            or evidence_by_round.get(int(row.get("round_number") or 0))
+            or evidence_by_action.get(str(action))
+            or []
+        )
         persisted_evidence = evidence_bucket.pop(0) if evidence_bucket else None
         activated = row.get("activated_skill_ids") or []
         if isinstance(activated, str):
             activated = [item.strip() for item in activated.split(",") if item.strip()]
         tool_calls = list(row.get("tool_calls") or ())
         for call in tool_calls:
-            call.setdefault("trace_source", "runtime")
+            call.setdefault("trace_source", "evidence_inferred")
         if not tool_calls:
             observations = list(row.get("tool_observations") or ())
             metrics_payload = dict(row.get("tool_metrics") or {})
