@@ -216,7 +216,12 @@ def build_task_summary(deps: AppDependencies, task_id: str) -> TaskSummary:
     end_date = config.get("research_end_date") or config.get("end_date")
     validation_days = config.get("validation_days") or config.get("development_days")
     final_test_days = config.get("final_test_days")
-    agent_evolution_enabled = bool(config.get("agent_evolution_enabled", False))
+    raw_evolution_enabled = config.get("agent_evolution_enabled")
+    agent_evolution_enabled = (
+        bool(raw_evolution_enabled)
+        if raw_evolution_enabled is not None
+        else state.experience_state_snapshot_json is not None
+    )
     display_name = getattr(task, "name", None) or config.get("name")
     try:
         schemes = deps.repository.list_schemes(task_id=task_id)
@@ -240,11 +245,14 @@ def build_task_summary(deps: AppDependencies, task_id: str) -> TaskSummary:
                 or workbench.get("development_days")
             )
             final_test_days = final_test_days or workbench.get("final_test_days")
-            agent_evolution_enabled = bool(
-                config.get(
-                    "agent_evolution_enabled",
-                    workbench.get("agent_evolution_enabled", False),
-                )
+            raw_evolution_enabled = config.get(
+                "agent_evolution_enabled",
+                workbench.get("agent_evolution_enabled"),
+            )
+            agent_evolution_enabled = (
+                bool(raw_evolution_enabled)
+                if raw_evolution_enabled is not None
+                else state.experience_state_snapshot_json is not None
             )
             if state.current_scheme_id and scheme.scheme_id == state.current_scheme_id:
                 model_id = str(scheme.model_id or model_id)
