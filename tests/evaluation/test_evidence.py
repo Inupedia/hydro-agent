@@ -137,3 +137,104 @@ def test_builder_rejects_non_monotonic_dates_and_mask_mismatch():
             simulated=[1.0, 2.0],
             quality_mask=[True],
         )
+
+
+
+def test_event_evidence_contains_peak_volume_rise_and_recession_signatures():
+    dates = _dates(24, date(2020, 7, 1))
+    observed = [
+        10, 10, 11, 12, 16, 35, 70, 105, 60, 32, 18, 13,
+        11, 10, 11, 13, 20, 45, 85, 120, 70, 35, 20, 14,
+    ]
+    simulated = [
+        10, 10, 11, 12, 15, 30, 58, 92, 72, 40, 22, 14,
+        11, 10, 11, 13, 18, 39, 73, 105, 82, 44, 24, 15,
+    ]
+    precipitation = [
+        0, 0, 0, 5, 18, 25, 8, 0, 0, 0, 0, 0,
+        0, 0, 0, 4, 15, 30, 10, 0, 0, 0, 0, 0,
+    ]
+
+    bundle = HydrologicEvidenceBuilder(
+        min_fdc_samples=10,
+        min_event_samples=3,
+        flood_threshold_quantile=0.85,
+    ).build(
+        window="calibration",
+        dates=dates,
+        observed=observed,
+        simulated=simulated,
+        precipitation=precipitation,
+    )
+
+    assert len(bundle.flood_events) == 2
+    event = bundle.flood_events[0]
+    assert event.status == "available"
+    assert event.basis == "rainfall_runoff"
+    assert event.metrics["peak_relative_error"] < 0
+    assert "peak_timing_lag_steps" in event.metrics
+    assert "volume_relative_error" in event.metrics
+    assert "rising_limb_mae" in event.metrics
+    assert "recession_mae" in event.metrics
+    assert event.metrics["duration_steps"] >= 3
+    assert "response_lag_steps" in event.metrics
+
+
+def test_event_evidence_falls_back_to_flow_only_without_precipitation():
+    observed = [10, 10, 11, 15, 40, 90, 50, 20, 12, 10] * 2
+    simulated = [value * 0.9 for value in observed]
+    bundle = HydrologicEvidenceBuilder(
+        min_fdc_samples=10,
+        min_event_samples=3,
+        flood_threshold_quantile=0.85,
+    ).build(
+        window="calibration",
+        dates=_dates(len(observed)),
+        observed=observed,
+        simulated=simulated,
+    )
+
+    assert bundle.flood_events
+    assert all(event.basis == "flow_only" for event in bundle.flood_events)
+    assert all("response_lag_steps" not in event.metrics for event in bundle.flood_events)
+
+
+def test_quality_mask_keeps_event_precipitation_aligned():
+    dates = _dates(20)
+    observed = [10, 10, 12, 20, 60, 100, 55, 22, 12, 10] * 2
+    simulated = [value * 0.95 for value in observed]
+    precipitation = [0, 0, 8, 20, 10, 0, 0, 0, 0, 0] * 2
+    quality_mask = [True] * 20
+    quality_mask[1] = False
+
+    bundle = HydrologicEvidenceBuilder(
+        min_fdc_samples=10,
+        min_event_samples=3,
+        flood_threshold_quantile=0.85,
+    ).build(
+        window="calibration",
+        dates=dates,
+        observed=observed,
+        simulated=simulated,
+        precipitation=precipitation,
+        quality_mask=quality_mask,
+    )
+
+    assert bundle.quality.dropped_by_reason["quality_mask"] == 1
+    assert bundle.flood_events
+    assert all(event.basis == "rainfall_runoff" for event in bundle.flood_events)
+
+
+def test_zero_observed_volume_reports_relative_metrics_unavailable():
+    bundle = HydrologicEvidenceBuilder(min_fdc_samples=10).build(
+        window="calibration",
+        dates=_dates(4),
+        observed=[0.0, 0.0, 0.0, 0.0],
+        simulated=[0.0, 1.0, 0.0, 1.0],
+    )
+
+    assert bundle.overall.status == "available"
+    assert "volume_ratio" not in bundle.overall.metrics
+    assert "volume_relative_error" not in bundle.overall.metrics
+    assert "metric_unavailable=volume_ratio" in bundle.overall.notes
+    assert "metric_unavailable=volume_relative_error" in bundle.overall.notes
