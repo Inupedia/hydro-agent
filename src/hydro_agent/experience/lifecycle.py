@@ -262,17 +262,31 @@ class ExperienceEvolutionService:
             )
 
         self.ensure_baseline()
+
+        # If an earlier structural candidate is still quarantined, this newly
+        # completed task is independent of that candidate's source evidence.
+        # Validate the pending candidate before reflecting on the new task so
+        # the holdout cannot become training evidence first.
+        pending = self._candidate_for_active_structure()
+        pending_decision = None
+        if pending is not None:
+            pending_decision = self.promotion_service.validate_and_promote(
+                pending.version
+            )
+            if pending_decision.accepted and self.skill_registry is not None:
+                self.skill_registry.reload()
+
         prior_events = [
             event
             for event in self.repository.list_experience_evolution_events()
             if event.task_id == task_id
         ]
-
         structural_change = any(
             event.event_type in {"CREATE", "MERGE", "SPLIT", "SUPERSEDE"}
             for event in prior_events
         )
         structural_diffs: tuple[ExperienceDiff, ...] = ()
+
         if not prior_events:
             reflection = ExperienceReflectionEngine(
                 self.repository,
@@ -293,31 +307,54 @@ class ExperienceEvolutionService:
                     task_id=task_id,
                     processed=True,
                     structural_change=False,
+                    candidate_version=pending.version if pending is not None else None,
+                    promotion_accepted=(
+                        pending_decision.accepted
+                        if pending_decision is not None
+                        else None
+                    ),
                     reasons=tuple(applied.rejected),
                 )
 
         if not structural_change and not self._structure_differs_from_promoted():
+            reasons = ["STATE_OPTIMIZATION_ONLY"]
+            if pending_decision is not None:
+                reasons = [*pending_decision.reasons, *reasons]
             return ExperienceEvolutionOutcome(
                 task_id=task_id,
                 processed=True,
                 structural_change=False,
-                reasons=("STATE_OPTIMIZATION_ONLY",),
+                candidate_version=pending.version if pending is not None else None,
+                promotion_accepted=(
+                    pending_decision.accepted
+                    if pending_decision is not None
+                    else None
+                ),
+                reasons=tuple(reasons),
             )
 
-        candidate = self._candidate_for_current_state()
+        candidate = self._candidate_for_active_structure()
         if candidate is None:
+            self._retire_stale_candidates()
             candidate = self._compile_candidate(structural_diffs=structural_diffs)
 
-        decision = self.promotion_service.validate_and_promote(candidate.version)
-        if decision.accepted and self.skill_registry is not None:
+        # Do not re-use the same completed task to validate a candidate that
+        # was already checked before Reflection. For a brand-new structural
+        # candidate, validate now; its source task is excluded by PromotionService.
+        if pending is not None and candidate.version == pending.version:
+            decision = pending_decision
+        else:
+            decision = self.promotion_service.validate_and_promote(candidate.version)
+
+        if decision is not None and decision.accepted and self.skill_registry is not None:
             self.skill_registry.reload()
         return ExperienceEvolutionOutcome(
             task_id=task_id,
             processed=True,
             structural_change=True,
             candidate_version=candidate.version,
-            promotion_accepted=decision.accepted,
-            reasons=decision.reasons,
+            promotion_accepted=decision.accepted if decision is not None else None,
+            reasons=decision.reasons if decision is not None else (),
         )
 
     def _compile_candidate(
@@ -339,22 +376,52 @@ class ExperienceEvolutionService:
             ),
         )
 
-    def _candidate_for_current_state(self):
-        active_revisions = _active_revision_map(
-            self.repository.list_active_experiences()
-        )
+    def _candidate_for_active_structure(self):
+        active_ids = {
+            entry.experience_id
+            for entry in self.repository.list_active_experiences()
+        }
         for row in reversed(self.repository.list_experience_skill_versions()):
             if row.status != "candidate":
                 continue
-            manifest_revisions = {
-                str(key): int(value)
-                for key, value in dict(
-                    dict(row.manifest_json or {}).get("source_revisions") or {}
-                ).items()
-            }
-            if manifest_revisions == active_revisions:
+            manifest = dict(row.manifest_json or {})
+            candidate_ids = set(
+                str(item)
+                for item in (
+                    manifest.get("source_experience_ids")
+                    or dict(manifest.get("source_revisions") or {}).keys()
+                )
+            )
+            if candidate_ids == active_ids:
                 return row
         return None
+
+    def _retire_stale_candidates(self) -> None:
+        active_ids = {
+            entry.experience_id
+            for entry in self.repository.list_active_experiences()
+        }
+        for row in self.repository.list_experience_skill_versions():
+            if row.status != "candidate":
+                continue
+            manifest = dict(row.manifest_json or {})
+            candidate_ids = set(
+                str(item)
+                for item in (
+                    manifest.get("source_experience_ids")
+                    or dict(manifest.get("source_revisions") or {}).keys()
+                )
+            )
+            if candidate_ids == active_ids:
+                continue
+            self.repository.set_experience_skill_version_status(
+                row.version,
+                "rejected",
+                regression={
+                    "passed": False,
+                    "reason": "STALE_CANDIDATE_SUPERSEDED_BY_NEW_STRUCTURE",
+                },
+            )
 
     def _structure_differs_from_promoted(self) -> bool:
         current = self.repository.get_current_experience_skill_version()
