@@ -250,5 +250,7 @@ def _successful_status(value: object) -> bool:
         "completed",
         "accept",
         "accepted",
+        "keep",
+        "rollback",
         "qualified",
     }
