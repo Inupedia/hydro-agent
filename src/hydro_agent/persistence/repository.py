@@ -1,11 +1,20 @@
+import hashlib
+import json
 from datetime import timezone
 from pathlib import PurePosixPath
 from threading import Lock
 
 from pydantic import AwareDatetime, TypeAdapter
-from sqlalchemy import delete, select, text, update
+from sqlalchemy import delete, func, select, text, update
 
 from hydro_agent.execution.contracts import ExecutionPolicy, ExecutionRequest, ExecutionResult
+from hydro_agent.experience.contracts import (
+    ExperienceEntry,
+    ExperienceEvidenceRef,
+    ExperienceEvolutionEventType,
+    ExperienceScope,
+    ExperienceSkillVersionStatus,
+)
 from hydro_agent.services.contracts import ForecastCreate, ForecastRecord
 
 from .database import Database
@@ -16,6 +25,9 @@ from .models import (
     CostLedger,
     DataSnapshot,
     Evidence,
+    ExperienceEvolutionEvent,
+    ExperienceRevision,
+    ExperienceSkillVersion,
     Forecast,
     Scheme,
     Task,
@@ -29,6 +41,17 @@ def timestamp(value):
     if value is None:
         return None
     return TypeAdapter(AwareDatetime).validate_python(value).astimezone(timezone.utc)
+
+
+def experience_source_hash(entry: ExperienceEntry) -> str:
+    payload = entry.model_dump(mode="json", exclude={"source_hash"})
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
 
 
 class HydroRepository:
@@ -363,6 +386,31 @@ class HydroRepository:
                 raise ValueError(f"Skill Snapshot already frozen for task {task_id}")
             return state
 
+    def set_experience_state_snapshot(self, task_id: str, snapshot: dict):
+        """Freeze the Experience revision map once for deterministic task replay."""
+        from hydro_agent.experience.snapshot import verify_experience_state_snapshot
+
+        verify_experience_state_snapshot(snapshot)
+        with self.database.session() as session:
+            changed = session.execute(
+                update(TaskState)
+                .where(
+                    TaskState.task_id == task_id,
+                    TaskState.experience_state_snapshot_json.is_(None),
+                )
+                .values(experience_state_snapshot_json=snapshot)
+            )
+            if changed.rowcount == 1:
+                return session.get(TaskState, task_id)
+            state = session.get(TaskState, task_id)
+            if state is None:
+                raise KeyError(task_id)
+            if state.experience_state_snapshot_json != snapshot:
+                raise ValueError(
+                    f"Experience State Snapshot already frozen for task {task_id}"
+                )
+            return state
+
     def update_task_state(self, task_id: str, **fields):
         allowed = {
             "current_scheme_id",
@@ -423,5 +471,411 @@ class HydroRepository:
                     select(AgentDecisionRun)
                     .where(AgentDecisionRun.task_id == task_id)
                     .order_by(AgentDecisionRun.round_number, AgentDecisionRun.decision_id)
+                )
+            )
+
+
+    @staticmethod
+    def _experience_from_row(row: ExperienceRevision) -> ExperienceEntry:
+        return ExperienceEntry(
+            experience_id=row.experience_id,
+            revision=row.revision,
+            category=row.category,
+            scope=ExperienceScope.model_validate(row.scope_json),
+            pattern=dict(row.pattern_json),
+            decision=dict(row.decision_json),
+            supporting_evidence=tuple(
+                ExperienceEvidenceRef.model_validate(ref)
+                for ref in row.supporting_evidence_json
+            ),
+            contradicting_evidence=tuple(
+                ExperienceEvidenceRef.model_validate(ref)
+                for ref in row.contradicting_evidence_json
+            ),
+            confidence=row.confidence,
+            status=row.status,
+            source_hash=row.source_hash,
+        )
+
+    @staticmethod
+    def _experience_revision_row(entry: ExperienceEntry) -> ExperienceRevision:
+        source_hash = entry.source_hash or experience_source_hash(entry)
+        return ExperienceRevision(
+            experience_id=entry.experience_id,
+            revision=entry.revision,
+            category=entry.category,
+            scope_json=entry.scope.model_dump(mode="json"),
+            pattern_json=entry.pattern,
+            decision_json=entry.decision,
+            supporting_evidence_json=[
+                ref.model_dump(mode="json") for ref in entry.supporting_evidence
+            ],
+            contradicting_evidence_json=[
+                ref.model_dump(mode="json") for ref in entry.contradicting_evidence
+            ],
+            confidence=entry.confidence,
+            status=entry.status,
+            source_hash=source_hash,
+        )
+
+    def append_experience_revision(self, entry: ExperienceEntry) -> ExperienceEntry:
+        row = self._experience_revision_row(entry)
+        with self.database.session() as session:
+            session.add(row)
+            session.flush()
+        return self._experience_from_row(row)
+
+    def commit_experience_transition(
+        self,
+        *,
+        entries: tuple[ExperienceEntry, ...],
+        event_type: ExperienceEvolutionEventType,
+        reason: str,
+        task_id: str | None = None,
+        experience_id: str | None = None,
+        from_revision: int | None = None,
+        to_revision: int | None = None,
+        version_before: int | None = None,
+        version_after: int | None = None,
+        evidence_refs: tuple[ExperienceEvidenceRef, ...] = (),
+    ) -> ExperienceEvolutionEvent:
+        """Persist all revisions for one Experience Diff and its audit event atomically."""
+
+        allowed_events = {
+            "KEEP",
+            "REINFORCE",
+            "WEAKEN",
+            "CREATE",
+            "MERGE",
+            "SPLIT",
+            "SUPERSEDE",
+            "REJECT",
+        }
+        if event_type not in allowed_events:
+            raise ValueError(f"invalid experience evolution event type: {event_type}")
+
+        with self.database.session() as session:
+            latest_by_id: dict[str, ExperienceRevision | ExperienceEntry | None] = {}
+            revision_rows: list[ExperienceRevision] = []
+
+            for entry in entries:
+                latest = latest_by_id.get(entry.experience_id)
+                if entry.experience_id not in latest_by_id:
+                    latest = session.scalar(
+                        select(ExperienceRevision)
+                        .where(ExperienceRevision.experience_id == entry.experience_id)
+                        .order_by(ExperienceRevision.revision.desc())
+                        .limit(1)
+                    )
+
+                if latest is None:
+                    if entry.revision != 1:
+                        raise ValueError(
+                            f"new experience {entry.experience_id} must start at revision 1"
+                        )
+                else:
+                    latest_revision = int(latest.revision)
+                    latest_status = str(latest.status)
+                    if latest_status != "active":
+                        raise ValueError(
+                            f"experience {entry.experience_id} is not active"
+                        )
+                    if entry.revision != latest_revision + 1:
+                        raise ValueError(
+                            f"experience {entry.experience_id} revision "
+                            f"{entry.revision} does not follow {latest_revision}"
+                        )
+
+                row = self._experience_revision_row(entry)
+                session.add(row)
+                revision_rows.append(row)
+                latest_by_id[entry.experience_id] = entry
+
+            event = ExperienceEvolutionEvent(
+                task_id=task_id,
+                experience_id=experience_id,
+                event_type=event_type,
+                from_revision=from_revision,
+                to_revision=to_revision,
+                version_before=version_before,
+                version_after=version_after,
+                reason=reason,
+                evidence_refs_json=[
+                    ref.model_dump(mode="json") for ref in evidence_refs
+                ],
+            )
+            session.add(event)
+            session.flush()
+
+        return event
+
+    def get_experience(
+        self,
+        experience_id: str,
+        revision: int | None = None,
+    ) -> ExperienceEntry:
+        with self.database.session() as session:
+            stmt = select(ExperienceRevision).where(
+                ExperienceRevision.experience_id == experience_id
+            )
+            if revision is None:
+                stmt = stmt.order_by(ExperienceRevision.revision.desc()).limit(1)
+            else:
+                stmt = stmt.where(ExperienceRevision.revision == revision)
+            row = session.scalar(stmt)
+            if row is None:
+                key = (experience_id, revision) if revision is not None else experience_id
+                raise KeyError(key)
+            return self._experience_from_row(row)
+
+    def list_experience_revisions(
+        self,
+        experience_id: str | None = None,
+    ) -> list[ExperienceEntry]:
+        with self.database.session() as session:
+            stmt = select(ExperienceRevision).order_by(
+                ExperienceRevision.experience_id,
+                ExperienceRevision.revision,
+            )
+            if experience_id is not None:
+                stmt = stmt.where(
+                    ExperienceRevision.experience_id == experience_id
+                )
+            rows = list(session.scalars(stmt))
+        return [self._experience_from_row(row) for row in rows]
+
+    def list_active_experiences(
+        self,
+        model_id: str | None = None,
+        basin_id: str | None = None,
+    ) -> list[ExperienceEntry]:
+        latest = (
+            select(
+                ExperienceRevision.experience_id,
+                func.max(ExperienceRevision.revision).label("revision"),
+            )
+            .group_by(ExperienceRevision.experience_id)
+            .subquery()
+        )
+        with self.database.session() as session:
+            rows = list(
+                session.scalars(
+                    select(ExperienceRevision)
+                    .join(
+                        latest,
+                        (ExperienceRevision.experience_id == latest.c.experience_id)
+                        & (ExperienceRevision.revision == latest.c.revision),
+                    )
+                    .where(ExperienceRevision.status == "active")
+                    .order_by(ExperienceRevision.experience_id)
+                )
+            )
+
+        entries = [self._experience_from_row(row) for row in rows]
+        if model_id is not None:
+            entries = [
+                entry
+                for entry in entries
+                if not entry.scope.model_ids or model_id in entry.scope.model_ids
+            ]
+        if basin_id is not None:
+            entries = [
+                entry
+                for entry in entries
+                if not entry.scope.basin_ids or basin_id in entry.scope.basin_ids
+            ]
+        return entries
+
+    def create_experience_skill_version(
+        self,
+        *,
+        version: int,
+        parent_version: int | None,
+        status: ExperienceSkillVersionStatus,
+        skill_hash: str,
+        manifest: dict,
+        regression: dict | None = None,
+    ) -> ExperienceSkillVersion:
+        if status not in ("candidate", "promoted", "rejected", "superseded"):
+            raise ValueError(f"invalid experience skill version status: {status}")
+        row = ExperienceSkillVersion(
+            version=version,
+            parent_version=parent_version,
+            status=status,
+            skill_hash=skill_hash,
+            manifest_json=manifest,
+            regression_json=regression,
+        )
+        with self.database.session() as session:
+            session.add(row)
+            session.flush()
+        return row
+
+    def get_experience_skill_version(self, version: int) -> ExperienceSkillVersion:
+        with self.database.session() as session:
+            row = session.get(ExperienceSkillVersion, version)
+            if row is None:
+                raise KeyError(version)
+            return row
+
+    def list_experience_skill_versions(self) -> list[ExperienceSkillVersion]:
+        with self.database.session() as session:
+            return list(
+                session.scalars(
+                    select(ExperienceSkillVersion).order_by(
+                        ExperienceSkillVersion.version
+                    )
+                )
+            )
+
+    def get_current_experience_skill_version(
+        self,
+    ) -> ExperienceSkillVersion | None:
+        with self.database.session() as session:
+            return session.scalar(
+                select(ExperienceSkillVersion)
+                .where(ExperienceSkillVersion.status == "promoted")
+                .order_by(ExperienceSkillVersion.version.desc())
+                .limit(1)
+            )
+
+    def set_experience_skill_version_status(
+        self,
+        version: int,
+        status: ExperienceSkillVersionStatus,
+        *,
+        regression: dict | None = None,
+    ) -> ExperienceSkillVersion:
+        allowed = {
+            "candidate": {"promoted", "rejected"},
+            "promoted": {"superseded"},
+            "rejected": set(),
+            "superseded": set(),
+        }
+        with self.database.session() as session:
+            row = session.get(ExperienceSkillVersion, version)
+            if row is None:
+                raise KeyError(version)
+            if status != row.status and status not in allowed.get(row.status, set()):
+                raise ValueError(
+                    "invalid experience skill version transition "
+                    f"{row.status}->{status}"
+                )
+            row.status = status
+            if regression is not None:
+                row.regression_json = regression
+            session.flush()
+            return row
+
+    def append_experience_evolution_event(
+        self,
+        *,
+        event_type: ExperienceEvolutionEventType,
+        reason: str,
+        task_id: str | None = None,
+        experience_id: str | None = None,
+        from_revision: int | None = None,
+        to_revision: int | None = None,
+        version_before: int | None = None,
+        version_after: int | None = None,
+        evidence_refs: tuple[ExperienceEvidenceRef, ...] = (),
+    ) -> ExperienceEvolutionEvent:
+        if event_type not in (
+            "KEEP",
+            "REINFORCE",
+            "WEAKEN",
+            "CREATE",
+            "MERGE",
+            "SPLIT",
+            "SUPERSEDE",
+            "REJECT",
+        ):
+            raise ValueError(f"invalid experience evolution event type: {event_type}")
+        row = ExperienceEvolutionEvent(
+            task_id=task_id,
+            experience_id=experience_id,
+            event_type=event_type,
+            from_revision=from_revision,
+            to_revision=to_revision,
+            version_before=version_before,
+            version_after=version_after,
+            reason=reason,
+            evidence_refs_json=[
+                ref.model_dump(mode="json") for ref in evidence_refs
+            ],
+        )
+        with self.database.session() as session:
+            session.add(row)
+            session.flush()
+        return row
+
+    def reject_experience_skill_candidate_with_rollback(
+        self,
+        *,
+        version: int,
+        regression: dict,
+        reason: str,
+        rollback_entries: tuple[ExperienceEntry, ...] = (),
+        version_before: int | None = None,
+    ) -> ExperienceSkillVersion:
+        """Reject one candidate and restore the promoted Experience structure atomically."""
+
+        if not reason.strip():
+            raise ValueError("rejection reason required")
+        with self.database.session() as session:
+            candidate = session.get(ExperienceSkillVersion, version)
+            if candidate is None:
+                raise KeyError(version)
+            if candidate.status != "candidate":
+                raise ValueError(
+                    f"experience skill version {version} is not candidate"
+                )
+
+            for entry in rollback_entries:
+                latest = session.scalar(
+                    select(ExperienceRevision)
+                    .where(
+                        ExperienceRevision.experience_id == entry.experience_id
+                    )
+                    .order_by(ExperienceRevision.revision.desc())
+                    .limit(1)
+                )
+                if latest is None:
+                    raise KeyError(entry.experience_id)
+                if entry.revision != int(latest.revision) + 1:
+                    raise ValueError(
+                        f"experience {entry.experience_id} rollback revision "
+                        f"{entry.revision} does not follow {latest.revision}"
+                    )
+                session.add(self._experience_revision_row(entry))
+
+            candidate.status = "rejected"
+            candidate.regression_json = regression
+            session.add(
+                ExperienceEvolutionEvent(
+                    task_id=None,
+                    experience_id=None,
+                    event_type="REJECT",
+                    from_revision=None,
+                    to_revision=None,
+                    version_before=version_before,
+                    version_after=version,
+                    reason=reason.strip(),
+                    evidence_refs_json=[],
+                )
+            )
+            session.flush()
+            return candidate
+
+    def list_experience_evolution_events(
+        self,
+    ) -> list[ExperienceEvolutionEvent]:
+        with self.database.session() as session:
+            return list(
+                session.scalars(
+                    select(ExperienceEvolutionEvent).order_by(
+                        ExperienceEvolutionEvent.created_at,
+                        ExperienceEvolutionEvent.event_id,
+                    )
                 )
             )

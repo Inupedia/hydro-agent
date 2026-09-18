@@ -18,6 +18,7 @@ from hydro_agent.agent.providers.skill_support import (
     knowledge_context_from_view,
     skill_orchestrator,
 )
+from hydro_agent.experience.policy import ExperiencePolicy
 from hydro_agent.skills import SkillRegistry
 
 
@@ -30,10 +31,12 @@ class CalibrationScientistDecisionProvider:
         max_experiments: int | None = None,
         repository=None,
         skills: SkillRegistry | None = None,
+        experience_policy: ExperiencePolicy | None = None,
     ) -> None:
         _ = max_experiments
         self.repository = repository
         self.skills = skills
+        self.experience_policy = experience_policy or ExperiencePolicy()
         self.seen_views: list[WorldStateView] = []
 
     @staticmethod
@@ -138,12 +141,31 @@ class CalibrationScientistDecisionProvider:
                     ),
                 )
 
+            experience_advice = None
+            if view.hydro.experience.skill_version is not None:
+                experience_advice = self.experience_policy.advise_plan(
+                    matches=view.hydro.experience.matches,
+                    diagnosis=diagnosis,
+                    available_param_groups=tuple(view.hydro.available_param_groups),
+                    available_strategies=tuple(view.hydro.available_strategies),
+                )
+
             orchestrator = self._orchestrator(view)
             plan, invocations = orchestrator.plan_calibration(
                 diagnosis,
                 view=view,
                 campaign_objective=view.hydro.campaign_objective,
                 knowledge_context=knowledge_context_from_view(view),
+                proposed_strategy_id=(
+                    experience_advice.strategy_id
+                    if experience_advice is not None
+                    else None
+                ),
+                proposed_param_groups=(
+                    experience_advice.param_groups
+                    if experience_advice is not None
+                    else ()
+                ),
             )
             skill_ids, audit = orchestrator.decision_audit(invocations)
             interpretation = plan.evidence_interpretation
@@ -174,6 +196,23 @@ class CalibrationScientistDecisionProvider:
                 )[:240],
                 activated_skill_ids=skill_ids,
                 activated_skills_audit=audit,
+                experience_skill_version=view.hydro.experience.skill_version,
+                experience_skill_hash=view.hydro.experience.skill_hash,
+                experience_refs=(
+                    experience_advice.experience_refs
+                    if experience_advice is not None
+                    else ()
+                ),
+                experience_mode=(
+                    experience_advice.mode
+                    if experience_advice is not None
+                    else None
+                ),
+                experience_influence=(
+                    experience_advice.influence
+                    if experience_advice is not None
+                    else ()
+                ),
             )
 
         if latest.action == ActionCode.A05_OPTIMIZE:

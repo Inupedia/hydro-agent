@@ -93,3 +93,18 @@ def test_skill_snapshot_cannot_be_replaced_by_direct_sql(tmp_path):
                 "UPDATE task_state SET skill_snapshot_json = '{\"sha256\":\"changed\"}' "
                 "WHERE task_id = 'task-skill'"
             )
+
+
+
+def test_create_schema_adds_experience_audit_to_existing_decision_table(tmp_path):
+    db = Database(f"sqlite+pysqlite:///{tmp_path}/hydro-experience-audit.db")
+    db.create_schema()
+    with db.engine.begin() as conn:
+        conn.exec_driver_sql("ALTER TABLE agent_decisions DROP COLUMN experience_audit_json")
+    db.create_schema()
+
+    columns = {
+        column["name"]
+        for column in inspect(db.engine).get_columns("agent_decisions")
+    }
+    assert "experience_audit_json" in columns

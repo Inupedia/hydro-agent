@@ -22,9 +22,19 @@ def user_skills_root() -> Path:
     return Path.cwd() / ".agents" / "skills"
 
 
+def agent_skills_root() -> Path:
+    configured = os.getenv("HYDRO_AGENT_AGENT_SKILLS_DIR", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return Path.cwd() / ".agents" / "agent-skills"
+
+
 def active_skill_root(skill_id: str) -> Path:
-    """Return the active user override when present, otherwise the built-in skill."""
+    """Return the active user/agent package before falling back to built-ins."""
     user = user_skills_root() / skill_id
     if (user / "SKILL.md").is_file():
         return user
+    agent = agent_skills_root() / skill_id
+    if (agent / "SKILL.md").is_file():
+        return agent
     return builtin_skills_root() / skill_id

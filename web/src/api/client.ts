@@ -1,5 +1,12 @@
 import type {
   AgentLogSummary,
+  ExperienceEntry,
+  ExperienceEntryDetail,
+  ExperienceEvolutionEvent,
+  ExperienceRegressionItem,
+  ExperienceSummary,
+  ExperienceVersion,
+  ExperienceVersionDiff,
   BasinInfo,
   ModelPlan,
   ResultSummary,
@@ -193,6 +200,32 @@ export const api = {
   },
   getResearch(taskId: string) {
     return request<ResearchSummary>(`/api/tasks/${taskId}/research`)
+  },
+  getExperienceSummary() {
+    return request<ExperienceSummary>('/api/experience/summary')
+  },
+  listExperienceEntries() {
+    return request<ExperienceEntry[]>('/api/experience/entries')
+  },
+  getExperienceEntry(experienceId: string) {
+    return request<ExperienceEntryDetail>(
+      `/api/experience/entries/${encodeURIComponent(experienceId)}`,
+    )
+  },
+  listExperienceEvolution() {
+    return request<ExperienceEvolutionEvent[]>('/api/experience/evolution')
+  },
+  listExperienceVersions() {
+    return request<ExperienceVersion[]>('/api/experience/versions')
+  },
+  getExperienceVersion(version: number) {
+    return request<ExperienceVersion>(`/api/experience/versions/${version}`)
+  },
+  getExperienceVersionDiff(version: number) {
+    return request<ExperienceVersionDiff>(`/api/experience/versions/${version}/diff`)
+  },
+  getExperienceRegression() {
+    return request<{ items: ExperienceRegressionItem[] }>('/api/experience/regression')
   },
   listSkills() {
     return request<{ items: SkillSummary[] }>('/api/skills')

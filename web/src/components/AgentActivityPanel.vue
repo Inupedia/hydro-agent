@@ -8,6 +8,8 @@ import EvidenceCard from './EvidenceCard.vue'
 import ExperimentStats from './ExperimentStats.vue'
 import ToolExecutionCard from './ToolExecutionCard.vue'
 
+const emit = defineEmits<{ 'open-experience': [experienceId: string] }>()
+
 const props = defineProps<{
   taskId?: string | null
   eventCount: number
@@ -74,6 +76,13 @@ const evidence = computed(() => currentRound.value?.evidence_summary || (current
   observations: currentRound.value.tool_observations,
   metrics: currentRound.value.tool_metrics,
 } : null))
+const experienceModeLabel = computed(() =>
+  currentRound.value?.experience_mode === 'exploration'
+    ? '受控探索'
+    : currentRound.value?.experience_mode === 'exploitation'
+      ? '经验利用'
+      : '',
+)
 const activitySummary = computed(() => currentRound.value?.action_zh || (loading.value ? '正在读取活动记录' : '等待 Agent 开始行动'))
 </script>
 
@@ -144,7 +153,26 @@ const activitySummary = computed(() => currentRound.value?.action_zh || (loading
                   <div v-if="currentRound.strategy_id"><dt>策略</dt><dd>{{ currentRound.strategy_id }}</dd></div>
                   <div v-if="paramGroups"><dt>参数组</dt><dd>{{ paramGroups }}</dd></div>
                   <div v-if="objective"><dt>目标</dt><dd>{{ objective }}</dd></div>
+                  <div v-if="currentRound.experience_skill_version"><dt>Experience Skill</dt><dd>v{{ currentRound.experience_skill_version }} · {{ experienceModeLabel }}</dd></div>
                 </dl>
+                <div v-if="currentRound?.experience_refs?.length" class="experience-audit" data-test="experience-audit">
+                  <span class="experience-audit-label">EXPERIENCE</span>
+                  <div class="experience-ref-list">
+                    <button
+                      v-for="experienceId in currentRound.experience_refs"
+                      :key="experienceId"
+                      type="button"
+                      class="experience-ref"
+                      :data-test="`experience-ref-${experienceId}`"
+                      @click="emit('open-experience', experienceId)"
+                    >
+                      {{ experienceId }}
+                    </button>
+                  </div>
+                  <ul v-if="currentRound.experience_influence?.length" class="experience-influence">
+                    <li v-for="reason in currentRound.experience_influence" :key="reason">{{ reason }}</li>
+                  </ul>
+                </div>
               </div>
             </article>
             <article class="activity-step tool-step">
@@ -207,6 +235,13 @@ const activitySummary = computed(() => currentRound.value?.action_zh || (loading
 .activity-step dt { color: var(--text-tertiary); font-size: 8px; }
 .activity-step dd { margin: 0; color: var(--text-primary); font-size: 9px; overflow-wrap: anywhere; }
 .activity-tools { display: grid; gap: 6px; }
+.experience-audit { display: grid; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--separator); }
+.experience-audit-label { color: var(--trace-skill); font-size: 9px; font-weight: 800; letter-spacing: .08em; }
+.experience-ref-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.experience-ref { border: 1px solid color-mix(in srgb, var(--trace-skill) 30%, var(--separator)); border-radius: 999px; background: color-mix(in srgb, var(--trace-skill) 8%, var(--surface)); padding: 3px 7px; color: var(--text-primary); font-family: var(--mono); font-size: 9px; cursor: pointer; }
+.experience-ref:hover { background: color-mix(in srgb, var(--trace-skill) 14%, var(--surface)); }
+.experience-influence { display: grid !important; gap: 3px !important; padding-left: 14px !important; list-style: disc !important; }
+.experience-influence li { display: list-item !important; background: transparent !important; padding: 0 !important; color: var(--text-secondary); font-size: 9px; line-height: 1.45; }
 .tool-step, .evidence-step { padding: 8px; }
 .tool-step > h4, .evidence-step > h4, .tool-step > small, .evidence-step > small { margin-left: 3px; }
 .activity-loading, .activity-error { margin: 0; border-radius: var(--radius-sm); background: var(--surface); padding: 18px; color: var(--text-secondary); font-size: 11px; text-align: center; }

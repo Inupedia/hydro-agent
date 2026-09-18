@@ -1,0 +1,69 @@
+name: Experience Evolution CI
+
+on:
+  pull_request:
+    paths:
+      - "src/hydro_agent/experience/**"
+      - "src/hydro_agent/persistence/**"
+      - "src/hydro_agent/agent/**"
+      - "src/hydro_agent/api/**"
+      - "src/hydro_agent/skills/**"
+      - "web/src/**"
+      - "tests/experience/**"
+      - "tests/agent/test_world_state.py"
+      - "tests/api/**"
+      - "tests/skills/**"
+      - ".github/workflows/experience-evolution.yml"
+  workflow_dispatch:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - name: Install Python dependencies
+        run: uv sync --extra api --extra data --extra dev
+      - name: Lint Experience Evolution code
+        run: >
+          uv run ruff check
+          src/hydro_agent/experience
+          src/hydro_agent/persistence
+          src/hydro_agent/api
+          tests/experience
+      - name: Run adjacent backend regression suite
+        run: >
+          uv run pytest -q
+          tests/experience
+          tests/agent
+          tests/api
+          tests/skills
+          tests/replay
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Type check
+        run: npx vue-tsc --noEmit
+      - name: Run frontend test suite
+        run: npm test
+      - name: Build frontend
+        run: npm run build
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Run Experience Evolution E2E
+        run: npm run test:e2e -- experience-evolution.spec.ts

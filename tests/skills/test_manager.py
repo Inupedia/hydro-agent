@@ -270,3 +270,35 @@ description: edited outside the process
     registry.reload()
 
     assert registry.get_loaded("demo-skill").description == "edited outside the process"
+
+
+
+def test_agent_skill_is_read_only(tmp_path: Path):
+    builtin_root = tmp_path / "builtin"
+    agent_root = tmp_path / "agent"
+    user_root = tmp_path / "user"
+    _write_skill(agent_root, "calibration-experience", "agent generated experience")
+
+    registry = SkillRegistry(
+        builtin_root=builtin_root,
+        agent_root=agent_root,
+        user_root=user_root,
+    )
+    manager = SkillManager(registry)
+
+    assert registry.source("calibration-experience") == "agent"
+    detail = manager.detail_payload("calibration-experience")
+    assert detail["source"] == "agent"
+    assert detail["editable"] is False
+
+    with pytest.raises(ValueError, match="agent-managed"):
+        manager.save_skill(
+            "calibration-experience",
+            """---
+name: calibration-experience
+description: manual edit
+---
+
+# Manual
+""",
+        )

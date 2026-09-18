@@ -53,6 +53,11 @@ def test_runtime_persists_decision_and_evidence(tmp_path):
                         "loaded_references": [],
                     },
                 ),
+                experience_skill_version=4,
+                experience_skill_hash="e" * 64,
+                experience_refs=("EXP-XAJ-1",),
+                experience_mode="exploitation",
+                experience_influence=("EXP-XAJ-1:prefer=routing",),
             )
         ]
     )
@@ -69,6 +74,13 @@ def test_runtime_persists_decision_and_evidence(tmp_path):
     assert state.last_information_hash == "hash-forecast"
     decision = repo.list_agent_decisions("task-1")[0]
     assert decision.activated_skills_json[0]["skill_sha256"] == "a" * 64
+    assert decision.experience_audit_json == {
+        "skill_version": 4,
+        "skill_hash": "e" * 64,
+        "experience_refs": ["EXP-XAJ-1"],
+        "mode": "exploitation",
+        "influence": ["EXP-XAJ-1:prefer=routing"],
+    }
 
 
 def test_runtime_persists_decision_before_tool_execution(tmp_path):

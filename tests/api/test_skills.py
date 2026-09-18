@@ -35,7 +35,11 @@ def test_skill_api_builtin_readonly_and_user_crud(app_dependencies, tmp_path: Pa
     with TestClient(app) as client:
         listing = client.get("/api/skills")
         assert listing.status_code == 200
-        item = listing.json()["items"][0]
+        item = next(
+            item
+            for item in listing.json()["items"]
+            if item["skill_id"] == "demo-skill"
+        )
         assert item["source"] == "builtin"
         assert item["editable"] is False
 

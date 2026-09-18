@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import Field
 
 from hydro_agent.execution.contracts import FrozenModel, Identifier
+from hydro_agent.experience.retrieval import ExperienceMatch
 from hydro_agent.optimization.campaign import CampaignSnapshot
 
 
@@ -48,6 +49,11 @@ class AgentDecision(FrozenModel):
     experiment_evidence_refs: tuple[str, ...] = ()
     activated_skill_ids: tuple[str, ...] = ()
     activated_skills_audit: tuple[dict, ...] = ()
+    experience_skill_version: int | None = Field(default=None, ge=1)
+    experience_skill_hash: str | None = None
+    experience_refs: tuple[str, ...] = ()
+    experience_mode: Literal["exploitation", "exploration"] | None = None
+    experience_influence: tuple[str, ...] = ()
     # User-facing audit trace. These are concise decision summaries, not hidden chain-of-thought.
     observation_zh: str = Field(default="", max_length=240)
     analysis_zh: str = Field(default="", max_length=600)
@@ -114,6 +120,15 @@ class EvidenceSummary(FrozenModel):
     gates: dict[str, str] = Field(default_factory=dict)
 
 
+class ExperienceContext(FrozenModel):
+    skill_version: int | None = Field(default=None, ge=1)
+    skill_hash: str | None = None
+    status: Literal["learning", "converging", "converged", "reopened"] = "learning"
+    matches: tuple[ExperienceMatch, ...] = ()
+    source_revisions: dict[str, int] = Field(default_factory=dict)
+    exploration_level: float = Field(default=0.75, ge=0.0, le=1.0)
+
+
 class HydroContext(FrozenModel):
     """Decision-relevant hydrologic context beyond ids/hashes."""
 
@@ -136,6 +151,7 @@ class HydroContext(FrozenModel):
     diagnosis: dict[str, object] = Field(default_factory=dict)
     experiment_history: tuple[str, ...] = ()
     skill_cards: tuple[dict[str, object], ...] = ()
+    experience: ExperienceContext = Field(default_factory=ExperienceContext)
 
 
 class WorldStateView(FrozenModel):

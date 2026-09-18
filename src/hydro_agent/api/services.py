@@ -177,7 +177,14 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
     )
     deps.repository.ensure_task_state(task_id, current_scheme_id=scheme_id)
     if deps.skills is not None:
-        deps.skills.freeze_for_task(task_id)
+        skill_snapshot = deps.skills.freeze_for_task(task_id)
+        from hydro_agent.experience.snapshot import freeze_experience_state_for_task
+
+        freeze_experience_state_for_task(
+            deps.repository,
+            task_id,
+            skill_snapshot,
+        )
 
     runtime_config = build_runtime_task_config(
         config["workbench"],

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -9,8 +10,10 @@ from fastapi.staticfiles import StaticFiles
 
 from hydro_agent.api.deps import AppDependencies
 from hydro_agent.api.executor import TaskExecutor
+from hydro_agent.api.experience_regression import AppExperienceReplayRunner
 from hydro_agent.api.routes import (
     basins,
+    experience,
     hydrologist,
     llm_settings,
     model_plans,
@@ -23,8 +26,22 @@ from hydro_agent.api.routes import (
 from hydro_agent.api.routes import (
     skills as skill_routes,
 )
+from hydro_agent.experience.lifecycle import ExperienceEvolutionService
+from hydro_agent.experience.promotion import ExperiencePromotionService
+from hydro_agent.experience.regression import ExperienceRegressionService
+from hydro_agent.experience.skill_versions import ExperienceSkillVersionStore
 from hydro_agent.skills import SkillRegistry
 from hydro_agent.skills.manager import SkillManager
+
+
+def _experience_store_root(deps: AppDependencies) -> Path:
+    configured = os.getenv("HYDRO_AGENT_EXPERIENCE_SKILL_STORE", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    database_path = str(deps.repository.database.engine.url.database or "").strip()
+    if database_path and database_path != ":memory:":
+        return Path(database_path).expanduser().resolve().parent / "experience-skill-store"
+    return Path.cwd() / ".agents" / "experience-skill-store"
 
 
 def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> FastAPI:
@@ -35,18 +52,50 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    executor = TaskExecutor(deps)
-    deps.executor = executor  # type: ignore[attr-defined]
+    experience_store_root = _experience_store_root(deps)
     skill_registry = (
-        deps.skills if deps.skills is not None else SkillRegistry(repository=deps.repository)
+        deps.skills
+        if deps.skills is not None
+        else SkillRegistry(
+            agent_root=experience_store_root / "current",
+            repository=deps.repository,
+        )
     )
     if skill_registry.repository is None:
         skill_registry.repository = deps.repository
     deps.skills = skill_registry
+
+    version_store = ExperienceSkillVersionStore(
+        experience_store_root,
+        repository=deps.repository,
+        active_root=skill_registry.agent_root,
+    )
+    replay_runner = AppExperienceReplayRunner(
+        deps,
+        version_store=version_store,
+    )
+    regression_service = ExperienceRegressionService(replay_runner)
+    promotion_service = ExperiencePromotionService(
+        deps.repository,
+        version_store=version_store,
+        regression_service=regression_service,
+    )
+    experience_evolution = ExperienceEvolutionService(
+        deps.repository,
+        version_store=version_store,
+        promotion_service=promotion_service,
+        skill_registry=skill_registry,
+    )
+    experience_evolution.ensure_baseline()
+    deps.experience_evolution = experience_evolution
+
+    executor = TaskExecutor(deps)
+    deps.executor = executor  # type: ignore[attr-defined]
     app.state.deps = deps
     app.state.executor = executor
     app.state.skills = skill_registry
     app.state.skill_manager = SkillManager(skill_registry)
+    app.state.experience_evolution = experience_evolution
 
     @app.get("/api/health")
     def health():
@@ -70,6 +119,7 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
         }
 
     app.include_router(basins.router)
+    app.include_router(experience.router)
     app.include_router(model_plans.router)
     app.include_router(hydrologist.router)
     app.include_router(llm_settings.router)

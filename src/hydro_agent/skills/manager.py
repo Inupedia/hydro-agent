@@ -22,6 +22,7 @@ from hydro_agent.skills.loader import (
 
 _EDITABLE_RESOURCE_ROOTS = {"references", "assets"}
 _BUILTIN_READONLY = "built-in skills are read-only; create a new user skill instead"
+_AGENT_READONLY = "agent-managed skills are read-only; they are generated from validated Experience"
 _CORE_SKILL_IDS = frozenset(LEGACY_SKILL_ALIASES.values()) | {
     "hydrology-data-review",
     "hydrologic-evidence-review",
@@ -78,6 +79,8 @@ class SkillManager:
         source = self._source_or_none(skill_id)
         if source == "builtin":
             raise ValueError(_BUILTIN_READONLY)
+        if source == "agent":
+            raise ValueError(_AGENT_READONLY)
         if source == "memory":
             raise ValueError("in-memory skills are read-only")
         user_dir = self._ensure_user_dir(skill_id, create=True)
@@ -101,9 +104,15 @@ class SkillManager:
         unknown_stages = set(parsed.meta_list("activation_stages")) - ACTIVATION_STAGES
         if unknown_stages:
             errors.append(f"unknown activation_stages: {', '.join(sorted(unknown_stages))}")
-        root = self.registry.user_root / skill_id
-        if not root.is_dir() and self.registry.builtin_root is not None:
+        source = self._source_or_none(skill_id)
+        if source == "user":
+            root = self.registry.user_root / skill_id
+        elif source == "agent":
+            root = self.registry.agent_root / skill_id
+        elif self.registry.builtin_root is not None:
             root = self.registry.builtin_root / skill_id
+        else:
+            root = self.registry.user_root / skill_id
         for relative in parsed.meta_list("prompt_references"):
             try:
                 normalized = self._validate_resource_relative(relative, writable=False)
@@ -128,8 +137,9 @@ class SkillManager:
     def save_binding(
         self, skill_id: str, *, activation_stages: tuple[str, ...], activation_model_ids: tuple[str, ...]
     ) -> dict:
-        if self._source_or_none(skill_id) != "user":
-            raise ValueError(_BUILTIN_READONLY)
+        source = self._source_or_none(skill_id)
+        if source != "user":
+            raise ValueError(_AGENT_READONLY if source == "agent" else _BUILTIN_READONLY)
         validate_binding(activation_stages, activation_model_ids)
         path = binding_path(self.registry.user_root, skill_id)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -181,7 +191,7 @@ class SkillManager:
             raise ValueError(f"resource exceeds {self.max_resource_chars} characters")
         source = self._source_or_none(skill_id)
         if source != "user":
-            raise ValueError(_BUILTIN_READONLY)
+            raise ValueError(_AGENT_READONLY if source == "agent" else _BUILTIN_READONLY)
         normalized = self._validate_resource_relative(relative, writable=True)
         user_dir = self._ensure_user_dir(skill_id, create=False)
         path = (user_dir / normalized).resolve()
