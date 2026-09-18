@@ -72,3 +72,7 @@ jobs:
           src/stores/experience.test.ts
       - name: Build frontend
         run: npm run build
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Run Experience Evolution E2E
+        run: npm run test:e2e -- experience-evolution.spec.ts
