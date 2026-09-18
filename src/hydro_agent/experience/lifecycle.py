@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterable
+from threading import RLock
 
 from hydro_agent.execution.contracts import FrozenModel
 from hydro_agent.experience.compiler import ExperienceSkillCompiler
@@ -210,8 +211,13 @@ class ExperienceEvolutionService:
         self.skill_registry = skill_registry
         self.provider = provider or EvidenceExperienceReflectionProvider()
         self.compiler = compiler or ExperienceSkillCompiler()
+        self._lock = RLock()
 
     def ensure_baseline(self) -> int:
+        with self._lock:
+            return self._ensure_baseline_locked()
+
+    def _ensure_baseline_locked(self) -> int:
         current = self.repository.get_current_experience_skill_version()
         if current is not None:
             return current.version
@@ -237,6 +243,10 @@ class ExperienceEvolutionService:
         return 1
 
     def process_completed_task(self, task_id: str) -> ExperienceEvolutionOutcome:
+        with self._lock:
+            return self._process_completed_task_locked(task_id)
+
+    def _process_completed_task_locked(self, task_id: str) -> ExperienceEvolutionOutcome:
         task = self.repository.get_task(task_id)
         state = self.repository.get_task_state(task_id)
         if (
