@@ -513,8 +513,8 @@ def test_app_replay_restores_historical_state_and_uses_version_revision_map(tmp_
     from hydro_agent.api.experience_regression import AppExperienceReplayRunner
     from hydro_agent.experience.compiler import ExperienceSkillCompiler
     from hydro_agent.experience.contracts import ExperienceEntry, ExperienceScope
-    from hydro_agent.experience.snapshot import build_experience_state_snapshot
     from hydro_agent.experience.skill_versions import ExperienceSkillVersionStore
+    from hydro_agent.experience.snapshot import build_experience_state_snapshot
     from hydro_agent.persistence.database import Database
     from hydro_agent.persistence.repository import HydroRepository
 
