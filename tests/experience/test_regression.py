@@ -205,3 +205,95 @@ def test_promotion_gate_accepts_non_degrading_candidate_with_fewer_failures():
 
     assert decision.accepted is True
     assert decision.reasons == ("NON_DEGRADING", "REPEATED_FAILURE_REDUCTION")
+
+
+
+def test_app_replay_runner_overrides_experience_snapshot_and_cleans_clone(tmp_path):
+    from types import SimpleNamespace
+
+    from hydro_agent.api.experience_regression import AppExperienceReplayRunner
+    from hydro_agent.experience.compiler import ExperienceSkillCompiler
+    from hydro_agent.experience.contracts import ExperienceEntry, ExperienceScope
+    from hydro_agent.experience.skill_versions import ExperienceSkillVersionStore
+    from hydro_agent.persistence.database import Database
+    from hydro_agent.persistence.repository import HydroRepository
+    from hydro_agent.skills.snapshot import snapshot_file_bytes
+
+    db = Database(f"sqlite+pysqlite:///{tmp_path}/app-replay.db")
+    db.create_schema()
+    repository = HydroRepository(db)
+    repository.create_task(
+        task_id="source-task",
+        basin_id="basin-a",
+        phase="B",
+        forcing_mode="R",
+    )
+    repository.create_scheme(
+        scheme_id="source-base",
+        task_id="source-task",
+        model_id="xaj",
+        status="base",
+        config={"parameters": {"K": 0.7}, "workbench": {}},
+        content_hash="source-hash",
+    )
+    repository.ensure_task_state("source-task", current_scheme_id="source-base")
+
+    exp = ExperienceEntry(
+        experience_id="EXP-RUN",
+        revision=1,
+        category="model",
+        scope=ExperienceScope(model_ids=("xaj",), basin_ids=("basin-a",)),
+        pattern={},
+        decision={"prefer_param_groups": ["routing"]},
+        supporting_evidence=(),
+        contradicting_evidence=(),
+        confidence=0.8,
+        status="active",
+    )
+    repository.append_experience_revision(exp)
+    store = ExperienceSkillVersionStore(tmp_path / "versions", repository=repository)
+    compiled = ExperienceSkillCompiler().compile(1, (exp,))
+    store.create_candidate(compiled)
+    store.promote(1)
+
+    seen = {}
+
+    class Runtime:
+        def run_until_terminal(self, clone_id):
+            state = repository.get_task_state(clone_id)
+            snapshot = state.skill_snapshot_json
+            raw = snapshot_file_bytes(
+                snapshot["skills"]["calibration-experience"]["files"],
+                "SKILL.md",
+            ).decode("utf-8")
+            seen["clone_id"] = clone_id
+            seen["skill_md"] = raw
+            repository.set_task_phase(clone_id, "F")
+            repository.set_task_phase(clone_id, "E")
+            repository.update_task_state(clone_id, needs_follow_up=False)
+
+    deps = SimpleNamespace(
+        repository=repository,
+        runtime_for_task=None,
+        runtime_factory=lambda: Runtime(),
+        task_configs={"source-task": {"model_id": "xaj"}},
+        skills=None,
+    )
+    outcome = AppExperienceReplayRunner(
+        deps,
+        version_store=store,
+        cleanup=True,
+    ).run(
+        task_id="source-task",
+        experience_skill_version=1,
+    )
+
+    assert 'hydro-agent-version: "1"' in seen["skill_md"]
+    assert outcome.task_id == "source-task"
+    assert outcome.terminal_status == "succeeded"
+    try:
+        repository.get_task(seen["clone_id"])
+    except KeyError:
+        pass
+    else:
+        raise AssertionError("regression clone should be cleaned")
