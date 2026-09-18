@@ -97,10 +97,6 @@ export const useDemoStore = defineStore('demo', () => {
     modelDetail: '尚未检查',
   })
 
-  const isRunning = computed(
-    () => Boolean(run.value?.worker_active) || run.value?.status === 'running',
-  )
-  const isQueued = computed(() => run.value?.status === 'queued')
   const isCompleted = computed(
     () =>
       run.value?.status === 'completed' ||
@@ -109,6 +105,15 @@ export const useDemoStore = defineStore('demo', () => {
   const isFailed = computed(
     () => run.value?.status === 'failed' || run.value?.status === 'error',
   )
+  const isRunning = computed(() => {
+    const status = run.value?.status
+    // The worker may remain occupied briefly by post-run experience evolution.
+    // Once the hydrologic task is terminal, that background cleanup must not
+    // keep the UI in its cancellable "running" state.
+    if (isCompleted.value || isFailed.value || status === 'cancelled') return false
+    return Boolean(run.value?.worker_active) || status === 'running'
+  })
+  const isQueued = computed(() => run.value?.status === 'queued')
   let completeSettleTicks = 0
 
   function persistSession() {

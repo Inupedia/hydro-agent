@@ -410,7 +410,9 @@ describe("single page observatory", () => {
     store.taskId = "test-task";
     store.run = {
       status: "completed",
-      worker_active: false,
+      // Experience evolution can keep the worker occupied after the
+      // hydrologic task itself has reached its terminal result.
+      worker_active: true,
       phase: "E",
       needs_follow_up: false,
     } as typeof store.run;
