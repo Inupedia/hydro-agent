@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from pydantic import Field
-
 from hydro_agent.execution.contracts import FrozenModel
 from hydro_agent.experience.contracts import ExperienceEntry, ExperienceEvidenceRef
 from hydro_agent.experience.diff import ExperienceDiff, is_structural_change
