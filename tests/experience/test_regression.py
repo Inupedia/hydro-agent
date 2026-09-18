@@ -507,6 +507,117 @@ def test_app_replay_runner_overrides_experience_snapshot_and_cleans_clone(tmp_pa
 
 
 
+def test_app_replay_restores_historical_state_and_uses_version_revision_map(tmp_path):
+    from types import SimpleNamespace
+
+    from hydro_agent.api.experience_regression import AppExperienceReplayRunner
+    from hydro_agent.experience.compiler import ExperienceSkillCompiler
+    from hydro_agent.experience.contracts import ExperienceEntry, ExperienceScope
+    from hydro_agent.experience.snapshot import build_experience_state_snapshot
+    from hydro_agent.experience.skill_versions import ExperienceSkillVersionStore
+    from hydro_agent.persistence.database import Database
+    from hydro_agent.persistence.repository import HydroRepository
+
+    db = Database(f"sqlite+pysqlite:///{tmp_path}/replay-state.db")
+    db.create_schema()
+    repository = HydroRepository(db)
+    repository.create_task(
+        task_id="source-state-task",
+        basin_id="basin-a",
+        phase="B",
+        forcing_mode="R",
+    )
+    repository.create_scheme(
+        scheme_id="source-state-base",
+        task_id="source-state-task",
+        model_id="xaj",
+        status="base",
+        config={"parameters": {"K": 0.7}, "workbench": {}},
+        content_hash="source-state-hash",
+    )
+    repository.ensure_task_state(
+        "source-state-task",
+        current_scheme_id="source-state-base",
+    )
+
+    def entry(revision: int, confidence: float):
+        return ExperienceEntry(
+            experience_id="EXP-STATE",
+            revision=revision,
+            category="model",
+            scope=ExperienceScope(
+                model_ids=("xaj",),
+                basin_ids=("basin-a",),
+            ),
+            pattern={},
+            decision={"prefer_param_groups": ["routing"]},
+            supporting_evidence=(),
+            contradicting_evidence=(),
+            confidence=confidence,
+            status="active",
+        )
+
+    repository.append_experience_revision(entry(1, 0.60))
+    store = ExperienceSkillVersionStore(
+        tmp_path / "state-versions",
+        repository=repository,
+    )
+    compiler = ExperienceSkillCompiler()
+    store.create_candidate(compiler.compile(1, (entry(1, 0.60),)))
+    store.promote(1)
+
+    original_state = build_experience_state_snapshot(
+        repository,
+        repository.get_experience_skill_version(1),
+    )
+    repository.set_experience_state_snapshot(
+        "source-state-task",
+        original_state,
+    )
+
+    repository.append_experience_revision(entry(2, 0.80))
+    store.create_candidate(compiler.compile(2, (entry(2, 0.80),)))
+    repository.append_experience_revision(entry(3, 0.95))
+
+    seen: dict[int, dict[str, int]] = {}
+
+    class Runtime:
+        def run_until_terminal(self, clone_id):
+            state = repository.get_task_state(clone_id)
+            snapshot = state.experience_state_snapshot_json
+            seen[int(snapshot["skill_version"])] = dict(
+                snapshot["source_revisions"]
+            )
+            repository.set_task_phase(clone_id, "F")
+            repository.set_task_phase(clone_id, "E")
+            repository.update_task_state(clone_id, needs_follow_up=False)
+
+    deps = SimpleNamespace(
+        repository=repository,
+        runtime_for_task=None,
+        runtime_factory=lambda: Runtime(),
+        task_configs={"source-state-task": {"model_id": "xaj"}},
+        skills=None,
+    )
+    runner = AppExperienceReplayRunner(
+        deps,
+        version_store=store,
+        cleanup=True,
+    )
+
+    runner.run(
+        task_id="source-state-task",
+        experience_skill_version=1,
+    )
+    runner.run(
+        task_id="source-state-task",
+        experience_skill_version=2,
+    )
+
+    assert seen[1] == {"EXP-STATE": 1}
+    assert seen[2] == {"EXP-STATE": 2}
+
+
 def test_rejected_candidate_restores_promoted_experience_structure(tmp_path):
     from hydro_agent.experience.compiler import ExperienceSkillCompiler
     from hydro_agent.experience.contracts import ExperienceEntry, ExperienceScope
