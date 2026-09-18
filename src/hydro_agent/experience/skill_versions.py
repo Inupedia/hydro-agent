@@ -13,13 +13,14 @@ _SKILL_ID = "calibration-experience"
 
 
 class ExperienceSkillVersionStore:
-    def __init__(self, root: Path, *, repository):
+    def __init__(self, root: Path, *, repository, active_root: Path | None = None):
         self.root = Path(root)
         self.repository = repository
+        self._active_root = Path(active_root) if active_root is not None else None
 
     @property
     def current_root(self) -> Path:
-        return self.root / "current"
+        return self._active_root if self._active_root is not None else self.root / "current"
 
     @property
     def versions_root(self) -> Path:
