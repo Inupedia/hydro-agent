@@ -151,3 +151,57 @@ metadata:
     assert snapshot["skills"]["calibration-experience"]["source"] == "agent"
     frozen = SkillRegistry.from_snapshot(snapshot)
     assert frozen.source("calibration-experience") == "agent"
+
+
+
+def test_agent_experience_skill_can_be_excluded_from_task_snapshot(tmp_path: Path):
+    builtin_root = tmp_path / "builtin-exclude"
+    agent_root = tmp_path / "agent-exclude"
+    user_root = tmp_path / "user-exclude"
+    skill_dir = agent_root / "calibration-experience"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        """---
+name: calibration-experience
+description: Learned experience.
+---
+
+# Experience
+""",
+        encoding="utf-8",
+    )
+
+    db = Database(f"sqlite+pysqlite:///{tmp_path}/exclude.db")
+    db.create_schema()
+    repository = HydroRepository(db)
+    repository.create_task(
+        task_id="task-no-evolution",
+        basin_id="basin-a",
+        phase="B",
+        forcing_mode="R",
+    )
+    repository.create_scheme(
+        scheme_id="base-no-evolution",
+        task_id="task-no-evolution",
+        model_id="xaj",
+        status="base",
+        config={},
+        content_hash="base-no-evolution-hash",
+    )
+    repository.ensure_task_state(
+        "task-no-evolution",
+        current_scheme_id="base-no-evolution",
+    )
+
+    registry = SkillRegistry(
+        builtin_root=builtin_root,
+        agent_root=agent_root,
+        user_root=user_root,
+        repository=repository,
+    )
+    snapshot = registry.freeze_for_task(
+        "task-no-evolution",
+        exclude_skill_ids=("calibration-experience",),
+    )
+
+    assert "calibration-experience" not in snapshot["skills"]
