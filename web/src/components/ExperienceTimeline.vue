@@ -85,6 +85,22 @@ function eventLabel(eventType: string) {
       >
         {{ experienceId }}
       </button>
+      <div v-if="diff.structural_changes?.length" class="structural-reasons" data-test="structural-reasons">
+        <article
+          v-for="(change, index) in diff.structural_changes"
+          :key="`${change.operation}-${index}`"
+          class="structural-reason"
+        >
+          <span>{{ eventLabel(change.operation) }}</span>
+          <div>
+            <strong>
+              {{ change.experience_id || change.source_ids?.join(' + ') || '新规律' }}
+              <template v-if="change.proposal_ids?.length"> → {{ change.proposal_ids.join(' / ') }}</template>
+            </strong>
+            <p>{{ change.reason }}</p>
+          </div>
+        </article>
+      </div>
     </div>
 
     <div class="event-list">
@@ -126,6 +142,11 @@ header h3 { margin: 3px 0 0; font-size: 16px; }
 .version-diff dd { margin: 0; color: var(--text-primary); font-weight: 700; }
 .diff-ref, .event-experience { border: 0; background: transparent; padding: 0; color: var(--accent-text); font-family: var(--mono); font-size: 10px; cursor: pointer; }
 .diff-ref { margin: 2px 7px 2px 0; }
+.structural-reasons { display: grid; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--separator); }
+.structural-reason { display: grid; grid-template-columns: 40px 1fr; gap: 7px; }
+.structural-reason > span { color: var(--accent-text); font-size: 9px; font-weight: 800; }
+.structural-reason strong { display: block; font-family: var(--mono); font-size: 9px; overflow-wrap: anywhere; }
+.structural-reason p { margin: 2px 0 0; color: var(--text-secondary); font-size: 9px; line-height: 1.4; }
 .event-list { display: grid; align-content: start; gap: 7px; min-height: 0; overflow: auto; }
 .event-row { display: grid; grid-template-columns: 44px 1fr; gap: 8px; border-left: 2px solid var(--separator); padding: 3px 0 7px 9px; }
 .event-type { color: var(--text-tertiary); font-size: 9px; font-weight: 800; }
