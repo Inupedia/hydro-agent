@@ -472,9 +472,10 @@ class HydroRepository:
             source_hash=row.source_hash,
         )
 
-    def append_experience_revision(self, entry: ExperienceEntry) -> ExperienceEntry:
+    @staticmethod
+    def _experience_revision_row(entry: ExperienceEntry) -> ExperienceRevision:
         source_hash = entry.source_hash or experience_source_hash(entry)
-        row = ExperienceRevision(
+        return ExperienceRevision(
             experience_id=entry.experience_id,
             revision=entry.revision,
             category=entry.category,
@@ -491,10 +492,97 @@ class HydroRepository:
             status=entry.status,
             source_hash=source_hash,
         )
+
+    def append_experience_revision(self, entry: ExperienceEntry) -> ExperienceEntry:
+        row = self._experience_revision_row(entry)
         with self.database.session() as session:
             session.add(row)
             session.flush()
         return self._experience_from_row(row)
+
+    def commit_experience_transition(
+        self,
+        *,
+        entries: tuple[ExperienceEntry, ...],
+        event_type: ExperienceEvolutionEventType,
+        reason: str,
+        task_id: str | None = None,
+        experience_id: str | None = None,
+        from_revision: int | None = None,
+        to_revision: int | None = None,
+        version_before: int | None = None,
+        version_after: int | None = None,
+        evidence_refs: tuple[ExperienceEvidenceRef, ...] = (),
+    ) -> ExperienceEvolutionEvent:
+        """Persist all revisions for one Experience Diff and its audit event atomically."""
+
+        allowed_events = {
+            "KEEP",
+            "REINFORCE",
+            "WEAKEN",
+            "CREATE",
+            "MERGE",
+            "SPLIT",
+            "SUPERSEDE",
+            "REJECT",
+        }
+        if event_type not in allowed_events:
+            raise ValueError(f"invalid experience evolution event type: {event_type}")
+
+        with self.database.session() as session:
+            latest_by_id: dict[str, ExperienceRevision | ExperienceEntry | None] = {}
+            revision_rows: list[ExperienceRevision] = []
+
+            for entry in entries:
+                latest = latest_by_id.get(entry.experience_id)
+                if entry.experience_id not in latest_by_id:
+                    latest = session.scalar(
+                        select(ExperienceRevision)
+                        .where(ExperienceRevision.experience_id == entry.experience_id)
+                        .order_by(ExperienceRevision.revision.desc())
+                        .limit(1)
+                    )
+
+                if latest is None:
+                    if entry.revision != 1:
+                        raise ValueError(
+                            f"new experience {entry.experience_id} must start at revision 1"
+                        )
+                else:
+                    latest_revision = int(latest.revision)
+                    latest_status = str(latest.status)
+                    if latest_status != "active":
+                        raise ValueError(
+                            f"experience {entry.experience_id} is not active"
+                        )
+                    if entry.revision != latest_revision + 1:
+                        raise ValueError(
+                            f"experience {entry.experience_id} revision "
+                            f"{entry.revision} does not follow {latest_revision}"
+                        )
+
+                row = self._experience_revision_row(entry)
+                session.add(row)
+                revision_rows.append(row)
+                latest_by_id[entry.experience_id] = entry
+
+            event = ExperienceEvolutionEvent(
+                task_id=task_id,
+                experience_id=experience_id,
+                event_type=event_type,
+                from_revision=from_revision,
+                to_revision=to_revision,
+                version_before=version_before,
+                version_after=version_after,
+                reason=reason,
+                evidence_refs_json=[
+                    ref.model_dump(mode="json") for ref in evidence_refs
+                ],
+            )
+            session.add(event)
+            session.flush()
+
+        return event
 
     def get_experience(
         self,
