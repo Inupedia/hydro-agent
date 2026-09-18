@@ -187,3 +187,73 @@ def test_opposite_outcome_weakens_old_rule_and_creates_negative_rule(
     ]
     assert len(negatives) == 1
     assert negatives[0].decision["avoid_param_groups"] == ["routing"]
+
+
+
+def test_pending_candidate_uses_next_task_as_holdout_before_reflection(
+    repository,
+    tmp_path,
+):
+    store = ExperienceSkillVersionStore(
+        tmp_path / "pending-lifecycle-store",
+        repository=repository,
+    )
+    skills = SkillRegistry(
+        builtin_root=tmp_path / "builtin-pending",
+        agent_root=store.current_root,
+        user_root=tmp_path / "user-pending",
+        repository=repository,
+    )
+
+    class PendingThenPromote:
+        def __init__(self):
+            self.calls = []
+
+        def validate_and_promote(self, candidate_version: int):
+            self.calls.append(candidate_version)
+            if len(self.calls) == 1:
+                return PromotionDecision(
+                    accepted=False,
+                    reasons=("INSUFFICIENT_REGRESSION_CASES",),
+                )
+            store.promote(
+                candidate_version,
+                regression={"passed": True, "holdout": "task-b"},
+            )
+            return PromotionDecision(
+                accepted=True,
+                reasons=("NON_DEGRADING",),
+            )
+
+    promotion = PendingThenPromote()
+    service = ExperienceEvolutionService(
+        repository,
+        version_store=store,
+        promotion_service=promotion,
+        skill_registry=skills,
+    )
+    service.ensure_baseline()
+
+    seed_completed_task(repository, "task-a")
+    first = service.process_completed_task("task-a")
+    assert first.candidate_version == 2
+    assert first.promotion_accepted is False
+    assert repository.get_experience_skill_version(2).status == "candidate"
+    experience_id = repository.list_active_experiences()[0].experience_id
+    assert repository.get_experience(experience_id).revision == 1
+
+    seed_completed_task(repository, "task-b")
+    second = service.process_completed_task("task-b")
+
+    # The pending v2 is validated first, before task-b is reflected into the
+    # Experience State. Only after promotion does task-b REINFORCE the rule.
+    assert promotion.calls == [2, 2]
+    assert second.candidate_version == 2
+    assert second.promotion_accepted is True
+    assert repository.get_current_experience_skill_version().version == 2
+    reinforced = repository.get_experience(experience_id)
+    assert reinforced.revision == 2
+    assert {ref.task_id for ref in reinforced.supporting_evidence} == {
+        "task-a",
+        "task-b",
+    }
