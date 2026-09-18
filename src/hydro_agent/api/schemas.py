@@ -284,3 +284,67 @@ class AgentRoundLogItem(FrozenApiModel):
 class AgentLogSummary(FrozenApiModel):
     task_id: str
     rounds: tuple[AgentRoundLogItem, ...]
+
+
+
+class ExperienceEntryResponse(FrozenApiModel):
+    experience_id: str
+    revision: int
+    category: str
+    scope: dict[str, object]
+    pattern: dict[str, object]
+    decision: dict[str, object]
+    supporting_evidence: list[dict[str, object]]
+    contradicting_evidence: list[dict[str, object]]
+    confidence: float
+    status: str
+    source_hash: str | None = None
+
+
+class ExperienceEntryDetailResponse(ExperienceEntryResponse):
+    revisions: list[ExperienceEntryResponse]
+
+
+class ExperienceSummaryResponse(FrozenApiModel):
+    current_version: int | None = None
+    current_skill_hash: str | None = None
+    status: Literal["learning", "converging", "converged", "reopened"]
+    active_count: int
+    high_confidence_count: int
+    candidate_count: int
+    version_count: int
+    reason: str
+
+
+class ExperienceEvolutionEventResponse(FrozenApiModel):
+    event_id: int
+    task_id: str | None = None
+    experience_id: str | None = None
+    event_type: str
+    from_revision: int | None = None
+    to_revision: int | None = None
+    version_before: int | None = None
+    version_after: int | None = None
+    reason: str
+    evidence_refs: list[dict[str, object]]
+    created_at: datetime
+
+
+class ExperienceVersionResponse(FrozenApiModel):
+    version: int
+    parent_version: int | None = None
+    status: str
+    skill_hash: str
+    manifest: dict[str, object]
+    regression: dict[str, object] | None = None
+    created_at: datetime
+
+
+class ExperienceVersionDiffResponse(FrozenApiModel):
+    version: int
+    parent_version: int | None = None
+    added: list[str]
+    modified: list[str]
+    superseded: list[str]
+    split: list[object]
+    merged: list[object]
