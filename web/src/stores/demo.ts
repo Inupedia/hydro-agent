@@ -16,6 +16,7 @@ export type DraftConfig = {
   forcing_mode: 'R' | 'F'
   base_scheme_id: string
   allow_optimization: boolean
+  agent_evolution_enabled: boolean
   validation_days: number
   final_test_days: number
   max_agent_decision_rounds: number
@@ -196,6 +197,7 @@ export const useDemoStore = defineStore('demo', () => {
     if (task.forcing_mode === 'R' || task.forcing_mode === 'F') {
       draft.value.forcing_mode = task.forcing_mode
     }
+    draft.value.agent_evolution_enabled = Boolean(task.agent_evolution_enabled)
   }
 
   async function createTaskFromDraft() {
