@@ -1,3 +1,4 @@
+from .compiler import CompiledExperienceSkill, ExperienceSkillCompiler
 from .contracts import (
     ExperienceCategory,
     ExperienceDecision,
@@ -26,6 +27,7 @@ from .reflection import (
 
 __all__ = [
     "ApplyResult",
+    "CompiledExperienceSkill",
     "ConvergenceSummary",
     "ExperienceCategory",
     "ExperienceConvergenceStatus",
@@ -43,7 +45,11 @@ __all__ = [
     "ExperienceScope",
     "ExperienceSkillVersionStatus",
     "ExperienceStatus",
+    "ExperienceSkillCompiler",
+    "ExperienceSkillVersionStore",
     "ReflectionResult",
     "compute_convergence",
     "is_structural_change",
 ]
+
+from .skill_versions import ExperienceSkillVersionStore

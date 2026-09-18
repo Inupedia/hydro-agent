@@ -82,3 +82,84 @@ def test_inactive_experience_is_not_compiled():
 
     assert "EXP-ACTIVE" in compiled.files["references/xaj.md"]
     assert "EXP-OLD" not in compiled.files["references/xaj.md"]
+
+
+
+def _read_tree(root):
+    return {
+        path.relative_to(root).as_posix(): path.read_text(encoding="utf-8")
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
+def test_experience_skill_version_store_lifecycle(tmp_path):
+    from hydro_agent.experience.skill_versions import ExperienceSkillVersionStore
+    from hydro_agent.persistence.database import Database
+    from hydro_agent.persistence.repository import HydroRepository
+    from hydro_agent.skills import SkillRegistry
+
+    database = Database(f"sqlite+pysqlite:///{tmp_path}/experience.db")
+    database.create_schema()
+    repository = HydroRepository(database)
+    store = ExperienceSkillVersionStore(
+        tmp_path / "experience-skill",
+        repository=repository,
+    )
+    compiler = ExperienceSkillCompiler()
+
+    v1 = compiler.compile(1, (entry("EXP-V1"),))
+    candidate = store.create_candidate(v1)
+    assert candidate.status == "candidate"
+
+    promoted = store.promote(1)
+    assert promoted.status == "promoted"
+    historical_v1 = store.materialize(1)
+    assert _read_tree(store.current_package) == _read_tree(historical_v1)
+
+    registry = SkillRegistry(
+        builtin_root=tmp_path / "builtin",
+        agent_root=store.current_root,
+        user_root=tmp_path / "user",
+    )
+    assert registry.source("calibration-experience") == "agent"
+
+    v2 = compiler.compile(
+        2,
+        (
+            entry("EXP-V1"),
+            entry("EXP-V2", confidence=0.9),
+        ),
+    )
+    store.create_candidate(v2)
+    rejected = store.reject(2, "regression gate failed")
+    assert rejected.status == "rejected"
+    assert repository.get_current_experience_skill_version().version == 1
+    assert _read_tree(store.current_package) == _read_tree(historical_v1)
+
+
+def test_historical_version_materializes_after_new_promotion(tmp_path):
+    from hydro_agent.experience.skill_versions import ExperienceSkillVersionStore
+    from hydro_agent.persistence.database import Database
+    from hydro_agent.persistence.repository import HydroRepository
+
+    database = Database(f"sqlite+pysqlite:///{tmp_path}/history.db")
+    database.create_schema()
+    repository = HydroRepository(database)
+    store = ExperienceSkillVersionStore(tmp_path / "store", repository=repository)
+    compiler = ExperienceSkillCompiler()
+
+    first = compiler.compile(1, (entry("EXP-ONE"),))
+    second = compiler.compile(2, (entry("EXP-TWO"),))
+
+    store.create_candidate(first)
+    store.promote(1)
+    v1_bytes = _read_tree(store.materialize(1))
+
+    store.create_candidate(second)
+    store.promote(2)
+
+    assert repository.get_experience_skill_version(1).status == "superseded"
+    assert repository.get_current_experience_skill_version().version == 2
+    assert _read_tree(store.materialize(1)) == v1_bytes
+    assert _read_tree(store.current_package) == _read_tree(store.materialize(2))
