@@ -6,39 +6,84 @@ from hydro_agent.experience.regression import ExperienceRegressionSelector
 class SelectionRepository:
     def __init__(self):
         self.tasks = [
-            SimpleNamespace(task_id="task-a", basin_id="basin-a"),
-            SimpleNamespace(task_id="task-b", basin_id="basin-b"),
-            SimpleNamespace(task_id="task-hard", basin_id="basin-a"),
+            SimpleNamespace(
+                task_id="task-a",
+                basin_id="basin-a",
+                phase="E",
+                terminal_status=None,
+            ),
+            SimpleNamespace(
+                task_id="task-b",
+                basin_id="basin-b",
+                phase="E",
+                terminal_status=None,
+            ),
+            SimpleNamespace(
+                task_id="task-hard",
+                basin_id="basin-a",
+                phase="E",
+                terminal_status=None,
+            ),
         ]
         self.evidence = {
             "task-a": [
                 SimpleNamespace(
+                    action="A06_GATE",
                     metrics_json={"peak_ratio": 0.8, "pbias_percent": 12.0},
                     gates_json={},
                     observations_json=[],
                     status="succeeded",
-                )
+                ),
+                SimpleNamespace(
+                    action="A10_EVALUATE_REPORT",
+                    metrics_json={},
+                    gates_json={},
+                    observations_json=[],
+                    status="succeeded",
+                ),
             ],
             "task-b": [
                 SimpleNamespace(
+                    action="A06_GATE",
                     metrics_json={"peak_timing_lag_days": 1.0, "high_flow_mae": 2.0},
                     gates_json={},
                     observations_json=[],
                     status="succeeded",
-                )
+                ),
+                SimpleNamespace(
+                    action="A10_EVALUATE_REPORT",
+                    metrics_json={},
+                    gates_json={},
+                    observations_json=[],
+                    status="succeeded",
+                ),
             ],
             "task-hard": [
                 SimpleNamespace(
+                    action="A06_GATE",
                     metrics_json={"peak_ratio": 1.2},
                     gates_json={"gate_status": "ROLLBACK"},
                     observations_json=[],
                     status="ROLLBACK",
-                )
+                ),
+                SimpleNamespace(
+                    action="A10_EVALUATE_REPORT",
+                    metrics_json={},
+                    gates_json={},
+                    observations_json=[],
+                    status="succeeded",
+                ),
             ],
         }
 
     def list_tasks(self):
         return self.tasks
+
+    def get_task_state(self, task_id):
+        return SimpleNamespace(paused=False, needs_follow_up=False)
+
+    def list_schemes(self, task_id=None):
+        return [SimpleNamespace(scheme_id=f"{task_id}-scheme")]
 
     def list_evidence(self, task_id):
         return self.evidence[task_id]
@@ -66,6 +111,71 @@ def test_regression_selector_covers_tags_and_prioritizes_hard_cases():
     assert "peak-over" in by_task["task-hard"].tags
     assert all(any(tag.startswith("basin:") for tag in case.tags) for case in selected.cases)
 
+
+
+def test_regression_selector_skips_unreplayable_or_incomplete_tasks(tmp_path):
+    from hydro_agent.agent.contracts import ActionCode, EvidencePacket
+    from hydro_agent.persistence.database import Database
+    from hydro_agent.persistence.repository import HydroRepository
+
+    db = Database(f"sqlite+pysqlite:///{tmp_path}/selector-validity.db")
+    db.create_schema()
+    repository = HydroRepository(db)
+
+    repository.create_task(
+        task_id="no-scheme",
+        basin_id="basin-a",
+        phase="B",
+        forcing_mode="R",
+    )
+
+    repository.create_task(
+        task_id="incomplete",
+        basin_id="basin-a",
+        phase="E",
+        forcing_mode="R",
+    )
+    repository.create_scheme(
+        scheme_id="incomplete-base",
+        task_id="incomplete",
+        model_id="xaj",
+        status="base",
+        config={"parameters": {}},
+        content_hash="incomplete-hash",
+    )
+    repository.ensure_task_state("incomplete", current_scheme_id="incomplete-base")
+    repository.update_task_state("incomplete", needs_follow_up=False)
+
+    repository.create_task(
+        task_id="valid",
+        basin_id="basin-b",
+        phase="E",
+        forcing_mode="R",
+    )
+    repository.create_scheme(
+        scheme_id="valid-base",
+        task_id="valid",
+        model_id="xaj",
+        status="base",
+        config={"parameters": {}},
+        content_hash="valid-hash",
+    )
+    repository.ensure_task_state("valid", current_scheme_id="valid-base")
+    repository.update_task_state("valid", needs_follow_up=False)
+    repository.add_evidence(
+        EvidencePacket(
+            evidence_id="valid-final",
+            task_id="valid",
+            action=ActionCode.A10_EVALUATE_REPORT,
+            status="succeeded",
+            metrics={"nse": 0.7},
+            new_information_hash="valid-final-hash",
+        )
+    )
+
+    selected = ExperienceRegressionSelector().select(repository)
+
+    assert [case.task_id for case in selected.cases] == ["valid"]
 
 
 def test_regression_service_preserves_per_case_deltas():
@@ -194,6 +304,103 @@ def test_promotion_gate_rejects_quality_and_guardrail_regression():
     assert any(reason.startswith("QUALITY_REGRESSION") for reason in quality.reasons)
     assert guardrail.accepted is False
     assert any(reason.startswith("NEW_GUARDRAIL_VIOLATION") for reason in guardrail.reasons)
+
+
+def test_promotion_gate_rejects_ordinary_terminal_regression():
+    from hydro_agent.experience.promotion import PromotionGate
+    from hydro_agent.experience.regression import (
+        ExperienceReplayOutcome,
+        RegressionCase,
+        RegressionCaseComparison,
+        RegressionComparison,
+    )
+
+    comparison = RegressionComparison(
+        current_version=3,
+        candidate_version=4,
+        cases=(
+            RegressionCaseComparison(
+                case=RegressionCase(task_id="ordinary", tags=("basin:a",)),
+                current=ExperienceReplayOutcome(
+                    task_id="ordinary",
+                    experience_skill_version=3,
+                    terminal_status="succeeded",
+                    optimization_cycles=2,
+                    repeated_failed_experiments=0,
+                    quality_score=0.8,
+                ),
+                candidate=ExperienceReplayOutcome(
+                    task_id="ordinary",
+                    experience_skill_version=4,
+                    terminal_status="failed",
+                    optimization_cycles=2,
+                    repeated_failed_experiments=0,
+                    quality_score=None,
+                ),
+            ),
+        ),
+    )
+
+    decision = PromotionGate().evaluate(comparison)
+
+    assert decision.accepted is False
+    assert "TERMINAL_STATUS_REGRESSION:ordinary" in decision.reasons
+    assert "QUALITY_MISSING:ordinary" in decision.reasons
+
+
+def test_promotion_gate_rejects_missing_candidate_quality():
+    from hydro_agent.experience.promotion import PromotionGate
+    from hydro_agent.experience.regression import (
+        ExperienceReplayOutcome,
+        RegressionCase,
+        RegressionCaseComparison,
+        RegressionComparison,
+    )
+
+    comparison = RegressionComparison(
+        current_version=3,
+        candidate_version=4,
+        cases=(
+            RegressionCaseComparison(
+                case=RegressionCase(task_id="quality", tags=("basin:a",)),
+                current=ExperienceReplayOutcome(
+                    task_id="quality",
+                    experience_skill_version=3,
+                    terminal_status="succeeded",
+                    optimization_cycles=2,
+                    repeated_failed_experiments=0,
+                    quality_score=0.8,
+                ),
+                candidate=ExperienceReplayOutcome(
+                    task_id="quality",
+                    experience_skill_version=4,
+                    terminal_status="succeeded",
+                    optimization_cycles=2,
+                    repeated_failed_experiments=0,
+                    quality_score=None,
+                ),
+            ),
+        ),
+    )
+
+    decision = PromotionGate().evaluate(comparison)
+
+    assert decision.accepted is False
+    assert decision.reasons == ("QUALITY_MISSING:quality",)
+
+
+def test_promotion_gate_rejects_repeated_failure_increase():
+    from hydro_agent.experience.promotion import PromotionGate
+
+    decision = PromotionGate().evaluate(
+        _comparison(quality_delta=0.0, repeated_delta=10)
+    )
+
+    assert decision.accepted is False
+    assert any(
+        reason.startswith("REPEATED_FAILURE_REGRESSION:ordinary:+10")
+        for reason in decision.reasons
+    )
 
 
 def test_promotion_gate_accepts_non_degrading_candidate_with_fewer_failures():
