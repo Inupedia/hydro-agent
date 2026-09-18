@@ -9,6 +9,11 @@ from .contracts import (
     ExperienceSkillVersionStatus,
     ExperienceStatus,
 )
+from .convergence import (
+    ConvergenceSummary,
+    ExperienceConvergenceStatus,
+    compute_convergence,
+)
 from .diff import ExperienceDiff, ExperienceDiffOperation, is_structural_change
 from .reflection import (
     ApplyResult,
@@ -21,7 +26,9 @@ from .reflection import (
 
 __all__ = [
     "ApplyResult",
+    "ConvergenceSummary",
     "ExperienceCategory",
+    "ExperienceConvergenceStatus",
     "ExperienceDecision",
     "ExperienceDiff",
     "ExperienceDiffApplier",
@@ -37,5 +44,6 @@ __all__ = [
     "ExperienceSkillVersionStatus",
     "ExperienceStatus",
     "ReflectionResult",
+    "compute_convergence",
     "is_structural_change",
 ]
