@@ -110,6 +110,25 @@ def test_normalize_does_not_force_freeze_after_resolve():
     assert decision.hypothesis in ProblemHypothesis
 
 
+def test_normalize_repairs_misspelled_audit_field_and_drops_extra_keys():
+    payload = normalize_decision_payload(
+        {
+            "action": "A03_FORECAST",
+            "hypothesis": "MODEL",
+            "strategy_id": None,
+            "rationale_summary": "Run audited base forecast.",
+            "observation_zzh": "当前缺少基准预报证据。",
+            "unexpected_field": "must not reach strict validation",
+        }
+    )
+
+    assert payload["observation_zh"] == "当前缺少基准预报证据。"
+    assert "observation_zzh" not in payload
+    assert "unexpected_field" not in payload
+    decision = AgentDecision.model_validate(payload)
+    assert decision.observation_zh == "当前缺少基准预报证据。"
+
+
 def test_normalize_remaps_hydrologist_manual_to_bounded():
     payload = normalize_decision_payload(
         {

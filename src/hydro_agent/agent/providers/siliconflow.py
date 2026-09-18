@@ -28,6 +28,24 @@ from hydro_agent.standards import DEFAULT_GRADE_DC_BING
 
 _HYPOTHESES = tuple(h.value for h in ProblemHypothesis)
 _ACTIONS = tuple(a.value for a in ActionCode)
+_MODEL_DECISION_KEYS = frozenset(
+    {
+        "action",
+        "hypothesis",
+        "strategy_id",
+        "param_groups",
+        "objective",
+        "rationale_summary",
+        "observation_zh",
+        "analysis_zh",
+        "decision_zh",
+    }
+)
+_MODEL_DECISION_KEY_ALIASES = {
+    "observation_zzh": "observation_zh",
+    "analysis_zzh": "analysis_zh",
+    "decision_zzh": "decision_zh",
+}
 
 SYSTEM_INSTRUCTIONS = f"""You are the Hydro-Agent decision module for a hydrologist-style research loop.
 Choose exactly one ActionCode from permissions.safe_actions.
@@ -532,7 +550,14 @@ def normalize_decision_payload(
     model_id: str = "xaj",
 ) -> dict:
     """Coerce common LLM mistakes into a valid AgentDecision dict."""
-    data = dict(payload)
+    # Treat model output as an untrusted wire payload. Preserve strict
+    # AgentDecision validation while repairing known misspellings and dropping
+    # fields outside the public model-output contract.
+    raw_data = dict(payload)
+    for alias, canonical in _MODEL_DECISION_KEY_ALIASES.items():
+        if canonical not in raw_data and alias in raw_data:
+            raw_data[canonical] = raw_data[alias]
+    data = {key: value for key, value in raw_data.items() if key in _MODEL_DECISION_KEYS}
     action = str(data.get("action") or "").strip()
     if action not in _ACTIONS:
         # Sometimes models return bare names like FORECAST.
