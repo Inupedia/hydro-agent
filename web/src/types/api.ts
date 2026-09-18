@@ -10,6 +10,7 @@ export type TaskSummary = {
   name?: string | null
   agent_rounds_used: number
   optimization_cycles_used: number
+  agent_evolution_enabled?: boolean
   start_date?: string | null
   end_date?: string | null
   validation_days?: number | null
@@ -31,6 +32,7 @@ export type TaskCreateRequest = {
   name?: string | null
   base_scheme_id: string
   allow_optimization: boolean
+  agent_evolution_enabled?: boolean
   /** Backward-compatible API name for the mutable development Gate window. */
   validation_days?: number
   /** Frozen-scheme-only holdout consumed by replay/evaluation after A10. */
