@@ -11,6 +11,7 @@ export const CORE_SKILL_TITLES: Record<string, string> = {
   'calibration-experiment-design': '率定实验设计',
   'calibration-result-review': '率定结果复盘',
   'hydrology-reporting': '水文实验报告',
+  'calibration-experience': '率定经验 Skill',
 }
 
 /** Retired twelve-package IDs → current six-package SSOT. */
