@@ -39,6 +39,7 @@ class AppDependencies:
     skills: Any = None
     runtime_llm_settings: Any = None
     runtime_llm_provider_id: str | None = None
+    experience_evolution: Any = None
     llm_traces: dict[str, LlmTrace] = field(default_factory=dict)
     agent_round_logs: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     _llm_lock: threading.Lock = field(default_factory=threading.Lock)
