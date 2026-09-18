@@ -33,6 +33,8 @@ class ExperienceSkillVersionStore:
     def create_candidate(
         self,
         compiled: CompiledExperienceSkill,
+        *,
+        structural_changes: tuple[dict, ...] = (),
     ) -> ExperienceSkillVersion:
         version_dir = self._version_dir(compiled.version)
         if version_dir.exists():
@@ -61,6 +63,17 @@ class ExperienceSkillVersionStore:
                     "sha256": compiled.sha256,
                     "source_experience_ids": list(compiled.source_experience_ids),
                     "source_revisions": dict(compiled.source_revisions),
+                    "structural_changes": [dict(item) for item in structural_changes],
+                    "split": [
+                        dict(item)
+                        for item in structural_changes
+                        if item.get("operation") == "SPLIT"
+                    ],
+                    "merged": [
+                        dict(item)
+                        for item in structural_changes
+                        if item.get("operation") == "MERGE"
+                    ],
                 },
             )
         except Exception:
