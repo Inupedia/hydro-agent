@@ -20,6 +20,10 @@ from hydro_agent.execution.hashing import sha256_bytes
 from hydro_agent.experience.convergence import compute_convergence
 from hydro_agent.experience.policy import ExperiencePolicy
 from hydro_agent.experience.retrieval import ExperienceRetriever
+from hydro_agent.experience.snapshot import (
+    freeze_experience_state_for_task,
+    verify_experience_state_snapshot,
+)
 from hydro_agent.models.registry import ModelRegistry, default_model_registry
 from hydro_agent.optimization.campaign import rebuild_campaign_from_evidence
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
@@ -292,10 +296,36 @@ class WorldStateBuilder:
                 exploration_level=0.75,
             )
 
-        source_revisions_raw = dict(version_row.manifest_json or {}).get("source_revisions") or {}
+        state_snapshot = state.experience_state_snapshot_json
+        if state_snapshot is None:
+            state_snapshot = freeze_experience_state_for_task(
+                self.repository,
+                task_id,
+                snapshot,
+            )
+        if state_snapshot is None:
+            return ExperienceContext(
+                status=convergence.status,
+                exploration_level=0.75,
+            )
+        try:
+            verify_experience_state_snapshot(state_snapshot)
+            if (
+                int(state_snapshot["skill_version"]) != version
+                or str(state_snapshot["skill_hash"]) != str(version_row.skill_hash)
+            ):
+                raise ValueError("Experience State Snapshot does not match frozen Skill")
+        except (KeyError, TypeError, ValueError):
+            return ExperienceContext(
+                status=convergence.status,
+                exploration_level=0.75,
+            )
+
         source_revisions = {
             str(experience_id): int(revision)
-            for experience_id, revision in dict(source_revisions_raw).items()
+            for experience_id, revision in dict(
+                state_snapshot.get("source_revisions") or {}
+            ).items()
         }
         matches = self.experience_retriever.retrieve(
             model_id=model_id,
