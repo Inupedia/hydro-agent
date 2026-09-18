@@ -515,6 +515,22 @@ class HydroRepository:
                 raise KeyError(key)
             return self._experience_from_row(row)
 
+    def list_experience_revisions(
+        self,
+        experience_id: str | None = None,
+    ) -> list[ExperienceEntry]:
+        with self.database.session() as session:
+            stmt = select(ExperienceRevision).order_by(
+                ExperienceRevision.experience_id,
+                ExperienceRevision.revision,
+            )
+            if experience_id is not None:
+                stmt = stmt.where(
+                    ExperienceRevision.experience_id == experience_id
+                )
+            rows = list(session.scalars(stmt))
+        return [self._experience_from_row(row) for row in rows]
+
     def list_active_experiences(
         self,
         model_id: str | None = None,
