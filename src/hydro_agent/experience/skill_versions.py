@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from hydro_agent.experience.compiler import CompiledExperienceSkill
 from hydro_agent.persistence.models import ExperienceSkillVersion
-from hydro_agent.skills.loader import load_skills
+from hydro_agent.skills.loader import parse_skill_md
 
 _SKILL_ID = "calibration-experience"
 
@@ -43,7 +43,7 @@ class ExperienceSkillVersionStore:
             shutil.rmtree(temp_version)
         package = temp_version / _SKILL_ID
         self._write_package(package, compiled.files)
-        self._validate_package_root(temp_version)
+        self._validate_package(package)
 
         temp_version.replace(version_dir)
         current = self.repository.get_current_experience_skill_version()
@@ -74,7 +74,7 @@ class ExperienceSkillVersionStore:
             if path.exists():
                 shutil.rmtree(path)
         shutil.copytree(version_package, temp_package)
-        self._validate_package_root(self.current_root, directory_name=temp_package.name)
+        self._validate_package(temp_package)
 
         swapped = False
         try:
@@ -133,7 +133,7 @@ class ExperienceSkillVersionStore:
         package = self._version_dir(version) / _SKILL_ID
         if not (package / "SKILL.md").is_file():
             raise KeyError(version)
-        self._validate_package_root(package.parent)
+        self._validate_package(package)
         return package
 
     def _version_dir(self, version: int) -> Path:
@@ -149,19 +149,12 @@ class ExperienceSkillVersionStore:
             path.write_text(content, encoding="utf-8")
 
     @staticmethod
-    def _validate_package_root(root: Path, *, directory_name: str = _SKILL_ID) -> None:
-        if directory_name == _SKILL_ID:
-            loaded = load_skills(root)
-            if _SKILL_ID not in loaded:
-                raise ValueError("compiled Experience Skill package is invalid")
-            return
-
-        package = root / directory_name
-        canonical = root / _SKILL_ID
-        package.replace(canonical)
-        try:
-            loaded = load_skills(root)
-            if _SKILL_ID not in loaded:
-                raise ValueError("compiled Experience Skill package is invalid")
-        finally:
-            canonical.replace(package)
+    def _validate_package(package: Path) -> None:
+        skill_md = package / "SKILL.md"
+        if not skill_md.is_file():
+            raise ValueError("compiled Experience Skill package lacks SKILL.md")
+        parse_skill_md(
+            skill_md.read_text(encoding="utf-8"),
+            directory_name=_SKILL_ID,
+            root=package,
+        )
