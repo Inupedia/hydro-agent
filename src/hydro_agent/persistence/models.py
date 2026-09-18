@@ -138,6 +138,7 @@ class TaskState(Base):
     last_information_hash: Mapped[str | None]
     last_decision_fingerprint: Mapped[str | None]
     skill_snapshot_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    experience_state_snapshot_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=now)
 
 
