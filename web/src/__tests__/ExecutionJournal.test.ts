@@ -213,7 +213,7 @@ describe('ExecutionJournal', () => {
     expect(wrapper.findAll('.journal-event-card').at(-1)?.classes()).toContain('is-latest')
   })
 
-  it('labels activated agent skills above the skill chips', async () => {
+  it('keeps tool and skill details collapsed until the user opens them', async () => {
     mocks.getAgentLog.mockResolvedValueOnce({
       task_id: 'task-skills',
       rounds: [
@@ -279,13 +279,53 @@ describe('ExecutionJournal', () => {
     await flushPromises()
 
     const skills = wrapper.find('[data-test="activated-skills"]')
+    const tools = wrapper.find('[data-test="tool-calls"]')
     expect(skills.exists()).toBe(true)
-    expect(skills.text()).toContain('Agent Skills')
-    expect(skills.text()).toContain('本轮使用技能')
+    expect(tools.exists()).toBe(true)
+    expect(skills.attributes('open')).toBeUndefined()
+    expect(tools.attributes('open')).toBeUndefined()
+    expect(skills.text()).toContain('专业能力')
+    expect(skills.text()).toContain('SKILL')
+    expect(tools.text()).toContain('执行工具')
+    expect(tools.text()).toContain('模型诊断工具')
     expect(skills.text()).toContain('水文证据审查')
     expect(skills.text()).toContain('新安江率定诊断')
     expect(skills.text()).toContain('证据解读')
     expect(skills.text()).toContain('实验计划')
     expect(skills.findAll('.skill-chip-list li')).toHaveLength(2)
+
+    await tools.find('summary').trigger('click')
+    await skills.find('summary').trigger('click')
+    expect((tools.element as HTMLDetailsElement).open).toBe(true)
+    expect((skills.element as HTMLDetailsElement).open).toBe(true)
+  })
+
+  it('renders explicit tool calls while preserving their status and summaries', async () => {
+    mocks.getAgentLog.mockResolvedValueOnce({
+      task_id: 'task-tools',
+      rounds: [{
+        ...defaultAgentLog().rounds[0],
+        tool_calls: [{
+          action: 'A04_DIAGNOSE',
+          tool_id: 'hydrology.diagnose',
+          tool_name: 'Diagnose',
+          tool_name_zh: '模型诊断工具',
+          category: 'diagnosis',
+          status: 'failed',
+          input_summary: { scheme: 'candidate-03' },
+          output_summary: { reason: '指标不足' },
+        }],
+      }],
+    })
+    const wrapper = mount(ExecutionJournal, { props: {
+      taskId: 'task-tools', running: false, completed: false, failed: true, elapsed: '0:08',
+      events: [{ id: 'diag', occurred_at: '2026-09-13T06:00:02Z', label: '诊断失败', status: 'failed', action: 'A04_DIAGNOSE', evidence_id: null, details: {} }],
+    } })
+    await flushPromises()
+    const tools = wrapper.find('[data-test="tool-calls"]')
+    expect(tools.text()).toContain('模型诊断工具')
+    expect(tools.text()).toContain('失败')
+    expect(tools.text()).toContain('scheme: candidate-03')
+    expect(tools.text()).toContain('reason: 指标不足')
   })
 })

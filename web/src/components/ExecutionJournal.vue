@@ -4,8 +4,9 @@ import { api } from '../api/client'
 import { actionTitle } from '../demo/stages'
 import { WORKFLOW } from '../generated/workflow'
 import { outputContractLabel, skillTitle } from '../skills/catalog'
+import { toolForAction } from '../tools/catalog'
 import { currentActionId } from '../workflow/legacyActions'
-import type { AgentRoundLogItem, TimelineItem } from '../types/api'
+import type { AgentRoundLogItem, TimelineItem, ToolCallAudit } from '../types/api'
 
 const props = defineProps<{
   taskId?: string | null
@@ -312,6 +313,44 @@ function activatedSkills(event: TimelineItem): Array<{ id: string; title: string
   })
 }
 
+type DisplayToolCall = ToolCallAudit & { descriptionZh?: string; algorithm?: string; result?: string }
+
+function toolCalls(event: TimelineItem): DisplayToolCall[] {
+  const round = matchingRound(event)
+  if (round?.tool_calls?.length) {
+    return round.tool_calls.map((call) => ({ ...call, result: toolResult(event, round) }))
+  }
+  const descriptor = toolForAction(event.action)
+  if (!descriptor) return []
+  const rawStatus = String(round?.tool_status || event.status || 'pending').toLowerCase()
+  const status = rawStatus === 'succeeded' || rawStatus === 'success' ? 'completed' : rawStatus
+  const optimizer = event.action === 'A05_OPTIMIZE' ? observationValue(round, 'optimizer') : ''
+  return [{
+    action: descriptor.action,
+    tool_id: descriptor.id,
+    tool_name_zh: descriptor.nameZh,
+    category: descriptor.category,
+    status,
+    descriptionZh: descriptor.descriptionZh,
+    algorithm: optimizer && optimizer !== '-' ? optimizerLabel(optimizer) : undefined,
+    evidence_id: event.evidence_id,
+    metrics: round?.tool_metrics || {},
+    result: toolResult(event, round),
+  }]
+}
+
+function toolStatusLabel(status: string) {
+  return STATUS_LABELS[status] || STATUS_LABELS[status.toLowerCase()] || status
+}
+
+function compactObject(value?: Record<string, unknown>) {
+  if (!value || !Object.keys(value).length) return ''
+  return Object.entries(value)
+    .slice(0, 4)
+    .map(([key, item]) => `${key}: ${String(item)}`)
+    .join('；')
+}
+
 function displayTitle(event: TimelineItem) {
   const status = String(event.status || '').toUpperCase()
   const round = matchingRound(event)
@@ -373,28 +412,62 @@ function displayTitle(event: TimelineItem) {
           <div v-if="calibrationTags(event).length" class="calibration-tags" aria-label="率定实验状态">
             <span v-for="tag in calibrationTags(event)" :key="tag">{{ tag }}</span>
           </div>
-          <div
-            v-if="activatedSkills(event).length"
-            class="skill-block"
-            data-test="activated-skills"
-            aria-label="本轮激活的 Agent Skills"
-          >
-            <div class="skill-block-head">
-              <span class="skill-block-overline">Agent Skills</span>
-              <span class="skill-block-title">本轮使用技能</span>
-            </div>
-            <ul class="skill-chip-list">
-              <li v-for="skill in activatedSkills(event)" :key="skill.id">
-                <span class="skill-chip-title">{{ skill.title }}</span>
-                <small class="skill-chip-id">{{ skill.id }}</small>
-                <span v-if="skill.contract" class="skill-chip-contract">{{ skill.contract }}</span>
-              </li>
-            </ul>
-          </div>
           <p class="event-subtitle">{{ journalCopy(event).analysis }}</p>
           <p v-if="journalCopy(event).observation" class="event-support"><span>观察</span>{{ journalCopy(event).observation }}</p>
           <p v-if="journalCopy(event).decision" class="event-support"><span>决定</span>{{ journalCopy(event).decision }}</p>
           <p v-if="journalCopy(event).result" class="event-support is-result"><span>结果</span>{{ journalCopy(event).result }}</p>
+
+          <div class="capability-disclosures">
+            <details
+              v-if="toolCalls(event).length"
+              class="capability-details tool-details"
+              data-test="tool-calls"
+            >
+              <summary>
+                <span class="disclosure-kind">执行工具 <small>TOOL</small></span>
+                <span class="disclosure-preview">{{ toolCalls(event).map((tool) => tool.algorithm || tool.tool_name_zh).join('、') }}</span>
+                <span class="disclosure-count">{{ toolCalls(event).length }} 个</span>
+                <span class="disclosure-chevron" aria-hidden="true">›</span>
+              </summary>
+              <ul class="tool-call-list">
+                <li v-for="tool in toolCalls(event)" :key="tool.tool_call_id || tool.tool_id">
+                  <div class="call-heading">
+                    <div>
+                      <strong>{{ tool.tool_name_zh }}</strong>
+                      <small>{{ tool.algorithm || tool.tool_id }}</small>
+                    </div>
+                    <span class="call-status" :class="`is-${tool.status}`">{{ toolStatusLabel(tool.status) }}</span>
+                  </div>
+                  <p v-if="tool.descriptionZh">{{ tool.descriptionZh }}</p>
+                  <dl v-if="compactObject(tool.input_summary) || compactObject(tool.output_summary) || tool.result">
+                    <div v-if="compactObject(tool.input_summary)"><dt>输入</dt><dd>{{ compactObject(tool.input_summary) }}</dd></div>
+                    <div v-if="compactObject(tool.output_summary)"><dt>输出</dt><dd>{{ compactObject(tool.output_summary) }}</dd></div>
+                    <div v-else-if="tool.result"><dt>结果</dt><dd>{{ tool.result }}</dd></div>
+                  </dl>
+                </li>
+              </ul>
+            </details>
+
+            <details
+              v-if="activatedSkills(event).length"
+              class="capability-details skill-details"
+              data-test="activated-skills"
+            >
+              <summary>
+                <span class="disclosure-kind">专业能力 <small>SKILL</small></span>
+                <span class="disclosure-preview">{{ activatedSkills(event).map((skill) => skill.title).join('、') }}</span>
+                <span class="disclosure-count">{{ activatedSkills(event).length }} 个</span>
+                <span class="disclosure-chevron" aria-hidden="true">›</span>
+              </summary>
+              <ul class="skill-chip-list">
+                <li v-for="skill in activatedSkills(event)" :key="skill.id">
+                  <span class="skill-chip-title">{{ skill.title }}</span>
+                  <small class="skill-chip-id">{{ skill.id }}</small>
+                  <span v-if="skill.contract" class="skill-chip-contract">{{ skill.contract }}</span>
+                </li>
+              </ul>
+            </details>
+          </div>
 
           <details v-if="Object.keys(event.details).length" class="technical-details">
             <summary><span>技术详情</span><span>JSON</span></summary>
@@ -441,54 +514,56 @@ function displayTitle(event: TimelineItem) {
   font-weight: 650;
   line-height: 1.4;
 }
-.skill-block {
-  margin-top: 9px;
-  border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
-  border-radius: var(--radius-sm, 10px);
-  background: var(--accent-soft);
-  padding: 8px 9px 9px;
-}
-.skill-block-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px 8px;
-  margin-bottom: 6px;
-}
-.skill-block-overline {
-  color: var(--accent-text);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.skill-block-title {
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.3;
-}
+.capability-disclosures { display: grid; gap: 6px; margin-top: 10px; }
+.capability-details { overflow: hidden; border: 1px solid var(--separator); border-radius: var(--radius-sm, 10px); background: var(--surface-secondary); }
+.capability-details summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; min-height: 36px; padding: 7px 9px; cursor: pointer; list-style: none; color: var(--text-secondary); }
+.capability-details summary::-webkit-details-marker { display: none; }
+.capability-details summary:hover { background: color-mix(in srgb, var(--surface) 54%, transparent); }
+.capability-details summary:active { transform: translateY(1px); }
+.capability-details summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.capability-details[open] summary { border-bottom: 1px solid var(--separator); }
+.disclosure-kind { color: var(--text-primary); font-size: 11px; font-weight: 680; white-space: nowrap; }
+.disclosure-kind small { margin-left: 4px; color: var(--text-tertiary); font-size: 8px; font-weight: 700; letter-spacing: 0.05em; }
+.tool-details .disclosure-kind small { color: var(--accent-text); }
+.disclosure-preview { min-width: 0; overflow: hidden; color: var(--text-tertiary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.disclosure-count { color: var(--text-tertiary); font-size: 9px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.disclosure-chevron { color: var(--text-tertiary); font-size: 18px; line-height: 1; transition: transform 160ms ease; }
+.capability-details[open] .disclosure-chevron { transform: rotate(90deg); }
+.tool-call-list { display: grid; gap: 7px; margin: 0; padding: 8px; list-style: none; }
+.tool-call-list li { border-radius: var(--radius-xs, 6px); background: var(--surface); padding: 8px; }
+.call-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.call-heading > div { display: grid; min-width: 0; gap: 2px; }
+.call-heading strong { color: var(--text-primary); font-size: 11px; }
+.call-heading small { color: var(--text-tertiary); font-family: var(--mono); font-size: 9px; overflow-wrap: anywhere; }
+.call-status { flex: 0 0 auto; color: var(--text-secondary); font-size: 9px; font-weight: 650; }
+.call-status.is-running { color: var(--accent-text); }
+.call-status.is-failed, .call-status.is-error, .call-status.is-blocked { color: var(--danger); }
+.tool-call-list p { margin: 6px 0 0; color: var(--text-secondary); font-size: 10px; line-height: 1.5; }
+.tool-call-list dl { display: grid; gap: 5px; margin: 7px 0 0; }
+.tool-call-list dl div { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 6px; }
+.tool-call-list dt { color: var(--text-tertiary); font-size: 9px; font-weight: 700; }
+.tool-call-list dd { margin: 0; color: var(--text-secondary); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
 .skill-chip-list {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
   margin: 0;
-  padding: 0;
+  padding: 8px;
   list-style: none;
 }
 .skill-chip-list li {
   display: grid;
   gap: 2px;
   max-width: 100%;
-  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  border: 1px solid var(--separator);
   border-radius: var(--radius-xs, 6px);
-  background: var(--glass-light);
+  background: var(--surface);
   padding: 5px 8px;
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
 .skill-chip-title {
-  color: var(--accent-text);
+  color: var(--text-primary);
   font-size: 11px;
   font-weight: 650;
 }
@@ -514,4 +589,9 @@ function displayTitle(event: TimelineItem) {
 .inline-error p { margin: 5px 0; line-height: 1.5; }
 .text-button { border: 0; background: none; color: var(--accent-text); padding: 0; font: inherit; cursor: pointer; }
 .blue-dot::before { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--accent); content: ''; }
+@media (prefers-reduced-motion: reduce) { .disclosure-chevron { transition: none; } }
+@media (max-width: 520px) {
+  .capability-details summary { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .disclosure-preview { display: none; }
+}
 </style>

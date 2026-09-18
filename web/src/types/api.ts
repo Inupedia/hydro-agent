@@ -72,6 +72,25 @@ export type TimelineItem = {
   details: Record<string, unknown>
 }
 
+export type ToolCallAudit = {
+  tool_call_id?: string
+  action: string
+  tool_id: string
+  tool_name?: string
+  tool_name_zh: string
+  category: 'data' | 'model' | 'diagnosis' | 'optimization' | 'validation' | 'governance' | 'replay' | 'report'
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'blocked' | string
+  input_summary?: Record<string, unknown>
+  output_summary?: Record<string, unknown>
+  started_at?: string
+  finished_at?: string
+  duration_ms?: number
+  action_run_id?: string | null
+  evidence_id?: string | null
+  child_calls?: ToolCallAudit[]
+  metrics?: Record<string, unknown>
+}
+
 export type AgentRoundLogItem = {
   round_number: number
   occurred_at?: string | null
@@ -89,6 +108,7 @@ export type AgentRoundLogItem = {
   tool_status_zh: string
   tool_observations: string[]
   tool_metrics: Record<string, number>
+  tool_calls?: ToolCallAudit[]
   activated_skill_ids?: string[]
   activated_skills_audit?: Array<{
     skill_id: string
