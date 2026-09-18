@@ -105,6 +105,7 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
         "workbench": {
             "template_scheme_id": payload.base_scheme_id,
             "allow_optimization": payload.allow_optimization,
+            "agent_evolution_enabled": payload.agent_evolution_enabled,
             "start_date": payload.start_date.isoformat(),
             "end_date": payload.end_date.isoformat(),
             "max_agent_decision_rounds": payload.max_agent_decision_rounds,
@@ -177,14 +178,25 @@ def create_workbench_task(deps: AppDependencies, payload: TaskCreateRequest) -> 
     )
     deps.repository.ensure_task_state(task_id, current_scheme_id=scheme_id)
     if deps.skills is not None:
-        skill_snapshot = deps.skills.freeze_for_task(task_id)
-        from hydro_agent.experience.snapshot import freeze_experience_state_for_task
-
-        freeze_experience_state_for_task(
-            deps.repository,
-            task_id,
-            skill_snapshot,
+        if payload.agent_evolution_enabled and deps.experience_evolution is not None:
+            deps.experience_evolution.ensure_baseline()
+        excluded_skills = (
+            ()
+            if payload.agent_evolution_enabled
+            else ("calibration-experience",)
         )
+        skill_snapshot = deps.skills.freeze_for_task(
+            task_id,
+            exclude_skill_ids=excluded_skills,
+        )
+        if payload.agent_evolution_enabled:
+            from hydro_agent.experience.snapshot import freeze_experience_state_for_task
+
+            freeze_experience_state_for_task(
+                deps.repository,
+                task_id,
+                skill_snapshot,
+            )
 
     runtime_config = build_runtime_task_config(
         config["workbench"],
@@ -204,6 +216,7 @@ def build_task_summary(deps: AppDependencies, task_id: str) -> TaskSummary:
     end_date = config.get("research_end_date") or config.get("end_date")
     validation_days = config.get("validation_days") or config.get("development_days")
     final_test_days = config.get("final_test_days")
+    agent_evolution_enabled = bool(config.get("agent_evolution_enabled", False))
     display_name = getattr(task, "name", None) or config.get("name")
     try:
         schemes = deps.repository.list_schemes(task_id=task_id)
@@ -227,6 +240,12 @@ def build_task_summary(deps: AppDependencies, task_id: str) -> TaskSummary:
                 or workbench.get("development_days")
             )
             final_test_days = final_test_days or workbench.get("final_test_days")
+            agent_evolution_enabled = bool(
+                config.get(
+                    "agent_evolution_enabled",
+                    workbench.get("agent_evolution_enabled", False),
+                )
+            )
             if state.current_scheme_id and scheme.scheme_id == state.current_scheme_id:
                 model_id = str(scheme.model_id or model_id)
                 break
@@ -274,6 +293,7 @@ def build_task_summary(deps: AppDependencies, task_id: str) -> TaskSummary:
         name=str(display_name) if display_name else None,
         agent_rounds_used=state.agent_rounds_used,
         optimization_cycles_used=state.optimization_cycles_used,
+        agent_evolution_enabled=agent_evolution_enabled,
         start_date=str(start_date) if start_date else None,
         end_date=str(end_date) if end_date else None,
         validation_days=int(validation_days) if validation_days is not None else None,
