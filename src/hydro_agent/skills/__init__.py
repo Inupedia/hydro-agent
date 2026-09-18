@@ -47,6 +47,7 @@ SAC_SMA_DIAGNOSIS_SKILL_ID = "sac-sma-calibration-diagnosis"
 EXPERIMENT_DESIGN_SKILL_ID = "calibration-experiment-design"
 RESULT_REVIEW_SKILL_ID = "calibration-result-review"
 REPORTING_SKILL_ID = "hydrology-reporting"
+CALIBRATION_EXPERIENCE_SKILL_ID = "calibration-experience"
 SkillSource = Literal["builtin", "agent", "user", "memory"]
 ActivationStage = Literal["data", "diagnosis", "experiment", "gate", "report"]
 
@@ -199,7 +200,12 @@ class SkillRegistry:
             "activation_model_ids": list(skill.meta_list("activation_model_ids")),
         }
 
-    def freeze_for_task(self, task_id: str) -> dict:
+    def freeze_for_task(
+        self,
+        task_id: str,
+        *,
+        exclude_skill_ids: tuple[str, ...] = (),
+    ) -> dict:
         if self.repository is None:
             raise ValueError("Skill Registry needs a repository to freeze a task")
         existing = self.repository.get_task_state(task_id).skill_snapshot_json
@@ -208,8 +214,9 @@ class SkillRegistry:
             return existing
         self.reload()
         packages: dict[str, dict] = {}
+        excluded = set(exclude_skill_ids)
         for skill_id, skill in sorted(self._loaded.items()):
-            if skill.root is None:
+            if skill.root is None or skill_id in excluded:
                 continue
             packages[skill_id] = {
                 "source": self.source(skill_id),
@@ -376,6 +383,11 @@ class SkillRegistry:
             if stage in stages and (not models or view.model.model_id in models):
                 output.append(skill_id)
         for skill_id in sorted(self._loaded):
+            if (
+                skill_id == CALIBRATION_EXPERIENCE_SKILL_ID
+                and not view.task.agent_evolution_enabled
+            ):
+                continue
             if self._sources.get(skill_id) not in {"agent", "user"} or skill_id in output:
                 continue
             binding = self.binding_for(skill_id)
