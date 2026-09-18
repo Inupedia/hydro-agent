@@ -384,6 +384,21 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
                         if item.get("skill_id")
                     ],
                     "activated_skills_audit": list(decision.activated_skills_json or []),
+                    "experience_skill_version": (
+                        dict(decision.experience_audit_json or {}).get("skill_version")
+                    ),
+                    "experience_skill_hash": (
+                        dict(decision.experience_audit_json or {}).get("skill_hash")
+                    ),
+                    "experience_refs": list(
+                        dict(decision.experience_audit_json or {}).get("experience_refs") or []
+                    ),
+                    "experience_mode": (
+                        dict(decision.experience_audit_json or {}).get("mode")
+                    ),
+                    "experience_influence": list(
+                        dict(decision.experience_audit_json or {}).get("influence") or []
+                    ),
                     "tool_status": ev.status if ev else None,
                     "tool_observations": list(ev.observations_json or []) if ev else [],
                     "tool_metrics": dict(ev.metrics_json or {}) if ev else {},
@@ -440,6 +455,13 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
                 for item in persisted.activated_skills_json
                 if item.get("skill_id")
             ]
+        if persisted is not None and persisted.experience_audit_json:
+            experience_audit = dict(persisted.experience_audit_json)
+            row["experience_skill_version"] = experience_audit.get("skill_version")
+            row["experience_skill_hash"] = experience_audit.get("skill_hash")
+            row["experience_refs"] = list(experience_audit.get("experience_refs") or ())
+            row["experience_mode"] = experience_audit.get("mode")
+            row["experience_influence"] = list(experience_audit.get("influence") or ())
         action = row.get("action")
         tool_status = row.get("tool_status")
         decision_id = row.get("decision_id") or (persisted.decision_id if persisted else None)
@@ -522,6 +544,15 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
                 input_world_state=dict(row.get("input_world_state") or {}),
                 activated_skill_ids=tuple(str(item) for item in activated),
                 activated_skills_audit=tuple(row.get("activated_skills_audit") or ()),
+                experience_skill_version=row.get("experience_skill_version"),
+                experience_skill_hash=row.get("experience_skill_hash"),
+                experience_refs=tuple(
+                    str(item) for item in (row.get("experience_refs") or ())
+                ),
+                experience_mode=row.get("experience_mode"),
+                experience_influence=tuple(
+                    str(item) for item in (row.get("experience_influence") or ())
+                ),
                 tool_status=tool_status,
                 tool_status_zh=status_zh(tool_status),
                 tool_observations=tuple(row.get("tool_observations") or ()),
