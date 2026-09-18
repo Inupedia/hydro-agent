@@ -157,11 +157,21 @@ class ExperiencePolicy:
             available_param_groups=available_param_groups,
         )
         recommended = _groups((diagnosis or {}).get("recommended_param_groups"))
+        preferred_by_experience = tuple(
+            dict.fromkeys(
+                group
+                for match in matches
+                for group in _groups(match.decision.get("prefer_param_groups"))
+            )
+        )
         # The final choice must follow the same composite ranking we expose in
-        # audit logs. Experience preference is one term, not a hard filter:
-        # stronger failure evidence or hydrologic plausibility may legitimately
-        # move another parameter group above a previously preferred direction.
-        count = max(1, min(len(scores), len(recommended) or 1))
+        # audit logs. Experience preference controls exploitation breadth, not
+        # membership: stronger failure evidence or hydrologic plausibility may
+        # move a different group into that focused selection.
+        if mode == "exploitation" and preferred_by_experience:
+            count = max(1, min(len(scores), len(preferred_by_experience)))
+        else:
+            count = max(1, min(len(scores), len(recommended) or 1))
         selected_groups = tuple(item.candidate_id for item in scores[:count])
 
         strategy_id = None
