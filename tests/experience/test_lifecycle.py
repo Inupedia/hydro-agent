@@ -127,6 +127,11 @@ def test_completed_tasks_create_then_reinforce_without_version_churn(
     assert first.candidate_version == 2
     assert first.promotion_accepted is True
     assert repository.get_current_experience_skill_version().version == 2
+    promoted_v2 = repository.get_experience_skill_version(2)
+    changes = promoted_v2.manifest_json["structural_changes"]
+    assert changes[0]["operation"] == "CREATE"
+    assert changes[0]["proposal_ids"]
+    assert "successful calibration" in changes[0]["reason"]
 
     entries = repository.list_active_experiences()
     assert len(entries) == 1
