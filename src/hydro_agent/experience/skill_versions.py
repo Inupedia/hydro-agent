@@ -58,6 +58,8 @@ class ExperienceSkillVersionStore:
                     "source": "agent",
                     "files": sorted(compiled.files),
                     "sha256": compiled.sha256,
+                    "source_experience_ids": list(compiled.source_experience_ids),
+                    "source_revisions": dict(compiled.source_revisions),
                 },
             )
         except Exception:
