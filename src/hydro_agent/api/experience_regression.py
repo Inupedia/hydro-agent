@@ -4,6 +4,10 @@ import copy
 import uuid
 
 from hydro_agent.experience.regression import ExperienceReplayOutcome
+from hydro_agent.experience.snapshot import (
+    build_version_experience_state_snapshot,
+    verify_experience_state_snapshot,
+)
 from hydro_agent.skills.loader import parse_skill_md
 from hydro_agent.skills.snapshot import build_snapshot, capture_package, verify_snapshot
 
@@ -99,6 +103,30 @@ class AppExperienceReplayRunner:
             experience_skill_version=experience_skill_version,
         )
         self.repository.set_skill_snapshot(clone_id, snapshot)
+
+        version_row = self.repository.get_experience_skill_version(
+            experience_skill_version
+        )
+        source_state_snapshot = source_state.experience_state_snapshot_json
+        replay_state_snapshot = None
+        if isinstance(source_state_snapshot, dict):
+            verify_experience_state_snapshot(source_state_snapshot)
+            if (
+                int(source_state_snapshot["skill_version"])
+                == experience_skill_version
+                and str(source_state_snapshot["skill_hash"])
+                == str(version_row.skill_hash)
+            ):
+                replay_state_snapshot = copy.deepcopy(source_state_snapshot)
+        if replay_state_snapshot is None:
+            replay_state_snapshot = build_version_experience_state_snapshot(
+                self.repository,
+                version_row,
+            )
+        self.repository.set_experience_state_snapshot(
+            clone_id,
+            replay_state_snapshot,
+        )
 
         source_config = copy.deepcopy(self.deps.task_configs.get(task_id) or {})
         if not source_config:
