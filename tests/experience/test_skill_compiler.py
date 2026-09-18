@@ -163,3 +163,29 @@ def test_historical_version_materializes_after_new_promotion(tmp_path):
     assert repository.get_current_experience_skill_version().version == 2
     assert _read_tree(store.materialize(1)) == v1_bytes
     assert _read_tree(store.current_package) == _read_tree(store.materialize(2))
+
+
+
+def test_ensure_current_restores_missing_active_package(tmp_path):
+    import shutil
+
+    from hydro_agent.experience.skill_versions import ExperienceSkillVersionStore
+    from hydro_agent.persistence.database import Database
+    from hydro_agent.persistence.repository import HydroRepository
+
+    database = Database(f"sqlite+pysqlite:///{tmp_path}/restore.db")
+    database.create_schema()
+    repository = HydroRepository(database)
+    store = ExperienceSkillVersionStore(tmp_path / "restore-store", repository=repository)
+    compiled = ExperienceSkillCompiler().compile(1, (entry("EXP-RESTORE"),))
+
+    store.create_candidate(compiled)
+    store.promote(1)
+    expected = _read_tree(store.materialize(1))
+    shutil.rmtree(store.current_package)
+    assert not store.current_package.exists()
+
+    restored = store.ensure_current(1)
+
+    assert restored == store.current_package
+    assert _read_tree(restored) == expected
