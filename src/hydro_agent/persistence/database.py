@@ -45,6 +45,13 @@ class Database:
                         AND NEW.skill_snapshot_json IS NOT OLD.skill_snapshot_json
                    BEGIN SELECT RAISE(ABORT, 'immutable Skill Snapshot'); END"""
             )
+            conn.exec_driver_sql(
+                """CREATE TRIGGER IF NOT EXISTS task_state_experience_snapshot_no_replace
+                   BEFORE UPDATE OF experience_state_snapshot_json ON task_state
+                   WHEN OLD.experience_state_snapshot_json IS NOT NULL
+                        AND NEW.experience_state_snapshot_json IS NOT OLD.experience_state_snapshot_json
+                   BEGIN SELECT RAISE(ABORT, 'immutable Experience State Snapshot'); END"""
+            )
 
     def _add_missing_columns(self) -> None:
         """SQLite create_all never ALTERs existing tables; add new nullable columns in place."""
