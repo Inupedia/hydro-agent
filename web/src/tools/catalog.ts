@@ -93,5 +93,6 @@ export const TOOL_CATALOG: Record<string, ToolDescriptor> = {
 
 export function toolForAction(action: string | null | undefined): ToolDescriptor | null {
   if (!action) return null
-  return TOOL_CATALOG[currentActionId(action)] || null
+  const actionId = currentActionId(action)
+  return actionId ? TOOL_CATALOG[actionId] || null : null
 }

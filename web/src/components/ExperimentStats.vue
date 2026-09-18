@@ -4,14 +4,14 @@ import type { AgentRoundLogItem } from '../types/api'
 
 const props = defineProps<{ rounds: AgentRoundLogItem[] }>()
 const skillCount = computed(() => props.rounds.reduce((sum, round) => sum + (round.activated_skill_ids?.length || 0), 0))
-const toolCount = computed(() => props.rounds.reduce((sum, round) => sum + (round.tool_calls?.length || (round.action ? 1 : 0)), 0))
+const toolCount = computed(() => props.rounds.reduce((sum, round) => sum + (round.tool_calls || []).filter((call) => call.trace_source !== 'legacy_inferred').length, 0))
 const modelEvaluations = computed(() => props.rounds.reduce((sum, round) => {
   const direct = round.tool_calls?.reduce((inner, call) => inner + Number(call.metrics?.model_evaluations || 0), 0) || 0
   if (direct) return sum + direct
-  const observation = round.tool_observations.find((item) => item.startsWith('model_evaluations='))
+  const observation = round.tool_observations?.find((item) => item.startsWith('model_evaluations='))
   return sum + Number(observation?.split('=')[1] || 0)
 }, 0))
-const candidateCount = computed(() => new Set(props.rounds.flatMap((round) => round.tool_observations)
+const candidateCount = computed(() => new Set(props.rounds.flatMap((round) => round.tool_observations || [])
   .filter((item) => item.startsWith('candidate_scheme_id='))
   .map((item) => item.slice('candidate_scheme_id='.length))
   .filter(Boolean)).size)

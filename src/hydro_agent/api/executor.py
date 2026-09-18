@@ -121,7 +121,9 @@ class TaskExecutor:
         task = self.deps.repository.get_task(task_id)
         state = self.deps.repository.ensure_task_state(task_id)
         evidence = self.deps.repository.list_evidence(task_id)
+        decisions = self.deps.repository.list_agent_decisions(task_id)
         last = evidence[-1] if evidence else None
+        latest_decision = decisions[-1] if decisions else None
         trace = self.deps.get_llm_trace(task_id)
         running = task_id in self._running
         try:
@@ -140,6 +142,16 @@ class TaskExecutor:
                 0, MAX_OPTIMIZATION_CYCLES - state.optimization_cycles_used
             ),
             current_scheme_id=state.current_scheme_id,
+            current_round_number=(
+                state.agent_rounds_used + 1
+                if running or trace.decision_action
+                else (latest_decision.round_number if latest_decision else None)
+            ),
+            current_decision_id=(
+                None
+                if running or trace.decision_action
+                else (latest_decision.decision_id if latest_decision else None)
+            ),
             last_action=last.action if last else None,
             last_hypothesis=None,
             llm_streaming=bool(trace.streaming),

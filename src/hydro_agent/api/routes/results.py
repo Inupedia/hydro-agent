@@ -363,6 +363,7 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
             rows.append(
                 {
                     "round_number": decision.round_number,
+                    "decision_id": decision.decision_id,
                     "occurred_at": decision.created_at.isoformat()
                     if getattr(decision, "created_at", None)
                     else None,
@@ -393,6 +394,7 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
                             action_run_id=ev.action_run_id if ev else None,
                             artifact_ids=list(ev.artifact_ids_json or []) if ev else [],
                             gates=dict(ev.gates_json or {}) if ev else {},
+                            trace_source="evidence_inferred" if ev else "legacy_inferred",
                         )
                     ],
                     "evidence_summary": {
@@ -429,12 +431,15 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
             ]
         action = row.get("action")
         tool_status = row.get("tool_status")
+        decision_id = row.get("decision_id") or (persisted.decision_id if persisted else None)
         evidence_bucket = evidence_by_action.get(str(action)) or []
         persisted_evidence = evidence_bucket.pop(0) if evidence_bucket else None
         activated = row.get("activated_skill_ids") or []
         if isinstance(activated, str):
             activated = [item.strip() for item in activated.split(",") if item.strip()]
         tool_calls = list(row.get("tool_calls") or ())
+        for call in tool_calls:
+            call.setdefault("trace_source", "runtime")
         if not tool_calls:
             observations = list(row.get("tool_observations") or ())
             metrics_payload = dict(row.get("tool_metrics") or {})
@@ -456,6 +461,7 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
                 else (),
                 gates=dict(persisted_evidence.gates_json or {}) if persisted_evidence else None,
                 error=row.get("error"),
+                trace_source="evidence_inferred" if persisted_evidence else "legacy_inferred",
             )
             if synthesized is not None:
                 tool_calls.append(synthesized)
@@ -486,6 +492,7 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
         rounds.append(
             AgentRoundLogItem(
                 round_number=int(row.get("round_number") or 0),
+                decision_id=decision_id,
                 occurred_at=row.get("occurred_at"),
                 action=action,
                 action_zh=action_zh(action),

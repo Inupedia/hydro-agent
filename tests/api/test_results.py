@@ -45,8 +45,10 @@ def test_agent_log_exposes_persisted_skill_invocation_audit(client, repository, 
     fallback = client.get("/api/tasks/skill-audit-task/agent-log").json()["rounds"][0]
     assert fallback["activated_skill_ids"] == ["hydro-error-diagnosis"]
     assert fallback["activated_skills_audit"] == [manifest]
+    assert fallback["decision_id"] == "dec-skill-audit"
     assert fallback["tool_calls"][0]["tool_id"] == "hydrology.diagnose"
     assert fallback["tool_calls"][0]["status"] == "pending"
+    assert fallback["tool_calls"][0]["trace_source"] == "legacy_inferred"
     app_dependencies.append_agent_round_log(
         "skill-audit-task",
         {"round_number": 1, "action": "A04_DIAGNOSE", "rationale_summary": "Review evidence."},
@@ -54,6 +56,8 @@ def test_agent_log_exposes_persisted_skill_invocation_audit(client, repository, 
     streamed = client.get("/api/tasks/skill-audit-task/agent-log").json()["rounds"][0]
     assert streamed["activated_skills_audit"] == [manifest]
     assert streamed["tool_calls"][0]["tool_name_zh"] == "模型诊断工具"
+    assert streamed["decision_id"] == "dec-skill-audit"
+    assert streamed["tool_calls"][0]["trace_source"] == "legacy_inferred"
 
 
 def test_agent_log_combines_skills_tools_and_evidence_for_legacy_rows(
@@ -91,9 +95,32 @@ def test_agent_log_combines_skills_tools_and_evidence_for_legacy_rows(
     assert payload["activated_skill_ids"] == ["xaj-calibration-diagnosis"]
     assert payload["tool_calls"][0]["tool_id"] == "calibration.optimize"
     assert payload["tool_calls"][0]["status"] == "completed"
+    assert payload["tool_calls"][0]["trace_source"] == "evidence_inferred"
     assert payload["tool_calls"][0]["input_summary"]["optimizer"] == "sce-ua"
     assert payload["tool_calls"][0]["metrics"]["model_evaluations"] == 48
     assert payload["evidence_summary"]["evidence_id"] == "ev-tool-audit"
+
+
+def test_run_summary_exposes_current_round_coordinates(client, repository):
+    task_id = client.post("/api/tasks", json=CREATE_BODY).json()["task_id"]
+    repository.record_agent_decision(
+        decision_id="dec-run-round",
+        task_id=task_id,
+        round_number=1,
+        provider="fixture",
+        model="fixture",
+        world_state_hash="view-hash",
+        action="A04_DIAGNOSE",
+        hypothesis="MODEL",
+        strategy_id=None,
+        rationale_summary="Inspect errors.",
+        input_tokens=None,
+        output_tokens=None,
+        activated_skills_json=[],
+    )
+    payload = client.get(f"/api/tasks/{task_id}/run").json()
+    assert payload["current_round_number"] == 1
+    assert payload["current_decision_id"] == "dec-run-round"
 
 
 def test_results_are_read_from_persisted_scheme_forecast_gate_report(

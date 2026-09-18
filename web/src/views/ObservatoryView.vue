@@ -779,6 +779,7 @@ onUnmounted(() => {
             :task-id="demo.taskId"
             :event-count="demo.timeline.length"
             :current-action="action"
+            :current-round-number="demo.run?.current_round_number"
             :running="demo.isRunning"
           />
           </template>
@@ -939,6 +940,7 @@ onUnmounted(() => {
           :failed="demo.isFailed"
           :elapsed="elapsed"
           :current-action="action"
+          :current-round-number="demo.run?.current_round_number"
           :error="error"
           @refresh="demo.refresh()"
         />

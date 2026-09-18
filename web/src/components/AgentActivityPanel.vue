@@ -3,7 +3,6 @@ import { PhCaretDown, PhCaretUp } from '@phosphor-icons/vue'
 import { computed, ref, watch } from 'vue'
 import { api } from '../api/client'
 import { skillTitle } from '../skills/catalog'
-import { toolForAction } from '../tools/catalog'
 import type { AgentRoundLogItem, ToolCallAudit } from '../types/api'
 import EvidenceCard from './EvidenceCard.vue'
 import ExperimentStats from './ExperimentStats.vue'
@@ -13,6 +12,7 @@ const props = defineProps<{
   taskId?: string | null
   eventCount: number
   currentAction?: string | null
+  currentRoundNumber?: number | null
   running?: boolean
 }>()
 
@@ -40,13 +40,11 @@ async function load() {
   }
 }
 
-watch(() => [props.taskId, props.eventCount, props.currentAction] as const, () => void load(), { immediate: true })
+watch(() => [props.taskId, props.eventCount, props.currentAction, props.currentRoundNumber] as const, () => void load(), { immediate: true })
 
 const currentRound = computed(() => {
-  if (!rounds.value.length) return null
-  if (props.currentAction) {
-    const match = [...rounds.value].reverse().find((round) => round.action === props.currentAction)
-    if (match) return match
+  if (props.currentRoundNumber) {
+    return rounds.value.find((round) => round.round_number === props.currentRoundNumber) || null
   }
   return rounds.value.at(-1) || null
 })
@@ -68,19 +66,7 @@ const paramGroups = computed(() => Array.isArray(audit.value.param_groups) ? aud
 const objective = computed(() => typeof audit.value.objective === 'string' ? audit.value.objective : '')
 const skills = computed(() => (currentRound.value?.activated_skill_ids || []).map((id) => ({ id, title: skillTitle(id) })))
 const tools = computed<ToolCallAudit[]>(() => {
-  if (currentRound.value?.tool_calls?.length) return currentRound.value.tool_calls
-  const descriptor = toolForAction(currentRound.value?.action)
-  if (!descriptor || !currentRound.value) return []
-  return [{
-    action: descriptor.action,
-    tool_id: descriptor.id,
-    tool_name_zh: descriptor.nameZh,
-    description_zh: descriptor.descriptionZh,
-    category: descriptor.category,
-    status: currentRound.value.tool_status === 'succeeded' ? 'completed' : currentRound.value.tool_status || 'pending',
-    output_summary: { observations: currentRound.value.tool_observations },
-    metrics: currentRound.value.tool_metrics,
-  }]
+  return currentRound.value?.tool_calls || []
 })
 const evidence = computed(() => currentRound.value?.evidence_summary || (currentRound.value?.tool_status ? {
   action: currentRound.value.action,

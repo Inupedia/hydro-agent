@@ -19,8 +19,11 @@ describe('AgentActivityPanel', () => {
       tool_observations: ['optimizer=sce-ua', 'model_evaluations=48'], tool_metrics: { NSE: 0.781 },
       tool_calls: [{ action: 'A05_OPTIMIZE', tool_id: 'calibration.optimize', tool_name_zh: '参数优化工具', category: 'optimization', status: 'completed', input_summary: { optimizer: 'sce-ua' }, metrics: { model_evaluations: 48, NSE: 0.781 } }],
       evidence_summary: { evidence_id: 'ev-1', action: 'A05_OPTIMIZE', status: 'succeeded', observations: ['生成候选方案'], metrics: { NSE: 0.781 } },
+    }, {
+      round_number: 8,
+      action: 'A05_OPTIMIZE', action_zh: '参数率定', tool_calls: [],
     }] })
-    const wrapper = mount(AgentActivityPanel, { props: { taskId: 'task-1', eventCount: 1, currentAction: 'A05_OPTIMIZE', running: true } })
+    const wrapper = mount(AgentActivityPanel, { props: { taskId: 'task-1', eventCount: 1, currentAction: 'A05_OPTIMIZE', currentRoundNumber: 4, running: true } })
     await flushPromises()
     const panel = wrapper.get('[data-test="agent-activity-panel"]')
     const toggle = wrapper.get('[data-test="activity-toggle"]')
@@ -46,5 +49,17 @@ describe('AgentActivityPanel', () => {
 
     await toggle.trigger('click')
     expect(panel.classes()).not.toContain('is-expanded')
+  })
+
+  it('does not reuse an earlier round when the current round has no tool evidence yet', async () => {
+    mocks.getAgentLog.mockResolvedValueOnce({ task_id: 'task-1', rounds: [{
+      round_number: 4,
+      action: 'A05_OPTIMIZE', action_zh: '参数率定', tool_calls: [],
+    }] })
+    const wrapper = mount(AgentActivityPanel, { props: { taskId: 'task-1', eventCount: 4, currentAction: 'A05_OPTIMIZE', currentRoundNumber: 8 } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('等待 Agent 开始行动')
+    expect(wrapper.text()).not.toContain('48 次模型计算')
+    expect(wrapper.text()).not.toContain('参数优化工具')
   })
 })
