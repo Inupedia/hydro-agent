@@ -367,19 +367,44 @@ def test_rejected_candidate_restores_promoted_experience_structure(tmp_path):
     candidate = compiler.compile(2, repository.list_active_experiences())
     store.create_candidate(candidate)
 
-    class NoReplay:
+    class Selector:
+        def select(self, repository):
+            return ExperienceRegressionSet(
+                cases=(
+                    RegressionCase(
+                        task_id="task-hard",
+                        tags=("peak-over",),
+                        hard_case=True,
+                    ),
+                )
+            )
+
+    class HardRegressionRunner:
         def run(self, *, task_id, experience_skill_version):
-            raise AssertionError("empty regression set should not invoke replay")
+            return ExperienceReplayOutcome(
+                task_id=task_id,
+                experience_skill_version=experience_skill_version,
+                terminal_status=(
+                    "succeeded" if experience_skill_version == 1 else "failed"
+                ),
+                optimization_cycles=4,
+                repeated_failed_experiments=1,
+                quality_score=0.70 if experience_skill_version == 1 else 0.60,
+            )
 
     service = ExperiencePromotionService(
         repository,
         version_store=store,
-        regression_service=ExperienceRegressionService(NoReplay()),
+        regression_service=ExperienceRegressionService(HardRegressionRunner()),
+        selector=Selector(),
     )
     decision = service.validate_and_promote(2)
 
     assert decision.accepted is False
-    assert decision.reasons == ("INSUFFICIENT_REGRESSION_CASES",)
+    assert any(
+        reason.startswith("HARD_CASE_REGRESSION")
+        for reason in decision.reasons
+    )
     assert repository.get_experience_skill_version(2).status == "rejected"
     assert repository.get_current_experience_skill_version().version == 1
 
@@ -479,3 +504,71 @@ def test_promotion_excludes_candidate_source_tasks_from_regression():
     assert seen["cases"] == ("task-history",)
     assert seen["promoted"] == 2
     assert decision.accepted is True
+
+
+
+def test_insufficient_regression_keeps_candidate_quarantined(tmp_path):
+    from hydro_agent.experience.compiler import ExperienceSkillCompiler
+    from hydro_agent.experience.contracts import ExperienceEntry, ExperienceScope
+    from hydro_agent.experience.promotion import ExperiencePromotionService
+    from hydro_agent.experience.regression import ExperienceRegressionService
+    from hydro_agent.experience.skill_versions import ExperienceSkillVersionStore
+    from hydro_agent.persistence.database import Database
+    from hydro_agent.persistence.repository import HydroRepository
+
+    db = Database(f"sqlite+pysqlite:///{tmp_path}/pending-candidate.db")
+    db.create_schema()
+    repository = HydroRepository(db)
+    store = ExperienceSkillVersionStore(tmp_path / "pending-store", repository=repository)
+    compiler = ExperienceSkillCompiler()
+
+    store.create_candidate(compiler.compile(1, ()))
+    store.promote(1, regression={"passed": True})
+
+    proposal = ExperienceEntry(
+        experience_id="EXP-PENDING",
+        revision=1,
+        category="model",
+        scope=ExperienceScope(model_ids=("xaj",), basin_ids=("basin-a",)),
+        pattern={"hypothesis": "MODEL"},
+        decision={"prefer_param_groups": ["routing"]},
+        supporting_evidence=(),
+        contradicting_evidence=(),
+        confidence=0.65,
+        status="active",
+    )
+    repository.append_experience_revision(proposal)
+    store.create_candidate(
+        compiler.compile(2, (proposal,)),
+        structural_changes=(
+            {
+                "operation": "CREATE",
+                "experience_id": None,
+                "source_ids": [],
+                "proposal_ids": ["EXP-PENDING"],
+                "reason": "new rule",
+                "evidence_refs": [{"task_id": "task-source"}],
+            },
+        ),
+    )
+
+    class NoReplay:
+        def run(self, *, task_id, experience_skill_version):
+            raise AssertionError("empty regression set should not invoke replay")
+
+    decision = ExperiencePromotionService(
+        repository,
+        version_store=store,
+        regression_service=ExperienceRegressionService(NoReplay()),
+    ).validate_and_promote(2)
+
+    assert decision.accepted is False
+    assert decision.reasons == ("INSUFFICIENT_REGRESSION_CASES",)
+    pending = repository.get_experience_skill_version(2)
+    assert pending.status == "candidate"
+    assert pending.regression_json["promotion_decision"]["accepted"] is False
+    assert repository.get_experience("EXP-PENDING").status == "active"
+    assert not any(
+        event.event_type == "REJECT"
+        for event in repository.list_experience_evolution_events()
+    )
