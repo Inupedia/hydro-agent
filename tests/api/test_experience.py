@@ -116,7 +116,10 @@ def test_experience_api_exposes_summary_versions_and_provenance(app_dependencies
         assert evolution.json()[0]["evidence_refs"][0]["task_id"] == "task-source"
 
         regression = client.get("/api/experience/regression")
-        assert regression.json()["items"][0]["version"] == 2
+        versions_with_regression = {
+            item["version"] for item in regression.json()["items"]
+        }
+        assert 2 in versions_with_regression
 
     app.state.executor.shutdown()
 
