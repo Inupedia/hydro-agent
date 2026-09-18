@@ -453,7 +453,14 @@ class SkillRegistry:
         self, view: WorldStateView
     ) -> tuple[tuple[str, ...], str, tuple[dict, ...]]:
         if self.repository is not None:
-            snapshot = self.freeze_for_task(view.task.task_id)
+            snapshot = self.freeze_for_task(
+                view.task.task_id,
+                exclude_skill_ids=(
+                    ()
+                    if view.task.agent_evolution_enabled
+                    else (CALIBRATION_EXPERIENCE_SKILL_ID,)
+                ),
+            )
             frozen = self.from_snapshot(snapshot, standards=self._standards)
             return frozen.activated_for_prompt_with_audit(view)
         self.reload()
