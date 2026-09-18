@@ -220,6 +220,9 @@ class ExperienceEvolutionService:
     def _ensure_baseline_locked(self) -> int:
         current = self.repository.get_current_experience_skill_version()
         if current is not None:
+            self.version_store.ensure_current(current.version)
+            if self.skill_registry is not None:
+                self.skill_registry.reload()
             return current.version
 
         versions = self.repository.list_experience_skill_versions()
