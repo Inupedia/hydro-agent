@@ -4,6 +4,7 @@ from hydro_agent.execution.contracts import FrozenModel
 from hydro_agent.experience.regression import (
     ExperienceRegressionSelector,
     ExperienceRegressionService,
+    ExperienceRegressionSet,
     RegressionComparison,
 )
 
@@ -97,6 +98,15 @@ class ExperiencePromotionService:
             raise ValueError("a promoted baseline Experience Skill is required")
 
         regression_set = self.selector.select(self.repository)
+        source_tasks = _candidate_source_task_ids(candidate.manifest_json)
+        if source_tasks:
+            regression_set = ExperienceRegressionSet(
+                cases=tuple(
+                    case
+                    for case in regression_set.cases
+                    if case.task_id not in source_tasks
+                )
+            )
         comparison = self.regression_service.compare(
             current_version=current.version,
             candidate_version=candidate_version,
@@ -202,3 +212,18 @@ def _succeeded(status: str) -> bool:
         "qualified",
         "completed",
     }
+
+
+
+def _candidate_source_task_ids(manifest: dict | None) -> set[str]:
+    tasks: set[str] = set()
+    for change in dict(manifest or {}).get("structural_changes") or ():
+        if not isinstance(change, dict):
+            continue
+        for ref in change.get("evidence_refs") or ():
+            if not isinstance(ref, dict):
+                continue
+            task_id = str(ref.get("task_id") or "").strip()
+            if task_id:
+                tasks.add(task_id)
+    return tasks
