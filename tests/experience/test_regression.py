@@ -306,7 +306,12 @@ def test_rejected_candidate_restores_promoted_experience_structure(tmp_path):
     from hydro_agent.experience.diff import ExperienceDiff
     from hydro_agent.experience.promotion import ExperiencePromotionService
     from hydro_agent.experience.reflection import ExperienceDiffApplier
-    from hydro_agent.experience.regression import ExperienceRegressionService
+    from hydro_agent.experience.regression import (
+        ExperienceRegressionService,
+        ExperienceRegressionSet,
+        ExperienceReplayOutcome,
+        RegressionCase,
+    )
     from hydro_agent.experience.skill_versions import ExperienceSkillVersionStore
     from hydro_agent.persistence.database import Database
     from hydro_agent.persistence.repository import HydroRepository
