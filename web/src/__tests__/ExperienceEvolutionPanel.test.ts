@@ -79,6 +79,14 @@ describe('ExperienceEvolutionPanel', () => {
       superseded: [],
       split: [],
       merged: [],
+      structural_changes: [{
+        operation: 'CREATE',
+        experience_id: null,
+        source_ids: [],
+        proposal_ids: ['EXP-XAJ-0018'],
+        reason: '首次形成 routing 优先规则',
+        evidence_refs: [],
+      }],
     })
 
     const wrapper = mount(ExperienceEvolutionPanel, {
@@ -93,5 +101,6 @@ describe('ExperienceEvolutionPanel', () => {
     expect(wrapper.text()).toContain('支持证据')
     expect(wrapper.text()).toContain('ev-1')
     expect(wrapper.get('[data-test="experience-version-diff"]').text()).toContain('新增')
+    expect(wrapper.get('[data-test="structural-reasons"]').text()).toContain('首次形成 routing 优先规则')
   })
 })
