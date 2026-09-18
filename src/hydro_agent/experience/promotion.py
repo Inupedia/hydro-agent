@@ -115,18 +115,82 @@ class ExperiencePromotionService:
             )
         else:
             reason = ";".join(decision.reasons)
-            self.version_store.reject(
-                candidate_version,
-                reason,
-                regression=regression_payload,
+            rejection_payload = {
+                **regression_payload,
+                "passed": False,
+                "reason": reason,
+            }
+            rollback_entries = self._rejection_rollback_entries(
+                current=current,
+                candidate=candidate,
             )
-            self.repository.append_experience_evolution_event(
-                event_type="REJECT",
+            self.repository.reject_experience_skill_candidate_with_rollback(
+                version=candidate_version,
+                regression=rejection_payload,
                 reason=f"Experience Skill v{candidate_version} rejected: {reason}",
+                rollback_entries=rollback_entries,
                 version_before=current.version,
-                version_after=candidate_version,
             )
         return decision
+
+    def _rejection_rollback_entries(self, *, current, candidate):
+        current_manifest = dict(current.manifest_json or {})
+        candidate_manifest = dict(candidate.manifest_json or {})
+        current_ids = set(
+            str(item)
+            for item in (
+                current_manifest.get("source_experience_ids")
+                or dict(current_manifest.get("source_revisions") or {}).keys()
+            )
+        )
+        candidate_ids = set(
+            str(item)
+            for item in (
+                candidate_manifest.get("source_experience_ids")
+                or dict(candidate_manifest.get("source_revisions") or {}).keys()
+            )
+        )
+
+        rollback = []
+
+        # Candidate-only rules must stop participating in future Reflection.
+        for experience_id in sorted(candidate_ids - current_ids):
+            latest = self.repository.get_experience(experience_id)
+            if latest.status != "active":
+                continue
+            rollback.append(
+                latest.model_copy(
+                    update={
+                        "revision": latest.revision + 1,
+                        "status": "rejected",
+                        "source_hash": None,
+                    }
+                )
+            )
+
+        # Rules removed by SPLIT / MERGE / SUPERSEDE are restored from the
+        # latest pre-structural active revision, preserving all state-only
+        # REINFORCE / WEAKEN updates that happened since the Skill was promoted.
+        for experience_id in sorted(current_ids - candidate_ids):
+            revisions = self.repository.list_experience_revisions(experience_id)
+            active = [entry for entry in revisions if entry.status == "active"]
+            if not active:
+                continue
+            previous_active = max(active, key=lambda entry: entry.revision)
+            latest = max(revisions, key=lambda entry: entry.revision)
+            if latest.status == "active":
+                continue
+            rollback.append(
+                previous_active.model_copy(
+                    update={
+                        "revision": latest.revision + 1,
+                        "status": "active",
+                        "source_hash": None,
+                    }
+                )
+            )
+
+        return tuple(rollback)
 
 
 def _succeeded(status: str) -> bool:
