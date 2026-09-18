@@ -11,6 +11,7 @@ from typing import Any, Mapping
 
 from pydantic import Field
 
+from hydro_agent.evaluation.diagnosis_packet import HydrographDiagnosisPacket
 from hydro_agent.execution.contracts import FrozenModel
 
 ParameterGroup = tuple[str, ...]
@@ -29,7 +30,16 @@ class MetricSet(FrozenModel):
 class FloodEventView(FrozenModel):
     event_id: str = ""
     peak_ratio: float | None = None
+    peak_relative_error: float | None = None
     timing_lag_days: float | None = None
+    timing_lag_steps: float | None = None
+    volume_relative_error: float | None = None
+    rising_limb_mae: float | None = None
+    recession_mae: float | None = None
+    basis: str | None = None
+    start: str | None = None
+    end: str | None = None
+    status: str | None = None
     notes: tuple[str, ...] = ()
 
 
@@ -48,6 +58,7 @@ class HydrologicEvidence(FrozenModel):
     high_flow: MetricSet = Field(default_factory=MetricSet)
     low_flow: MetricSet = Field(default_factory=MetricSet)
     flood_events: tuple[FloodEventView, ...] = ()
+    diagnosis_packet: HydrographDiagnosisPacket | None = None
     water_balance: MetricSet = Field(default_factory=MetricSet)
     data_quality: DataQualityView = Field(default_factory=DataQualityView)
     recommended_action: str | None = None
@@ -65,9 +76,18 @@ class HydrologicEvidence(FrozenModel):
     extras: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
-    def from_diagnosis(cls, diagnosis: Mapping[str, Any] | None) -> HydrologicEvidence:
+    def from_diagnosis(
+        cls,
+        diagnosis: Mapping[str, Any] | None,
+        *,
+        diagnosis_packet: HydrographDiagnosisPacket | None = None,
+    ) -> HydrologicEvidence:
         raw = dict(diagnosis or {})
-        metrics = dict(raw.get("metrics") or {}) if isinstance(raw.get("metrics"), Mapping) else {}
+        legacy_metrics = (
+            dict(raw.get("metrics") or {}) if isinstance(raw.get("metrics"), Mapping) else {}
+        )
+        metrics = dict(diagnosis_packet.overall.metrics) if diagnosis_packet else {}
+        metrics.update(legacy_metrics)
 
         def _float(name: str, *aliases: str) -> float | None:
             for key in (name, *aliases):
@@ -109,20 +129,36 @@ class HydrologicEvidence(FrozenModel):
             high_flow_mae=_float("high_flow_mae"),
             extras=extras_metrics,
         )
-        water = MetricSet(pbias_percent=overall.pbias_percent)
-        high = MetricSet(high_flow_mae=overall.high_flow_mae, mae=_float("high_flow_mae"))
-
         flood: list[FloodEventView] = []
-        peak_ratio = _float("peak_ratio")
-        timing = _float("peak_timing_lag_days", "peak_timing_lag_leads")
-        if peak_ratio is not None or timing is not None:
-            flood.append(
-                FloodEventView(
-                    event_id="diagnostic-peak",
-                    peak_ratio=peak_ratio,
-                    timing_lag_days=timing,
+        if diagnosis_packet is not None:
+            for event in diagnosis_packet.flood_events:
+                flood.append(
+                    FloodEventView(
+                        event_id=event.event_id,
+                        peak_ratio=event.metrics.get("peak_ratio"),
+                        peak_relative_error=event.metrics.get("peak_relative_error"),
+                        timing_lag_steps=event.metrics.get("peak_timing_lag_steps"),
+                        volume_relative_error=event.metrics.get("volume_relative_error"),
+                        rising_limb_mae=event.metrics.get("rising_limb_mae"),
+                        recession_mae=event.metrics.get("recession_mae"),
+                        basis=event.basis,
+                        start=event.start,
+                        end=event.end,
+                        status=event.status,
+                        notes=event.notes,
+                    )
                 )
-            )
+        else:
+            peak_ratio = _float("peak_ratio")
+            timing = _float("peak_timing_lag_days", "peak_timing_lag_leads")
+            if peak_ratio is not None or timing is not None:
+                flood.append(
+                    FloodEventView(
+                        event_id="diagnostic-peak",
+                        peak_ratio=peak_ratio,
+                        timing_lag_days=timing,
+                    )
+                )
 
         groups = raw.get("recommended_param_groups") or ()
         if isinstance(groups, str):
@@ -164,13 +200,46 @@ class HydrologicEvidence(FrozenModel):
             return ()
 
         basin = raw.get("basin_attributes")
+        packet_high = diagnosis_packet.flow_regimes.get("high") if diagnosis_packet else None
+        packet_low = diagnosis_packet.flow_regimes.get("low") if diagnosis_packet else None
+        high = MetricSet(
+            high_flow_mae=overall.high_flow_mae,
+            mae=(
+                packet_high.metrics.get("mae")
+                if packet_high is not None
+                else _float("high_flow_mae")
+            ),
+            extras=dict(packet_high.metrics) if packet_high is not None else {},
+        )
+        low = MetricSet(
+            mae=packet_low.metrics.get("mae") if packet_low is not None else None,
+            extras=dict(packet_low.metrics) if packet_low is not None else {},
+        )
+        water = MetricSet(
+            pbias_percent=overall.pbias_percent,
+            extras=(
+                dict(diagnosis_packet.water_balance.metrics)
+                if diagnosis_packet is not None
+                else {}
+            ),
+        )
+        data_quality = DataQualityView(
+            coverage=diagnosis_packet.data_quality.coverage if diagnosis_packet else None,
+            dropped_samples=(
+                diagnosis_packet.data_quality.dropped_count if diagnosis_packet else None
+            ),
+            notes=(),
+        )
         return cls(
             phenomenon=str(raw.get("phenomenon") or "").strip(),
             hypothesis=str(raw.get("hypothesis") or "UNKNOWN"),
             overall=overall,
             high_flow=high,
+            low_flow=low,
             water_balance=water,
             flood_events=tuple(flood),
+            diagnosis_packet=diagnosis_packet,
+            data_quality=data_quality,
             recommended_action=str(raw["recommended_action"]) if raw.get("recommended_action") else None,
             recommended_strategy_id=(
                 str(raw["recommended_strategy_id"]) if raw.get("recommended_strategy_id") else None
@@ -181,7 +250,13 @@ class HydrologicEvidence(FrozenModel):
             ),
             hypotheses=hypotheses,
             notes=notes,
-            basin_attributes=dict(basin) if isinstance(basin, dict) else {},
+            basin_attributes=(
+                dict(basin)
+                if isinstance(basin, dict)
+                else dict(diagnosis_packet.basin_attributes)
+                if diagnosis_packet is not None
+                else {}
+            ),
             previous_strategy_id=(
                 str(raw["previous_strategy_id"]) if raw.get("previous_strategy_id") else None
             ),
@@ -229,6 +304,8 @@ class HydrologicEvidence(FrozenModel):
             payload["basin_attributes"] = dict(self.basin_attributes)
         if self.previous_strategy_id:
             payload["previous_strategy_id"] = self.previous_strategy_id
+        if self.diagnosis_packet is not None:
+            payload["diagnosis_packet"] = self.diagnosis_packet.model_dump(mode="json")
         return payload
 
     def metric_lines(self, *, limit: int = 8) -> tuple[str, ...]:
