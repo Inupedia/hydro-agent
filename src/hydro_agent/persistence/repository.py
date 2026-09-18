@@ -1,3 +1,5 @@
+import hashlib
+import json
 from datetime import timezone
 from pathlib import PurePosixPath
 from threading import Lock
@@ -6,6 +8,13 @@ from pydantic import AwareDatetime, TypeAdapter
 from sqlalchemy import delete, func, select, text, update
 
 from hydro_agent.execution.contracts import ExecutionPolicy, ExecutionRequest, ExecutionResult
+from hydro_agent.experience.contracts import (
+    ExperienceEntry,
+    ExperienceEvidenceRef,
+    ExperienceEvolutionEventType,
+    ExperienceScope,
+    ExperienceSkillVersionStatus,
+)
 from hydro_agent.services.contracts import ForecastCreate, ForecastRecord
 
 from .database import Database
@@ -16,6 +25,9 @@ from .models import (
     CostLedger,
     DataSnapshot,
     Evidence,
+    ExperienceEvolutionEvent,
+    ExperienceRevision,
+    ExperienceSkillVersion,
     Forecast,
     Scheme,
     Task,
