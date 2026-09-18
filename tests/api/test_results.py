@@ -60,6 +60,61 @@ def test_agent_log_exposes_persisted_skill_invocation_audit(client, repository, 
     assert streamed["tool_calls"][0]["trace_source"] == "legacy_inferred"
 
 
+
+def test_agent_log_exposes_persisted_experience_influence(client, repository, app_dependencies):
+    repository.create_task(
+        task_id="experience-audit-task", basin_id="yaogu", phase="B", forcing_mode="R"
+    )
+    repository.record_agent_decision(
+        decision_id="dec-experience-audit",
+        task_id="experience-audit-task",
+        round_number=1,
+        provider="fixture",
+        model="fixture",
+        world_state_hash="view-hash",
+        action="A05_OPTIMIZE",
+        hypothesis="MODEL",
+        strategy_id="xaj-bounded-v1",
+        rationale_summary="Use validated calibration experience.",
+        input_tokens=None,
+        output_tokens=None,
+        activated_skills_json=[{"skill_id": "calibration-experience", "source": "agent"}],
+        experience_audit_json={
+            "skill_version": 4,
+            "skill_hash": "e" * 64,
+            "experience_refs": ["EXP-XAJ-0018"],
+            "mode": "exploitation",
+            "influence": [
+                "same basin and model match",
+                "routing experiments repeatedly improved peak timing",
+            ],
+        },
+    )
+
+    fallback = client.get("/api/tasks/experience-audit-task/agent-log").json()["rounds"][0]
+    assert fallback["experience_skill_version"] == 4
+    assert fallback["experience_skill_hash"] == "e" * 64
+    assert fallback["experience_refs"] == ["EXP-XAJ-0018"]
+    assert fallback["experience_mode"] == "exploitation"
+    assert fallback["experience_influence"] == [
+        "same basin and model match",
+        "routing experiments repeatedly improved peak timing",
+    ]
+
+    app_dependencies.append_agent_round_log(
+        "experience-audit-task",
+        {
+            "round_number": 1,
+            "decision_id": "dec-experience-audit",
+            "action": "A05_OPTIMIZE",
+            "rationale_summary": "streamed row without durable audit fields",
+        },
+    )
+    streamed = client.get("/api/tasks/experience-audit-task/agent-log").json()["rounds"][0]
+    assert streamed["experience_skill_version"] == 4
+    assert streamed["experience_refs"] == ["EXP-XAJ-0018"]
+    assert streamed["experience_mode"] == "exploitation"
+
 def test_agent_log_combines_skills_tools_and_evidence_for_legacy_rows(
     client, repository, app_dependencies
 ):
