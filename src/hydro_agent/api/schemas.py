@@ -272,6 +272,11 @@ class AgentRoundLogItem(FrozenApiModel):
     input_world_state: dict[str, object] = Field(default_factory=dict)
     activated_skill_ids: tuple[str, ...] = ()
     activated_skills_audit: tuple[dict, ...] = ()
+    experience_skill_version: int | None = Field(default=None, ge=1)
+    experience_skill_hash: str | None = None
+    experience_refs: tuple[str, ...] = ()
+    experience_mode: Literal["exploitation", "exploration"] | None = None
+    experience_influence: tuple[str, ...] = ()
     tool_status: str | None = None
     tool_status_zh: str = ""
     tool_observations: tuple[str, ...] = ()
