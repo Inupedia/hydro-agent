@@ -146,7 +146,7 @@ export function hydrographTitleZh(item: {
   return '独立检验：最终方案是否贴住观测'
 }
 
-export function axisCategory(ink = CHART_INK): EChartsOption['xAxis'] {
+export function axisCategory(ink: ChartInk = CHART_INK): EChartsOption['xAxis'] {
   return {
     type: 'category',
     axisTick: { show: false },
@@ -162,7 +162,10 @@ export function axisCategory(ink = CHART_INK): EChartsOption['xAxis'] {
   }
 }
 
-export function axisValue(name = '流量 · m³/s', ink = CHART_INK): EChartsOption['yAxis'] {
+export function axisValue(
+  name = '流量 · m³/s',
+  ink: ChartInk = CHART_INK,
+): EChartsOption['yAxis'] {
   return {
     type: 'value',
     name,
