@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
+from hydro_agent.agent.tool_catalog import synthesize_tool_call
 from hydro_agent.api.i18n_zh import (
     action_zh,
     hypothesis_zh,
@@ -122,9 +123,9 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
     )
     candidate_scheme_id = None
     if latest_gate_row is not None:
-        candidate_scheme_id = str(
-            dict(latest_gate_row.gates_json or {}).get("candidate_scheme_id") or ""
-        ) or None
+        candidate_scheme_id = (
+            str(dict(latest_gate_row.gates_json or {}).get("candidate_scheme_id") or "") or None
+        )
     matched_optimize_row = None
     if candidate_scheme_id:
         matched_optimize_row = next(
@@ -132,8 +133,7 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
                 row
                 for row in reversed(evidence_rows)
                 if row.action == "A05_OPTIMIZE"
-                and dict(row.gates_json or {}).get("candidate_scheme_id")
-                == candidate_scheme_id
+                and dict(row.gates_json or {}).get("candidate_scheme_id") == candidate_scheme_id
             ),
             None,
         )
@@ -142,9 +142,10 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
             (row for row in reversed(evidence_rows) if row.action == "A05_OPTIMIZE"), None
         )
         if matched_optimize_row is not None:
-            candidate_scheme_id = str(
-                dict(matched_optimize_row.gates_json or {}).get("candidate_scheme_id") or ""
-            ) or None
+            candidate_scheme_id = (
+                str(dict(matched_optimize_row.gates_json or {}).get("candidate_scheme_id") or "")
+                or None
+            )
 
     scheme_row = deps.repository.get_scheme(state.current_scheme_id)
     parameters = {
@@ -184,9 +185,7 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
             candidate_row = deps.repository.get_scheme(candidate_scheme_id)
             candidate_parameters = {
                 str(k): float(v)
-                for k, v in dict(
-                    (candidate_row.config_json or {}).get("parameters") or {}
-                ).items()
+                for k, v in dict((candidate_row.config_json or {}).get("parameters") or {}).items()
             }
             candidate_base_id = None
             if matched_optimize_row is not None:
@@ -198,9 +197,7 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
                 base_row = deps.repository.get_scheme(candidate_base_id)
                 candidate_base = {
                     str(k): float(v)
-                    for k, v in dict(
-                        (base_row.config_json or {}).get("parameters") or {}
-                    ).items()
+                    for k, v in dict((base_row.config_json or {}).get("parameters") or {}).items()
                 }
             candidate_base_parameters = dict(candidate_base)
             candidate_parameter_delta = {
@@ -215,10 +212,7 @@ def get_results(task_id: str, request: Request) -> ResultSummary:
             candidate_parameter_delta = {}
             candidate_base_parameters = dict(base_parameters)
     latest_gate_status = (
-        str(
-            dict(latest_gate_row.gates_json or {}).get("status")
-            or latest_gate_row.status
-        )
+        str(dict(latest_gate_row.gates_json or {}).get("status") or latest_gate_row.status)
         if latest_gate_row is not None
         else None
     )
@@ -356,12 +350,12 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="task not found") from exc
     rows = deps.list_agent_round_logs(task_id)
+    evidence_rows = deps.repository.list_evidence(task_id)
     if not rows:
         # Fallback: reconstruct a thin log from persisted decisions + evidence.
         decisions = deps.repository.list_agent_decisions(task_id)
-        evidence = deps.repository.list_evidence(task_id)
         by_action = {}
-        for item in evidence:
+        for item in evidence_rows:
             by_action.setdefault(item.action, []).append(item)
         for decision in decisions:
             bucket = by_action.get(decision.action) or []
@@ -388,6 +382,29 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
                     "tool_status": ev.status if ev else None,
                     "tool_observations": list(ev.observations_json or []) if ev else [],
                     "tool_metrics": dict(ev.metrics_json or {}) if ev else {},
+                    "tool_calls": [
+                        synthesize_tool_call(
+                            action=decision.action,
+                            status=ev.status if ev else "pending",
+                            observations=list(ev.observations_json or []) if ev else [],
+                            metrics=dict(ev.metrics_json or {}) if ev else {},
+                            strategy_id=decision.strategy_id,
+                            evidence_id=ev.evidence_id if ev else None,
+                            action_run_id=ev.action_run_id if ev else None,
+                            artifact_ids=list(ev.artifact_ids_json or []) if ev else [],
+                            gates=dict(ev.gates_json or {}) if ev else {},
+                        )
+                    ],
+                    "evidence_summary": {
+                        "evidence_id": ev.evidence_id,
+                        "action": ev.action,
+                        "status": ev.status,
+                        "observations": list(ev.observations_json or []),
+                        "metrics": dict(ev.metrics_json or {}),
+                        "gates": dict(ev.gates_json or {}),
+                    }
+                    if ev
+                    else None,
                     "error": None,
                 }
             )
@@ -397,6 +414,9 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
         decision.round_number: decision
         for decision in deps.repository.list_agent_decisions(task_id)
     }
+    evidence_by_action: dict[str, list] = {}
+    for item in evidence_rows:
+        evidence_by_action.setdefault(item.action, []).append(item)
     rounds = []
     for row in rows:
         persisted = persisted_by_round.get(int(row.get("round_number") or 0))
@@ -409,9 +429,60 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
             ]
         action = row.get("action")
         tool_status = row.get("tool_status")
+        evidence_bucket = evidence_by_action.get(str(action)) or []
+        persisted_evidence = evidence_bucket.pop(0) if evidence_bucket else None
         activated = row.get("activated_skill_ids") or []
         if isinstance(activated, str):
             activated = [item.strip() for item in activated.split(",") if item.strip()]
+        tool_calls = list(row.get("tool_calls") or ())
+        if not tool_calls:
+            observations = list(row.get("tool_observations") or ())
+            metrics_payload = dict(row.get("tool_metrics") or {})
+            if persisted_evidence is not None:
+                if not observations:
+                    observations = list(persisted_evidence.observations_json or ())
+                if not metrics_payload:
+                    metrics_payload = dict(persisted_evidence.metrics_json or {})
+            synthesized = synthesize_tool_call(
+                action=action,
+                status=tool_status or (persisted_evidence.status if persisted_evidence else None),
+                observations=observations,
+                metrics=metrics_payload,
+                strategy_id=row.get("strategy_id"),
+                evidence_id=persisted_evidence.evidence_id if persisted_evidence else None,
+                action_run_id=persisted_evidence.action_run_id if persisted_evidence else None,
+                artifact_ids=list(persisted_evidence.artifact_ids_json or ())
+                if persisted_evidence
+                else (),
+                gates=dict(persisted_evidence.gates_json or {}) if persisted_evidence else None,
+                error=row.get("error"),
+            )
+            if synthesized is not None:
+                tool_calls.append(synthesized)
+        evidence_summary = row.get("evidence_summary")
+        if evidence_summary is None and persisted_evidence is not None:
+            evidence_summary = {
+                "evidence_id": persisted_evidence.evidence_id,
+                "action": persisted_evidence.action,
+                "status": persisted_evidence.status,
+                "observations": list(persisted_evidence.observations_json or ()),
+                "metrics": dict(persisted_evidence.metrics_json or {}),
+                "gates": dict(persisted_evidence.gates_json or {}),
+            }
+        elif evidence_summary is None and tool_calls:
+            primary = tool_calls[0]
+            if (
+                primary.get("evidence_id")
+                or primary.get("output_summary")
+                or primary.get("metrics")
+            ):
+                evidence_summary = {
+                    "evidence_id": primary.get("evidence_id"),
+                    "action": action,
+                    "status": tool_status,
+                    "observations": list(row.get("tool_observations") or ()),
+                    "metrics": dict(row.get("tool_metrics") or {}),
+                }
         rounds.append(
             AgentRoundLogItem(
                 round_number=int(row.get("round_number") or 0),
@@ -434,6 +505,8 @@ def get_agent_log(task_id: str, request: Request) -> AgentLogSummary:
                 tool_metrics={
                     str(k): float(v) for k, v in dict(row.get("tool_metrics") or {}).items()
                 },
+                tool_calls=tuple(tool_calls),
+                evidence_summary=evidence_summary,
                 error=row.get("error"),
             )
         )

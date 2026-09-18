@@ -82,7 +82,9 @@ class TaskCreateRequest(FrozenApiModel):
             and self.campaign_max_model_evaluations is not None
             and self.campaign_min_model_evaluations > self.campaign_max_model_evaluations
         ):
-            raise ValueError("campaign_min_model_evaluations exceeds campaign_max_model_evaluations")
+            raise ValueError(
+                "campaign_min_model_evaluations exceeds campaign_max_model_evaluations"
+            )
         return self
 
 
@@ -212,6 +214,45 @@ class ResultSummary(FrozenApiModel):
     status_zh: str = ""
 
 
+class ToolCallAudit(FrozenApiModel):
+    tool_call_id: str | None = None
+    action: str
+    tool_id: str
+    tool_name: str
+    tool_name_zh: str
+    category: Literal[
+        "data",
+        "model",
+        "diagnosis",
+        "optimization",
+        "validation",
+        "governance",
+        "replay",
+        "report",
+    ]
+    description_zh: str = ""
+    status: str
+    input_summary: dict[str, object] = Field(default_factory=dict)
+    output_summary: dict[str, object] = Field(default_factory=dict)
+    started_at: str | None = None
+    finished_at: str | None = None
+    duration_ms: int | None = None
+    action_run_id: str | None = None
+    evidence_id: str | None = None
+    artifact_ids: tuple[str, ...] = ()
+    child_calls: tuple[dict[str, object], ...] = ()
+    metrics: dict[str, object] = Field(default_factory=dict)
+
+
+class EvidenceAuditSummary(FrozenApiModel):
+    evidence_id: str | None = None
+    action: str | None = None
+    status: str | None = None
+    observations: tuple[str, ...] = ()
+    metrics: dict[str, float] = Field(default_factory=dict)
+    gates: dict[str, object] = Field(default_factory=dict)
+
+
 class AgentRoundLogItem(FrozenApiModel):
     round_number: int
     occurred_at: str | None = None
@@ -231,6 +272,8 @@ class AgentRoundLogItem(FrozenApiModel):
     tool_status_zh: str = ""
     tool_observations: tuple[str, ...] = ()
     tool_metrics: dict[str, float] = Field(default_factory=dict)
+    tool_calls: tuple[ToolCallAudit, ...] = ()
+    evidence_summary: EvidenceAuditSummary | None = None
     error: str | None = None
 
 

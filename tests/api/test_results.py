@@ -18,7 +18,9 @@ CREATE_BODY = {
 
 
 def test_agent_log_exposes_persisted_skill_invocation_audit(client, repository, app_dependencies):
-    repository.create_task(task_id="skill-audit-task", basin_id="yaogu", phase="B", forcing_mode="R")
+    repository.create_task(
+        task_id="skill-audit-task", basin_id="yaogu", phase="B", forcing_mode="R"
+    )
     manifest = {
         "skill_id": "hydro-error-diagnosis",
         "source": "builtin",
@@ -43,12 +45,55 @@ def test_agent_log_exposes_persisted_skill_invocation_audit(client, repository, 
     fallback = client.get("/api/tasks/skill-audit-task/agent-log").json()["rounds"][0]
     assert fallback["activated_skill_ids"] == ["hydro-error-diagnosis"]
     assert fallback["activated_skills_audit"] == [manifest]
+    assert fallback["tool_calls"][0]["tool_id"] == "hydrology.diagnose"
+    assert fallback["tool_calls"][0]["status"] == "pending"
     app_dependencies.append_agent_round_log(
         "skill-audit-task",
         {"round_number": 1, "action": "A04_DIAGNOSE", "rationale_summary": "Review evidence."},
     )
     streamed = client.get("/api/tasks/skill-audit-task/agent-log").json()["rounds"][0]
     assert streamed["activated_skills_audit"] == [manifest]
+    assert streamed["tool_calls"][0]["tool_name_zh"] == "模型诊断工具"
+
+
+def test_agent_log_combines_skills_tools_and_evidence_for_legacy_rows(
+    client, repository, app_dependencies
+):
+    repository.create_task(task_id="tool-audit-task", basin_id="yaogu", phase="B", forcing_mode="R")
+    repository.record_agent_decision(
+        decision_id="dec-tool-audit",
+        task_id="tool-audit-task",
+        round_number=1,
+        provider="fixture",
+        model="fixture",
+        world_state_hash="view-hash",
+        action="A05_OPTIMIZE",
+        hypothesis="MODEL",
+        strategy_id="xaj-bounded-v1",
+        rationale_summary="Run a bounded experiment.",
+        input_tokens=None,
+        output_tokens=None,
+        activated_skills_json=[{"skill_id": "xaj-calibration-diagnosis"}],
+    )
+    repository.add_evidence(
+        EvidencePacket(
+            evidence_id="ev-tool-audit",
+            task_id="tool-audit-task",
+            action=ActionCode.A05_OPTIMIZE,
+            status="succeeded",
+            observations=("optimizer=sce-ua", "model_evaluations=48"),
+            metrics={"NSE": 0.781},
+            gates={"param_groups": "runoff,routing", "objective": "nse"},
+            new_information_hash="tool-audit-hash",
+        )
+    )
+    payload = client.get("/api/tasks/tool-audit-task/agent-log").json()["rounds"][0]
+    assert payload["activated_skill_ids"] == ["xaj-calibration-diagnosis"]
+    assert payload["tool_calls"][0]["tool_id"] == "calibration.optimize"
+    assert payload["tool_calls"][0]["status"] == "completed"
+    assert payload["tool_calls"][0]["input_summary"]["optimizer"] == "sce-ua"
+    assert payload["tool_calls"][0]["metrics"]["model_evaluations"] == 48
+    assert payload["evidence_summary"]["evidence_id"] == "ev-tool-audit"
 
 
 def test_results_are_read_from_persisted_scheme_forecast_gate_report(
