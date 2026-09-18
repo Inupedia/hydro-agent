@@ -1,6 +1,16 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import (\n    JSON,\n    Boolean,\n    CheckConstraint,\n    DateTime,\n    Float,\n    ForeignKey,\n    Integer,\n    String,\n    UniqueConstraint,\n)
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
