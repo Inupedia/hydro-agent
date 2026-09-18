@@ -399,3 +399,83 @@ def test_rejected_candidate_restores_promoted_experience_structure(tmp_path):
     assert len(reject_events) == 1
     assert reject_events[0].version_before == 1
     assert reject_events[0].version_after == 2
+
+
+
+def test_promotion_excludes_candidate_source_tasks_from_regression():
+    from types import SimpleNamespace
+
+    from hydro_agent.experience.promotion import (
+        ExperiencePromotionService,
+        PromotionDecision,
+    )
+    from hydro_agent.experience.regression import (
+        ExperienceRegressionSet,
+        RegressionCase,
+        RegressionComparison,
+    )
+
+    candidate = SimpleNamespace(
+        version=2,
+        status="candidate",
+        manifest_json={
+            "structural_changes": [
+                {
+                    "operation": "CREATE",
+                    "evidence_refs": [
+                        {"task_id": "task-source", "evidence_id": "ev-source"}
+                    ],
+                }
+            ]
+        },
+    )
+    current = SimpleNamespace(version=1)
+
+    class Repository:
+        def get_experience_skill_version(self, version):
+            assert version == 2
+            return candidate
+
+        def get_current_experience_skill_version(self):
+            return current
+
+    class Selector:
+        def select(self, repository):
+            return ExperienceRegressionSet(
+                cases=(
+                    RegressionCase(task_id="task-source", tags=("peak-under",)),
+                    RegressionCase(task_id="task-history", tags=("peak-under",)),
+                )
+            )
+
+    seen = {}
+
+    class Regression:
+        def compare(self, *, current_version, candidate_version, cases):
+            seen["cases"] = tuple(case.task_id for case in cases.cases)
+            return RegressionComparison(
+                current_version=current_version,
+                candidate_version=candidate_version,
+                cases=(),
+            )
+
+    class AcceptGate:
+        def evaluate(self, comparison):
+            return PromotionDecision(accepted=True, reasons=("TEST_ACCEPT",))
+
+    class Store:
+        def promote(self, version, *, regression=None):
+            seen["promoted"] = version
+            seen["regression"] = regression
+
+    decision = ExperiencePromotionService(
+        Repository(),
+        version_store=Store(),
+        regression_service=Regression(),
+        selector=Selector(),
+        gate=AcceptGate(),
+    ).validate_and_promote(2)
+
+    assert seen["cases"] == ("task-history",)
+    assert seen["promoted"] == 2
+    assert decision.accepted is True
