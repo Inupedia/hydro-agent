@@ -4,6 +4,7 @@ from hydro_agent.agent.contracts import (
     ActionCode,
     BudgetSummary,
     EvidenceSummary,
+    ExperienceContext,
     HydroContext,
     ModelSummary,
     PermissionSummary,
@@ -252,3 +253,60 @@ def test_research_modes_ignore_legacy_cycle_count(mode, latest_action):
         else ActionCode.A04_DIAGNOSE
     )
     assert CalibrationScientistDecisionProvider().decide(view).action == expected
+
+
+
+def test_provider_applies_experience_before_experiment_guardrail():
+    from hydro_agent.experience.retrieval import ExperienceMatch
+
+    experience = ExperienceContext(
+        skill_version=4,
+        skill_hash="e" * 64,
+        status="converging",
+        matches=(
+            ExperienceMatch(
+                experience_id="EXP-XAJ-ROUTING",
+                revision=3,
+                category="model",
+                relevance=1.0,
+                transfer_weight=1.0,
+                confidence=0.95,
+                scope_rank=4,
+                decision={"prefer_param_groups": ["routing"]},
+                pattern={"peak_bias": "negative"},
+                supporting_count=8,
+                contradicting_count=1,
+            ),
+        ),
+        source_revisions={"EXP-XAJ-ROUTING": 3},
+        exploration_level=0.15,
+    )
+    hydro = HydroContext(
+        diagnosis={
+            "hypothesis": "MODEL",
+            "phenomenon": "peak_bias=negative",
+            "peak_bias": "negative",
+            "recommended_action": "A05_OPTIMIZE",
+            "recommended_strategy_id": "xaj-bounded-v1",
+            "recommended_param_groups": "evap,runoff",
+            "recommended_objective": "nse",
+            "metrics": {"nse": 0.3},
+        },
+        experience=experience,
+    )
+
+    decision = CalibrationScientistDecisionProvider().decide(
+        _view(
+            latest_action=ActionCode.A04_DIAGNOSE,
+            latest_status="succeeded",
+            hydro=hydro,
+        )
+    )
+
+    assert decision.action == ActionCode.A05_OPTIMIZE
+    assert decision.param_groups == ("routing",)
+    assert decision.experience_skill_version == 4
+    assert decision.experience_skill_hash == "e" * 64
+    assert decision.experience_refs == ("EXP-XAJ-ROUTING",)
+    assert decision.experience_mode == "exploitation"
+    assert any("EXP-XAJ-ROUTING:prefer=routing" in item for item in decision.experience_influence)

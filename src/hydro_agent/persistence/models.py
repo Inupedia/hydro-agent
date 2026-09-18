@@ -171,6 +171,7 @@ class AgentDecisionRun(Created, Base):
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
     activated_skills_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    experience_audit_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 

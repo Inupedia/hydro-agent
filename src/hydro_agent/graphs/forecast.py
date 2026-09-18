@@ -152,6 +152,17 @@ def build_forecast_graph(
             input_tokens=None,
             output_tokens=None,
             activated_skills_json=list(decision.activated_skills_audit),
+            experience_audit_json=(
+                {
+                    "skill_version": decision.experience_skill_version,
+                    "skill_hash": decision.experience_skill_hash,
+                    "experience_refs": list(decision.experience_refs),
+                    "mode": decision.experience_mode,
+                    "influence": list(decision.experience_influence),
+                }
+                if decision.experience_skill_version is not None
+                else None
+            ),
         )
         packet = _attach_experiment_plan(
             tools.execute(

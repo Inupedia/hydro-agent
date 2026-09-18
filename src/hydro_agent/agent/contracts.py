@@ -49,6 +49,11 @@ class AgentDecision(FrozenModel):
     experiment_evidence_refs: tuple[str, ...] = ()
     activated_skill_ids: tuple[str, ...] = ()
     activated_skills_audit: tuple[dict, ...] = ()
+    experience_skill_version: int | None = Field(default=None, ge=1)
+    experience_skill_hash: str | None = None
+    experience_refs: tuple[str, ...] = ()
+    experience_mode: Literal["exploitation", "exploration"] | None = None
+    experience_influence: tuple[str, ...] = ()
     # User-facing audit trace. These are concise decision summaries, not hidden chain-of-thought.
     observation_zh: str = Field(default="", max_length=240)
     analysis_zh: str = Field(default="", max_length=600)
