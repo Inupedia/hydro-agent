@@ -272,6 +272,7 @@ class ExperienceEvolutionService:
             event.event_type in {"CREATE", "MERGE", "SPLIT", "SUPERSEDE"}
             for event in prior_events
         )
+        structural_diffs: tuple[ExperienceDiff, ...] = ()
         if not prior_events:
             reflection = ExperienceReflectionEngine(
                 self.repository,
@@ -282,6 +283,11 @@ class ExperienceEvolutionService:
                 reflection.diffs,
             )
             structural_change = applied.structural_change
+            structural_diffs = tuple(
+                diff
+                for diff in applied.accepted
+                if diff.operation in {"CREATE", "MERGE", "SPLIT", "SUPERSEDE"}
+            )
             if not applied.accepted and applied.rejected:
                 return ExperienceEvolutionOutcome(
                     task_id=task_id,
@@ -300,7 +306,7 @@ class ExperienceEvolutionService:
 
         candidate = self._candidate_for_current_state()
         if candidate is None:
-            candidate = self._compile_candidate()
+            candidate = self._compile_candidate(structural_diffs=structural_diffs)
 
         decision = self.promotion_service.validate_and_promote(candidate.version)
         if decision.accepted and self.skill_registry is not None:
@@ -314,14 +320,24 @@ class ExperienceEvolutionService:
             reasons=decision.reasons,
         )
 
-    def _compile_candidate(self):
+    def _compile_candidate(
+        self,
+        *,
+        structural_diffs: tuple[ExperienceDiff, ...] = (),
+    ):
         versions = self.repository.list_experience_skill_versions()
         next_version = max((row.version for row in versions), default=0) + 1
         compiled = self.compiler.compile(
             next_version,
             self.repository.list_active_experiences(),
         )
-        return self.version_store.create_candidate(compiled)
+        return self.version_store.create_candidate(
+            compiled,
+            structural_changes=tuple(
+                _structural_change_payload(diff)
+                for diff in structural_diffs
+            ),
+        )
 
     def _candidate_for_current_state(self):
         active_revisions = _active_revision_map(
@@ -494,4 +510,22 @@ def _active_revision_map(entries: Iterable[ExperienceEntry]) -> dict[str, int]:
     return {
         entry.experience_id: entry.revision
         for entry in sorted(entries, key=lambda item: item.experience_id)
+    }
+
+
+
+def _structural_change_payload(diff: ExperienceDiff) -> dict:
+    return {
+        "operation": diff.operation,
+        "experience_id": diff.experience_id,
+        "source_ids": list(diff.source_ids),
+        "proposal_ids": [
+            proposal.experience_id
+            for proposal in diff.proposals
+        ],
+        "reason": diff.reason,
+        "evidence_refs": [
+            ref.model_dump(mode="json")
+            for ref in diff.evidence_refs
+        ],
     }
