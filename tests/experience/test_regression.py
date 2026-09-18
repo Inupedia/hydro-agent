@@ -297,3 +297,105 @@ def test_app_replay_runner_overrides_experience_snapshot_and_cleans_clone(tmp_pa
         pass
     else:
         raise AssertionError("regression clone should be cleaned")
+
+
+
+def test_rejected_candidate_restores_promoted_experience_structure(tmp_path):
+    from hydro_agent.experience.compiler import ExperienceSkillCompiler
+    from hydro_agent.experience.contracts import ExperienceEntry, ExperienceScope
+    from hydro_agent.experience.diff import ExperienceDiff
+    from hydro_agent.experience.promotion import ExperiencePromotionService
+    from hydro_agent.experience.reflection import ExperienceDiffApplier
+    from hydro_agent.experience.regression import ExperienceRegressionService
+    from hydro_agent.experience.skill_versions import ExperienceSkillVersionStore
+    from hydro_agent.persistence.database import Database
+    from hydro_agent.persistence.repository import HydroRepository
+
+    db = Database(f"sqlite+pysqlite:///{tmp_path}/rejected-rollback.db")
+    db.create_schema()
+    repository = HydroRepository(db)
+    parent = ExperienceEntry(
+        experience_id="EXP-PARENT",
+        revision=1,
+        category="model",
+        scope=ExperienceScope(model_ids=("xaj",), basin_ids=("basin-a",)),
+        pattern={"hypothesis": "MODEL"},
+        decision={"prefer_param_groups": ["routing"]},
+        supporting_evidence=(),
+        contradicting_evidence=(),
+        confidence=0.8,
+        status="active",
+    )
+    repository.append_experience_revision(parent)
+
+    store = ExperienceSkillVersionStore(tmp_path / "store", repository=repository)
+    compiler = ExperienceSkillCompiler()
+    store.create_candidate(compiler.compile(1, (parent,)))
+    store.promote(1, regression={"passed": True})
+
+    child_wet = parent.model_copy(
+        update={
+            "experience_id": "EXP-WET",
+            "revision": 1,
+            "scope": ExperienceScope(
+                model_ids=("xaj",),
+                basin_ids=("basin-a",),
+            ),
+            "pattern": {"hypothesis": "MODEL", "regime": "wet"},
+            "source_hash": None,
+        }
+    )
+    child_dry = child_wet.model_copy(
+        update={
+            "experience_id": "EXP-DRY",
+            "pattern": {"hypothesis": "MODEL", "regime": "dry"},
+        }
+    )
+    split = ExperienceDiff(
+        operation="SPLIT",
+        experience_id="EXP-PARENT",
+        proposals=(child_wet, child_dry),
+        reason="regimes diverged",
+    )
+    applied = ExperienceDiffApplier(repository).apply("task-structural", (split,))
+    assert applied.structural_change is True
+    assert {entry.experience_id for entry in repository.list_active_experiences()} == {
+        "EXP-WET",
+        "EXP-DRY",
+    }
+
+    candidate = compiler.compile(2, repository.list_active_experiences())
+    store.create_candidate(candidate)
+
+    class NoReplay:
+        def run(self, *, task_id, experience_skill_version):
+            raise AssertionError("empty regression set should not invoke replay")
+
+    service = ExperiencePromotionService(
+        repository,
+        version_store=store,
+        regression_service=ExperienceRegressionService(NoReplay()),
+    )
+    decision = service.validate_and_promote(2)
+
+    assert decision.accepted is False
+    assert decision.reasons == ("INSUFFICIENT_REGRESSION_CASES",)
+    assert repository.get_experience_skill_version(2).status == "rejected"
+    assert repository.get_current_experience_skill_version().version == 1
+
+    active = repository.list_active_experiences()
+    assert [entry.experience_id for entry in active] == ["EXP-PARENT"]
+    restored = repository.get_experience("EXP-PARENT")
+    assert restored.revision == 3
+    assert restored.status == "active"
+    assert repository.get_experience("EXP-WET").status == "rejected"
+    assert repository.get_experience("EXP-DRY").status == "rejected"
+
+    reject_events = [
+        event
+        for event in repository.list_experience_evolution_events()
+        if event.event_type == "REJECT"
+    ]
+    assert len(reject_events) == 1
+    assert reject_events[0].version_before == 1
+    assert reject_events[0].version_after == 2
