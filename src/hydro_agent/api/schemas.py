@@ -353,3 +353,4 @@ class ExperienceVersionDiffResponse(FrozenApiModel):
     superseded: list[str]
     split: list[object]
     merged: list[object]
+    structural_changes: list[dict[str, object]] = Field(default_factory=list)
