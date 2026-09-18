@@ -21,6 +21,8 @@ class CompiledExperienceSkill(FrozenModel):
     files: dict[str, str]
     version: int = Field(ge=1)
     sha256: str = Field(min_length=64, max_length=64)
+    source_experience_ids: tuple[str, ...] = ()
+    source_revisions: dict[str, int] = Field(default_factory=dict)
 
 
 class ExperienceSkillCompiler:
@@ -71,6 +73,11 @@ class ExperienceSkillCompiler:
             files=files,
             version=version,
             sha256=hashlib.sha256(canonical).hexdigest(),
+            source_experience_ids=tuple(entry.experience_id for entry in active),
+            source_revisions={
+                entry.experience_id: entry.revision
+                for entry in active
+            },
         )
 
     @staticmethod
