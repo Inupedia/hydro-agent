@@ -178,7 +178,11 @@ def experience_version_diff(version: int, request: Request):
 
 @router.get("/regression")
 def experience_regression(request: Request):
-    rows = _repository(request).list_experience_skill_versions()
+    rows = sorted(
+        _repository(request).list_experience_skill_versions(),
+        key=lambda row: row.version,
+        reverse=True,
+    )
     return {
         "items": [
             {
