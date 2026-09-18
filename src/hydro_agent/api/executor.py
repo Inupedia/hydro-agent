@@ -177,6 +177,17 @@ class TaskExecutor:
                 else self.deps.runtime_factory()
             )
             runtime.run_until_terminal(task_id)
+            evolution = self.deps.experience_evolution
+            if evolution is not None:
+                try:
+                    evolution.process_completed_task(task_id)
+                except Exception:
+                    # Learning must never invalidate an already completed
+                    # hydrologic experiment. Keep the failure visible in logs.
+                    logger.exception(
+                        "experience evolution failed for completed task %s",
+                        task_id,
+                    )
         except Exception as exc:
             logger.exception("workbench worker failed for task %s", task_id)
             self.deps.finish_llm_trace(task_id, error=str(exc))
