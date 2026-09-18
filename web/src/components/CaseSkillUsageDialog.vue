@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { api } from '../api/client'
 import { skillTitle } from '../skills/catalog'
 import type { SkillUsageSummary } from '../types/skills'
+import type { AgentLogSummary, ToolCallAudit } from '../types/api'
 import GlassDialog from './GlassDialog.vue'
 import { NumberTicker } from './ui'
 
@@ -10,24 +11,60 @@ const props = defineProps<{ open: boolean; taskId?: string | null }>()
 const emit = defineEmits<{ close: [] }>()
 
 const usage = ref<SkillUsageSummary | null>(null)
+const agentLog = ref<AgentLogSummary | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
+const activeTab = ref<'skills' | 'tools'>('skills')
 const snapshot = computed(() => {
   const hash = usage.value?.snapshot_sha256
   return hash ? `${hash.slice(0, 8)}…${hash.slice(-6)}` : null
+})
+const toolCalls = computed(() => agentLog.value?.rounds.flatMap((round) => round.tool_calls || []) || [])
+const modelEvaluations = computed(() => toolCalls.value.reduce((sum, call) => sum + Number(call.metrics?.model_evaluations || 0), 0))
+const toolsById = computed(() => {
+  const grouped = new Map<string, { tool: ToolCallAudit; count: number; successCount: number; failureCount: number; rounds: Set<number> }>()
+  for (const round of agentLog.value?.rounds || []) {
+    for (const tool of round.tool_calls || []) {
+      const succeeded = ['completed', 'succeeded', 'ACCEPT', 'KEEP', 'ROLLBACK'].includes(tool.status)
+      const failed = ['failed', 'blocked'].includes(tool.status)
+      const current = grouped.get(tool.tool_id)
+      if (current) {
+        current.count += 1
+        if (succeeded) current.successCount += 1
+        if (failed) current.failureCount += 1
+        current.rounds.add(round.round_number)
+      } else {
+        grouped.set(tool.tool_id, {
+          tool,
+          count: 1,
+          successCount: succeeded ? 1 : 0,
+          failureCount: failed ? 1 : 0,
+          rounds: new Set([round.round_number]),
+        })
+      }
+    }
+  }
+  return [...grouped.values()]
 })
 
 async function loadUsage() {
   if (!props.taskId) {
     usage.value = null
+    agentLog.value = null
     return
   }
   loading.value = true
   error.value = null
   try {
-    usage.value = await api.getTaskSkillUsage(props.taskId)
+    const [skillUsage, log] = await Promise.all([
+      api.getTaskSkillUsage(props.taskId),
+      api.getAgentLog(props.taskId),
+    ])
+    usage.value = skillUsage
+    agentLog.value = log
   } catch (err) {
     usage.value = null
+    agentLog.value = null
     error.value = String((err as Error).message || err)
   } finally {
     loading.value = false
@@ -49,27 +86,65 @@ watch(
     size="wide"
     test-id="case-skill-usage"
     overline="案例回放"
-    title="案例使用技能"
+    title="Agent 能力调用"
     labelled-by="case-skill-usage-title"
     @close="emit('close')"
   >
-    <p v-if="loading" class="case-usage-muted">正在加载 Skill 使用记录…</p>
+    <p v-if="loading" class="case-usage-muted">正在加载 Skills 与 Tools 调用记录…</p>
     <p v-else-if="error" class="case-usage-error" role="alert">{{ error }}</p>
     <p v-else-if="!usage" class="case-usage-muted">暂无 Skill Snapshot 或调用记录。</p>
     <template v-else>
       <section class="case-usage-overview" aria-label="使用概览">
         <div>
-          <small>冻结技能</small>
-          <strong><NumberTicker :value="usage.frozen_skill_count" :decimal-places="0" :duration="560" /> <em>个</em></strong>
+          <small>Skills</small>
+          <strong><NumberTicker :value="usage.usage_by_skill.length" :decimal-places="0" :duration="560" /> <em>种</em></strong>
+          <span>{{ usage.invocation_count }} 次调用</span>
         </div>
         <div>
-          <small>实际调用</small>
-          <strong><NumberTicker :value="usage.invocation_count" :decimal-places="0" :duration="700" :delay="80" /> <em>次</em></strong>
+          <small>Tools</small>
+          <strong><NumberTicker :value="toolsById.length" :decimal-places="0" :duration="700" :delay="80" /> <em>种</em></strong>
+          <span>{{ toolCalls.length }} 次调用</span>
+        </div>
+        <div>
+          <small>模型计算</small>
+          <strong><NumberTicker :value="modelEvaluations" :decimal-places="0" :duration="760" :delay="120" /> <em>次</em></strong>
+        </div>
+        <div>
+          <small>Agent Decisions</small>
+          <strong><NumberTicker :value="agentLog?.rounds.length || 0" :decimal-places="0" :duration="760" :delay="160" /> <em>轮</em></strong>
         </div>
       </section>
-      <p v-if="snapshot" class="case-usage-snapshot">冻结快照 <code>{{ snapshot }}</code></p>
 
-      <section class="case-usage-section" aria-labelledby="case-usage-skills-title">
+      <p v-if="snapshot" class="case-usage-snapshot">冻结快照 <code>{{ snapshot }}</code></p>
+      <div class="case-usage-tabs" role="tablist" aria-label="能力调用类型">
+        <button id="case-skills-tab" type="button" role="tab" :aria-selected="activeTab === 'skills'" aria-controls="case-skills-panel" @click="activeTab = 'skills'">Skills</button>
+        <button id="case-tools-tab" type="button" role="tab" :aria-selected="activeTab === 'tools'" aria-controls="case-tools-panel" @click="activeTab = 'tools'">Tools</button>
+      </div>
+
+      <section v-show="activeTab === 'tools'" id="case-tools-panel" class="case-usage-section" role="tabpanel" aria-labelledby="case-tools-tab">
+        <header>
+          <h3 id="case-usage-tools-title">本次调用的执行工具</h3>
+          <span>{{ toolsById.length }} 项</span>
+        </header>
+        <div v-if="toolsById.length" class="case-usage-records">
+          <article v-for="row in toolsById" :key="row.tool.tool_id" class="case-usage-item">
+            <div class="case-usage-item-main">
+              <strong>{{ row.tool.tool_name_zh }}</strong>
+              <small>{{ row.tool.tool_id }}</small>
+            </div>
+            <div class="case-usage-count"><NumberTicker :value="row.count" :decimal-places="0" :duration="520" /> <span>次调用</span></div>
+            <p class="case-usage-contracts">
+              <span>{{ row.tool.category }}</span>
+              <span>成功 {{ row.successCount }}</span>
+              <span>失败 {{ row.failureCount }}</span>
+              <span>轮次 {{ [...row.rounds].join(' / ') }}</span>
+              <span v-if="row.tool.metrics?.model_evaluations">模型计算 {{ row.tool.metrics.model_evaluations }} 次</span>
+            </p>
+          </article>
+        </div>
+        <p v-else class="case-usage-empty">本案例没有记录到 Tool 调用。</p>
+      </section>
+      <section v-show="activeTab === 'skills'" id="case-skills-panel" class="case-usage-section" role="tabpanel" aria-labelledby="case-skills-tab">
         <header>
           <h3 id="case-usage-skills-title">本次调用的技能</h3>
           <span>{{ usage.usage_by_skill.length }} 项</span>
@@ -118,7 +193,7 @@ watch(
 .case-usage-error { color: var(--danger); }
 .case-usage-overview {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   border: 1px solid var(--separator);
   border-radius: var(--radius-sm);
   background: var(--surface-secondary);
@@ -133,10 +208,15 @@ watch(
 .case-usage-timeline small,
 .case-usage-empty { color: var(--text-secondary); font-size: 12px; }
 .case-usage-overview small { display: block; margin-bottom: 4px; }
+.case-usage-overview > div > span { display: block; margin-top: 2px; color: var(--text-tertiary); font-size: 10px; }
 .case-usage-overview strong { color: var(--text-primary); font-size: 26px; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
 .case-usage-overview em { color: var(--text-secondary); font-size: 13px; font-style: normal; font-weight: 500; letter-spacing: 0; }
 .case-usage-snapshot { margin: -1px 0 8px; font-variant-numeric: tabular-nums; }
 .case-usage-snapshot code { color: var(--text-tertiary); font-family: var(--mono); font-size: 11px; }
+.case-usage-tabs { display: inline-flex; justify-self: start; overflow: hidden; border: 1px solid var(--separator); border-radius: var(--radius-sm); background: var(--surface-secondary); padding: 2px; }
+.case-usage-tabs button { min-width: 84px; border: 0; border-radius: calc(var(--radius-sm) - 3px); background: transparent; padding: 7px 12px; color: var(--text-secondary); font: inherit; font-size: 12px; font-weight: 620; cursor: pointer; }
+.case-usage-tabs button[aria-selected='true'] { background: var(--surface); color: var(--text-primary); box-shadow: 0 1px 4px color-mix(in srgb, var(--text-primary) 8%, transparent); }
+.case-usage-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .case-usage-section { display: grid; gap: 6px; }
 .case-usage-section > header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 8px 2px 2px; }
 .case-usage-section h3 { margin: 0; color: var(--text-primary); font-size: 14px; font-weight: 600; }
@@ -172,6 +252,9 @@ watch(
 .case-usage-round { color: var(--accent-text); font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; font-weight: 600; }
 .case-usage-timeline small { display: block; margin-top: 2px; }
 @media (max-width: 520px) {
+  .case-usage-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .case-usage-overview > div:nth-child(3) { border-top: 1px solid var(--separator); border-left: 0; }
+  .case-usage-overview > div:nth-child(4) { border-top: 1px solid var(--separator); }
   .case-usage-overview > div { padding: 13px; }
   .case-usage-overview strong { font-size: 23px; }
   .case-usage-item { padding: 11px 12px; }

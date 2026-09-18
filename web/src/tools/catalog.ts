@@ -18,7 +18,7 @@ export type ToolDescriptor = {
   descriptionZh: string
 }
 
-const TOOLS: Record<string, ToolDescriptor> = {
+export const TOOL_CATALOG: Record<string, ToolDescriptor> = {
   A01_CHECK_DATA: {
     id: 'data.inspect',
     action: 'A01_CHECK_DATA',
@@ -93,6 +93,5 @@ const TOOLS: Record<string, ToolDescriptor> = {
 
 export function toolForAction(action: string | null | undefined): ToolDescriptor | null {
   if (!action) return null
-  return TOOLS[currentActionId(action)] || null
+  return TOOL_CATALOG[currentActionId(action)] || null
 }
-
