@@ -82,6 +82,7 @@ class TaskSummary(FrozenModel):
     forcing_mode: Literal["R", "F"]
     terminal_status: str | None = None
     allow_optimization: bool = True
+    agent_evolution_enabled: bool = False
 
 
 class ModelSummary(FrozenModel):

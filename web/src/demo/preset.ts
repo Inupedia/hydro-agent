@@ -9,6 +9,7 @@ export const DEMO_PRESET = {
   forcing_mode: 'R' as const,
   base_scheme_id: 'scheme-base',
   allow_optimization: true,
+  agent_evolution_enabled: false,
   validation_days: 30,
   final_test_days: 30,
   max_agent_decision_rounds: 30,

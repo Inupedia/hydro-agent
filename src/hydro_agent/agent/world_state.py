@@ -27,7 +27,7 @@ from hydro_agent.experience.snapshot import (
 from hydro_agent.models.registry import ModelRegistry, default_model_registry
 from hydro_agent.optimization.campaign import rebuild_campaign_from_evidence
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
-from hydro_agent.skills import SkillRegistry
+from hydro_agent.skills import CALIBRATION_EXPERIENCE_SKILL_ID, SkillRegistry
 from hydro_agent.skills.loader import parse_skill_md
 from hydro_agent.skills.snapshot import snapshot_file_bytes
 from hydro_agent.workbench.validation_gate import latest_candidate_scheme_id
@@ -173,12 +173,35 @@ class WorldStateBuilder:
             sid for sid in strategy_ids if not sid.endswith("-hydrologist-manual-v1")
         ) or strategy_ids
 
-        experience = self._experience_context(
-            task_id=task_id,
-            model_id=model_id,
-            basin_id=task.basin_id,
-            diagnosis=diagnosis,
+        raw_evolution_enabled = workbench.get("agent_evolution_enabled")
+        agent_evolution_enabled = (
+            bool(raw_evolution_enabled)
+            if raw_evolution_enabled is not None
+            else state.experience_state_snapshot_json is not None
         )
+        experience = (
+            self._experience_context(
+                task_id=task_id,
+                model_id=model_id,
+                basin_id=task.basin_id,
+                diagnosis=diagnosis,
+            )
+            if agent_evolution_enabled
+            else ExperienceContext()
+        )
+        available_skills = self.skills.summaries_zh()
+        skill_cards = tuple(self.skills.cards_for_prompt())
+        if not agent_evolution_enabled:
+            available_skills = tuple(
+                item
+                for item in available_skills
+                if not item.startswith(f"{CALIBRATION_EXPERIENCE_SKILL_ID}:")
+            )
+            skill_cards = tuple(
+                card
+                for card in skill_cards
+                if card.get("skill_id") != CALIBRATION_EXPERIENCE_SKILL_ID
+            )
         hydro = HydroContext(
             current_parameters={k: float(v) for k, v in current_params.items()},
             candidate_parameters=candidate_params,
@@ -188,7 +211,7 @@ class WorldStateBuilder:
                 if latest_forecast
                 else {}
             ),
-            available_skills=self.skills.summaries_zh(),
+            available_skills=available_skills,
             available_strategies=strategy_ids,
             available_param_groups=param_groups,
             available_objectives=("nse", "peak", "composite"),
@@ -200,7 +223,7 @@ class WorldStateBuilder:
             forbidden_evidence_dataset_ids=forbidden_evidence_dataset_ids,
             diagnosis=diagnosis,
             experiment_history=history,
-            skill_cards=tuple(self.skills.cards_for_prompt()),
+            skill_cards=skill_cards,
             experience=experience,
         )
         allow_optimization = bool(workbench.get("allow_optimization", True))
@@ -220,6 +243,7 @@ class WorldStateBuilder:
                 forcing_mode=task.forcing_mode,
                 terminal_status=task.terminal_status,
                 allow_optimization=allow_optimization,
+                agent_evolution_enabled=agent_evolution_enabled,
             ),
             model=ModelSummary(
                 model_id=model_id,

@@ -3,7 +3,11 @@ import time
 
 import pytest
 
-from hydro_agent.api.executor import TaskExecutor, _task_status
+from hydro_agent.api.executor import (
+    TaskExecutor,
+    _agent_evolution_enabled,
+    _task_status,
+)
 
 
 def seed_task(repository, n: int):
@@ -119,3 +123,62 @@ def test_completed_status_wins_while_experience_regression_finishes(repository):
     state = repository.get_task_state(task_id)
 
     assert _task_status(task, state, active=True, queued=False) == "completed"
+
+
+
+def test_executor_skips_experience_evolution_for_disabled_task(
+    app_dependencies,
+    repository,
+):
+    task_id = seed_task(repository, 77)
+    app_dependencies.task_configs[task_id] = {
+        "agent_evolution_enabled": False,
+    }
+
+    calls = []
+
+    class EvolutionSpy:
+        def process_completed_task(self, completed_task_id):
+            calls.append(completed_task_id)
+
+    class Runtime:
+        def run_until_terminal(self, completed_task_id):
+            return []
+
+    app_dependencies.experience_evolution = EvolutionSpy()
+    app_dependencies.runtime_factory = lambda: Runtime()
+    executor = TaskExecutor(app_dependencies)
+
+    assert _agent_evolution_enabled(app_dependencies, task_id) is False
+    executor._run(task_id)
+    assert calls == []
+    executor.shutdown()
+
+
+def test_executor_runs_experience_evolution_for_enabled_task(
+    app_dependencies,
+    repository,
+):
+    task_id = seed_task(repository, 78)
+    app_dependencies.task_configs[task_id] = {
+        "agent_evolution_enabled": True,
+    }
+
+    calls = []
+
+    class EvolutionSpy:
+        def process_completed_task(self, completed_task_id):
+            calls.append(completed_task_id)
+
+    class Runtime:
+        def run_until_terminal(self, completed_task_id):
+            return []
+
+    app_dependencies.experience_evolution = EvolutionSpy()
+    app_dependencies.runtime_factory = lambda: Runtime()
+    executor = TaskExecutor(app_dependencies)
+
+    assert _agent_evolution_enabled(app_dependencies, task_id) is True
+    executor._run(task_id)
+    assert calls == [task_id]
+    executor.shutdown()

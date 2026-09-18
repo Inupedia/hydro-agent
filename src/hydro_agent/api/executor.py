@@ -178,7 +178,7 @@ class TaskExecutor:
             )
             runtime.run_until_terminal(task_id)
             evolution = self.deps.experience_evolution
-            if evolution is not None:
+            if evolution is not None and _agent_evolution_enabled(self.deps, task_id):
                 try:
                     evolution.process_completed_task(task_id)
                 except Exception:
@@ -263,3 +263,22 @@ def _task_status(task, state, active: bool, *, queued: bool) -> str:
     if state.agent_rounds_used == 0:
         return "created"
     return "idle"
+
+
+
+def _agent_evolution_enabled(deps, task_id: str) -> bool:
+    config = dict(deps.task_configs.get(task_id) or {})
+    if "agent_evolution_enabled" in config:
+        return bool(config["agent_evolution_enabled"])
+    try:
+        state = deps.repository.get_task_state(task_id)
+        if not state.current_scheme_id:
+            return False
+        scheme = deps.repository.get_scheme(state.current_scheme_id)
+        workbench = dict((scheme.config_json or {}).get("workbench") or {})
+        raw = workbench.get("agent_evolution_enabled")
+        if raw is not None:
+            return bool(raw)
+        return state.experience_state_snapshot_json is not None
+    except KeyError:
+        return False

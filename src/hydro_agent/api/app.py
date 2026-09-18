@@ -86,7 +86,8 @@ def create_app(deps: AppDependencies, *, static_dir: Path | None = None) -> Fast
         promotion_service=promotion_service,
         skill_registry=skill_registry,
     )
-    experience_evolution.ensure_baseline()
+    # Baseline Experience Skill is initialized lazily by tasks that explicitly
+    # enable Agent Evolution. Disabled tasks never touch the Experience lifecycle.
     deps.experience_evolution = experience_evolution
 
     executor = TaskExecutor(deps)

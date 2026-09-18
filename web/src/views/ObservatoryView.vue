@@ -915,6 +915,19 @@ onUnmounted(() => {
                     <GlassSelect v-model="demo.draft.forcing_mode" aria-label="气象资料" :options="forcingSelectOptions" />
                   </label>
                   <label class="toggle-row"><span>允许尝试改进方案</span><input v-model="demo.draft.allow_optimization" type="checkbox" role="switch" /></label>
+                  <label class="toggle-row evolution-toggle">
+                    <span>
+                      <strong>开启智能体进化</strong>
+                      <small>开启后，本次任务会读取已验证 Experience，并在完成后参与经验更新与版本回归；关闭时完全不读取或写入经验。</small>
+                    </span>
+                    <input
+                      v-model="demo.draft.agent_evolution_enabled"
+                      data-test="agent-evolution-toggle"
+                      type="checkbox"
+                      role="switch"
+                      aria-label="开启智能体进化"
+                    />
+                  </label>
                   <label>模型评估预算<input v-model.number="demo.draft.campaign_max_model_evaluations" data-test="campaign-budget" type="number" min="1" required /><small>本次率定最多运行多少次模型；预算越大，搜索可能更充分，也更耗时。</small></label>
                   <button class="text-button" data-test="runtime-settings" type="button" :aria-expanded="advanced" @click="advanced = !advanced">{{ advanced ? '收起运行设置 −' : '运行设置 +' }}</button>
                   <div v-if="advanced" class="advanced-fields">
@@ -1019,6 +1032,18 @@ onUnmounted(() => {
 
 <style src="../observatory.css"></style>
 <style scoped>
+.evolution-toggle > span {
+  min-width: 0;
+}
+.evolution-toggle strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 650;
+}
+.evolution-toggle small {
+  max-width: 320px;
+}
+
 .pane-form label small {
   display: block;
   margin-top: 4px;

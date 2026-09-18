@@ -165,6 +165,26 @@ describe("single page observatory", () => {
     wrapper.unmount();
   });
 
+  it("submits agent evolution as an explicit opt-in", async () => {
+    const { wrapper, store } = await setup();
+    const toggle = wrapper.get('[data-test="agent-evolution-toggle"]');
+    expect((toggle.element as HTMLInputElement).checked).toBe(false);
+    expect(store.draft.agent_evolution_enabled).toBe(false);
+
+    await toggle.setValue(true);
+    expect(store.draft.agent_evolution_enabled).toBe(true);
+
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    expect(api.createTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agent_evolution_enabled: true,
+      }),
+    );
+    wrapper.unmount();
+  });
+
   it("opens the agent evolution observatory from the header", async () => {
     const { wrapper } = await setup();
     await wrapper.get('[data-test="header-experience-evolution"]').trigger("click");

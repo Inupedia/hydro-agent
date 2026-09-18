@@ -21,6 +21,8 @@ class TaskCreateRequest(FrozenApiModel):
     model_plan_id: str | None = None
     name: str | None = Field(default=None, max_length=80)
     allow_optimization: bool
+    # Task-scoped hard switch. Disabled means Experience is neither read nor evolved.
+    agent_evolution_enabled: bool = False
     # Day-count controls remain convenient for short/smoke tasks. Formal studies
     # should preregister explicit development/final-test dates so complete years
     # are not silently truncated by UI/API defaults.
@@ -100,6 +102,7 @@ class TaskSummary(FrozenApiModel):
     name: str | None = None
     agent_rounds_used: int
     optimization_cycles_used: int
+    agent_evolution_enabled: bool = False
     start_date: str | None = None
     end_date: str | None = None
     validation_days: int | None = None

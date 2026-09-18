@@ -143,7 +143,10 @@ def test_world_state_uses_frozen_experience_skill_revision(tmp_path):
         task_id="task-exp",
         model_id="xaj",
         status="base",
-        config={"parameters": {}, "workbench": {}},
+        config={
+            "parameters": {},
+            "workbench": {"agent_evolution_enabled": True},
+        },
         content_hash="scheme-exp-hash",
     )
     repo.ensure_task_state("task-exp", current_scheme_id="scheme-exp")
@@ -200,7 +203,10 @@ def test_world_state_uses_frozen_experience_skill_revision(tmp_path):
         task_id="task-exp-next",
         model_id="xaj",
         status="base",
-        config={"parameters": {}, "workbench": {}},
+        config={
+            "parameters": {},
+            "workbench": {"agent_evolution_enabled": True},
+        },
         content_hash="scheme-exp-next-hash",
     )
     repo.ensure_task_state("task-exp-next", current_scheme_id="scheme-exp-next")
@@ -209,3 +215,74 @@ def test_world_state_uses_frozen_experience_skill_revision(tmp_path):
     assert next_view.hydro.experience.source_revisions == {"EXP-XAJ-1": 2}
     assert next_view.hydro.experience.matches[0].revision == 2
     assert next_view.hydro.experience.matches[0].confidence == 0.2
+
+
+
+def test_world_state_does_not_read_experience_when_task_toggle_is_off(tmp_path):
+    from hydro_agent.experience.compiler import ExperienceSkillCompiler
+    from hydro_agent.experience.contracts import ExperienceEntry, ExperienceScope
+    from hydro_agent.experience.skill_versions import ExperienceSkillVersionStore
+    from hydro_agent.skills import SkillRegistry
+
+    db = Database(f"sqlite+pysqlite:///{tmp_path}/experience-disabled.db")
+    db.create_schema()
+    repo = HydroRepository(db)
+    entry = ExperienceEntry(
+        experience_id="EXP-DISABLED",
+        revision=1,
+        category="model",
+        scope=ExperienceScope(model_ids=("xaj",), basin_ids=("basin-a",)),
+        pattern={},
+        decision={"prefer_param_groups": ["routing"]},
+        supporting_evidence=(),
+        contradicting_evidence=(),
+        confidence=0.95,
+        status="active",
+    )
+    repo.append_experience_revision(entry)
+    store = ExperienceSkillVersionStore(tmp_path / "experience-store-disabled", repository=repo)
+    compiled = ExperienceSkillCompiler().compile(1, (entry,))
+    store.create_candidate(compiled)
+    store.promote(1)
+
+    repo.create_task(
+        task_id="task-exp-disabled",
+        basin_id="basin-a",
+        phase="B",
+        forcing_mode="R",
+    )
+    repo.create_scheme(
+        scheme_id="scheme-exp-disabled",
+        task_id="task-exp-disabled",
+        model_id="xaj",
+        status="base",
+        config={
+            "parameters": {},
+            "workbench": {"agent_evolution_enabled": False},
+        },
+        content_hash="scheme-exp-disabled-hash",
+    )
+    repo.ensure_task_state(
+        "task-exp-disabled",
+        current_scheme_id="scheme-exp-disabled",
+    )
+    skills = SkillRegistry(
+        builtin_root=tmp_path / "builtin-disabled",
+        agent_root=store.current_root,
+        user_root=tmp_path / "user-disabled",
+        repository=repo,
+    )
+
+    view = WorldStateBuilder(repo, skills=skills).build("task-exp-disabled")
+
+    assert view.task.agent_evolution_enabled is False
+    assert view.hydro.experience.skill_version is None
+    assert view.hydro.experience.matches == ()
+    assert all(
+        not item.startswith("calibration-experience:")
+        for item in view.hydro.available_skills
+    )
+    assert all(
+        card.get("skill_id") != "calibration-experience"
+        for card in view.hydro.skill_cards
+    )
