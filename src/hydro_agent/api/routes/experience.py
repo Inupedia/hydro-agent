@@ -170,6 +170,9 @@ def experience_version_diff(version: int, request: Request):
         "superseded": sorted(parent_ids - current_ids),
         "split": list(current_manifest.get("split") or []),
         "merged": list(current_manifest.get("merged") or []),
+        "structural_changes": list(
+            current_manifest.get("structural_changes") or []
+        ),
     }
 
 
