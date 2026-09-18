@@ -129,3 +129,79 @@ def test_regression_service_preserves_per_case_deltas():
     assert comparison.cases[0].quality_delta == 0.02
     assert comparison.cases[1].case.hard_case is True
     assert comparison.cases[1].candidate.terminal_status == "failed"
+
+
+
+def _comparison(*, hard_failure=False, quality_delta=0.0, new_violation=False, repeated_delta=0):
+    from hydro_agent.experience.regression import (
+        ExperienceReplayOutcome,
+        RegressionCase,
+        RegressionCaseComparison,
+        RegressionComparison,
+    )
+
+    current_failed = 2
+    candidate_failed = max(0, current_failed + repeated_delta)
+    return RegressionComparison(
+        current_version=3,
+        candidate_version=4,
+        cases=(
+            RegressionCaseComparison(
+                case=RegressionCase(
+                    task_id="hard" if hard_failure else "ordinary",
+                    tags=("peak-under",),
+                    hard_case=hard_failure,
+                ),
+                current=ExperienceReplayOutcome(
+                    task_id="hard" if hard_failure else "ordinary",
+                    experience_skill_version=3,
+                    terminal_status="succeeded",
+                    optimization_cycles=4,
+                    repeated_failed_experiments=current_failed,
+                    quality_score=0.70,
+                ),
+                candidate=ExperienceReplayOutcome(
+                    task_id="hard" if hard_failure else "ordinary",
+                    experience_skill_version=4,
+                    terminal_status="failed" if hard_failure else "succeeded",
+                    optimization_cycles=3,
+                    repeated_failed_experiments=candidate_failed,
+                    quality_score=0.70 + quality_delta,
+                    guardrail_violations=(("new_violation",) if new_violation else ()),
+                ),
+            ),
+        ),
+    )
+
+
+def test_promotion_gate_rejects_hard_case_regression():
+    from hydro_agent.experience.promotion import PromotionGate
+
+    decision = PromotionGate().evaluate(_comparison(hard_failure=True))
+    assert decision.accepted is False
+    assert any(reason.startswith("HARD_CASE_REGRESSION") for reason in decision.reasons)
+
+
+def test_promotion_gate_rejects_quality_and_guardrail_regression():
+    from hydro_agent.experience.promotion import PromotionGate
+
+    quality = PromotionGate(quality_tolerance=0.01).evaluate(
+        _comparison(quality_delta=-0.03)
+    )
+    guardrail = PromotionGate().evaluate(_comparison(new_violation=True))
+
+    assert quality.accepted is False
+    assert any(reason.startswith("QUALITY_REGRESSION") for reason in quality.reasons)
+    assert guardrail.accepted is False
+    assert any(reason.startswith("NEW_GUARDRAIL_VIOLATION") for reason in guardrail.reasons)
+
+
+def test_promotion_gate_accepts_non_degrading_candidate_with_fewer_failures():
+    from hydro_agent.experience.promotion import PromotionGate
+
+    decision = PromotionGate().evaluate(
+        _comparison(quality_delta=0.01, repeated_delta=-1)
+    )
+
+    assert decision.accepted is True
+    assert decision.reasons == ("NON_DEGRADING", "REPEATED_FAILURE_REDUCTION")

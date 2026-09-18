@@ -48,7 +48,12 @@ __all__ = [
     "ExperienceSkillVersionStatus",
     "ExperienceSkillVersionStore",
     "ExperienceStatus",
+    "ExperiencePromotionService",
+    "PromotionDecision",
+    "PromotionGate",
     "ReflectionResult",
     "compute_convergence",
     "is_structural_change",
 ]
+
+from .promotion import ExperiencePromotionService, PromotionDecision, PromotionGate

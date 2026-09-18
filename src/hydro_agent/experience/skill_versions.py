@@ -66,7 +66,12 @@ class ExperienceSkillVersionStore:
             shutil.rmtree(version_dir, ignore_errors=True)
             raise
 
-    def promote(self, version: int) -> ExperienceSkillVersion:
+    def promote(
+        self,
+        version: int,
+        *,
+        regression: dict | None = None,
+    ) -> ExperienceSkillVersion:
         version_package = self.materialize(version)
         self.current_root.mkdir(parents=True, exist_ok=True)
 
@@ -104,6 +109,8 @@ class ExperienceSkillVersionStore:
                 swapped = True
 
                 candidate.status = "promoted"
+                if regression is not None:
+                    candidate.regression_json = regression
                 if previous is not None:
                     previous.status = "superseded"
                 session.flush()
@@ -119,16 +126,26 @@ class ExperienceSkillVersionStore:
 
         return self.repository.get_experience_skill_version(version)
 
-    def reject(self, version: int, reason: str) -> ExperienceSkillVersion:
+    def reject(
+        self,
+        version: int,
+        reason: str,
+        *,
+        regression: dict | None = None,
+    ) -> ExperienceSkillVersion:
         if not reason.strip():
             raise ValueError("rejection reason required")
+        payload = dict(regression or {})
+        payload.update(
+            {
+                "passed": False,
+                "reason": reason.strip(),
+            }
+        )
         return self.repository.set_experience_skill_version_status(
             version,
             "rejected",
-            regression={
-                "passed": False,
-                "reason": reason.strip(),
-            },
+            regression=payload,
         )
 
     def materialize(self, version: int) -> Path:
