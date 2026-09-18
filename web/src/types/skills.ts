@@ -1,4 +1,4 @@
-export type SkillSource = 'builtin' | 'user' | 'memory'
+export type SkillSource = 'builtin' | 'agent' | 'user' | 'memory'
 
 export type SkillSummary = {
   skill_id: string
