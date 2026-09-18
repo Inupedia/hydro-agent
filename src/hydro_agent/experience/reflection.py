@@ -139,25 +139,26 @@ class ExperienceDiffApplier:
 
         for diff in diffs:
             try:
-                from_revision, to_revision = self._apply_one(diff)
+                entries, from_revision, to_revision = self._prepare_one(diff)
+                current_version = self.repository.get_current_experience_skill_version()
+                version_before = current_version.version if current_version is not None else None
+                version_after = version_before if not is_structural_change(diff) else None
+                self.repository.commit_experience_transition(
+                    entries=entries,
+                    event_type=diff.operation,
+                    reason=diff.reason,
+                    task_id=task_id,
+                    experience_id=self._event_experience_id(diff),
+                    from_revision=from_revision,
+                    to_revision=to_revision,
+                    version_before=version_before,
+                    version_after=version_after,
+                    evidence_refs=diff.evidence_refs,
+                )
             except (KeyError, ValueError) as exc:
                 rejected.append(f"{diff.operation}:{exc}")
                 continue
 
-            current_version = self.repository.get_current_experience_skill_version()
-            version_before = current_version.version if current_version is not None else None
-            version_after = version_before if not is_structural_change(diff) else None
-            self.repository.append_experience_evolution_event(
-                event_type=diff.operation,
-                reason=diff.reason,
-                task_id=task_id,
-                experience_id=self._event_experience_id(diff),
-                from_revision=from_revision,
-                to_revision=to_revision,
-                version_before=version_before,
-                version_after=version_after,
-                evidence_refs=diff.evidence_refs,
-            )
             accepted.append(diff)
 
         return ApplyResult(
@@ -166,10 +167,13 @@ class ExperienceDiffApplier:
             structural_change=any(is_structural_change(diff) for diff in accepted),
         )
 
-    def _apply_one(self, diff: ExperienceDiff) -> tuple[int | None, int | None]:
+    def _prepare_one(
+        self,
+        diff: ExperienceDiff,
+    ) -> tuple[tuple[ExperienceEntry, ...], int | None, int | None]:
         if diff.operation in {"KEEP", "REJECT"}:
             self._active_target(diff.experience_id)
-            return None, None
+            return (), None, None
 
         if diff.operation == "REINFORCE":
             current = self._active_target(diff.experience_id)
@@ -188,8 +192,7 @@ class ExperienceDiffApplier:
                     "source_hash": None,
                 }
             )
-            self.repository.append_experience_revision(updated)
-            return current.revision, updated.revision
+            return (updated,), current.revision, updated.revision
 
         if diff.operation == "WEAKEN":
             current = self._active_target(diff.experience_id)
@@ -208,40 +211,34 @@ class ExperienceDiffApplier:
                     "source_hash": None,
                 }
             )
-            self.repository.append_experience_revision(updated)
-            return current.revision, updated.revision
+            return (updated,), current.revision, updated.revision
 
         if diff.operation == "CREATE":
             proposal = diff.proposals[0]
             self._ensure_new(proposal.experience_id)
-            self.repository.append_experience_revision(proposal)
-            return None, proposal.revision
+            return (proposal,), None, proposal.revision
 
         if diff.operation == "MERGE":
-            for proposal in diff.proposals:
-                self._ensure_new(proposal.experience_id)
-            revision_pair: tuple[int | None, int | None] = (None, None)
-            for index, source_id in enumerate(diff.source_ids):
-                pair = self._supersede(source_id)
-                if index == 0:
-                    revision_pair = pair
-            self.repository.append_experience_revision(diff.proposals[0])
-            return revision_pair
-
-        if diff.operation == "SPLIT":
-            for proposal in diff.proposals:
-                self._ensure_new(proposal.experience_id)
-            pair = self._supersede(diff.experience_id)
-            for proposal in diff.proposals:
-                self.repository.append_experience_revision(proposal)
-            return pair
-
-        if diff.operation == "SUPERSEDE":
             proposal = diff.proposals[0]
             self._ensure_new(proposal.experience_id)
-            pair = self._supersede(diff.experience_id)
-            self.repository.append_experience_revision(proposal)
-            return pair
+            sources = tuple(self._active_target(source_id) for source_id in diff.source_ids)
+            revisions = tuple(self._superseded(source) for source in sources)
+            first = sources[0]
+            return (*revisions, proposal), first.revision, first.revision + 1
+
+        if diff.operation == "SPLIT":
+            current = self._active_target(diff.experience_id)
+            for proposal in diff.proposals:
+                self._ensure_new(proposal.experience_id)
+            superseded = self._superseded(current)
+            return (superseded, *diff.proposals), current.revision, superseded.revision
+
+        if diff.operation == "SUPERSEDE":
+            current = self._active_target(diff.experience_id)
+            proposal = diff.proposals[0]
+            self._ensure_new(proposal.experience_id)
+            superseded = self._superseded(current)
+            return (superseded, proposal), current.revision, superseded.revision
 
         raise ValueError(f"unsupported operation {diff.operation}")
 
@@ -260,17 +257,15 @@ class ExperienceDiffApplier:
             return
         raise ValueError(f"experience {experience_id} already exists")
 
-    def _supersede(self, experience_id: str | None) -> tuple[int, int]:
-        current = self._active_target(experience_id)
-        updated = current.model_copy(
+    @staticmethod
+    def _superseded(current: ExperienceEntry) -> ExperienceEntry:
+        return current.model_copy(
             update={
                 "revision": current.revision + 1,
                 "status": "superseded",
                 "source_hash": None,
             }
         )
-        self.repository.append_experience_revision(updated)
-        return current.revision, updated.revision
 
     @staticmethod
     def _event_experience_id(diff: ExperienceDiff) -> str | None:
