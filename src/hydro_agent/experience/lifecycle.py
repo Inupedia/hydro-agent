@@ -1,0 +1,477 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from collections.abc import Iterable
+
+from hydro_agent.execution.contracts import FrozenModel
+from hydro_agent.experience.compiler import ExperienceSkillCompiler
+from hydro_agent.experience.contracts import (
+    ExperienceEntry,
+    ExperienceEvidenceRef,
+    ExperienceScope,
+)
+from hydro_agent.experience.diff import ExperienceDiff
+from hydro_agent.experience.reflection import (
+    ExperienceDiffApplier,
+    ExperienceReflectionEngine,
+    ExperienceReflectionInput,
+)
+
+
+class ExperienceEvolutionOutcome(FrozenModel):
+    task_id: str
+    processed: bool
+    structural_change: bool = False
+    candidate_version: int | None = None
+    promotion_accepted: bool | None = None
+    reasons: tuple[str, ...] = ()
+
+
+class EvidenceExperienceReflectionProvider:
+    """Turn persisted hydrologic experiment evidence into candidate Experience Diffs.
+
+    This provider is intentionally pure: it only proposes structured changes.
+    Database writes remain owned by ExperienceDiffApplier.
+    """
+
+    def reflect(
+        self,
+        reflection_input: ExperienceReflectionInput,
+    ) -> tuple[ExperienceDiff, ...]:
+        diagnosis = _latest_action(reflection_input.evidence, "A04_DIAGNOSE")
+        resolve = _latest_action(reflection_input.evidence, "A07_RESOLVE")
+        optimize = _latest_decision(reflection_input.decisions, "A05_OPTIMIZE")
+        if diagnosis is None or resolve is None:
+            return ()
+
+        outcome = str(resolve.get("status") or "").upper()
+        if outcome == "ACCEPT":
+            positive = True
+        elif outcome in {"KEEP", "ROLLBACK", "FAILED", "BLOCKED"}:
+            positive = False
+        else:
+            return ()
+
+        gates = dict(diagnosis.get("gates") or {})
+        hypothesis = str(gates.get("hypothesis") or "UNKNOWN").strip() or "UNKNOWN"
+        strategy_id = str(
+            (optimize or {}).get("strategy_id")
+            or gates.get("recommended_strategy_id")
+            or ""
+        ).strip()
+        groups = _groups(gates.get("recommended_param_groups"))
+        objective = str(gates.get("recommended_objective") or "").strip()
+        if not groups:
+            return ()
+
+        evidence_refs = _evidence_refs(
+            reflection_input.task_id,
+            reflection_input.evidence,
+        )
+        if not evidence_refs:
+            return ()
+
+        same: ExperienceEntry | None = None
+        opposite: ExperienceEntry | None = None
+        for entry in reflection_input.active_experiences:
+            if not _same_rule_shape(
+                entry,
+                hypothesis=hypothesis,
+                strategy_id=strategy_id,
+                groups=groups,
+            ):
+                continue
+            if _positive_rule(entry) == positive and same is None:
+                same = entry
+            elif _positive_rule(entry) != positive and opposite is None:
+                opposite = entry
+
+        diffs: list[ExperienceDiff] = []
+        if same is not None:
+            diffs.append(
+                ExperienceDiff(
+                    operation="REINFORCE",
+                    experience_id=same.experience_id,
+                    evidence_refs=evidence_refs,
+                    reason=_reflection_reason(
+                        positive=positive,
+                        outcome=outcome,
+                        strategy_id=strategy_id,
+                        groups=groups,
+                        change="reinforce",
+                    ),
+                )
+            )
+        else:
+            decision = (
+                {
+                    "prefer_strategy_id": strategy_id,
+                    "prefer_param_groups": list(groups),
+                    "objective": objective,
+                }
+                if positive
+                else {
+                    "failed_strategy_id": strategy_id,
+                    "failed_param_groups": list(groups),
+                    "avoid_param_groups": list(groups),
+                    "objective": objective,
+                }
+            )
+            decision = {
+                key: value
+                for key, value in decision.items()
+                if value not in ("", [], ())
+            }
+            proposal = ExperienceEntry(
+                experience_id=_experience_id(
+                    reflection_input,
+                    positive=positive,
+                    hypothesis=hypothesis,
+                    strategy_id=strategy_id,
+                    groups=groups,
+                ),
+                revision=1,
+                category="basin" if reflection_input.basin_id else "model",
+                scope=ExperienceScope(
+                    model_ids=(reflection_input.model_id,)
+                    if reflection_input.model_id
+                    else (),
+                    basin_ids=(reflection_input.basin_id,)
+                    if reflection_input.basin_id
+                    else (),
+                ),
+                pattern={"hypothesis": hypothesis},
+                decision=decision,
+                supporting_evidence=evidence_refs,
+                contradicting_evidence=(),
+                confidence=0.65 if positive else 0.60,
+                status="active",
+            )
+            diffs.append(
+                ExperienceDiff(
+                    operation="CREATE",
+                    proposals=(proposal,),
+                    evidence_refs=evidence_refs,
+                    reason=_reflection_reason(
+                        positive=positive,
+                        outcome=outcome,
+                        strategy_id=strategy_id,
+                        groups=groups,
+                        change="create",
+                    ),
+                )
+            )
+
+        if opposite is not None:
+            diffs.append(
+                ExperienceDiff(
+                    operation="WEAKEN",
+                    experience_id=opposite.experience_id,
+                    evidence_refs=evidence_refs,
+                    reason=_reflection_reason(
+                        positive=positive,
+                        outcome=outcome,
+                        strategy_id=strategy_id,
+                        groups=groups,
+                        change="counterexample",
+                    ),
+                )
+            )
+        return tuple(diffs)
+
+
+class ExperienceEvolutionService:
+    """Close the post-task Experience learning -> candidate -> regression loop."""
+
+    def __init__(
+        self,
+        repository,
+        *,
+        version_store,
+        promotion_service,
+        skill_registry=None,
+        provider=None,
+        compiler: ExperienceSkillCompiler | None = None,
+    ):
+        self.repository = repository
+        self.version_store = version_store
+        self.promotion_service = promotion_service
+        self.skill_registry = skill_registry
+        self.provider = provider or EvidenceExperienceReflectionProvider()
+        self.compiler = compiler or ExperienceSkillCompiler()
+
+    def ensure_baseline(self) -> int:
+        current = self.repository.get_current_experience_skill_version()
+        if current is not None:
+            return current.version
+
+        versions = self.repository.list_experience_skill_versions()
+        if versions:
+            raise ValueError(
+                "Experience Skill history exists without a promoted baseline"
+            )
+
+        compiled = self.compiler.compile(1, ())
+        self.version_store.create_candidate(compiled)
+        self.version_store.promote(
+            1,
+            regression={
+                "passed": True,
+                "bootstrap": True,
+                "reason": "EMPTY_EXPERIENCE_BASELINE",
+            },
+        )
+        if self.skill_registry is not None:
+            self.skill_registry.reload()
+        return 1
+
+    def process_completed_task(self, task_id: str) -> ExperienceEvolutionOutcome:
+        task = self.repository.get_task(task_id)
+        state = self.repository.get_task_state(task_id)
+        if (
+            task.phase != "E"
+            or state.needs_follow_up
+            or state.paused
+            or str(task.terminal_status or "").lower() in {"cancelled", "failed"}
+        ):
+            return ExperienceEvolutionOutcome(
+                task_id=task_id,
+                processed=False,
+                reasons=("TASK_NOT_COMPLETED",),
+            )
+
+        self.ensure_baseline()
+        prior_events = [
+            event
+            for event in self.repository.list_experience_evolution_events()
+            if event.task_id == task_id
+        ]
+
+        structural_change = any(
+            event.event_type in {"CREATE", "MERGE", "SPLIT", "SUPERSEDE"}
+            for event in prior_events
+        )
+        if not prior_events:
+            reflection = ExperienceReflectionEngine(
+                self.repository,
+                provider=self.provider,
+            ).reflect(task_id)
+            applied = ExperienceDiffApplier(self.repository).apply(
+                task_id,
+                reflection.diffs,
+            )
+            structural_change = applied.structural_change
+            if not applied.accepted and applied.rejected:
+                return ExperienceEvolutionOutcome(
+                    task_id=task_id,
+                    processed=True,
+                    structural_change=False,
+                    reasons=tuple(applied.rejected),
+                )
+
+        if not structural_change and not self._structure_differs_from_promoted():
+            return ExperienceEvolutionOutcome(
+                task_id=task_id,
+                processed=True,
+                structural_change=False,
+                reasons=("STATE_OPTIMIZATION_ONLY",),
+            )
+
+        candidate = self._candidate_for_current_state()
+        if candidate is None:
+            candidate = self._compile_candidate()
+
+        decision = self.promotion_service.validate_and_promote(candidate.version)
+        if decision.accepted and self.skill_registry is not None:
+            self.skill_registry.reload()
+        return ExperienceEvolutionOutcome(
+            task_id=task_id,
+            processed=True,
+            structural_change=True,
+            candidate_version=candidate.version,
+            promotion_accepted=decision.accepted,
+            reasons=decision.reasons,
+        )
+
+    def _compile_candidate(self):
+        versions = self.repository.list_experience_skill_versions()
+        next_version = max((row.version for row in versions), default=0) + 1
+        compiled = self.compiler.compile(
+            next_version,
+            self.repository.list_active_experiences(),
+        )
+        return self.version_store.create_candidate(compiled)
+
+    def _candidate_for_current_state(self):
+        active_revisions = _active_revision_map(
+            self.repository.list_active_experiences()
+        )
+        for row in reversed(self.repository.list_experience_skill_versions()):
+            if row.status != "candidate":
+                continue
+            manifest_revisions = {
+                str(key): int(value)
+                for key, value in dict(
+                    dict(row.manifest_json or {}).get("source_revisions") or {}
+                ).items()
+            }
+            if manifest_revisions == active_revisions:
+                return row
+        return None
+
+    def _structure_differs_from_promoted(self) -> bool:
+        current = self.repository.get_current_experience_skill_version()
+        if current is None:
+            return bool(self.repository.list_active_experiences())
+        promoted_ids = set(
+            str(item)
+            for item in (
+                dict(current.manifest_json or {}).get("source_experience_ids") or ()
+            )
+        )
+        active_ids = {
+            entry.experience_id
+            for entry in self.repository.list_active_experiences()
+        }
+        return promoted_ids != active_ids
+
+
+def _latest_action(
+    rows: tuple[dict[str, object], ...],
+    action: str,
+) -> dict[str, object] | None:
+    return next(
+        (row for row in reversed(rows) if row.get("action") == action),
+        None,
+    )
+
+
+def _latest_decision(
+    rows: tuple[dict[str, object], ...],
+    action: str,
+) -> dict[str, object] | None:
+    return next(
+        (row for row in reversed(rows) if row.get("action") == action),
+        None,
+    )
+
+
+def _groups(raw: object) -> tuple[str, ...]:
+    if isinstance(raw, str):
+        return tuple(item.strip() for item in raw.split(",") if item.strip())
+    if isinstance(raw, (list, tuple)):
+        return tuple(str(item).strip() for item in raw if str(item).strip())
+    return ()
+
+
+def _positive_rule(entry: ExperienceEntry) -> bool:
+    return bool(
+        entry.decision.get("prefer_strategy_id")
+        or entry.decision.get("prefer_param_groups")
+    )
+
+
+def _same_rule_shape(
+    entry: ExperienceEntry,
+    *,
+    hypothesis: str,
+    strategy_id: str,
+    groups: tuple[str, ...],
+) -> bool:
+    if str(entry.pattern.get("hypothesis") or "UNKNOWN") != hypothesis:
+        return False
+    decision_strategy = str(
+        entry.decision.get("prefer_strategy_id")
+        or entry.decision.get("failed_strategy_id")
+        or ""
+    )
+    if strategy_id and decision_strategy and strategy_id != decision_strategy:
+        return False
+    decision_groups = set(
+        _groups(
+            entry.decision.get("prefer_param_groups")
+            or entry.decision.get("failed_param_groups")
+            or entry.decision.get("avoid_param_groups")
+        )
+    )
+    return bool(decision_groups) and decision_groups == set(groups)
+
+
+def _evidence_refs(
+    task_id: str,
+    rows: Iterable[dict[str, object]],
+) -> tuple[ExperienceEvidenceRef, ...]:
+    refs: list[ExperienceEvidenceRef] = []
+    seen: set[tuple[str, str | None, str | None]] = set()
+    for row in rows:
+        if row.get("action") not in {
+            "A04_DIAGNOSE",
+            "A05_OPTIMIZE",
+            "A06_GATE",
+            "A07_RESOLVE",
+            "A10_EVALUATE_REPORT",
+        }:
+            continue
+        gates = dict(row.get("gates") or {})
+        experiment_id = str(gates.get("experiment_plan_id") or "").strip() or None
+        evidence_id = str(row.get("evidence_id") or "").strip() or None
+        key = (task_id, experiment_id, evidence_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        refs.append(
+            ExperienceEvidenceRef(
+                task_id=task_id,
+                experiment_id=experiment_id,
+                evidence_id=evidence_id,
+            )
+        )
+    return tuple(refs)
+
+
+def _experience_id(
+    reflection_input: ExperienceReflectionInput,
+    *,
+    positive: bool,
+    hypothesis: str,
+    strategy_id: str,
+    groups: tuple[str, ...],
+) -> str:
+    payload = {
+        "task_id": reflection_input.task_id,
+        "model_id": reflection_input.model_id,
+        "basin_id": reflection_input.basin_id,
+        "positive": positive,
+        "hypothesis": hypothesis,
+        "strategy_id": strategy_id,
+        "groups": list(groups),
+    }
+    digest = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:10].upper()
+    model = (reflection_input.model_id or "GENERAL").upper().replace("-", "")
+    return f"EXP-{model}-{digest}"
+
+
+def _reflection_reason(
+    *,
+    positive: bool,
+    outcome: str,
+    strategy_id: str,
+    groups: tuple[str, ...],
+    change: str,
+) -> str:
+    direction = "successful" if positive else "unsuccessful"
+    strategy = strategy_id or "unspecified"
+    return (
+        f"{change}: {direction} calibration outcome={outcome}; "
+        f"strategy={strategy}; groups={','.join(groups)}"
+    )
+
+
+def _active_revision_map(entries: Iterable[ExperienceEntry]) -> dict[str, int]:
+    return {
+        entry.experience_id: entry.revision
+        for entry in sorted(entries, key=lambda item: item.experience_id)
+    }
