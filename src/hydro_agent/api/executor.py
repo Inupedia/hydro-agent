@@ -256,10 +256,10 @@ def _task_status(task, state, active: bool, *, queued: bool) -> str:
         return "queued"
     if state.paused:
         return "paused"
-    if active:
-        return "running"
     if task.phase == "E" and not state.needs_follow_up:
         return "completed"
+    if active:
+        return "running"
     if state.agent_rounds_used == 0:
         return "created"
     return "idle"
