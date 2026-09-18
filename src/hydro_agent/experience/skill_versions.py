@@ -80,6 +80,43 @@ class ExperienceSkillVersionStore:
             shutil.rmtree(version_dir, ignore_errors=True)
             raise
 
+    def ensure_current(self, version: int) -> Path:
+        """Restore the promoted package into the active agent Skill root if needed."""
+
+        version_package = self.materialize(version)
+        if self.current_package.is_dir() and _same_tree(
+            self.current_package,
+            version_package,
+        ):
+            self._validate_package(self.current_package)
+            return self.current_package
+
+        self.current_root.mkdir(parents=True, exist_ok=True)
+        temp_package = self.current_root / f".{_SKILL_ID}.restore.tmp"
+        backup_package = self.current_root / f".{_SKILL_ID}.restore.old"
+        for path in (temp_package, backup_package):
+            if path.exists():
+                shutil.rmtree(path)
+
+        shutil.copytree(version_package, temp_package)
+        self._validate_package(temp_package)
+        swapped = False
+        try:
+            if self.current_package.exists():
+                self.current_package.replace(backup_package)
+            temp_package.replace(self.current_package)
+            swapped = True
+        except Exception:
+            if swapped:
+                shutil.rmtree(self.current_package, ignore_errors=True)
+            if backup_package.exists():
+                backup_package.replace(self.current_package)
+            shutil.rmtree(temp_package, ignore_errors=True)
+            raise
+        else:
+            shutil.rmtree(backup_package, ignore_errors=True)
+        return self.current_package
+
     def promote(
         self,
         version: int,
@@ -191,3 +228,15 @@ class ExperienceSkillVersionStore:
             directory_name=_SKILL_ID,
             root=package,
         )
+
+
+
+def _same_tree(left: Path, right: Path) -> bool:
+    def snapshot(root: Path) -> dict[str, bytes]:
+        return {
+            path.relative_to(root).as_posix(): path.read_bytes()
+            for path in sorted(root.rglob("*"))
+            if path.is_file()
+        }
+
+    return snapshot(left) == snapshot(right)
