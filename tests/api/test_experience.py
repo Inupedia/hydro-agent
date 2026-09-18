@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from hydro_agent.api.app import create_app
@@ -34,39 +36,40 @@ def test_experience_api_exposes_summary_versions_and_provenance(app_dependencies
     repo.append_experience_revision(_entry("EXP-XAJ-1"))
     repo.append_experience_revision(_entry("EXP-XAJ-1", revision=2, confidence=0.9))
 
-    repo.create_experience_skill_version(
-        version=1,
-        parent_version=None,
-        status="superseded",
-        skill_hash="1" * 64,
-        manifest={
-            "source_experience_ids": ["EXP-XAJ-1"],
-            "source_revisions": {"EXP-XAJ-1": 1},
-        },
+    from hydro_agent.experience.compiler import ExperienceSkillCompiler
+    from hydro_agent.experience.skill_versions import ExperienceSkillVersionStore
+
+    database_path = Path(str(repo.database.engine.url.database))
+    store = ExperienceSkillVersionStore(
+        database_path.resolve().parent / "experience-skill-store",
+        repository=repo,
     )
-    repo.create_experience_skill_version(
-        version=2,
-        parent_version=1,
-        status="promoted",
-        skill_hash="2" * 64,
-        manifest={
-            "source_experience_ids": ["EXP-XAJ-1", "EXP-XAJ-2"],
-            "source_revisions": {"EXP-XAJ-1": 2, "EXP-XAJ-2": 1},
-            "structural_changes": [
-                {
-                    "operation": "CREATE",
-                    "experience_id": None,
-                    "source_ids": [],
-                    "proposal_ids": ["EXP-XAJ-2"],
-                    "reason": "new routing rule",
-                    "evidence_refs": [],
-                }
-            ],
-            "split": [],
-            "merged": [],
-        },
-        regression={"passed": True},
+    compiler = ExperienceSkillCompiler()
+    v1 = compiler.compile(1, (_entry("EXP-XAJ-1", revision=1),))
+    store.create_candidate(v1)
+    store.promote(1, regression={"passed": True})
+
+    v2 = compiler.compile(
+        2,
+        (
+            _entry("EXP-XAJ-1", revision=2, confidence=0.9),
+            _entry("EXP-XAJ-2", revision=1),
+        ),
     )
+    store.create_candidate(
+        v2,
+        structural_changes=(
+            {
+                "operation": "CREATE",
+                "experience_id": None,
+                "source_ids": [],
+                "proposal_ids": ["EXP-XAJ-2"],
+                "reason": "new routing rule",
+                "evidence_refs": [],
+            },
+        ),
+    )
+    store.promote(2, regression={"passed": True})
     repo.append_experience_evolution_event(
         event_type="REINFORCE",
         reason="routing improvement repeated",
