@@ -126,6 +126,11 @@ export type AgentRoundLogItem = {
   tool_calls?: ToolCallAudit[]
   evidence_summary?: EvidenceAuditSummary | null
   activated_skill_ids?: string[]
+  experience_skill_version?: number | null
+  experience_skill_hash?: string | null
+  experience_refs?: string[]
+  experience_mode?: 'exploitation' | 'exploration' | null
+  experience_influence?: string[]
   activated_skills_audit?: Array<{
     skill_id: string
     source: string
