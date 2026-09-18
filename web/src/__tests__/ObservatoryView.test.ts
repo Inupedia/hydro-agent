@@ -70,6 +70,58 @@ vi.mock("../api/client", () => ({
         objective_alias: "composite->kge",
       },
     })),
+    getExperienceSummary: vi.fn(async () => ({
+      current_version: 4,
+      current_skill_hash: "e".repeat(64),
+      status: "converging",
+      active_count: 1,
+      high_confidence_count: 1,
+      candidate_count: 0,
+      version_count: 4,
+      reason: "recent_window_is_dominated_by_state_optimization",
+    })),
+    listExperienceEntries: vi.fn(async () => [{
+      experience_id: "EXP-XAJ-0018",
+      revision: 2,
+      category: "model",
+      scope: { model_ids: ["xaj"], basin_ids: ["yaogu"] },
+      pattern: {},
+      decision: {},
+      supporting_evidence: [],
+      contradicting_evidence: [],
+      confidence: 0.86,
+      status: "active",
+    }]),
+    listExperienceEvolution: vi.fn(async () => []),
+    listExperienceVersions: vi.fn(async () => [{
+      version: 4,
+      status: "promoted",
+      skill_hash: "e".repeat(64),
+      manifest: {},
+      created_at: "2026-09-18T00:00:00Z",
+    }]),
+    getExperienceRegression: vi.fn(async () => ({ items: [] })),
+    getExperienceEntry: vi.fn(async () => ({
+      experience_id: "EXP-XAJ-0018",
+      revision: 2,
+      category: "model",
+      scope: { model_ids: ["xaj"], basin_ids: ["yaogu"] },
+      pattern: {},
+      decision: {},
+      supporting_evidence: [],
+      contradicting_evidence: [],
+      confidence: 0.86,
+      status: "active",
+      revisions: [],
+    })),
+    getExperienceVersionDiff: vi.fn(async () => ({
+      version: 4,
+      added: [],
+      modified: [],
+      superseded: [],
+      split: [],
+      merged: [],
+    })),
     getTask: vi.fn(async () => ({
       basin_id: "basin-restored",
       start_date: "2021-01-01",
@@ -110,6 +162,18 @@ describe("single page observatory", () => {
     expect(portal("run-notice")).toBeNull();
     expect(wrapper.find(".water-scene").exists()).toBe(false);
     expect(wrapper.find("fieldset").attributes("disabled")).toBeDefined();
+    wrapper.unmount();
+  });
+
+  it("opens the agent evolution observatory from the header", async () => {
+    const { wrapper } = await setup();
+    await wrapper.get('[data-test="header-experience-evolution"]').trigger("click");
+    await flushPromises();
+    const dialog = portal("experience-evolution-dialog");
+    expect(dialog).not.toBeNull();
+    expect(dialog?.textContent).toContain("智能体进化");
+    expect(dialog?.textContent).toContain("Experience Skill v4");
+    expect(dialog?.textContent).toContain("EXP-XAJ-0018");
     wrapper.unmount();
   });
 
