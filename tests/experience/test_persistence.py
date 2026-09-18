@@ -168,3 +168,41 @@ def test_evolution_event_keeps_provenance(repository):
     assert row.evidence_refs_json[0]["evidence_id"] == "evidence-1"
     events = repository.list_experience_evolution_events()
     assert [event.event_type for event in events] == ["REINFORCE"]
+
+
+def test_atomic_transition_rolls_back_all_revisions(repository):
+    repository.append_experience_revision(
+        make_entry(experience_id="parent", confidence=0.8)
+    )
+    repository.append_experience_revision(
+        make_entry(experience_id="taken-child", confidence=0.6)
+    )
+    parent = repository.get_experience("parent")
+    superseded_parent = parent.model_copy(
+        update={
+            "revision": 2,
+            "status": "superseded",
+            "source_hash": None,
+        }
+    )
+    duplicate_child = make_entry(
+        experience_id="taken-child",
+        revision=1,
+        confidence=0.7,
+    )
+
+    with pytest.raises(ValueError, match="does not follow"):
+        repository.commit_experience_transition(
+            entries=(superseded_parent, duplicate_child),
+            event_type="SPLIT",
+            reason="test atomic rollback",
+            task_id="task-1",
+            experience_id="parent",
+            from_revision=1,
+            to_revision=2,
+        )
+
+    latest_parent = repository.get_experience("parent")
+    assert latest_parent.revision == 1
+    assert latest_parent.status == "active"
+    assert repository.list_experience_evolution_events() == []
