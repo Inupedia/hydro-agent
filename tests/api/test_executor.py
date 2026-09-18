@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from hydro_agent.api.executor import TaskExecutor
+from hydro_agent.api.executor import TaskExecutor, _task_status
 
 
 def seed_task(repository, n: int):
@@ -102,3 +102,20 @@ def test_pause_sets_persisted_state_without_inventing_terminal_status(
     assert state.paused is True
     assert repository.get_task("task-1").terminal_status is None
     executor.shutdown()
+
+
+
+def test_completed_status_wins_while_experience_regression_finishes(repository):
+    task_id = seed_task(repository, 99)
+    repository.set_task_phase(task_id, "F")
+    repository.set_task_phase(task_id, "E")
+    repository.update_task_state(
+        task_id,
+        paused=False,
+        needs_follow_up=False,
+    )
+
+    task = repository.get_task(task_id)
+    state = repository.get_task_state(task_id)
+
+    assert _task_status(task, state, active=True, queued=False) == "completed"
