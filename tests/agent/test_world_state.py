@@ -185,3 +185,27 @@ def test_world_state_uses_frozen_experience_skill_revision(tmp_path):
     assert rebuilt.hydro.experience.skill_version == 1
     assert rebuilt.hydro.experience.matches[0].revision == 1
     assert rebuilt.hydro.experience.matches[0].confidence == 0.9
+
+
+    # A later task keeps the same structural Skill v1, but freezes the latest
+    # state optimization (revision 2) at its own start.
+    repo.create_task(
+        task_id="task-exp-next",
+        basin_id="basin-a",
+        phase="B",
+        forcing_mode="R",
+    )
+    repo.create_scheme(
+        scheme_id="scheme-exp-next",
+        task_id="task-exp-next",
+        model_id="xaj",
+        status="base",
+        config={"parameters": {}, "workbench": {}},
+        content_hash="scheme-exp-next-hash",
+    )
+    repo.ensure_task_state("task-exp-next", current_scheme_id="scheme-exp-next")
+    next_view = WorldStateBuilder(repo, skills=skills).build("task-exp-next")
+    assert next_view.hydro.experience.skill_version == 1
+    assert next_view.hydro.experience.source_revisions == {"EXP-XAJ-1": 2}
+    assert next_view.hydro.experience.matches[0].revision == 2
+    assert next_view.hydro.experience.matches[0].confidence == 0.2
