@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { PhArrowLeft, PhX } from '@phosphor-icons/vue'
+import { PhX } from '@phosphor-icons/vue'
 
 const props = withDefaults(
   defineProps<{
