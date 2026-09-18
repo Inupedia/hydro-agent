@@ -171,18 +171,13 @@ def _render_reference(
         return "\n".join(lines) + "\n"
 
     for entry in entries:
-        supporting = len(entry.supporting_evidence)
-        contradicting = len(entry.contradicting_evidence)
         lines.extend(
             [
-                f"## {entry.experience_id} · revision {entry.revision}",
+                f"## {entry.experience_id}",
                 "",
                 f"- category: {entry.category}",
-                f"- confidence: {entry.confidence:.4f}",
                 f"- models: {', '.join(entry.scope.model_ids) or 'all'}",
                 f"- basins: {', '.join(entry.scope.basin_ids) or 'transferable'}",
-                f"- supporting evidence: {supporting}",
-                f"- contradicting evidence: {contradicting}",
                 "- pattern:",
                 "~~~json",
                 json.dumps(entry.pattern, ensure_ascii=False, sort_keys=True, indent=2),
