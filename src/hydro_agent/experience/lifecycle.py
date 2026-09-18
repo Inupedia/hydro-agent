@@ -42,6 +42,7 @@ class EvidenceExperienceReflectionProvider:
         diagnosis = _latest_action(reflection_input.evidence, "A04_DIAGNOSE")
         resolve = _latest_action(reflection_input.evidence, "A07_RESOLVE")
         optimize = _latest_decision(reflection_input.decisions, "A05_OPTIMIZE")
+        optimize_evidence = _latest_action(reflection_input.evidence, "A05_OPTIMIZE")
         if diagnosis is None or resolve is None:
             return ()
 
@@ -55,13 +56,22 @@ class EvidenceExperienceReflectionProvider:
 
         gates = dict(diagnosis.get("gates") or {})
         hypothesis = str(gates.get("hypothesis") or "UNKNOWN").strip() or "UNKNOWN"
+        optimize_gates = dict((optimize_evidence or {}).get("gates") or {})
         strategy_id = str(
-            (optimize or {}).get("strategy_id")
+            optimize_gates.get("strategy_id")
+            or (optimize or {}).get("strategy_id")
             or gates.get("recommended_strategy_id")
             or ""
         ).strip()
-        groups = _groups(gates.get("recommended_param_groups"))
-        objective = str(gates.get("recommended_objective") or "").strip()
+        groups = (
+            _groups(optimize_gates.get("param_groups"))
+            or _groups(gates.get("recommended_param_groups"))
+        )
+        objective = str(
+            optimize_gates.get("objective")
+            or gates.get("recommended_objective")
+            or ""
+        ).strip()
         if not groups:
             return ()
 
