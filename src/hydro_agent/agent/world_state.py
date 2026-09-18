@@ -173,8 +173,11 @@ class WorldStateBuilder:
             sid for sid in strategy_ids if not sid.endswith("-hydrologist-manual-v1")
         ) or strategy_ids
 
-        agent_evolution_enabled = bool(
-            workbench.get("agent_evolution_enabled", False)
+        raw_evolution_enabled = workbench.get("agent_evolution_enabled")
+        agent_evolution_enabled = (
+            bool(raw_evolution_enabled)
+            if raw_evolution_enabled is not None
+            else state.experience_state_snapshot_json is not None
         )
         experience = (
             self._experience_context(
