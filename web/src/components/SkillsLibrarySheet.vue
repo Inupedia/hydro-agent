@@ -85,6 +85,7 @@ const sourceLabel = computed(() => {
   const source = detail.value?.source
   if (source === 'user') return '用户覆盖 · 当前生效'
   if (source === 'builtin') return '内置 · 当前生效'
+  if (source === 'agent') return 'Agent 生成 · 当前生效'
   if (source === 'memory') return '内存'
   return '未知'
 })
@@ -96,6 +97,14 @@ const editableResources = computed(() =>
 const canEdit = computed(() => detail.value?.source === 'user')
 const canRestore = computed(() => detail.value?.source === 'user')
 const canCopyBuiltin = computed(() => detail.value?.source === 'builtin')
+const readonlyHint = computed(() =>
+  detail.value?.source === 'agent'
+    ? '这是智能体根据已验证 Experience 自动编译的 Skill，只读展示当前版本与依据；人工不能直接修改。'
+    : '这是内置技能，界面为预览模式，不能编辑或保存。如需定制，请点「复制为用户版」。',
+)
+const readonlyFooter = computed(() =>
+  detail.value?.source === 'agent' ? 'Agent 管理，只读' : '内置只读，无法保存',
+)
 
 function displaySkillTitle(skill: Pick<SkillSummary, 'skill_id' | 'title_zh'>): string {
   return skillTitle(skill.skill_id, skill.title_zh)
@@ -498,7 +507,7 @@ watch(
             <small>{{ skill.skill_id }}</small>
             <span v-if="activationLabel(skill)" class="activation-meta">{{ activationLabel(skill) }}</span>
             <span class="source-pill" :data-source="skill.source">
-              {{ skill.source === 'user' ? '用户生效' : skill.source === 'builtin' ? '内置生效' : skill.source }}
+              {{ skill.source === 'user' ? '用户生效' : skill.source === 'builtin' ? '内置生效' : skill.source === 'agent' ? 'Agent 生成' : skill.source }}
             </span>
           </button>
         </div>
@@ -616,7 +625,7 @@ watch(
           </header>
 
           <p v-if="!canEdit" class="readonly-hint" data-test="skills-readonly-hint">
-            这是内置技能，界面为预览模式，不能编辑或保存。如需定制，请点「复制为用户版」。
+            {{ readonlyHint }}
           </p>
 
           <div class="editor-tabs">
@@ -728,7 +737,7 @@ watch(
             校验
           </button>
           <span v-if="detail && !canEdit" class="readonly-footer" data-test="skills-readonly-footer">
-            内置只读，无法保存
+            {{ readonlyFooter }}
           </span>
           <RippleButton
             v-else-if="tab !== 'usage'"
