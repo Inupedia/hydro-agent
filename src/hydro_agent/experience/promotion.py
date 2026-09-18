@@ -123,6 +123,15 @@ class ExperiencePromotionService:
                 candidate_version,
                 regression=regression_payload,
             )
+        elif decision.reasons == ("INSUFFICIENT_REGRESSION_CASES",):
+            # Lack of an independent holdout is not evidence that the
+            # structural rule is wrong. Keep the candidate quarantined and
+            # retry it against a later completed task before learning from that task.
+            self.repository.set_experience_skill_version_status(
+                candidate_version,
+                "candidate",
+                regression=regression_payload,
+            )
         else:
             reason = ";".join(decision.reasons)
             rejection_payload = {
