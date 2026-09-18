@@ -167,7 +167,7 @@ class RegressionCaseComparison(FrozenModel):
     def quality_delta(self) -> float | None:
         if self.current.quality_score is None or self.candidate.quality_score is None:
             return None
-        return self.candidate.quality_score - self.current.quality_score
+        return round(self.candidate.quality_score - self.current.quality_score, 12)
 
 
 class RegressionComparison(FrozenModel):
