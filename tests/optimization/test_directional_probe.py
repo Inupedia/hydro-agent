@@ -80,3 +80,29 @@ def test_probe_returns_inconclusive_when_active_parameters_disagree():
     assert result.status == "inconclusive"
     assert "A" in result.supporting_parameters
     assert "B" in result.contradictory_parameters
+
+
+
+def test_probe_uses_relative_guardrail_for_high_flow_mae_units():
+    def evaluate(params):
+        # L=3 baseline has high-flow MAE 100. Positive perturbation improves
+        # timing while MAE rises only 4%; this should remain supportable.
+        delta = params["L"] - 3.0
+        return {
+            "objective_value": 0.5 + delta * 0.01,
+            "peak_timing_lag_steps": 2.0 - delta,
+            "volume_relative_error": 0.01,
+            "high_flow_mae": 100.0 * (1.0 + max(delta, 0.0) * 0.04),
+            "evidence_ids": ("event-001", "event-002"),
+        }
+
+    result = run_directional_probe(
+        baseline={"L": 3.0},
+        bounds={"L": (2.0, 4.0)},
+        parameters=("L",),
+        relative_step=0.5,
+        evaluate=evaluate,
+        requested_direction="accelerate_routing",
+    )
+
+    assert result.status == "supported"
