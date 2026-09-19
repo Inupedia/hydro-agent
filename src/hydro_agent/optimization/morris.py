@@ -506,3 +506,27 @@ def screen_morris(
         sensitivities=tuple(sensitivities),
         checkpoint=final_checkpoint,
     )
+
+
+
+def morris_direction_evidence(
+    screening: MorrisScreeningResult,
+    *,
+    direction_probe_status: str,
+) -> tuple[dict[str, object], ...]:
+    """Project Morris importance into the current directional-hypothesis audit.
+
+    The Morris mathematics is unchanged. This adapter only records parameter
+    importance next to the deterministic directional-probe status.
+    """
+
+    return tuple(
+        {
+            "parameter": item.name,
+            "mu_star": item.mu_star,
+            "sigma": item.sigma,
+            "effects_count": item.valid_effects,
+            "direction_probe_status": str(direction_probe_status),
+        }
+        for item in screening.sensitivities
+    )
