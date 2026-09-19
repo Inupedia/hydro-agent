@@ -90,3 +90,57 @@ def test_behavioral_set_keeps_near_optimal_parameter_distinct_candidates():
     assert result.objective_best == pytest.approx(0.86)
     assert result.items[0].parameter_distance_from_best == pytest.approx(0.0)
     assert result.items[1].parameter_distance_from_best > 0.05
+
+
+
+def test_behavioral_registration_materializes_distinct_candidate_schemes(
+    seeded_repository, candidate_service
+):
+    behavioral = {
+        "objective_name": "nse",
+        "objective_best": 0.86,
+        "objective_tolerance": 0.02,
+        "items": [
+            {
+                "candidate_id": "best",
+                "parameters": dict(PARAMS, K=0.8),
+                "objective_value": 0.86,
+                "process_evidence": {"window": "calibration"},
+                "parameter_distance_from_best": 0.0,
+            },
+            {
+                "candidate_id": "alt",
+                "parameters": dict(PARAMS, K=1.05, L=1.0),
+                "objective_value": 0.85,
+                "process_evidence": {"window": "calibration"},
+                "parameter_distance_from_best": 0.2,
+            },
+        ],
+    }
+    primary = candidate_service.register_candidate(
+        base_scheme_id="scheme-base",
+        action_run_id="run-behavioral",
+        calibration_payload={
+            "strategy_id": "xaj-bounded-v1",
+            "candidate_parameters": dict(PARAMS, K=0.8),
+            "behavioral_candidates": behavioral,
+        },
+    )
+
+    scheme_ids = candidate_service.register_behavioral_candidates(
+        base_scheme_id="scheme-base",
+        action_run_id="run-behavioral",
+        calibration_payload={
+            "strategy_id": "xaj-bounded-v1",
+            "candidate_parameters": dict(PARAMS, K=0.8),
+            "behavioral_candidates": behavioral,
+        },
+        primary_scheme_id=primary,
+    )
+
+    assert scheme_ids[0] == primary
+    assert len(scheme_ids) == 2
+    alternate = seeded_repository.get_scheme(scheme_ids[1])
+    assert alternate.status == "candidate"
+    assert alternate.config_json["parameters"]["K"] == pytest.approx(1.05)
+    assert alternate.config_json["provenance"]["behavioral_candidate_id"] == "alt"
