@@ -176,6 +176,10 @@ def run(workspace: Path) -> dict:
     groups = strategy.param_groups if raw_groups is None else normalize_param_groups(raw_groups)
 
     scheme, basin, dates, inputs = load_xaj_inputs(workspace)
+    precipitation = {
+        day: float(inputs[index, 0, 0])
+        for index, day in enumerate(dates)
+    }
     streamflow = _load_streamflow(workspace)
     ranges = load_param_ranges()
     if set(ranges) != set(scheme.PARAMETER_ORDER):
@@ -528,6 +532,7 @@ def run(workspace: Path) -> dict:
             evaluated_window="calibration",
             baseline=baseline_full,
             candidate=best_full,
+            precipitation=precipitation,
             gate_status=None,
             frozen_is_candidate=False,
             parameter_delta=delta,

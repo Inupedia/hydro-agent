@@ -196,6 +196,8 @@ class HydrographComparisonResult(FrozenApiModel):
     baseline_metrics: dict[str, float | int | str | None] | None = None
     candidate_metrics: dict[str, float | int | str | None] | None = None
     frozen_metrics: dict[str, float | int | str | None] | None = None
+    baseline_diagnosis: dict[str, object] | None = None
+    candidate_diagnosis: dict[str, object] | None = None
     change: dict[str, float | None] | None = None
     parameter_delta: dict[str, float] = Field(default_factory=dict)
     windows: dict[str, str] = Field(default_factory=dict)

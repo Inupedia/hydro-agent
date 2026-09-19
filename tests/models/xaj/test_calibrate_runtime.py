@@ -115,6 +115,10 @@ def test_dds_calibration_is_deterministic(calibration_workspace):
         (calibration_workspace.parent / "a" / "output" / "calibration-metrics.json").read_text()
     )
     assert metrics["kind"] == "calibration"
+    assert metrics["baseline_diagnosis"]["window"] == "calibration"
+    assert metrics["candidate_diagnosis"]["window"] == "calibration"
+    assert metrics["candidate_diagnosis"]["flood_events"]
+    assert metrics["candidate_diagnosis"]["flood_events"][0]["basis"] == "rainfall_runoff"
 
 
 def test_runtime_respects_remaining_campaign_evaluation_budget(calibration_workspace):

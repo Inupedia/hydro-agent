@@ -120,3 +120,25 @@ def test_continuous_evidence_rejects_misaligned_or_non_monotonic_series() -> Non
             simulated=[1.0, 2.0, 3.0],
             quality_mask=[True, False],
         )
+
+
+
+def test_continuous_evidence_propagates_full_diagnosis_packet() -> None:
+    pattern = [10, 11, 12, 18, 40, 90, 55, 25, 14, 11, 10, 10, 10, 10]
+    observed = [float(value) for value in pattern * 3]
+    simulated = [value * 0.9 for value in observed]
+    precipitation = [0, 0, 4, 20, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0] * 3
+
+    evidence = ContinuousSimulationEvidenceService().evaluate(
+        window="calibration",
+        dates=_dates(len(observed)),
+        observed=observed,
+        simulated=simulated,
+        precipitation=precipitation,
+    )
+
+    assert evidence.diagnosis_packet is not None
+    assert evidence.diagnosis_packet.window == "calibration"
+    assert len(evidence.diagnosis_packet.flood_events) >= 2
+    assert evidence.diagnosis_packet.flood_events[0].basis == "rainfall_runoff"
+    assert "diagnosis_packet" not in evidence.as_metrics()

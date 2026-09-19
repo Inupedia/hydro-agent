@@ -72,3 +72,34 @@ def test_hydrologic_evidence_preserves_full_diagnosis_packet_and_legacy_views():
     assert evidence.low_flow.extras
     assert evidence.basin_attributes["area_km2"] == 100.0
     assert evidence.as_diagnosis_dict()["diagnosis_packet"]["window"] == "calibration"
+
+
+
+def test_hydrologic_evidence_hydrates_packet_from_raw_diagnosis_dict():
+    dates = [date(2020, 7, 1) + timedelta(days=i) for i in range(42)]
+    observed = [10, 11, 12, 18, 40, 90, 55, 25, 14, 11, 10, 10, 10, 10] * 3
+    simulated = [value * 0.9 for value in observed]
+    precipitation = [0, 0, 4, 20, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0] * 3
+    bundle = HydrologicEvidenceBuilder(
+        min_slice_samples=3,
+        min_fdc_samples=10,
+        min_event_samples=3,
+        flood_threshold_quantile=0.85,
+    ).build(
+        window="calibration",
+        dates=dates,
+        observed=observed,
+        simulated=simulated,
+        precipitation=precipitation,
+    )
+    packet = build_diagnosis_packet(bundle)
+
+    evidence = HydrologicEvidence.from_diagnosis(
+        {
+            "hypothesis": "MODEL",
+            "diagnosis_packet": packet.model_dump(mode="json"),
+        }
+    )
+
+    assert evidence.diagnosis_packet == packet
+    assert len(evidence.flood_events) == len(packet.flood_events)

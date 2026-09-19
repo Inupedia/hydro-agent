@@ -83,6 +83,10 @@ class HydrologicEvidence(FrozenModel):
         diagnosis_packet: HydrographDiagnosisPacket | None = None,
     ) -> HydrologicEvidence:
         raw = dict(diagnosis or {})
+        if diagnosis_packet is None:
+            raw_packet = raw.get("diagnosis_packet")
+            if isinstance(raw_packet, Mapping):
+                diagnosis_packet = HydrographDiagnosisPacket.model_validate(raw_packet)
         legacy_metrics = (
             dict(raw.get("metrics") or {}) if isinstance(raw.get("metrics"), Mapping) else {}
         )
@@ -188,6 +192,7 @@ class HydrologicEvidence(FrozenModel):
             "local_boundary_hits",
             "absolute_boundary_hits",
             "contradictory_evidence_ids",
+            "diagnosis_packet",
         }
         extras = {str(k): v for k, v in raw.items() if k not in reserved}
 
