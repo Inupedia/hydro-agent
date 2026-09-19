@@ -9,6 +9,7 @@ from hydro_agent.agent.tools import (
     ForecastHandler,
     GateHandler,
     OptimizeHandler,
+    ResolveHandler,
     ToolExecutionContext,
     ToolRouter,
     ToolUnavailable,
@@ -459,3 +460,47 @@ def test_gate_handler_forwards_development_event_comparison(repository):
     assert packet.status == "ACCEPT"
     assert gate.event_comparison == event_comparison
     assert "event_comparison_json" in packet.gates
+
+
+
+def test_resolve_accepts_research_adoption_without_standard_qualification(repository):
+    repository.create_scheme(
+        scheme_id="scheme-research-adopted",
+        task_id="task-1",
+        model_id="xaj",
+        status="candidate",
+        config={"parameters": {"K": 0.8}},
+        content_hash="research-adopted",
+    )
+    repository.add_evidence(
+        EvidencePacket(
+            evidence_id="ev-research-gate",
+            task_id="task-1",
+            action=ActionCode.A06_GATE,
+            status="ACCEPT",
+            observations=(),
+            metrics={},
+            gates={
+                "status": "ACCEPT",
+                "adoption_status": "ADOPT",
+                "research_qualification": "QUALIFIED",
+                "qualification_status": "NOT_EVALUATED",
+                "candidate_scheme_id": "scheme-research-adopted",
+            },
+            new_information_hash="research-gate-hash",
+        )
+    )
+    handler = ResolveHandler(repository)
+    decision = AgentDecision(
+        action=ActionCode.A07_RESOLVE,
+        hypothesis=ProblemHypothesis.MODEL,
+        rationale_summary="Apply the research adoption transaction.",
+    )
+
+    packet = handler.execute("task-1", decision)
+
+    assert packet.status == "ACCEPT"
+    assert packet.gates["research_qualification"] == "QUALIFIED"
+    assert packet.gates["qualification_status"] == "NOT_EVALUATED"
+    assert packet.gates["candidate_adopted"] == "true"
+    assert repository.get_task_state("task-1").current_scheme_id == "scheme-research-adopted"
