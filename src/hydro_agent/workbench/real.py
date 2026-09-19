@@ -216,7 +216,7 @@ class RealWorkbenchKernel:
                 self.repository,
                 gate_evaluator=self.gate,
                 policy=self.gate_policy,
-                bundle_provider=self.validation_gate.bundles,
+                bundle_provider=self.validation_gate.bundles_with_events,
                 gbt_config_provider=lambda _task_id: self.skills.gbt_accuracy_config(),
             ),
         )
