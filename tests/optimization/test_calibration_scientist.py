@@ -6,6 +6,7 @@ from hydro_agent.optimization.calibration_scientist import (
     reflect_on_gate,
     review_experiment,
 )
+from hydro_agent.optimization.contracts import DirectionalProbeResult
 
 
 def test_diagnosis_becomes_group_level_dds_plan():
@@ -238,3 +239,38 @@ def test_no_matching_process_signature_keeps_direction_unknown():
 
     assert hypothesis.direction == "unknown"
     assert hypothesis.direction_evidence_ids == ()
+
+
+
+def test_refuted_direction_forces_rediagnosis_instead_of_optimizer_search():
+    hypothesis = DiagnosisHypothesis(
+        hypothesis_id="routing-too-slow",
+        confidence=0.8,
+        phenomenon="峰现持续偏晚",
+        process_layer="routing",
+        parameter_groups=("routing",),
+        direction="accelerate_routing",
+        direction_confidence=0.75,
+        direction_evidence_ids=("event-001", "event-002"),
+        verification_required=True,
+    )
+    plan = plan_from_hypothesis(
+        hypothesis,
+        {
+            "model_id": "xaj",
+            "recommended_strategy_id": "xaj-local-refine-v1",
+            "recommended_param_groups": ["routing"],
+            "recommended_objective": "nse",
+        },
+        direction_verification=DirectionalProbeResult(
+            requested_direction="accelerate_routing",
+            status="refuted",
+            parameter_effects=(),
+            contradictory_parameters=("L",),
+            evidence_ids=("event-001", "event-002"),
+        ),
+    )
+
+    assert plan.next_step == "re-diagnose"
+    assert plan.direction_verification_status == "refuted"
+    assert plan.direction_evidence_ids == ("event-001", "event-002")
