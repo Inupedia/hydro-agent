@@ -29,5 +29,5 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
-      - run: npm test -- --run src/__tests__/ModelPreparation.test.ts
+      - run: npm test -- --run src/__tests__/SpatialHeterogeneityPanel.test.ts src/__tests__/ModelPreparation.test.ts
       - run: npm run build
