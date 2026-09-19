@@ -1,8 +1,8 @@
 from datetime import date, timedelta
 
+from hydro_agent.agent.hydrologic_evidence import HydrologicEvidence
 from hydro_agent.evaluation.diagnosis_packet import build_diagnosis_packet
 from hydro_agent.evaluation.evidence import HydrologicEvidenceBuilder
-from hydro_agent.agent.hydrologic_evidence import HydrologicEvidence
 from hydro_agent.optimization.calibration_scientist import interpret_evidence
 
 
