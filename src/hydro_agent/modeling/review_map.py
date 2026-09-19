@@ -156,12 +156,19 @@ def write_units_geojson(
 
 
 
-def build_unit_candidate_review_payload(candidates) -> list[dict[str, Any]]:
+def build_unit_candidate_review_payload(
+    candidates,
+    *,
+    topology_geometry_source: str = "units.geojson",
+) -> list[dict[str, Any]]:
     """Describe candidate layers by reference to existing reviewed geometry.
 
     This payload is metadata only. It intentionally contains no geometry and never
     mutates the source boundary/unit files.
     """
+
+    if not topology_geometry_source or topology_geometry_source.startswith(("/", "..")):
+        raise ValueError("invalid topology geometry source")
 
     payload: list[dict[str, Any]] = []
     for candidate in candidates:
@@ -173,7 +180,9 @@ def build_unit_candidate_review_payload(candidates) -> list[dict[str, Any]]:
         kind = str(raw.get("kind") or "")
         if kind not in {"lumped", "topology_subbasin", "heterogeneity_aware"}:
             raise ValueError(f"unsupported unit candidate kind: {kind}")
-        geometry_source = "boundary.geojson" if kind == "lumped" else "units.geojson"
+        geometry_source = (
+            "boundary.geojson" if kind == "lumped" else topology_geometry_source
+        )
         payload.append(
             {
                 "candidate_id": str(raw.get("candidate_id") or ""),
