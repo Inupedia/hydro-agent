@@ -392,7 +392,11 @@ def test_refuted_direction_does_not_register_candidate(repository, optimize_deci
 
 
 def test_gate_handler_forwards_development_event_comparison(repository):
-    from hydro_agent.optimization.contracts import EvaluationBundle, LeadMetrics
+    from hydro_agent.optimization.contracts import (
+        EvaluationBundle,
+        GatePolicy,
+        LeadMetrics,
+    )
 
     def bundle(scheme_id, score):
         return EvaluationBundle(
@@ -432,7 +436,11 @@ def test_gate_handler_forwards_development_event_comparison(repository):
     handler = GateHandler(
         repository,
         gate_evaluator=gate,
-        policy=object(),
+        policy=GatePolicy(
+            min_primary_delta=0.01,
+            max_single_lead_drop=0.02,
+            max_high_flow_mae_relative_increase=0.05,
+        ),
         bundle_provider=lambda _task_id: (
             bundle("scheme-base", 0.3),
             bundle("scheme-candidate", 0.6),
