@@ -5,7 +5,7 @@ on:
       - 'feat/p1-diagnosis-driven-calibration'
 
 jobs:
-  focused:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,4 +14,37 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install uv
       - run: uv sync --extra data --extra dev --extra api --extra xaj
-      - run: uv run pytest tests/optimization/test_calibration_scientist.py tests/agent/test_calibration_scientist_provider.py tests/optimization/test_directional_probe.py tests/optimization/test_morris.py tests/agent/test_tools.py tests/models/xaj/test_calibrate_runtime.py tests/optimization/test_candidates.py tests/optimization/test_gate.py tests/evaluation/test_standard_profile.py tests/evaluation/test_gbt22482.py tests/experience/test_reflection.py tests/experience/test_lifecycle.py tests/workbench/test_validation_binding.py -v
+      - run: uv run ruff check src tests
+
+  p1-acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install uv
+      - run: uv sync --extra data --extra dev --extra api --extra xaj
+      - run: uv run pytest tests/optimization tests/evaluation tests/agent tests/experience -v
+
+  workbench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install uv
+      - run: uv sync --extra data --extra dev --extra api --extra xaj
+      - run: uv run pytest tests/workbench -v
+
+  full-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install uv
+      - run: uv sync --extra data --extra dev --extra api --extra xaj
+      - run: uv run pytest -q
