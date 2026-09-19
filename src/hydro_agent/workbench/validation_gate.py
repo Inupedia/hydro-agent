@@ -322,6 +322,10 @@ class RealValidationGate:
             )
 
     def bundles(self, task_id: str):
+        base, candidate, hydro, _event_comparison = self.bundles_with_events(task_id)
+        return base, candidate, hydro
+
+    def bundles_with_events(self, task_id: str):
         base_scheme_id, primary_candidate_id = resolve_gate_scheme_ids(
             self.repository, task_id
         )
