@@ -9,6 +9,7 @@ from typing import Literal
 import numpy as np
 
 from hydro_agent.evaluation.metrics import nse as nse_metric
+from hydro_agent.evaluation.standard_profile import StandardEvaluationResult
 
 BasinClass = Literal["gt3000", "mid", "plain"]
 SchemeGrade = Literal["甲", "乙", "丙", "不合格"]
@@ -578,3 +579,16 @@ def _optional_float(raw: str | None) -> float | None:
         return float(raw)
     except ValueError:
         return None
+
+
+
+def to_standard_evaluation(report: GbtAccuracyReport) -> StandardEvaluationResult:
+    """Expose GB/T as an independent standard profile, not a research adoption gate."""
+
+    return StandardEvaluationResult(
+        profile_id="operational_gbt",
+        standard_id="GB/T 22482",
+        status="evaluated",
+        grade=report.scheme_grade,
+        summary=report.summary,
+    )
