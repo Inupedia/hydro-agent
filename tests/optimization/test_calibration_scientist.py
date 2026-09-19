@@ -3,6 +3,7 @@ from hydro_agent.optimization.calibration_scientist import (
     form_diagnosis_hypothesis,
     interpret_evidence,
     plan_from_diagnosis,
+    plan_from_hypothesis,
     reflect_on_gate,
     review_experiment,
 )
