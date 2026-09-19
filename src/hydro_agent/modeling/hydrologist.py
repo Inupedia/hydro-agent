@@ -63,18 +63,17 @@ def recommend_unit_scheme(
 
     unknown = _unknown_spatial_dimensions(dict(spatial_profile or {}))
     if proposed is not None:
-        forbidden = {
-            "geometry",
-            "polygon",
-            "coordinates",
-            "unit_ids",
-            "area_distribution_km2",
+        allowed_fields = {
+            "candidate_id",
+            "confidence",
+            "rationale",
+            "evidence_refs",
+            "uncertainties",
         }
-        injected = sorted(forbidden & set(proposed))
-        if injected:
+        unsupported = sorted(set(proposed) - allowed_fields)
+        if unsupported:
             raise ValueError(
-                "geometry/unit construction is forbidden in Agent recommendation: "
-                + ", ".join(injected)
+                "unsupported Agent recommendation fields: " + ", ".join(unsupported)
             )
 
         candidate_id = str(proposed.get("candidate_id") or "")
