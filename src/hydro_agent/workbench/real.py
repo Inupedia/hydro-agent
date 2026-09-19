@@ -436,6 +436,8 @@ class _TaskAwareOptimizeHandler:
             strategy_id=strategy_id,
             param_groups=param_groups,  # type: ignore[arg-type]
             objective=objective,  # type: ignore[arg-type]
+            calibration_hypothesis_id=decision.calibration_hypothesis_id,
+            diagnostic_signature=decision.diagnostic_signature,
             adjustment_direction=decision.adjustment_direction,
             direction_evidence_ids=decision.direction_evidence_ids,
             direction_verification_required=decision.direction_verification_required,
