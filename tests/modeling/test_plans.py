@@ -342,7 +342,7 @@ def test_spatial_profile_uses_available_station_precipitation_without_guessing_o
             writer.writerow(["时间", "站A", "站B", "蒸发", "流量"])
             writer.writerows(rows)
 
-    plan_id = "plan-precip123456"
+    plan_id = "plan-acdeff123456"
     root = plans.directory(plan_id)
     gis = root / "case" / "gis"
     gis.mkdir(parents=True)
