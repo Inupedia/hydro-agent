@@ -40,6 +40,8 @@ class AgentDecision(FrozenModel):
     # Optional optimize controls — agent selects groups/objective, never raw vectors.
     param_groups: tuple[str, ...] | None = None
     objective: Literal["nse", "peak", "composite"] | None = None
+    calibration_hypothesis_id: str | None = None
+    diagnostic_signature: tuple[str, ...] = ()
     adjustment_direction: str | None = None
     direction_evidence_ids: tuple[str, ...] = ()
     direction_verification_required: bool = False
