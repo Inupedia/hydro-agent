@@ -4,6 +4,7 @@ import { api, type BasinInfo, type ModelPlan } from '../api/client'
 import GlassSelect from './GlassSelect.vue'
 import GlassDialog from './GlassDialog.vue'
 import RenameDialog from './RenameDialog.vue'
+import SpatialHeterogeneityPanel from './SpatialHeterogeneityPanel.vue'
 import { BorderBeam, NumberTicker, RippleButton } from './ui'
 
 const props = defineProps<{
@@ -50,86 +51,6 @@ function planLabel(plan: ModelPlan) {
   const title = plan.name?.trim()
   return title || plan.plan_id
 }
-
-function formatSpatialNumber(value: number | null | undefined, unit = '') {
-  if (value === null || value === undefined || !Number.isFinite(Number(value))) return '未知'
-  const numeric = Number(value)
-  const digits = Math.abs(numeric) >= 100 ? 0 : Math.abs(numeric) >= 10 ? 1 : 2
-  return `${numeric.toFixed(digits)}${unit}`
-}
-
-function candidateKindLabel(kind: string) {
-  if (kind === 'lumped') return '集总方案'
-  if (kind === 'topology_subbasin') return '拓扑子流域'
-  if (kind === 'heterogeneity_aware') return '异质性保留'
-  return kind
-}
-
-const spatialEvidenceRows = computed(() => {
-  const profile = current.value?.spatial_profile
-  if (!profile) return []
-  const numeric = (
-    key: 'elevation' | 'slope' | 'precipitation',
-    label: string,
-    unit: string,
-  ) => {
-    const item = profile[key]
-    return {
-      key,
-      label,
-      status: item.status,
-      summary:
-        item.status === 'available'
-          ? `均值 ${formatSpatialNumber(item.mean, unit)} · 标准差 ${formatSpatialNumber(item.std, unit)}`
-          : '未知',
-    }
-  }
-  const categorical = (
-    key: 'land_cover' | 'soil',
-    label: string,
-  ) => {
-    const item = profile[key]
-    const entries = Object.entries(item.fractions || {})
-      .sort((left, right) => right[1] - left[1])
-      .slice(0, 3)
-    return {
-      key,
-      label,
-      status: item.status,
-      summary:
-        item.status === 'available' && entries.length
-          ? entries.map(([name, fraction]) => `${name} ${Math.round(fraction * 100)}%`).join(' · ')
-          : '未知',
-    }
-  }
-  const drainage = profile.drainage
-  return [
-    numeric('elevation', '高程', ' m'),
-    numeric('slope', '坡度', '°'),
-    numeric('precipitation', '降雨', ' mm'),
-    categorical('land_cover', '土地利用'),
-    categorical('soil', '土壤'),
-    {
-      key: 'drainage',
-      label: '河网',
-      status: drainage.status,
-      summary:
-        drainage.status === 'available'
-          ? `河网密度 ${formatSpatialNumber(drainage.stream_density_km_per_km2, ' km/km²')}`
-          : '未知',
-    },
-  ]
-})
-
-const recommendedCandidate = computed(() => {
-  const recommendation = current.value?.unit_recommendation
-  if (!recommendation) return null
-  return (
-    current.value?.unit_candidates?.find(
-      (candidate) => candidate.candidate_id === recommendation.candidate_id,
-    ) || null
-  )
-})
 
 const canBuild = computed(() => !!basin.value?.ready_for_build)
 const materials = computed(() => basin.value?.materials || { hydro: false, dem: false, gis: false })
@@ -658,77 +579,13 @@ onUnmounted(() => {
                 <p v-if="current.boundary.note" class="basin-caption">{{ String(current.boundary.note) }}</p>
               </div>
 
-              <section
+              <SpatialHeterogeneityPanel
                 v-if="current?.spatial_profile || current?.unit_candidates?.length || current?.unit_recommendation"
-                class="spatial-review-panel"
-                data-test="spatial-review-panel"
-              >
-                <div class="spatial-review-section">
-                  <div class="spatial-review-heading">
-                    <strong>空间异质性证据</strong>
-                    <span>{{ current.spatial_profile_status === 'available' ? '资料齐全' : current.spatial_profile_status === 'partial' ? '部分资料' : '资料未知' }}</span>
-                  </div>
-                  <div v-if="spatialEvidenceRows.length" class="spatial-evidence-grid">
-                    <article
-                      v-for="item in spatialEvidenceRows"
-                      :key="item.key"
-                      class="spatial-evidence-item"
-                      :data-status="item.status"
-                    >
-                      <span>{{ item.label }}</span>
-                      <b>{{ item.status === 'available' ? '已获得' : '未知' }}</b>
-                      <small>{{ item.summary }}</small>
-                    </article>
-                  </div>
-                </div>
-
-                <div v-if="current.unit_candidates?.length" class="spatial-review-section">
-                  <div class="spatial-review-heading">
-                    <strong>候选方案</strong>
-                    <span>仅复用确定性 GIS 边界</span>
-                  </div>
-                  <div class="unit-candidate-list">
-                    <article
-                      v-for="candidate in current.unit_candidates"
-                      :key="candidate.candidate_id"
-                      class="unit-candidate-card"
-                      :data-recommended="candidate.candidate_id === current.unit_recommendation?.candidate_id || undefined"
-                    >
-                      <div>
-                        <b>{{ candidateKindLabel(candidate.kind) }}</b>
-                        <span>{{ candidate.unit_count }} 个单元</span>
-                      </div>
-                      <small v-if="candidate.preserved_contrasts?.length">
-                        保留：{{ candidate.preserved_contrasts.join(' / ') }}
-                      </small>
-                      <small v-if="candidate.lost_contrasts?.length">
-                        损失：{{ candidate.lost_contrasts.join(' / ') }}
-                      </small>
-                      <small>证据：{{ candidate.evidence_refs.join(' / ') }}</small>
-                    </article>
-                  </div>
-                </div>
-
-                <div v-if="current.unit_recommendation" class="spatial-review-section agent-unit-recommendation">
-                  <div class="spatial-review-heading">
-                    <strong>Agent 推荐</strong>
-                    <span>
-                      {{ current.unit_recommendation.source === 'agent' ? 'Agent 选择' : '确定性回退' }}
-                      · 置信度 {{ Math.round(current.unit_recommendation.confidence * 100) }}%
-                    </span>
-                  </div>
-                  <p>{{ current.unit_recommendation.rationale }}</p>
-                  <p v-if="recommendedCandidate" class="basin-caption">
-                    推荐候选：{{ candidateKindLabel(recommendedCandidate.kind) }} · {{ recommendedCandidate.unit_count }} 个单元
-                  </p>
-                  <p class="basin-caption">
-                    evidence_refs：{{ current.unit_recommendation.evidence_refs.join(' / ') || '无' }}
-                  </p>
-                  <p class="basin-caption">
-                    uncertainties：{{ current.unit_recommendation.uncertainties.join(' / ') || '无' }}
-                  </p>
-                </div>
-              </section>
+                :profile="current.spatial_profile"
+                :profile-status="current.spatial_profile_status"
+                :candidates="current.unit_candidates || []"
+                :recommendation="current.unit_recommendation"
+              />
 
               <label v-if="current.status === 'awaiting_review'" class="review-check">
                 <input v-model="reviewed" type="checkbox" data-test="review-check" />我已确认出口位置、面积与单元划分
@@ -1184,94 +1041,6 @@ onUnmounted(() => {
   margin: 12px 0;
   color: var(--text-primary);
 }
-.spatial-review-panel {
-  display: grid;
-  gap: 14px;
-  padding: 14px;
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--surface) 94%, var(--background));
-}
-.spatial-review-section {
-  display: grid;
-  gap: 10px;
-}
-.spatial-review-section + .spatial-review-section {
-  padding-top: 12px;
-  border-top: 1px solid var(--separator);
-}
-.spatial-review-heading {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: baseline;
-}
-.spatial-review-heading strong {
-  color: var(--text-primary);
-  font-size: 14px;
-}
-.spatial-review-heading span {
-  color: var(--text-tertiary);
-  font-size: 12px;
-}
-.spatial-evidence-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-.spatial-evidence-item,
-.unit-candidate-card {
-  min-width: 0;
-  padding: 10px 11px;
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-}
-.spatial-evidence-item {
-  display: grid;
-  gap: 3px;
-}
-.spatial-evidence-item > span,
-.unit-candidate-card span {
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-.spatial-evidence-item > b {
-  color: var(--success);
-  font-size: 12px;
-}
-.spatial-evidence-item[data-status='unknown'] > b {
-  color: var(--text-tertiary);
-}
-.spatial-evidence-item small,
-.unit-candidate-card small {
-  color: var(--text-secondary);
-  font-size: 11px;
-  overflow-wrap: anywhere;
-}
-.unit-candidate-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 8px;
-}
-.unit-candidate-card {
-  display: grid;
-  gap: 6px;
-}
-.unit-candidate-card[data-recommended='true'] {
-  border-color: color-mix(in srgb, var(--accent) 42%, var(--separator));
-  background: var(--accent-soft);
-}
-.unit-candidate-card > div {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-}
-.agent-unit-recommendation > p {
-  color: var(--text-primary);
-  font-size: 13px;
-  line-height: 1.55;
-}
 .model-error {
   color: var(--danger) !important;
   white-space: pre-wrap;
@@ -1279,9 +1048,6 @@ onUnmounted(() => {
 }
 .model-ready { color: var(--success) !important; }
 @media (max-width: 720px) {
-  .spatial-evidence-grid {
-    grid-template-columns: 1fr 1fr;
-  }
   .reuse-row {
     grid-template-columns: 1fr;
     align-items: stretch;
