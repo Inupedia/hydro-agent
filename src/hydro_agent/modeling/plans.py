@@ -415,6 +415,7 @@ class ModelPlanService:
         from pyproj import Geod
 
         from hydro_agent.hydrology.spatial_profile import derive_basin_spatial_profile
+        from hydro_agent.modeling.hydrologist import recommend_unit_scheme
         from hydro_agent.modeling.review_map import build_unit_candidate_review_payload
         from hydro_agent.modeling.unit_candidates import build_unit_scheme_candidates
 
@@ -536,6 +537,12 @@ class ModelPlanService:
         profile_payload = profile.model_dump(mode='json')
         candidate_payload = [item.model_dump(mode='json') for item in candidates]
         layer_payload = build_unit_candidate_review_payload(candidate_payload)
+        recommendation = recommend_unit_scheme(
+            candidates=candidate_payload,
+            spatial_profile=profile_payload,
+            proposed=None,
+        )
+        recommendation_payload = recommendation.model_dump(mode='json')
         statuses = (
             profile.elevation.status,
             profile.slope.status,
@@ -554,12 +561,14 @@ class ModelPlanService:
         write_json(root / 'spatial-profile.json', profile_payload)
         write_json(root / 'unit-candidates.json', {'items': candidate_payload})
         write_json(root / 'unit-candidate-layers.json', {'items': layer_payload})
+        write_json(root / 'unit-recommendation.json', recommendation_payload)
         return self._update(
             plan_id,
             spatial_profile_status=spatial_status,
             spatial_profile=profile_payload,
             unit_candidates=candidate_payload,
             unit_candidate_layers=layer_payload,
+            unit_recommendation=recommendation_payload,
         )
 
     def _verify_files(self, plan_id, files):
