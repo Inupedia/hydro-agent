@@ -8,12 +8,137 @@ import sys
 import threading
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from hydro_agent.agent.contracts import ActionCode, EvidencePacket, ProblemHypothesis
 from hydro_agent.agent.tools import information_hash
+from hydro_agent.execution.contracts import FrozenModel
 from hydro_agent.execution.hashing import sha256_bytes
 from hydro_agent.optimization.candidates import CandidateSchemeService
+
+
+
+class UnitSchemeRecommendation(FrozenModel):
+    candidate_id: str
+    confidence: float
+    rationale: str
+    evidence_refs: tuple[str, ...] = ()
+    uncertainties: tuple[str, ...] = ()
+    source: Literal["agent", "deterministic_fallback"]
+
+
+def _candidate_payload(candidate: object) -> dict[str, Any]:
+    if hasattr(candidate, "model_dump"):
+        return dict(candidate.model_dump(mode="json"))
+    if isinstance(candidate, dict):
+        return dict(candidate)
+    raise ValueError("unit candidate must be a mapping/model")
+
+
+def _unknown_spatial_dimensions(spatial_profile: dict[str, Any]) -> tuple[str, ...]:
+    dimensions = ("elevation", "slope", "precipitation", "land_cover", "soil", "drainage")
+    unknown = []
+    for name in dimensions:
+        raw = spatial_profile.get(name)
+        status = raw.get("status") if isinstance(raw, dict) else None
+        if status != "available":
+            unknown.append(name)
+    return tuple(unknown)
+
+
+def recommend_unit_scheme(
+    *,
+    candidates,
+    spatial_profile: dict[str, Any],
+    proposed: dict[str, Any] | None = None,
+) -> UnitSchemeRecommendation:
+    """Validate an Agent choice or return a conservative deterministic fallback."""
+
+    rows = tuple(_candidate_payload(item) for item in candidates)
+    if not rows:
+        raise ValueError("unit recommendation requires at least one candidate")
+    by_id = {str(row.get("candidate_id") or ""): row for row in rows}
+    if "" in by_id or len(by_id) != len(rows):
+        raise ValueError("unit candidates require unique candidate_id values")
+
+    unknown = _unknown_spatial_dimensions(dict(spatial_profile or {}))
+    if proposed is not None:
+        forbidden = {
+            "geometry",
+            "polygon",
+            "coordinates",
+            "unit_ids",
+            "area_distribution_km2",
+        }
+        injected = sorted(forbidden & set(proposed))
+        if injected:
+            raise ValueError(
+                "geometry/unit construction is forbidden in Agent recommendation: "
+                + ", ".join(injected)
+            )
+
+        candidate_id = str(proposed.get("candidate_id") or "")
+        selected = by_id.get(candidate_id)
+        if selected is None:
+            raise ValueError(f"unknown candidate_id: {candidate_id}")
+
+        raw_refs = proposed.get("evidence_refs") or ()
+        if not isinstance(raw_refs, (list, tuple)):
+            raise ValueError("evidence_refs must be a list/tuple")
+        evidence_refs = tuple(dict.fromkeys(str(item) for item in raw_refs if str(item)))
+        allowed_refs = {str(item) for item in selected.get("evidence_refs") or ()}
+        invented = tuple(ref for ref in evidence_refs if ref not in allowed_refs)
+        if invented:
+            raise ValueError("unknown evidence refs: " + ", ".join(invented))
+
+        confidence = float(proposed.get("confidence", 0.5))
+        if not 0.0 <= confidence <= 1.0:
+            raise ValueError("recommendation confidence must be in [0,1]")
+        rationale = str(proposed.get("rationale") or "").strip()
+        if not rationale:
+            raise ValueError("recommendation rationale is required")
+        proposed_uncertainties = proposed.get("uncertainties") or ()
+        if not isinstance(proposed_uncertainties, (list, tuple)):
+            raise ValueError("uncertainties must be a list/tuple")
+        uncertainties = tuple(
+            dict.fromkeys(
+                (
+                    *(str(item) for item in proposed_uncertainties if str(item)),
+                    *unknown,
+                )
+            )
+        )
+        return UnitSchemeRecommendation(
+            candidate_id=candidate_id,
+            confidence=confidence,
+            rationale=rationale,
+            evidence_refs=evidence_refs,
+            uncertainties=uncertainties,
+            source="agent",
+        )
+
+    topology = next(
+        (row for row in rows if row.get("kind") == "topology_subbasin"),
+        None,
+    )
+    selected = topology or next(
+        (row for row in rows if row.get("kind") == "lumped"),
+        rows[0],
+    )
+    candidate_id = str(selected["candidate_id"])
+    kind = str(selected.get("kind") or "")
+    return UnitSchemeRecommendation(
+        candidate_id=candidate_id,
+        confidence=0.45 if kind == "topology_subbasin" else 0.35,
+        rationale=(
+            "未获得可验证的 Agent 候选选择；保守复用已有确定性拓扑单元。"
+            if kind == "topology_subbasin"
+            else "未获得可验证的 Agent 候选选择；回退为全流域单元。"
+        ),
+        evidence_refs=tuple(str(item) for item in selected.get("evidence_refs") or ()),
+        uncertainties=unknown,
+        source="deterministic_fallback",
+    )
 
 VENDOR = Path(__file__).resolve().parents[1] / "models" / "xaj" / "vendor"
 
