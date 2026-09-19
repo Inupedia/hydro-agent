@@ -189,4 +189,92 @@ describe('ModelPreparation', () => {
     expect(api.confirmBoundary).toHaveBeenCalledWith('plan-review', 'hash-1')
     wrapper.unmount()
   })
+
+  it('shows spatial evidence, candidate schemes, and Agent recommendation during review', async () => {
+    const review = {
+      plan_id: 'plan-spatial-review',
+      basin_id: 'yaogu',
+      model_mode: 'distributed',
+      status: 'awaiting_review',
+      boundary_hash: 'hash-spatial',
+      boundary: { dem_area_km2: 120.0 },
+      unit_count: 3,
+      spatial_profile_status: 'partial',
+      spatial_profile: {
+        elevation: { status: 'available', mean: 420, std: 180, cv: 0.43 },
+        slope: { status: 'available', mean: 12.5, std: 6.2, cv: 0.50 },
+        precipitation: { status: 'unknown' },
+        land_cover: { status: 'unknown', fractions: {} },
+        soil: { status: 'unknown', fractions: {} },
+        drainage: {
+          status: 'available',
+          area_km2: 120,
+          stream_density_km_per_km2: 0.6,
+        },
+        evidence_quality: [],
+      },
+      unit_candidates: [
+        {
+          candidate_id: 'units-lumped',
+          kind: 'lumped',
+          unit_ids: ['basin'],
+          unit_count: 1,
+          area_distribution_km2: [120],
+          evidence_refs: ['drainage.area_km2'],
+          preserved_contrasts: [],
+          lost_contrasts: ['elevation'],
+          complexity_notes: ['single full-basin unit'],
+        },
+        {
+          candidate_id: 'units-heterogeneity',
+          kind: 'heterogeneity_aware',
+          unit_ids: ['1', '2', '3'],
+          unit_count: 3,
+          area_distribution_km2: [30, 40, 50],
+          evidence_refs: ['elevation.std', 'topology.unit_ids'],
+          preserved_contrasts: ['elevation'],
+          lost_contrasts: [],
+          complexity_notes: ['reuse existing topology polygons'],
+        },
+      ],
+      unit_recommendation: {
+        candidate_id: 'units-heterogeneity',
+        confidence: 0.78,
+        rationale: '高程差异明显，建议保留现有拓扑单元。',
+        evidence_refs: ['elevation.std', 'topology.unit_ids'],
+        uncertainties: ['precipitation', 'land_cover', 'soil'],
+        source: 'agent',
+      },
+      stages: [
+        {
+          code: 'M03_REVIEW_BOUNDARY',
+          label: '复核出口与流域边界',
+          status: 'awaiting_review',
+          detail: '请确认',
+        },
+      ],
+    }
+    vi.mocked(api.listModelPlans).mockResolvedValue([review] as never)
+    vi.mocked(api.getModelPlan).mockResolvedValue(review as never)
+
+    const wrapper = mount(ModelPreparation, {
+      props: { basinId: 'yaogu', selectedId: review.plan_id },
+    })
+    await flushPromises()
+
+    const dialog = portal('build-plan-dialog')
+    const panel = dialog?.querySelector('[data-test="spatial-review-panel"]')
+    expect(panel).not.toBeNull()
+    expect(panel?.textContent).toContain('空间异质性证据')
+    expect(panel?.textContent).toContain('降雨')
+    expect(panel?.textContent).toContain('未知')
+    expect(panel?.textContent).toContain('候选方案')
+    expect(panel?.textContent).toContain('异质性保留')
+    expect(panel?.textContent).toContain('Agent 推荐')
+    expect(panel?.textContent).toContain('高程差异明显')
+    expect(panel?.textContent).toContain('precipitation')
+    expect(panel?.textContent).not.toContain('综合异质性评分')
+    wrapper.unmount()
+  })
+
 })
