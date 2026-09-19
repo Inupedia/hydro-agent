@@ -179,3 +179,134 @@ def test_write_json_survives_concurrent_replace(tmp_path):
     assert 'i' in payload
     leftovers = list(tmp_path.glob('.catalog.json.*.tmp'))
     assert leftovers == []
+
+
+
+def test_model_plan_persists_spatial_profile_and_unit_candidates_before_review(plans):
+    import csv
+    import json
+
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+
+    plan_id = "plan-abcdef123456"
+    root = plans.directory(plan_id)
+    gis = root / "case" / "gis"
+    gis.mkdir(parents=True)
+    write_json(
+        root / "plan.json",
+        {
+            "plan_id": plan_id,
+            "basin_id": "yaogu",
+            "status": "running",
+            "config": {"unit_count": 4},
+            "stages": [],
+        },
+    )
+
+    transform = from_origin(0.0, 4000.0, 1000.0, 1000.0)
+    dem = np.asarray(
+        [
+            [100.0, 150.0, 300.0, 500.0],
+            [120.0, 180.0, 350.0, 550.0],
+            [140.0, 220.0, 420.0, 700.0],
+            [160.0, 260.0, 480.0, 900.0],
+        ],
+        dtype="float32",
+    )
+    catchment = np.ones((4, 4), dtype="uint8")
+    for name, data, dtype, nodata in (
+        ("dem_projected.tif", dem, "float32", None),
+        ("catchment.tif", catchment, "uint8", 0),
+    ):
+        with rasterio.open(
+            gis / name,
+            "w",
+            driver="GTiff",
+            width=4,
+            height=4,
+            count=1,
+            dtype=dtype,
+            crs="EPSG:3857",
+            transform=transform,
+            nodata=nodata,
+        ) as dst:
+            dst.write(data, 1)
+
+    with (gis / "units.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["unit_id", "area_km2", "mean_elevation_m"],
+        )
+        writer.writeheader()
+        writer.writerows(
+            [
+                {"unit_id": 1, "area_km2": 5.0, "mean_elevation_m": 160.0},
+                {"unit_id": 2, "area_km2": 5.0, "mean_elevation_m": 360.0},
+                {"unit_id": 3, "area_km2": 6.0, "mean_elevation_m": 620.0},
+            ]
+        )
+    write_json(
+        gis / "unit_topology.json",
+        [
+            {"unit_id": 1, "downstream_unit_id": 3},
+            {"unit_id": 2, "downstream_unit_id": 3},
+            {"unit_id": 3, "downstream_unit_id": 0},
+        ],
+    )
+    write_json(
+        gis / "streams.geojson",
+        {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {},
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": [[111.0, 22.0], [111.05, 22.05], [111.1, 22.1]],
+                    },
+                }
+            ],
+        },
+    )
+
+    result = plans._persist_spatial_evidence(plan_id, max_units=8)
+
+    assert (root / "spatial-profile.json").is_file()
+    assert (root / "unit-candidates.json").is_file()
+    assert (root / "unit-candidate-layers.json").is_file()
+    saved = plans.get(plan_id)
+    assert saved["unit_candidates"]
+    assert saved["spatial_profile_status"] == "partial"
+    assert saved["spatial_profile"]["elevation"]["status"] == "available"
+    assert saved["spatial_profile"]["precipitation"]["status"] == "unknown"
+    assert saved["spatial_profile"]["land_cover"]["status"] == "unknown"
+    assert saved["spatial_profile"]["soil"]["status"] == "unknown"
+    assert result["spatial_profile_status"] == "partial"
+    artifact = json.loads((root / "unit-candidates.json").read_text(encoding="utf-8"))
+    assert artifact["items"] == saved["unit_candidates"]
+
+
+def test_spatial_evidence_artifacts_do_not_enter_boundary_review_hash(plans):
+    plan_id = "plan-fedcba654321"
+    root = plans.directory(plan_id)
+    root.mkdir()
+    write_json(
+        root / "plan.json",
+        {
+            "plan_id": plan_id,
+            "basin_id": "yaogu",
+            "status": "running",
+            "config": {},
+            "stages": [],
+        },
+    )
+    (root / "spatial-profile.json").write_text("{}\n", encoding="utf-8")
+    (root / "unit-candidates.json").write_text('{"items": []}\n', encoding="utf-8")
+
+    review = plans._boundary_review_manifest(plan_id)
+
+    assert "spatial-profile.json" not in review
+    assert "unit-candidates.json" not in review
