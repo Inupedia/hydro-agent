@@ -677,6 +677,7 @@ class OptimizeHandler:
                 "resumed_from_workspace": resumed_from_workspace,
                 "param_groups": list(outcome.param_groups),
                 "search_boundary_evidence": boundary,
+                "behavioral_candidates": payload.get("behavioral_candidates"),
             },
         )
         observations = (
