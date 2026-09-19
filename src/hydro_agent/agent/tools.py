@@ -948,12 +948,16 @@ class ResolveHandler:
         )
         gate_status = "KEEP"
         adoption_status = "KEEP"
+        research_qualification = "NOT_EVALUATED"
         qualification_status = "NOT_EVALUATED"
         candidate_id = ""
         candidate_adopted = False
         if gate is not None:
             gate_status = str(gate.gates_json.get("status", gate.status))
             adoption_status = str(gate.gates_json.get("adoption_status") or "KEEP")
+            research_qualification = str(
+                gate.gates_json.get("research_qualification") or "NOT_EVALUATED"
+            )
             qualification_status = str(
                 gate.gates_json.get("qualification_status") or "NOT_EVALUATED"
             )
@@ -969,7 +973,7 @@ class ResolveHandler:
 
         # A07 records the Gate transaction only. Qualification can produce ACCEPT,
         # but A08 research closeout is separately governed by Campaign stop state.
-        if candidate_adopted and qualification_status == "QUALIFIED":
+        if candidate_adopted and research_qualification == "QUALIFIED":
             resolve_status = "ACCEPT"
         elif gate_status == "ROLLBACK":
             resolve_status = "ROLLBACK"
@@ -980,6 +984,7 @@ class ResolveHandler:
             f"resolve_status={resolve_status}",
             f"gate_status={gate_status}",
             f"adoption_status={adoption_status}",
+            f"research_qualification={research_qualification}",
             f"qualification_status={qualification_status}",
             f"candidate_adopted={'true' if candidate_adopted else 'false'}",
             *((f"current_scheme_id={candidate_id}",) if candidate_adopted else ()),
@@ -989,6 +994,7 @@ class ResolveHandler:
             "status": resolve_status,
             "gate_status": gate_status,
             "adoption_status": adoption_status,
+            "research_qualification": research_qualification,
             "qualification_status": qualification_status,
             "candidate_adopted": "true" if candidate_adopted else "false",
             "candidate_scheme_id": candidate_id,
