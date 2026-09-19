@@ -25,6 +25,10 @@ def _supports(direction: str, baseline: Evaluation, candidate: Evaluation) -> tu
     timing0, timing1 = _num(baseline, "peak_timing_lag_steps"), _num(candidate, "peak_timing_lag_steps")
     volume0, volume1 = _num(baseline, "volume_relative_error"), _num(candidate, "volume_relative_error")
     high0, high1 = _num(baseline, "high_flow_relative_error"), _num(candidate, "high_flow_relative_error")
+    if high0 is None:
+        high0 = _num(baseline, "high_flow_mae")
+    if high1 is None:
+        high1 = _num(candidate, "high_flow_mae")
     peak0, peak1 = _num(baseline, "peak_relative_error"), _num(candidate, "peak_relative_error")
     rise0, rise1 = _num(baseline, "rising_limb_mae"), _num(candidate, "rising_limb_mae")
     rec0, rec1 = _num(baseline, "recession_mae"), _num(candidate, "recession_mae")
