@@ -253,6 +253,12 @@ class CheckDataHandler:
 
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
         task = self.repository.get_task(task_id)
+        hypothesis_id = str(decision.calibration_hypothesis_id or "")
+        signature_json = json.dumps(
+            list(decision.diagnostic_signature), ensure_ascii=False, sort_keys=True
+        )
+        decision_direction = str(decision.adjustment_direction or "unknown")
+        decision_direction_ids = tuple(str(item) for item in decision.direction_evidence_ids)
         state = self.repository.ensure_task_state(task_id)
         schemes = self.repository.list_schemes(task_id)
         snapshots = self.repository.list_snapshots(task_id=task_id)
@@ -573,6 +579,15 @@ class OptimizeHandler:
                 "param_groups": groups_text,
                 "reason": "calibration_execution_failed",
                 "error_code": str(exc.error_code or ""),
+                "calibration_hypothesis_id": hypothesis_id,
+                "diagnostic_signature_json": signature_json,
+                "adjustment_direction": decision_direction,
+                "direction_verification_status": (
+                    "inconclusive" if decision.direction_verification_required else "not_required"
+                ),
+                "direction_evidence_ids_json": json.dumps(
+                    list(decision_direction_ids), ensure_ascii=False, sort_keys=True
+                ),
             }
             return EvidencePacket(
                 evidence_id=_evidence_id(),
@@ -608,7 +623,7 @@ class OptimizeHandler:
         if direction_status in {"refuted", "inconclusive"}:
             evidence_ids = tuple(
                 str(item) for item in payload.get("direction_verification_evidence_ids") or ()
-            )
+            ) or decision_direction_ids
             observations = (
                 f"strategy_id={outcome.strategy_id}",
                 f"direction={decision.adjustment_direction or 'unknown'}",
@@ -626,6 +641,12 @@ class OptimizeHandler:
                 "direction_verification_status": direction_status,
                 "reason": f"direction_{direction_status}",
                 "candidate_scheme_id": "",
+                "calibration_hypothesis_id": hypothesis_id,
+                "diagnostic_signature_json": signature_json,
+                "adjustment_direction": decision_direction,
+                "direction_evidence_ids_json": json.dumps(
+                    list(evidence_ids), ensure_ascii=False, sort_keys=True
+                ),
             }
             return EvidencePacket(
                 evidence_id=_evidence_id(),
@@ -716,6 +737,9 @@ class OptimizeHandler:
                     raw = blob.get(key)
                     if isinstance(raw, (int, float)):
                         metrics[f"{prefix}_{key}"] = float(raw)
+        resolved_direction_ids = tuple(
+            str(item) for item in payload.get("direction_verification_evidence_ids") or ()
+        ) or decision_direction_ids
         gates = {
             "candidate_scheme_id": candidate_id,
             "base_scheme_id": outcome.base_scheme_id,
@@ -734,6 +758,13 @@ class OptimizeHandler:
             "local_boundary_hits": local_hits_text,
             "absolute_boundary_hits": absolute_hits_text,
             "search_boundary_evidence_json": boundary_json,
+            "calibration_hypothesis_id": hypothesis_id,
+            "diagnostic_signature_json": signature_json,
+            "adjustment_direction": decision_direction,
+            "direction_verification_status": direction_status,
+            "direction_evidence_ids_json": json.dumps(
+                list(resolved_direction_ids), ensure_ascii=False, sort_keys=True
+            ),
         }
         return EvidencePacket(
             evidence_id=_evidence_id(),
