@@ -140,6 +140,80 @@ def recommend_unit_scheme(
         source="deterministic_fallback",
     )
 
+
+def propose_unit_scheme_with_llm(
+    *,
+    client,
+    candidates,
+    spatial_profile: dict[str, Any],
+) -> UnitSchemeRecommendation:
+    """Ask the configured Agent to select one registered unit candidate.
+
+    The model sees only structured spatial evidence and registered candidates.
+    Its response is always passed through recommend_unit_scheme validation.
+    """
+
+    rows = tuple(_candidate_payload(item) for item in candidates)
+    if not rows:
+        raise ValueError("unit recommendation requires at least one candidate")
+
+    safe_candidates = [
+        {
+            "candidate_id": str(row.get("candidate_id") or ""),
+            "kind": row.get("kind"),
+            "unit_count": row.get("unit_count"),
+            "unit_ids": list(row.get("unit_ids") or ()),
+            "evidence_refs": list(row.get("evidence_refs") or ()),
+            "preserved_contrasts": list(row.get("preserved_contrasts") or ()),
+            "lost_contrasts": list(row.get("lost_contrasts") or ()),
+            "complexity_notes": list(row.get("complexity_notes") or ()),
+        }
+        for row in rows
+    ]
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "你是水文建模方案智能体。只能从给定 candidate_id 中选择一个计算单元方案；"
+                "不得创建 polygon、坐标、新 unit_id 或修改候选。"
+                "只返回 JSON 对象，字段限于 candidate_id、confidence、rationale、"
+                "evidence_refs、uncertainties。evidence_refs 必须来自所选候选。"
+                "资料为 unknown 时必须在 uncertainties 中说明。"
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(
+                {
+                    "spatial_profile": spatial_profile,
+                    "candidates": safe_candidates,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+        },
+    ]
+    completion = client.complete(messages, max_tokens=900)
+    content = str(completion.content).strip()
+    if content.startswith("```"):
+        lines = content.splitlines()
+        if lines and lines[0].lstrip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        content = "\n".join(lines).strip()
+    try:
+        proposed = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Agent unit recommendation must be valid JSON") from exc
+    if not isinstance(proposed, dict):
+        raise ValueError("Agent unit recommendation must be a JSON object")
+    return recommend_unit_scheme(
+        candidates=rows,
+        spatial_profile=spatial_profile,
+        proposed=proposed,
+    )
+
 VENDOR = Path(__file__).resolve().parents[1] / "models" / "xaj" / "vendor"
 
 # Scheme (product) names ↔ teacher native CSV columns.
