@@ -534,6 +534,9 @@ class OptimizeHandler:
                 policy=self.policy,
                 param_groups=decision.param_groups,
                 objective=decision.objective,
+                adjustment_direction=decision.adjustment_direction,
+                direction_evidence_ids=decision.direction_evidence_ids,
+                direction_verification_required=decision.direction_verification_required,
                 evaluation_budget_override=remaining_budget,
             )
         except CalibrationExecutionFailed as exc:
@@ -601,6 +604,46 @@ class OptimizeHandler:
         }
         groups_text = ",".join(outcome.param_groups)
         payload = dict(outcome.result_payload or {})
+        direction_status = str(payload.get("direction_verification_status") or "not_required")
+        if direction_status in {"refuted", "inconclusive"}:
+            evidence_ids = tuple(
+                str(item) for item in payload.get("direction_verification_evidence_ids") or ()
+            )
+            observations = (
+                f"strategy_id={outcome.strategy_id}",
+                f"direction={decision.adjustment_direction or 'unknown'}",
+                f"direction_verification_status={direction_status}",
+                "optimizer_started=false",
+                "candidate_registered=false",
+                *tuple(f"direction_evidence={item}" for item in evidence_ids),
+            )
+            metrics = {
+                "model_evaluations": float(payload.get("model_evaluations") or 0),
+                "optimizer_calls": float(payload.get("optimizer_calls") or 0),
+            }
+            gates = {
+                "strategy_id": str(outcome.strategy_id),
+                "direction_verification_status": direction_status,
+                "reason": f"direction_{direction_status}",
+                "candidate_scheme_id": "",
+            }
+            return EvidencePacket(
+                evidence_id=_evidence_id(),
+                task_id=task_id,
+                action_run_id=outcome.action_run_id,
+                action=ActionCode.A05_OPTIMIZE,
+                status="blocked",
+                observations=observations,
+                metrics=metrics,
+                gates=gates,
+                artifact_ids=tuple(outcome.artifact_ids),
+                new_information_hash=information_hash(
+                    action=ActionCode.A05_OPTIMIZE,
+                    status="blocked",
+                    observations=observations,
+                    metrics=metrics,
+                ),
+            )
         boundary = payload.get("search_boundary_evidence")
         boundary = boundary if isinstance(boundary, dict) else {}
         local_hits = tuple(str(item) for item in boundary.get("local_hits") or ())
