@@ -11,7 +11,6 @@ from statistics import median
 
 from hydro_agent.evaluation.hydrograph import build_comparison, write_bundle
 from hydro_agent.evaluation.metrics import kge, nse
-from hydro_agent.services.continuous_simulation import ContinuousSimulationEvidenceService
 from hydro_agent.execution.contracts import ExecutionRequest
 from hydro_agent.models.calibration_state import (
     load_dds_checkpoint,
@@ -34,6 +33,7 @@ from hydro_agent.optimization.directional_probe import run_directional_probe
 from hydro_agent.optimization.morris import screen_morris
 from hydro_agent.optimization.sceua import optimize_sceua
 from hydro_agent.optimization.search_evidence import analyze_search_boundaries
+from hydro_agent.services.continuous_simulation import ContinuousSimulationEvidenceService
 
 
 def _load_streamflow(workspace: Path) -> dict[date, float]:
@@ -595,9 +595,7 @@ def run(workspace: Path) -> dict:
         )
     behavioral = select_behavioral_candidates(
         candidates=behavioral_raw,
-        objective_name=objective_metric if "objective_metric" in locals() else (
-            "kge" if objective == "composite" else objective
-        ),
+        objective_name="kge" if objective == "composite" else objective,
         parameter_bounds={name: tuple(float(v) for v in ranges[name]) for name in all_names},
         max_candidates=8,
         objective_tolerance=0.02,
