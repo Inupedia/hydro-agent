@@ -11,7 +11,6 @@ from statistics import median
 
 from hydro_agent.evaluation.hydrograph import build_comparison, write_bundle
 from hydro_agent.evaluation.metrics import kge, nse
-from hydro_agent.services.continuous_simulation import ContinuousSimulationEvidenceService
 from hydro_agent.execution.contracts import ExecutionRequest
 from hydro_agent.models.calibration_state import (
     load_dds_checkpoint,
@@ -31,6 +30,7 @@ from hydro_agent.optimization.param_groups import normalize_param_groups, resolv
 from hydro_agent.optimization.sceua import optimize_sceua
 from hydro_agent.optimization.search_evidence import analyze_search_boundaries
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
+from hydro_agent.services.continuous_simulation import ContinuousSimulationEvidenceService
 
 from .contracts import XajScheme
 from .conversion import load_xaj_inputs
