@@ -253,12 +253,6 @@ class CheckDataHandler:
 
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
         task = self.repository.get_task(task_id)
-        hypothesis_id = str(decision.calibration_hypothesis_id or "")
-        signature_json = json.dumps(
-            list(decision.diagnostic_signature), ensure_ascii=False, sort_keys=True
-        )
-        decision_direction = str(decision.adjustment_direction or "unknown")
-        decision_direction_ids = tuple(str(item) for item in decision.direction_evidence_ids)
         state = self.repository.ensure_task_state(task_id)
         schemes = self.repository.list_schemes(task_id)
         snapshots = self.repository.list_snapshots(task_id=task_id)
@@ -472,6 +466,12 @@ class OptimizeHandler:
         self.policy = policy
 
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
+        hypothesis_id = str(decision.calibration_hypothesis_id or "")
+        signature_json = json.dumps(
+            list(decision.diagnostic_signature), ensure_ascii=False, sort_keys=True
+        )
+        decision_direction = str(decision.adjustment_direction or "unknown")
+        decision_direction_ids = tuple(str(item) for item in decision.direction_evidence_ids)
         if decision.strategy_id == "xaj-hydrologist-manual-v1":
             observations = (
                 "hydrologist_manual_required",
