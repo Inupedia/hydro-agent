@@ -324,6 +324,9 @@ def run(workspace: Path) -> dict:
             "recession_mae": event_median("recession_mae"),
             "high_flow_mae": float(process.high_flow_mae),
             "evidence_ids": tuple(event.event_id for event in events),
+            "diagnosis_packet": (
+                packet.model_dump(mode="json") if packet is not None else None
+            ),
         }
 
     initial_tunable = {name: base_parameters[name] for name in tunable_names}
@@ -604,11 +607,16 @@ def run(workspace: Path) -> dict:
     for item in behavioral.items:
         tunable = {name: item.parameters[name] for name in tunable_names}
         process = evaluate_process(tunable)
-        process_evidence = {
-            key: value
-            for key, value in process.items()
-            if key != "objective_value"
-        }
+        packet_evidence = process.get("diagnosis_packet")
+        process_evidence = (
+            dict(packet_evidence)
+            if isinstance(packet_evidence, dict)
+            else {
+                key: value
+                for key, value in process.items()
+                if key not in {"objective_value", "diagnosis_packet"}
+            }
+        )
         enriched_items.append(
             item.model_copy(update={"process_evidence": process_evidence})
         )
