@@ -831,7 +831,14 @@ class GateHandler:
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
         provided = self.bundle_provider(task_id)
         gbt_report = None
-        if isinstance(provided, tuple) and len(provided) == 3:
+        event_comparison = None
+        if isinstance(provided, tuple) and len(provided) == 4:
+            base, candidate, hydro_series, event_comparison = provided
+            if hydro_series is not None and self.gbt_config_provider is not None:
+                from hydro_agent.graphs.gbt_accuracy import run_gbt_accuracy
+
+                gbt_report = run_gbt_accuracy(hydro_series, self.gbt_config_provider(task_id))
+        elif isinstance(provided, tuple) and len(provided) == 3:
             base, candidate, hydro_series = provided
             if hydro_series is not None and self.gbt_config_provider is not None:
                 from hydro_agent.graphs.gbt_accuracy import run_gbt_accuracy
@@ -839,7 +846,18 @@ class GateHandler:
                 gbt_report = run_gbt_accuracy(hydro_series, self.gbt_config_provider(task_id))
         else:
             base, candidate = provided
-        result = self.gate_evaluator.evaluate(base, candidate, self.policy, gbt_report=gbt_report)
+        if event_comparison is None:
+            result = self.gate_evaluator.evaluate(
+                base, candidate, self.policy, gbt_report=gbt_report
+            )
+        else:
+            result = self.gate_evaluator.evaluate(
+                base,
+                candidate,
+                self.policy,
+                gbt_report=gbt_report,
+                event_comparison=event_comparison,
+            )
         from hydro_agent.evaluation.gbt22482 import to_standard_evaluation
         from hydro_agent.evaluation.standard_profile import not_evaluated_standard
 
@@ -892,6 +910,11 @@ class GateHandler:
             "qualification_reasons": ",".join(result.qualification_reasons),
             "scheme_grade": result.scheme_grade or "",
             "gbt_summary": result.gbt_summary or "",
+            "event_comparison_json": json.dumps(
+                event_comparison or {"base": [], "candidate": []},
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
         }
         if gbt_report is not None:
             gates["gbt_report_json"] = json.dumps(
