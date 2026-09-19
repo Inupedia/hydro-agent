@@ -5,6 +5,7 @@ from pathlib import Path
 from hydro_agent.graphs.hydrologist import build_hydrologist_tune_graph
 from hydro_agent.modeling.hydrologist import (
     HydrologistTuneService,
+    propose_unit_scheme_with_llm,
     recommend_unit_scheme,
     apply_product_to_native_row,
     product_from_native_row,
@@ -260,3 +261,61 @@ def test_unit_recommendation_fallback_is_deterministic_and_surfaces_unknown_sour
     assert recommendation.source == "deterministic_fallback"
     assert recommendation.confidence <= 0.5
     assert set(recommendation.uncertainties) >= {"precipitation", "land_cover", "soil"}
+
+
+
+class _FakeUnitRecommendationClient:
+    def __init__(self, content):
+        self.content = content
+        self.messages = None
+
+    def complete(self, messages, *, max_tokens=1024):
+        from types import SimpleNamespace
+
+        self.messages = messages
+        return SimpleNamespace(content=self.content)
+
+
+def test_llm_unit_selector_is_constrained_by_registered_candidates_and_evidence():
+    client = _FakeUnitRecommendationClient(
+        '{"candidate_id":"units-heterogeneity","confidence":0.81,'
+        '"rationale":"高程差异明确，保留既有拓扑单元可保留该空间差异。",'
+        '"evidence_refs":["elevation.std","topology.unit_ids"],'
+        '"uncertainties":["land_cover","soil"]}'
+    )
+
+    recommendation = propose_unit_scheme_with_llm(
+        client=client,
+        candidates=_unit_candidates(),
+        spatial_profile={
+            "elevation": {"status": "available", "std": 180.0},
+            "slope": {"status": "available", "std": 4.0},
+            "precipitation": {"status": "unknown"},
+            "land_cover": {"status": "unknown"},
+            "soil": {"status": "unknown"},
+            "drainage": {"status": "available"},
+        },
+    )
+
+    assert recommendation.candidate_id == "units-heterogeneity"
+    assert recommendation.source == "agent"
+    assert recommendation.evidence_refs == ("elevation.std", "topology.unit_ids")
+    assert "units-lumped" in client.messages[-1]["content"]
+    assert "units-heterogeneity" in client.messages[-1]["content"]
+
+
+def test_llm_unit_selector_rejects_freeform_geometry_even_when_json_is_valid():
+    import pytest
+
+    client = _FakeUnitRecommendationClient(
+        '{"candidate_id":"units-topology","confidence":0.8,'
+        '"rationale":"采用已有拓扑。","evidence_refs":["topology.unit_ids"],'
+        '"geometry":{"type":"Polygon","coordinates":[]}}'
+    )
+
+    with pytest.raises(ValueError, match="geometry"):
+        propose_unit_scheme_with_llm(
+            client=client,
+            candidates=_unit_candidates(),
+            spatial_profile={},
+        )
