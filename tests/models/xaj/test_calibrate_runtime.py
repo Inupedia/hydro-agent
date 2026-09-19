@@ -139,3 +139,24 @@ def test_runtime_respects_remaining_campaign_evaluation_budget(calibration_works
     assert result["evaluation_budget"] == 34
     assert result["requested_candidates"] == 34
     assert 0 < result["model_evaluations"] <= 34
+
+
+
+def test_xaj_runtime_verifies_requested_direction_before_optimizer(calibration_workspace):
+    manifest = calibration_workspace / "execution-manifest.json"
+    request = json.loads(manifest.read_text(encoding="utf-8"))
+    request["parameters"]["adjustment_direction"] = "accelerate_routing"
+    request["parameters"]["direction_evidence_ids"] = ["event-001", "event-002"]
+    request["parameters"]["direction_verification_required"] = True
+    manifest.write_text(json.dumps(request), encoding="utf-8")
+
+    result = run_calibration_copy(calibration_workspace, "direction-gate")
+
+    assert result["direction_verification_status"] in {
+        "supported",
+        "refuted",
+        "inconclusive",
+    }
+    assert result["direction_probe"]["requested_direction"] == "accelerate_routing"
+    if result["direction_verification_status"] != "supported":
+        assert result["optimizer_calls"] == 0
