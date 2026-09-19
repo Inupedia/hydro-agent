@@ -183,3 +183,83 @@ class CandidateSchemeService:
             content_hash=content_hash,
         )
         return scheme_id
+
+    def register_behavioral_candidates(
+        self,
+        *,
+        base_scheme_id: str,
+        action_run_id: str,
+        calibration_payload: dict,
+        primary_scheme_id: str,
+    ) -> tuple[str, ...]:
+        """Materialize retained calibration behaviors as immutable candidate schemes.
+
+        This does not run any optimizer. It only turns already-evaluated calibration
+        cache entries into schemes that can be compared on the held-out development
+        window.
+        """
+
+        raw_set = calibration_payload.get("behavioral_candidates")
+        if not isinstance(raw_set, dict):
+            return (primary_scheme_id,)
+        raw_items = raw_set.get("items")
+        if not isinstance(raw_items, list) or not raw_items:
+            return (primary_scheme_id,)
+
+        primary_raw = calibration_payload.get("candidate_parameters")
+        if not isinstance(primary_raw, dict):
+            return (primary_scheme_id,)
+        primary_params = {str(k): float(v) for k, v in primary_raw.items()}
+        base = self.repository.get_scheme(base_scheme_id)
+        strategy_id = calibration_payload.get("strategy_id")
+        if not strategy_id:
+            raise ValueError("behavioral candidates require strategy_id")
+
+        scheme_ids: list[str] = [primary_scheme_id]
+        short_run = action_run_id.replace("run-", "")[-12:]
+        alt_index = 1
+        for rank, raw_item in enumerate(raw_items, start=1):
+            if not isinstance(raw_item, dict):
+                continue
+            params_raw = raw_item.get("parameters")
+            if not isinstance(params_raw, dict) or not params_raw:
+                continue
+            params = {str(k): float(v) for k, v in params_raw.items()}
+            if params == primary_params:
+                continue
+
+            alt_index += 1
+            config = copy.deepcopy(base.config_json)
+            config["parameters"] = params
+            if calibration_payload.get("model_version"):
+                config["model_version"] = calibration_payload["model_version"]
+            config["provenance"] = {
+                "model_source_sha256": calibration_payload.get("model_source_sha256"),
+                "base_scheme_id": base_scheme_id,
+                "created_by_action_run_id": action_run_id,
+                "strategy_id": strategy_id,
+                "objective": calibration_payload.get("objective"),
+                "param_groups": calibration_payload.get("param_groups"),
+                "search_boundary_evidence": calibration_payload.get(
+                    "search_boundary_evidence"
+                ),
+                "behavioral_candidate_id": str(
+                    raw_item.get("candidate_id") or f"behavior-{rank:02d}"
+                ),
+                "behavioral_candidate_rank": rank,
+                "calibration_objective_value": raw_item.get("objective_value"),
+                "calibration_process_evidence": raw_item.get("process_evidence"),
+            }
+            scheme_id = f"{base.task_id}--cand-{short_run}-b{alt_index:02d}"
+            content_hash = sha256_bytes(canonical_json(config).encode("utf-8"))
+            self.repository.create_scheme(
+                scheme_id=scheme_id,
+                task_id=base.task_id,
+                model_id=base.model_id,
+                status="candidate",
+                config=config,
+                content_hash=content_hash,
+            )
+            scheme_ids.append(scheme_id)
+
+        return tuple(scheme_ids)
