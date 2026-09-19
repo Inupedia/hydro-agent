@@ -354,3 +354,36 @@ def test_failed_optimize_records_spent_budget_without_registering_candidate(
     assert packet.gates["candidate_scheme_id"] == ""
     assert packet.gates["reason"] == "calibration_execution_failed"
     assert candidates.payload is None
+
+
+
+def test_refuted_direction_does_not_register_candidate(repository, optimize_decision):
+    class RefutedCalibrationService(FakeCalibrationService):
+        def calibrate(self, **kwargs):
+            outcome = super().calibrate(**kwargs)
+            payload = dict(outcome.result_payload)
+            payload.update(
+                {
+                    "direction_verification_status": "refuted",
+                    "direction_verification_evidence_ids": ["event-001"],
+                    "optimizer_calls": 0,
+                }
+            )
+            return SimpleNamespace(**{**vars(outcome), "result_payload": payload})
+
+    candidates = FakeCandidateService()
+    handler = OptimizeHandler(
+        repository,
+        calibration_service=RefutedCalibrationService(),
+        candidate_service=candidates,
+        calibration_snapshot_id="snap-cal",
+        validation_snapshot_id=None,
+        policy=object(),
+    )
+
+    packet = handler.execute("task-1", optimize_decision)
+
+    assert packet.status == "blocked"
+    assert packet.gates["reason"] == "direction_refuted"
+    assert packet.gates["direction_verification_status"] == "refuted"
+    assert candidates.payload is None
