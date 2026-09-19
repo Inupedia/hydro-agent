@@ -40,6 +40,9 @@ class AgentDecision(FrozenModel):
     # Optional optimize controls — agent selects groups/objective, never raw vectors.
     param_groups: tuple[str, ...] | None = None
     objective: Literal["nse", "peak", "composite"] | None = None
+    adjustment_direction: str | None = None
+    direction_evidence_ids: tuple[str, ...] = ()
+    direction_verification_required: bool = False
     rationale_summary: str = Field(min_length=1, max_length=600)
     # Structured ExperimentPlan metadata is populated by the deterministic
     # planning guardrail, never invented as free-form model reasoning.
