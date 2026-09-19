@@ -24,10 +24,11 @@ def _objective_delta(candidate: Evaluation, baseline: Evaluation) -> float | Non
 def _supports(direction: str, baseline: Evaluation, candidate: Evaluation) -> tuple[bool, bool, dict[str, float]]:
     timing0, timing1 = _num(baseline, "peak_timing_lag_steps"), _num(candidate, "peak_timing_lag_steps")
     volume0, volume1 = _num(baseline, "volume_relative_error"), _num(candidate, "volume_relative_error")
-    high0, high1 = _num(baseline, "high_flow_relative_error"), _num(candidate, "high_flow_relative_error")
-    if high0 is None:
+    high0 = _num(baseline, "high_flow_relative_error")
+    high1 = _num(candidate, "high_flow_relative_error")
+    high_is_relative = high0 is not None and high1 is not None
+    if not high_is_relative:
         high0 = _num(baseline, "high_flow_mae")
-    if high1 is None:
         high1 = _num(candidate, "high_flow_mae")
     peak0, peak1 = _num(baseline, "peak_relative_error"), _num(candidate, "peak_relative_error")
     rise0, rise1 = _num(baseline, "rising_limb_mae"), _num(candidate, "rising_limb_mae")
@@ -39,13 +40,24 @@ def _supports(direction: str, baseline: Evaluation, candidate: Evaluation) -> tu
             return True
         return abs(candidate_value) <= abs(baseline_value) + allowance
 
+    def high_flow_guard() -> bool:
+        if high0 is None or high1 is None:
+            return True
+        if high_is_relative:
+            return guard(high1, high0, 0.05)
+        baseline_mae = abs(high0)
+        candidate_mae = abs(high1)
+        if baseline_mae <= 1e-12:
+            return candidate_mae <= 1e-12
+        return candidate_mae <= baseline_mae * 1.05 + 1e-12
+
     improved = False
     worsened = False
     if direction in {"accelerate_routing", "delay_routing"} and timing0 is not None and timing1 is not None:
         change["peak_timing_abs_lag_delta"] = abs(timing1) - abs(timing0)
         improved = abs(timing1) + 1e-12 < abs(timing0)
         worsened = abs(timing1) > abs(timing0) + 1e-12
-        improved = improved and guard(volume1, volume0, 0.05) and guard(high1, high0, 0.05)
+        improved = improved and guard(volume1, volume0, 0.05) and high_flow_guard()
     elif direction in {"increase_water_loss", "decrease_water_loss"} and volume0 is not None and volume1 is not None:
         change["volume_abs_error_delta"] = abs(volume1) - abs(volume0)
         improved = abs(volume1) + 1e-12 < abs(volume0)
