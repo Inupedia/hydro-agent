@@ -188,6 +188,16 @@ class CalibrationScientistDecisionProvider:
                 strategy_id=plan.strategy_id if action == ActionCode.A05_OPTIMIZE else None,
                 param_groups=(plan.parameter_groups if action == ActionCode.A05_OPTIMIZE else None),
                 objective=plan.objective if action == ActionCode.A05_OPTIMIZE else None,
+                calibration_hypothesis_id=(
+                    diagnosis_hypothesis.hypothesis_id
+                    if action == ActionCode.A05_OPTIMIZE and diagnosis_hypothesis is not None
+                    else None
+                ),
+                diagnostic_signature=(
+                    diagnosis_hypothesis.diagnostic_signature
+                    if action == ActionCode.A05_OPTIMIZE and diagnosis_hypothesis is not None
+                    else ()
+                ),
                 adjustment_direction=(
                     diagnosis_hypothesis.direction
                     if action == ActionCode.A05_OPTIMIZE
