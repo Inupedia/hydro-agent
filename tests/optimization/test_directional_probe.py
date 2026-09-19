@@ -60,7 +60,7 @@ def test_probe_returns_inconclusive_when_active_parameters_disagree():
         if params["A"] != 0.5:
             lag = 1.0 - (params["A"] - 0.5) * 4.0
         else:
-            lag = 1.0 + (params["B"] - 0.5) * 4.0
+            lag = 1.0 + abs(params["B"] - 0.5) * 4.0
         return {
             "objective_value": 1.0,
             "peak_timing_lag_steps": lag,
