@@ -165,6 +165,41 @@ export type HydrographPoint = {
   is_warmup: boolean
 }
 
+export type HydrographDiagnosisSlice = {
+  status: string
+  sample_count: number
+  metrics: Record<string, number>
+  notes?: string[]
+}
+
+export type FloodEventDiagnosis = HydrographDiagnosisSlice & {
+  event_id: string
+  start: string
+  end: string
+  basis: 'flow_only' | 'rainfall_runoff' | string
+  rain_start?: string | null
+  rain_end?: string | null
+}
+
+export type HydrographDiagnosisPacket = {
+  window: string
+  overall: HydrographDiagnosisSlice
+  water_balance: HydrographDiagnosisSlice
+  flow_regimes: Record<string, HydrographDiagnosisSlice>
+  fdc: HydrographDiagnosisSlice
+  seasons: Record<string, HydrographDiagnosisSlice>
+  years: Record<string, HydrographDiagnosisSlice>
+  flood_events: FloodEventDiagnosis[]
+  data_quality: {
+    total_count: number
+    valid_count: number
+    dropped_count: number
+    coverage: number
+    dropped_by_reason: Record<string, number>
+  }
+  basin_attributes?: Record<string, unknown>
+}
+
 export type HydrographComparison = {
   kind: 'calibration' | 'independent_test'
   title: string
@@ -176,6 +211,8 @@ export type HydrographComparison = {
   baseline_metrics?: Record<string, number | string | null> | null
   candidate_metrics?: Record<string, number | string | null> | null
   frozen_metrics?: Record<string, number | string | null> | null
+  baseline_diagnosis?: HydrographDiagnosisPacket | null
+  candidate_diagnosis?: HydrographDiagnosisPacket | null
   change?: Record<string, number | null> | null
   parameter_delta?: Record<string, number>
   windows?: Record<string, string>
