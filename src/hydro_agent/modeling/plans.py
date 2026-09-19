@@ -601,6 +601,7 @@ class ModelPlanService:
                     if hasattr(raw_recommendation, 'model_dump')
                     else dict(raw_recommendation)
                 )
+                proposed.pop('source', None)
                 recommendation = recommend_unit_scheme(
                     candidates=candidate_payload,
                     spatial_profile=profile_payload,
