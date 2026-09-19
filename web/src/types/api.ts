@@ -333,7 +333,7 @@ export type ModelPlan = {
     unit_ids: string[]
     unit_count: number
     evidence_refs: string[]
-    geometry_source: 'boundary.geojson' | 'units.geojson'
+    geometry_source: string
   }>
   unit_recommendation?: UnitSchemeRecommendation
   suggested_start?: string
