@@ -332,6 +332,7 @@ def test_spatial_evidence_artifacts_do_not_enter_boundary_review_hash(plans):
 
 def test_spatial_profile_uses_available_station_precipitation_without_guessing_other_sources(plans):
     import csv
+    import io
     import json
 
     import numpy as np
@@ -340,19 +341,20 @@ def test_spatial_profile_uses_available_station_precipitation_without_guessing_o
 
     daily = plans.academy / "examples" / "data" / "日数据"
     daily.mkdir(parents=True)
-    for year, rows in {
-        2000: [
+    for year, (encoding, rows) in {
+        2000: ("utf-8", [
             ["#2000-01-01 08:00:00#", 1.0, 3.0, 2.0, 10.0],
             ["#2000-01-02 08:00:00#", 2.0, 4.0, 1.0, 11.0],
-        ],
-        2001: [
+        ]),
+        2001: ("gb18030", [
             ["#2001-01-01 08:00:00#", 3.0, 6.0, 2.0, 12.0],
-        ],
+        ]),
     }.items():
-        with (daily / f"{year}.csv").open("w", encoding="utf-8", newline="") as handle:
-            writer = csv.writer(handle)
-            writer.writerow(["时间", "站A", "站B", "蒸发", "流量"])
-            writer.writerows(rows)
+        text = io.StringIO(newline="")
+        writer = csv.writer(text)
+        writer.writerow(["时间", "站A", "站B", "蒸发", "流量"])
+        writer.writerows(rows)
+        (daily / f"{year}.csv").write_bytes(text.getvalue().encode(encoding))
 
     plan_id = "plan-acdeff123456"
     root = plans.directory(plan_id)

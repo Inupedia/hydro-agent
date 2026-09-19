@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import io
 import json
 import os
 import re
@@ -121,6 +122,19 @@ def write_json(path: Path, payload):
     except Exception:
         tmp.unlink(missing_ok=True)
         raise
+
+
+def read_legacy_chinese_csv(path: Path) -> csv.DictReader:
+    """Read academy CSV exports without silently discarding undecodable bytes."""
+
+    payload = path.read_bytes()
+    for encoding in ('utf-8-sig', 'gb18030'):
+        try:
+            text = payload.decode(encoding)
+            return csv.DictReader(io.StringIO(text, newline=''))
+        except UnicodeDecodeError:
+            continue
+    raise ValueError(f'无法识别 CSV 编码（仅支持 UTF-8/GB18030）：{path.name}')
 
 
 class ModelPlanService:
@@ -429,30 +443,29 @@ class ModelPlanService:
         totals: dict[str, float] = {}
         counts: dict[str, int] = {}
         for path in files:
-            with path.open(encoding='utf-8-sig', newline='') as handle:
-                reader = csv.DictReader(handle)
-                station_names = sorted(
-                    name.strip()
-                    for name in (reader.fieldnames or [])
-                    if name and name.strip() not in reserved
-                )
-                for row in reader:
-                    for station in station_names:
-                        raw = row.get(station)
-                        if raw is None or not str(raw).strip():
-                            continue
-                        try:
-                            value = float(raw)
-                        except (TypeError, ValueError) as exc:
-                            raise ValueError(
-                                f'雨量站 {station} 存在非数值降雨：{path.name}'
-                            ) from exc
-                        if not math.isfinite(value) or value < 0:
-                            raise ValueError(
-                                f'雨量站 {station} 存在无效降雨：{path.name}'
-                            )
-                        totals[station] = totals.get(station, 0.0) + value
-                        counts[station] = counts.get(station, 0) + 1
+            reader = read_legacy_chinese_csv(path)
+            station_names = sorted(
+                name.strip()
+                for name in (reader.fieldnames or [])
+                if name and name.strip() not in reserved
+            )
+            for row in reader:
+                for station in station_names:
+                    raw = row.get(station)
+                    if raw is None or not str(raw).strip():
+                        continue
+                    try:
+                        value = float(raw)
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError(
+                            f'雨量站 {station} 存在非数值降雨：{path.name}'
+                        ) from exc
+                    if not math.isfinite(value) or value < 0:
+                        raise ValueError(
+                            f'雨量站 {station} 存在无效降雨：{path.name}'
+                        )
+                    totals[station] = totals.get(station, 0.0) + value
+                    counts[station] = counts.get(station, 0) + 1
 
         means = [
             totals[station] / counts[station]
