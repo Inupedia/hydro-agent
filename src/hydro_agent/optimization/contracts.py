@@ -98,3 +98,19 @@ class GateDecision(FrozenModel):
     qualification_reasons: tuple[str, ...] = ()
     scheme_grade: SchemeGrade | None = None
     gbt_summary: str | None = None
+
+
+class ParameterDirectionalEffect(FrozenModel):
+    parameter: str
+    negative_delta: float | None = None
+    positive_delta: float | None = None
+    expected_signature_change: dict[str, float] = Field(default_factory=dict)
+
+
+class DirectionalProbeResult(FrozenModel):
+    requested_direction: str
+    status: Literal["supported", "refuted", "inconclusive"]
+    parameter_effects: tuple[ParameterDirectionalEffect, ...]
+    supporting_parameters: tuple[str, ...] = ()
+    contradictory_parameters: tuple[str, ...] = ()
+    evidence_ids: tuple[str, ...] = ()
