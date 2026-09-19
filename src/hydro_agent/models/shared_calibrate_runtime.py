@@ -155,6 +155,14 @@ def run(workspace: Path) -> dict:
         required_forcings=plugin.descriptor.required_forcings,
     )
     plugin.validate_scheme(scheme_payload)
+    precipitation: dict[date, float] | None = None
+    required_forcings = tuple(plugin.descriptor.required_forcings)
+    if "precipitation" in required_forcings:
+        precipitation_index = required_forcings.index("precipitation")
+        precipitation = {
+            day: float(inputs[index, 0, precipitation_index])
+            for index, day in enumerate(dates)
+        }
     streamflow = _load_streamflow(workspace)
     ranges = plugin.parameter_bounds()
     all_names = tuple(plugin.descriptor.parameter_names)
@@ -511,6 +519,7 @@ def run(workspace: Path) -> dict:
             evaluated_window="calibration",
             baseline=baseline_full,
             candidate=best_full,
+            precipitation=precipitation,
             gate_status=None,
             frozen_is_candidate=False,
             parameter_delta=delta,

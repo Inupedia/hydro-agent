@@ -17,6 +17,7 @@ from typing import Mapping, Sequence
 
 import numpy as np
 
+from hydro_agent.evaluation.events import EventSegmentationConfig, segment_flood_events
 from hydro_agent.evaluation.metrics import kge, mae, nse, pbias_percent, rmse
 
 
@@ -47,6 +48,9 @@ class FloodEventEvidence:
     start: date
     end: date
     sample_count: int
+    basis: str = "flow_only"
+    rain_start: date | None = None
+    rain_end: date | None = None
     metrics: dict[str, float] = field(default_factory=dict)
     notes: tuple[str, ...] = ()
 
@@ -88,6 +92,7 @@ class _CleanSeries:
     dates: tuple[date, ...]
     obs: tuple[float, ...]
     sim: tuple[float, ...]
+    precipitation: tuple[float | None, ...]
     quality: QualityReport
 
 
@@ -153,9 +158,10 @@ class HydrologicEvidenceBuilder:
         dates: Sequence[date],
         observed: Sequence[float | None],
         simulated: Sequence[float | None],
+        precipitation: Sequence[float | None] | None = None,
         quality_mask: Sequence[bool] | None = None,
     ) -> HydrologicEvidenceBundle:
-        clean = self._clean(dates, observed, simulated, quality_mask)
+        clean = self._clean(dates, observed, simulated, precipitation, quality_mask)
         overall = self._slice(
             "overall", clean.dates, clean.obs, clean.sim, self.min_overall_samples
         )
@@ -180,10 +186,13 @@ class HydrologicEvidenceBuilder:
         dates: Sequence[date],
         observed: Sequence[float | None],
         simulated: Sequence[float | None],
+        precipitation: Sequence[float | None] | None,
         quality_mask: Sequence[bool] | None,
     ) -> _CleanSeries:
         if len(dates) != len(observed) or len(dates) != len(simulated):
             raise ValueError("dates/observed/simulated length mismatch")
+        if precipitation is not None and len(precipitation) != len(dates):
+            raise ValueError("precipitation length mismatch")
         if quality_mask is not None and len(quality_mask) != len(dates):
             raise ValueError("quality_mask length mismatch")
         if not dates:
@@ -195,6 +204,7 @@ class HydrologicEvidenceBuilder:
         kept_dates: list[date] = []
         obs_values: list[float] = []
         sim_values: list[float] = []
+        precipitation_values: list[float | None] = []
         for index, day in enumerate(dates):
             if quality_mask is not None and not bool(quality_mask[index]):
                 reasons["quality_mask"] += 1
@@ -223,6 +233,15 @@ class HydrologicEvidenceBuilder:
             kept_dates.append(day)
             obs_values.append(obs)
             sim_values.append(sim)
+            rain: float | None = None
+            if precipitation is not None:
+                try:
+                    candidate_rain = float(precipitation[index])  # type: ignore[arg-type]
+                except (TypeError, ValueError):
+                    candidate_rain = float("nan")
+                if math.isfinite(candidate_rain) and candidate_rain >= 0:
+                    rain = candidate_rain
+            precipitation_values.append(rain)
 
         total = len(dates)
         valid = len(kept_dates)
@@ -233,7 +252,13 @@ class HydrologicEvidenceBuilder:
             coverage=float(valid / total),
             dropped_by_reason=dict(sorted(reasons.items())),
         )
-        return _CleanSeries(tuple(kept_dates), tuple(obs_values), tuple(sim_values), quality)
+        return _CleanSeries(
+            tuple(kept_dates),
+            tuple(obs_values),
+            tuple(sim_values),
+            tuple(precipitation_values),
+            quality,
+        )
 
     @staticmethod
     def _metric_set(
@@ -268,8 +293,9 @@ class HydrologicEvidenceBuilder:
         metrics["volume_simulated"] = sim_volume
         if obs_volume > 0:
             metrics["volume_ratio"] = float(sim_volume / obs_volume)
+            metrics["volume_relative_error"] = float((sim_volume - obs_volume) / obs_volume)
         else:
-            unavailable.append("volume_ratio")
+            unavailable.extend(("volume_ratio", "volume_relative_error"))
         return metrics, unavailable
 
     def _slice(
@@ -419,63 +445,79 @@ class HydrologicEvidenceBuilder:
     def _events(self, clean: _CleanSeries) -> tuple[FloodEventEvidence, ...]:
         if len(clean.obs) < self.min_fdc_samples:
             return ()
-        threshold = float(
-            np.quantile(np.asarray(clean.obs, dtype=float), self.flood_threshold_quantile)
-        )
-        groups: list[list[int]] = []
-        current: list[int] = []
-        for index, (day, value) in enumerate(zip(clean.dates, clean.obs)):
-            if value < threshold:
-                if current:
-                    groups.append(current)
-                    current = []
-                continue
-            if current and (day - clean.dates[current[-1]]).days != 1:
-                groups.append(current)
-                current = []
-            current.append(index)
-        if current:
-            groups.append(current)
 
+        precipitation = (
+            clean.precipitation
+            if any(value is not None for value in clean.precipitation)
+            else None
+        )
+        boundaries = segment_flood_events(
+            dates=clean.dates,
+            observed=clean.obs,
+            precipitation=precipitation,
+            config=EventSegmentationConfig(
+                high_flow_quantile=self.flood_threshold_quantile,
+                min_event_steps=self.min_event_samples,
+            ),
+        )
+        date_indexes = {day: index for index, day in enumerate(clean.dates)}
         events: list[FloodEventEvidence] = []
-        for number, indexes in enumerate(groups, start=1):
-            dates = tuple(clean.dates[i] for i in indexes)
-            obs = tuple(clean.obs[i] for i in indexes)
-            sim = tuple(clean.sim[i] for i in indexes)
-            event_id = f"event-{number:03d}"
-            if len(indexes) < self.min_event_samples:
-                events.append(
-                    FloodEventEvidence(
-                        event_id=event_id,
-                        status="insufficient_data",
-                        start=dates[0],
-                        end=dates[-1],
-                        sample_count=len(indexes),
-                        notes=(
-                            f"requires_at_least={self.min_event_samples}",
-                            f"threshold={threshold}",
-                        ),
-                    )
-                )
-                continue
+
+        for boundary in boundaries:
+            start_index = date_indexes[boundary.start]
+            end_index = date_indexes[boundary.end]
+            dates = clean.dates[start_index : end_index + 1]
+            obs = clean.obs[start_index : end_index + 1]
+            sim = clean.sim[start_index : end_index + 1]
+            rain = clean.precipitation[start_index : end_index + 1]
+
             metrics, unavailable = self._metric_set(obs, sim)
+            observed_peak_index = max(range(len(obs)), key=lambda index: obs[index])
+            metrics["rising_limb_mae"] = float(
+                mae(obs[: observed_peak_index + 1], sim[: observed_peak_index + 1])
+            )
+            metrics["recession_mae"] = float(
+                mae(obs[observed_peak_index:], sim[observed_peak_index:])
+            )
+            metrics["duration_steps"] = float(len(obs))
+
+            if boundary.basis == "rainfall_runoff":
+                rain_candidates = [
+                    (float(value), index)
+                    for index, value in enumerate(rain)
+                    if value is not None and value > 0
+                ]
+                if rain_candidates:
+                    rain_peak = max(value for value, _ in rain_candidates)
+                    rain_peak_index = next(
+                        index for value, index in rain_candidates if value == rain_peak
+                    )
+                    metrics["response_lag_steps"] = float(
+                        observed_peak_index - rain_peak_index
+                    )
+                else:
+                    unavailable.append("response_lag_steps")
+            else:
+                unavailable.append("response_lag_steps")
+
             events.append(
                 FloodEventEvidence(
-                    event_id=event_id,
+                    event_id=boundary.event_id,
                     status="available",
                     start=dates[0],
                     end=dates[-1],
-                    sample_count=len(indexes),
+                    sample_count=len(obs),
+                    basis=boundary.basis,
+                    rain_start=boundary.rain_start,
+                    rain_end=boundary.rain_end,
                     metrics=metrics,
                     notes=(
-                        f"threshold={threshold}",
                         f"threshold_quantile={self.flood_threshold_quantile}",
                         *(f"metric_unavailable={item}" for item in sorted(set(unavailable))),
                     ),
                 )
             )
         return tuple(events)
-
 
 def compare_evidence(
     baseline: HydrologicEvidenceBundle,

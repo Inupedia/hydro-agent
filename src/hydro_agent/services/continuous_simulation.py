@@ -4,6 +4,10 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Sequence
 
+from hydro_agent.evaluation.diagnosis_packet import (
+    HydrographDiagnosisPacket,
+    build_diagnosis_packet,
+)
 from hydro_agent.evaluation.evidence import HydrologicEvidenceBuilder
 
 
@@ -27,6 +31,7 @@ class ContinuousSimulationEvidence:
     dropped_count: int = 0
     coverage: float = 1.0
     dropped_by_reason: dict[str, int] = field(default_factory=dict)
+    diagnosis_packet: HydrographDiagnosisPacket | None = None
 
     def as_metrics(self) -> dict[str, float]:
         return {
@@ -62,11 +67,14 @@ class ContinuousSimulationEvidenceService:
         dates: Sequence[date],
         observed: Sequence[float | None],
         simulated: Sequence[float | None],
+        precipitation: Sequence[float | None] | None = None,
         discard_prefix_days: int = 0,
         quality_mask: Sequence[bool] | None = None,
     ) -> ContinuousSimulationEvidence:
         if len(dates) != len(observed) or len(dates) != len(simulated):
             raise ValueError("dates/observed/simulated length mismatch")
+        if precipitation is not None and len(precipitation) != len(dates):
+            raise ValueError("precipitation length mismatch")
         if quality_mask is not None and len(quality_mask) != len(dates):
             raise ValueError("quality_mask length mismatch")
         if discard_prefix_days < 0:
@@ -77,6 +85,9 @@ class ContinuousSimulationEvidenceService:
         kept_dates = tuple(dates[discard_prefix_days:])
         kept_observed = tuple(observed[discard_prefix_days:])
         kept_simulated = tuple(simulated[discard_prefix_days:])
+        kept_precipitation = (
+            tuple(precipitation[discard_prefix_days:]) if precipitation is not None else None
+        )
         kept_mask = (
             tuple(quality_mask[discard_prefix_days:]) if quality_mask is not None else None
         )
@@ -96,6 +107,7 @@ class ContinuousSimulationEvidenceService:
             dates=kept_dates,
             observed=kept_observed,
             simulated=kept_simulated,
+            precipitation=kept_precipitation,
             quality_mask=kept_mask,
         )
         overall = bundle.overall
@@ -158,4 +170,5 @@ class ContinuousSimulationEvidenceService:
             dropped_count=quality.dropped_count,
             coverage=quality.coverage,
             dropped_by_reason=dict(quality.dropped_by_reason),
+            diagnosis_packet=build_diagnosis_packet(bundle),
         )

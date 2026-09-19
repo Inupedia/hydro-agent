@@ -91,4 +91,47 @@ describe('ExecutionJournal calibration scientist state', () => {
     expect(cards[1].text()).toContain('新的当前方案')
     expect(cards[1].text()).not.toContain('保留原方案')
   })
+  it('keeps hydrologic diagnosis event evidence traceable in the journal', async () => {
+    mocks.getAgentLog.mockResolvedValue({
+      task_id: 'task-cal',
+      rounds: [
+        round(
+          'A04_DIAGNOSE',
+          [
+            '洪峰偏低：event-001、event-002',
+            '峰现偏晚：event-001、event-002',
+          ],
+          '2026-09-13T06:00:04Z',
+        ),
+      ],
+    })
+
+    const wrapper = mount(ExecutionJournal, {
+      props: {
+        taskId: 'task-cal',
+        running: false,
+        completed: false,
+        failed: false,
+        elapsed: '0:10',
+        events: [
+          {
+            id: 'diagnose',
+            occurred_at: '2026-09-13T06:00:04Z',
+            label: '水文诊断',
+            status: 'succeeded',
+            action: 'A04_DIAGNOSE',
+            evidence_id: 'ev-diagnose',
+            details: {},
+          },
+        ],
+      },
+    })
+
+    await flushPromises()
+    const card = wrapper.find('.journal-event-card')
+    expect(card.text()).toContain('洪峰偏低')
+    expect(card.text()).toContain('峰现偏晚')
+    expect(card.text()).toContain('event-001')
+    expect(card.text()).toContain('event-002')
+  })
 })

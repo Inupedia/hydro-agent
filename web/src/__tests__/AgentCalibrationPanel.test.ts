@@ -20,12 +20,76 @@ const comparison = {
   series: [
     { time: '1990-03-20', observed_m3s: 10, baseline_m3s: 4, candidate_m3s: 9, window: 'calibration', is_warmup: false },
   ],
+  candidate_diagnosis: {
+    window: 'calibration',
+    overall: { status: 'available', sample_count: 20, metrics: { nse: 0.78 }, notes: [] },
+    water_balance: { status: 'available', sample_count: 20, metrics: { volume_relative_error: 0.02 }, notes: [] },
+    flow_regimes: {},
+    fdc: { status: 'available', sample_count: 20, metrics: {}, notes: [] },
+    seasons: {},
+    years: {},
+    data_quality: {
+      total_count: 20,
+      valid_count: 20,
+      dropped_count: 0,
+      coverage: 1,
+      dropped_by_reason: {},
+    },
+    basin_attributes: {},
+    flood_events: [
+      {
+        event_id: 'event-001',
+        start: '1990-03-20',
+        end: '1990-03-24',
+        basis: 'rainfall_runoff',
+        status: 'available',
+        sample_count: 5,
+        notes: [],
+        metrics: {
+          peak_relative_error: -0.18,
+          peak_timing_lag_steps: 1,
+          volume_relative_error: 0.03,
+          rising_limb_mae: 8.1,
+          recession_mae: 4.2,
+        },
+      },
+      {
+        event_id: 'event-002',
+        start: '1990-04-05',
+        end: '1990-04-09',
+        basis: 'rainfall_runoff',
+        status: 'available',
+        sample_count: 5,
+        notes: [],
+        metrics: {
+          peak_relative_error: -0.11,
+          peak_timing_lag_steps: 1,
+          volume_relative_error: 0.01,
+          rising_limb_mae: 6.3,
+          recession_mae: 3.8,
+        },
+      },
+    ],
+  },
 }
 
 const summary = {
   task_id: 'task-1',
   protocol: {},
-  latest_experiment_plan: null,
+  latest_experiment_plan: {
+    plan_id: 'plan-next',
+    experiment_signature: 'sig-next',
+    strategy_id: 'xaj-routing-refine-v1',
+    optimizer: 'dds',
+    objective: 'composite',
+    param_groups: ['routing'],
+    evaluation_budget: 128,
+    model_evaluations: 0,
+    reason_codes: [],
+    evidence_refs: ['event-001', 'event-002'],
+    active_parameters: [],
+    sensitivity_method: null,
+  },
   trials: [
     {
       trial_id: 'trial-1',
@@ -66,7 +130,15 @@ beforeEach(() => {
 describe('AgentCalibrationPanel', () => {
   it('shows the calibration hydrograph, each parameter delta, and rollback reasons', async () => {
     const wrapper = mount(AgentCalibrationPanel, {
-      props: { taskId: 'task-1', comparison },
+      props: {
+        taskId: 'task-1',
+        comparison,
+        diagnosis: {
+          phenomenon: '多场次洪洪峰偏低且峰现偏晚，当前诊断聚焦汇流响应。',
+          recommended_param_groups: ['routing'],
+          recommended_strategy_id: 'xaj-routing-refine-v1',
+        },
+      },
     })
     await flushPromises()
 
@@ -84,6 +156,42 @@ describe('AgentCalibrationPanel', () => {
     expect(wrapper.text()).toContain('-0.250')
     expect(wrapper.text()).toContain('SM')
     expect(wrapper.text()).not.toContain('UM')
+    expect(wrapper.text()).toContain('Agent 观察')
+    expect(wrapper.text()).toContain('洪量基本正确')
+    expect(wrapper.text()).toContain('洪峰偏低')
+    expect(wrapper.text()).toContain('峰现偏晚')
+    expect(wrapper.text()).toContain('多场洪水出现同类问题')
+    expect(wrapper.text()).toContain('水文诊断')
+    expect(wrapper.text()).toContain('多场次洪洪峰偏低且峰现偏晚')
+    expect(wrapper.text()).toContain('下一步实验')
+    expect(wrapper.text()).toContain('xaj-routing-refine-v1')
+    expect(wrapper.text()).toContain('event-001')
+    expect(wrapper.text()).toContain('event-002')
+    expect(wrapper.find('[data-test="flood-event-matrix"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('AI 综合评分')
+  })
+
+  it('shows agent diagnosis packet even when no candidate comparison exists', async () => {
+    vi.mocked(api.getResearch).mockResolvedValueOnce({ ...summary, trials: [] } as never)
+    const packet = comparison.candidate_diagnosis
+    const wrapper = mount(AgentCalibrationPanel, {
+      props: {
+        taskId: 'task-1',
+        comparison: null,
+        diagnosis: {
+          phenomenon: '当前方案多场次洪表现出一致的过程误差。',
+          recommended_param_groups: ['routing'],
+          diagnosis_packet: packet,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="agent-calibration-panel"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="process-diagnosis"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('event-001')
+    expect(wrapper.text()).toContain('event-002')
+    expect(wrapper.text()).toContain('当前方案多场次洪表现出一致的过程误差')
   })
 
   it('stays hidden when there is no search process to report', async () => {

@@ -45,6 +45,7 @@ def score_series(
     sim: list[float],
     *,
     dates: list[date] | None = None,
+    precipitation: list[float | None] | None = None,
     window: str = "continuous",
     warmup_days: int,
     evaluated_days: int,
@@ -62,6 +63,7 @@ def score_series(
             dates=dates,
             observed=obs,
             simulated=sim,
+            precipitation=precipitation,
         )
         return {
             "nse": evidence.nse,
@@ -78,6 +80,11 @@ def score_series(
             "window": evidence.window,
             "start_date": evidence.start.isoformat(),
             "end_date": evidence.end.isoformat(),
+            "diagnosis_packet": (
+                evidence.diagnosis_packet.model_dump(mode="json")
+                if evidence.diagnosis_packet is not None
+                else None
+            ),
         }
     return {
         "nse": _safe(nse, obs, sim),
@@ -147,6 +154,7 @@ def build_comparison(
     frozen_is_candidate: bool = False,
     parameter_delta: dict[str, float] | None = None,
     windows: dict[str, str] | None = None,
+    precipitation: dict[date, float | None] | None = None,
 ) -> dict[str, Any]:
     n = len(dates)
     for series in (baseline, candidate, frozen):
@@ -159,6 +167,7 @@ def build_comparison(
     eval_baseline: list[float] = []
     eval_candidate: list[float] = []
     eval_frozen: list[float] = []
+    eval_precipitation: list[float | None] = []
     for index, day in enumerate(dates):
         is_warmup = index < warmup_days
         window: WindowName = "warmup" if is_warmup else evaluated_window
@@ -186,6 +195,7 @@ def build_comparison(
             continue
         eval_dates.append(day)
         eval_obs.append(float(obs))
+        eval_precipitation.append(precipitation.get(day) if precipitation is not None else None)
         if base is not None:
             eval_baseline.append(base)
         if cand is not None:
@@ -198,6 +208,7 @@ def build_comparison(
             eval_obs,
             eval_baseline,
             dates=eval_dates,
+            precipitation=eval_precipitation if precipitation is not None else None,
             window=evaluated_window,
             warmup_days=warmup_days,
             evaluated_days=evaluated_days,
@@ -210,6 +221,7 @@ def build_comparison(
             eval_obs,
             eval_candidate,
             dates=eval_dates,
+            precipitation=eval_precipitation if precipitation is not None else None,
             window=evaluated_window,
             warmup_days=warmup_days,
             evaluated_days=evaluated_days,
@@ -222,6 +234,7 @@ def build_comparison(
             eval_obs,
             eval_frozen,
             dates=eval_dates,
+            precipitation=eval_precipitation if precipitation is not None else None,
             window=evaluated_window,
             warmup_days=warmup_days,
             evaluated_days=evaluated_days,
@@ -229,6 +242,17 @@ def build_comparison(
         if eval_frozen and len(eval_frozen) == len(eval_obs)
         else None
     )
+    baseline_diagnosis = (
+        baseline_metrics.pop("diagnosis_packet", None) if baseline_metrics is not None else None
+    )
+    candidate_diagnosis = (
+        candidate_metrics.pop("diagnosis_packet", None) if candidate_metrics is not None else None
+    )
+    if frozen_metrics is not None:
+        # Independent final-test process evidence is reporting-only. Never expose it
+        # on the calibration comparison feedback channel.
+        frozen_metrics.pop("diagnosis_packet", None)
+
     change = None
     if kind == "calibration" and baseline_metrics and candidate_metrics:
         change = {
@@ -239,7 +263,7 @@ def build_comparison(
             ),
             "rmse_m3s": _delta(candidate_metrics["rmse_m3s"], baseline_metrics["rmse_m3s"]),
         }
-    return {
+    payload = {
         "kind": kind,
         "title": title_for(kind, calibrated=calibrated, gate_status=gate_status),
         "calibrated": calibrated,
@@ -254,6 +278,12 @@ def build_comparison(
         "parameter_delta": dict(parameter_delta or {}),
         "windows": dict(windows or {}),
     }
+    if kind == "calibration":
+        if baseline_diagnosis is not None:
+            payload["baseline_diagnosis"] = baseline_diagnosis
+        if candidate_diagnosis is not None:
+            payload["candidate_diagnosis"] = candidate_diagnosis
+    return payload
 
 
 def write_comparison_csv(path: Path, comparison: dict[str, Any]) -> None:
@@ -291,6 +321,10 @@ def write_metrics_json(path: Path, comparison: dict[str, Any]) -> None:
         "parameter_delta": comparison.get("parameter_delta") or {},
         "windows": comparison.get("windows") or {},
     }
+    if comparison.get("baseline_diagnosis") is not None:
+        payload["baseline_diagnosis"] = comparison["baseline_diagnosis"]
+    if comparison.get("candidate_diagnosis") is not None:
+        payload["candidate_diagnosis"] = comparison["candidate_diagnosis"]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8"

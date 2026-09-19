@@ -1,17 +1,24 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import FloodEventMatrix from './FloodEventMatrix.vue'
 import HydrographComparisonChart from './HydrographComparisonChart.vue'
 import ReportSectionHead from './ReportSectionHead.vue'
 import { api } from '../api/client'
-import type { HydrographComparison } from '../types/api'
-import type { ResearchTrial } from '../types/research'
+import type {
+  FloodEventDiagnosis,
+  HydrographComparison,
+  HydrographDiagnosisPacket,
+} from '../types/api'
+import type { ResearchExperimentPlan, ResearchTrial } from '../types/research'
 
 const props = defineProps<{
   taskId: string | null
   comparison?: HydrographComparison | null
+  diagnosis?: Record<string, unknown> | null
 }>()
 
 const trials = ref<ResearchTrial[]>([])
+const latestPlan = ref<ResearchExperimentPlan | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 
@@ -40,9 +47,115 @@ const GATE_LABEL: Record<string, string> = {
   ROLLBACK: '回退',
 }
 
+const candidateDiagnosis = computed(() => props.comparison?.candidate_diagnosis || null)
+
+function agentDiagnosisPacket(): HydrographDiagnosisPacket | null {
+  const raw = props.diagnosis?.diagnosis_packet
+  if (!raw || typeof raw !== 'object') return null
+  const packet = raw as Partial<HydrographDiagnosisPacket>
+  if (typeof packet.window !== 'string' || !Array.isArray(packet.flood_events)) return null
+  return packet as HydrographDiagnosisPacket
+}
+
+const processDiagnosis = computed(() => agentDiagnosisPacket() || candidateDiagnosis.value)
+
 const visible = computed(
-  () => !!props.comparison?.series?.length || trials.value.length > 0 || loading.value || !!error.value,
+  () =>
+    !!props.comparison?.series?.length ||
+    !!processDiagnosis.value?.flood_events?.length ||
+    trials.value.length > 0 ||
+    loading.value ||
+    !!error.value,
 )
+
+function eventMetric(event: FloodEventDiagnosis, key: string) {
+  const value = event.metrics?.[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+const eventIds = computed(() =>
+  (processDiagnosis.value?.flood_events || []).map((event) => event.event_id),
+)
+
+const agentObservations = computed(() => {
+  const events = processDiagnosis.value?.flood_events || []
+  if (!events.length) return []
+
+  const observations: string[] = []
+  const volumeErrors = events
+    .map((event) => eventMetric(event, 'volume_relative_error'))
+    .filter((value): value is number => value != null)
+  if (volumeErrors.length) {
+    const withinFivePercent = volumeErrors.filter((value) => Math.abs(value) <= 0.05).length
+    if (withinFivePercent === volumeErrors.length) {
+      observations.push(`洪量基本正确：${withinFivePercent}/${volumeErrors.length} 场次洪洪量误差在 ±5% 内`)
+    } else {
+      observations.push(`洪量误差：${withinFivePercent}/${volumeErrors.length} 场次洪在 ±5% 内`)
+    }
+  }
+
+  const peakErrors = events
+    .map((event) => eventMetric(event, 'peak_relative_error'))
+    .filter((value): value is number => value != null)
+  const lowPeaks = peakErrors.filter((value) => value < 0).length
+  if (peakErrors.length) {
+    observations.push(
+      lowPeaks === peakErrors.length
+        ? `洪峰偏低：${lowPeaks}/${peakErrors.length} 场次洪均偏低`
+        : `洪峰方向：${lowPeaks}/${peakErrors.length} 场次洪偏低`,
+    )
+  }
+
+  const timing = events
+    .map((event) => eventMetric(event, 'peak_timing_lag_steps'))
+    .filter((value): value is number => value != null)
+  const latePeaks = timing.filter((value) => value > 0).length
+  if (timing.length) {
+    observations.push(
+      latePeaks === timing.length
+        ? `峰现偏晚：${latePeaks}/${timing.length} 场次洪均偏晚`
+        : `峰现方向：${latePeaks}/${timing.length} 场次洪偏晚`,
+    )
+  }
+
+  if (
+    events.length > 1 &&
+    peakErrors.length === events.length &&
+    timing.length === events.length &&
+    lowPeaks === peakErrors.length &&
+    latePeaks === timing.length
+  ) {
+    observations.push(`多场洪水出现同类问题：证据来自 ${eventIds.value.join('、')}`)
+  }
+  return observations
+})
+
+const diagnosisPhenomenon = computed(() => {
+  const value = props.diagnosis?.phenomenon
+  return typeof value === 'string' ? value : ''
+})
+
+const diagnosisGroups = computed(() => {
+  const raw = props.diagnosis?.recommended_param_groups
+  if (Array.isArray(raw)) return raw.map(String).filter(Boolean)
+  if (typeof raw === 'string') return raw.split(',').map((item) => item.trim()).filter(Boolean)
+  return []
+})
+
+const nextStrategy = computed(() => {
+  if (latestPlan.value?.strategy_id) return latestPlan.value.strategy_id
+  const raw = props.diagnosis?.recommended_strategy_id
+  return typeof raw === 'string' ? raw : ''
+})
+
+const nextGroups = computed(() =>
+  latestPlan.value?.param_groups?.length ? latestPlan.value.param_groups : diagnosisGroups.value,
+)
+
+const nextEvidenceRefs = computed(() => {
+  const refs = latestPlan.value?.evidence_refs || []
+  return Array.from(new Set([...refs, ...eventIds.value]))
+})
 
 function formatMetric(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return '-'
@@ -78,6 +191,7 @@ function gateTone(status: string) {
 async function load() {
   if (!props.taskId) {
     trials.value = []
+    latestPlan.value = null
     return
   }
   loading.value = true
@@ -85,6 +199,7 @@ async function load() {
   try {
     const summary = await api.getResearch(props.taskId)
     trials.value = summary.trials || []
+    latestPlan.value = summary.latest_experiment_plan || null
   } catch (err) {
     error.value = String((err as Error).message || err)
   } finally {
@@ -118,6 +233,48 @@ watch(() => props.taskId, load)
       </div>
       <HydrographComparisonChart :comparison="comparison" />
     </template>
+
+    <div v-if="processDiagnosis?.flood_events?.length" class="process-diagnosis" data-test="process-diagnosis">
+      <div class="diagnosis-grid">
+        <article class="diagnosis-block" data-test="agent-observations">
+          <small>Agent 观察</small>
+          <h3>不只看 NSE，而是看过程哪里出了问题</h3>
+          <ul>
+            <li v-for="item in agentObservations" :key="item">{{ item }}</li>
+          </ul>
+        </article>
+
+        <article class="diagnosis-block" data-test="hydrologic-diagnosis">
+          <small>水文诊断</small>
+          <h3>{{ diagnosisPhenomenon || '过程证据已形成，等待 Agent 给出过程层判断' }}</h3>
+          <p v-if="diagnosisGroups.length">
+            当前怀疑的过程层（来自 Agent 诊断）：<strong>{{ diagnosisGroups.join(' / ') }}</strong>
+          </p>
+          <p>
+            支撑 Evidence / event IDs：
+            <code>{{ eventIds.join(' · ') }}</code>
+          </p>
+        </article>
+
+        <article class="diagnosis-block" data-test="next-experiment">
+          <small>下一步实验</small>
+          <h3>{{ nextStrategy || '尚未形成新的数值实验计划' }}</h3>
+          <p v-if="nextGroups.length">开放过程/参数组：{{ nextGroups.join(' / ') }}</p>
+          <p v-if="latestPlan?.objective">目标：{{ latestPlan.objective }}</p>
+          <p v-if="nextEvidenceRefs.length">
+            依据：<code>{{ nextEvidenceRefs.join(' · ') }}</code>
+          </p>
+        </article>
+      </div>
+
+      <div class="matrix-section">
+        <div class="chart-title">
+          <h3>次洪矩阵</h3>
+          <span>全部指标均来自确定性后端 Evidence，不在前端重新计算</span>
+        </div>
+        <FloodEventMatrix :events="processDiagnosis.flood_events" />
+      </div>
+    </div>
 
     <div v-if="trials.length" class="trials">
       <article v-for="(trial, index) in trials" :key="trial.trial_id" class="trial" data-test="agent-calibration-trial">
@@ -202,6 +359,48 @@ watch(() => props.taskId, load)
 .chart-title { margin: 20px 0 0; }
 .chart-title h3 { font-size: 16px; }
 .chart-title span { color: var(--text-secondary); font-size: 13px; }
+.process-diagnosis { margin-top: 20px; }
+.diagnosis-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.diagnosis-block {
+  min-width: 0;
+  padding: 16px;
+  background: var(--surface-secondary);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-sm);
+}
+.diagnosis-block small {
+  display: block;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+.diagnosis-block h3 {
+  margin: 6px 0 10px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+.diagnosis-block p {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.diagnosis-block ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.65;
+}
+.diagnosis-block code {
+  white-space: normal;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+.matrix-section { margin-top: 18px; }
 .trials { display: grid; gap: 16px; margin: 20px 0 16px; }
 .trial {
   padding: 16px;
@@ -239,6 +438,7 @@ watch(() => props.taskId, load)
   .agent-calibration { padding: 16px; }
   .trial-head, .chart-title { flex-direction: column; }
   .metrics { grid-template-columns: 1fr; }
+  .diagnosis-grid { grid-template-columns: 1fr; }
   .reasons li { flex-direction: column; gap: 2px; }
 }
 </style>

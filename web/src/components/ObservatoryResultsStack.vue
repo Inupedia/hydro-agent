@@ -38,7 +38,12 @@ defineExpose({ forecastSurface, tuningMount })
       </template>
       <SchemeComparisonMetricsChart :comparison="comparison" :gate="results?.gate" />
     </section>
-    <AgentCalibrationPanel v-if="taskId" :task-id="taskId" :comparison="results?.calibration_hydrograph" />
+    <AgentCalibrationPanel
+      v-if="taskId"
+      :task-id="taskId"
+      :comparison="results?.calibration_hydrograph"
+      :diagnosis="results?.diagnosis"
+    />
     <ResearchEvidencePanel v-if="taskId" :task-id="taskId" />
     <div v-if="showTuning" ref="tuningMount" class="tuning-mount">
       <ParamTuningPanel

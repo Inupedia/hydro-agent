@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 
+from hydro_agent.evaluation.diagnosis_packet import build_diagnosis_packet
 from hydro_agent.evaluation.evidence import HydrologicEvidenceBuilder
 from hydro_agent.evaluation.evidence_summary import annual_stability_evidence
 from hydro_agent.models.diagnosis_defaults import (
@@ -69,6 +70,13 @@ def build_calibration_evidence(
     dates = [day for day in required_dates if day >= calibration_start]
     offset = warmup_days
     simulated = [float(value) for value in full_sim[offset : offset + len(dates)]]
+    precipitation: list[float | None] | None = None
+    if "precipitation" in required:
+        precipitation_index = required.index("precipitation")
+        precipitation = [
+            float(value)
+            for value in forcing[offset : offset + len(dates), precipitation_index]
+        ]
     observed: list[float | None] = []
     quality_mask: list[bool] = []
     for day in dates:
@@ -81,9 +89,11 @@ def build_calibration_evidence(
         dates=dates,
         observed=observed,
         simulated=simulated,
+        precipitation=precipitation,
         quality_mask=quality_mask,
     )
     payload = bundle.as_dict()
+    payload["diagnosis_packet"] = build_diagnosis_packet(bundle).model_dump(mode="json")
     payload["annual_stability"] = asdict(annual_stability_evidence(bundle))
     payload["provenance"] = {
         "calibration_start": calibration_start.isoformat(),
@@ -229,5 +239,8 @@ def apply_calibration_evidence_to_diagnosis(
         )
     )
     result["notes"] = notes
+    packet = calibration_evidence.get("diagnosis_packet")
+    if isinstance(packet, dict):
+        result["diagnosis_packet"] = packet
     result["calibration_evidence"] = calibration_evidence
     return result
