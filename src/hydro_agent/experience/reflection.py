@@ -121,6 +121,14 @@ def build_hypothesis_outcome_cases(
             )
             pending = None
 
+    if pending is not None:
+        cases.append(
+            HypothesisOutcomeCase(
+                **pending,
+                hypothesis_status="inconclusive",  # type: ignore[arg-type]
+            )
+        )
+
     return tuple(cases)
 
 
