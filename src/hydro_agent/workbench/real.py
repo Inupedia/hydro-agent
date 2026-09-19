@@ -131,6 +131,7 @@ class RealWorkbenchKernel:
             source=self.source,
             policy=POLICY,
             task_configs=self._task_configs,
+            research_policy=self.gate_policy,
         )
 
     def scheme_config(self) -> dict:
