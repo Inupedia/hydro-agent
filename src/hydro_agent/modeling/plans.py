@@ -236,6 +236,7 @@ class ModelPlanService:
             if boundary_hash != p['boundary_hash']:
                 raise ValueError('边界版本已变化，请重新查看地图')
             self._verify_files(plan_id, p['review_files'])
+            self._verify_files(plan_id, p.get('spatial_evidence_files') or {})
             self._stage(plan_id, 'M03_REVIEW_BOUNDARY', 'completed', '已确认当前出口、边界及面积')
             self._update(plan_id, status='queued', boundary_reviewed=True)
             self.pool.submit(self._build, plan_id, True)
@@ -319,6 +320,7 @@ class ModelPlanService:
             files = {str(f.relative_to(root)): digest(f) for folder in ('case', 'normalized')
                      for f in (root/folder).rglob('*') if f.is_file()}
             files['scheme.json'] = digest(root/'scheme.json')
+            files.update(p.get('spatial_evidence_files') or {})
             content_hash = hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
             self._stage(plan_id, 'M05_VALIDATE_PLAN', 'completed')
             self._update(plan_id, status='ready', files=files, content_hash=content_hash)
@@ -502,7 +504,9 @@ class ModelPlanService:
         yres = abs(float(transform.e))
         if xres <= 0 or yres <= 0:
             raise ValueError('DEM 分辨率无效')
-        grad_y, grad_x = np.gradient(dem, yres, xres)
+        dem_for_slope = dem.copy()
+        dem_for_slope[~valid] = np.nan
+        grad_y, grad_x = np.gradient(dem_for_slope, yres, xres)
         slope_grid = np.degrees(np.arctan(np.hypot(grad_x, grad_y)))
         slope_mask = valid & np.isfinite(slope_grid)
         slope = slope_grid[slope_mask].astype(float).tolist()
@@ -640,6 +644,15 @@ class ModelPlanService:
         write_json(root / 'unit-candidates.json', {'items': candidate_payload})
         write_json(root / 'unit-candidate-layers.json', {'items': layer_payload})
         write_json(root / 'unit-recommendation.json', recommendation_payload)
+        spatial_evidence_files = {
+            name: digest(root / name)
+            for name in (
+                'spatial-profile.json',
+                'unit-candidates.json',
+                'unit-candidate-layers.json',
+                'unit-recommendation.json',
+            )
+        }
         return self._update(
             plan_id,
             spatial_profile_status=spatial_status,
@@ -648,6 +661,7 @@ class ModelPlanService:
             unit_candidate_layers=layer_payload,
             unit_recommendation=recommendation_payload,
             unit_recommendation_error=recommendation_error,
+            spatial_evidence_files=spatial_evidence_files,
         )
 
     def _verify_files(self, plan_id, files):
