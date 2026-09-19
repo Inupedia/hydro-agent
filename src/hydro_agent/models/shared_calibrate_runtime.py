@@ -25,6 +25,10 @@ from hydro_agent.models.calibration_state import (
 )
 from hydro_agent.models.registry import default_model_registry
 from hydro_agent.models.workspace_io import load_workspace_forcing
+from hydro_agent.optimization.candidates import (
+    BehavioralCandidate,
+    select_behavioral_candidates,
+)
 from hydro_agent.optimization.dds import optimize_dds
 from hydro_agent.optimization.directional_probe import run_directional_probe
 from hydro_agent.optimization.morris import screen_morris
@@ -300,6 +304,7 @@ def run(workspace: Path) -> dict:
 
         return {
             "objective_value": score,
+            "window": "calibration",
             "peak_timing_lag_steps": (
                 event_median("peak_timing_lag_steps")
                 if events
@@ -575,6 +580,40 @@ def run(workspace: Path) -> dict:
         raise ValueError("best calibration candidate has non-finite objective")
     best_score = float(cached_best_score)
 
+    behavioral_raw: list[dict[str, object]] = []
+    for _key, (cached_score, _full_values, cached_parameters) in cache.items():
+        if cached_score is None or not np.isfinite(float(cached_score)):
+            continue
+        behavioral_raw.append(
+            {
+                "objective_value": float(cached_score),
+                "parameters": dict(cached_parameters),
+            }
+        )
+    behavioral = select_behavioral_candidates(
+        candidates=behavioral_raw,
+        objective_name=objective_metric if "objective_metric" in locals() else (
+            "kge" if objective == "composite" else objective
+        ),
+        parameter_bounds={name: tuple(float(v) for v in ranges[name]) for name in all_names},
+        max_candidates=8,
+        objective_tolerance=0.02,
+        min_parameter_distance=0.05,
+    )
+    enriched_items: list[BehavioralCandidate] = []
+    for item in behavioral.items:
+        tunable = {name: item.parameters[name] for name in tunable_names}
+        process = evaluate_process(tunable)
+        process_evidence = {
+            key: value
+            for key, value in process.items()
+            if key != "objective_value"
+        }
+        enriched_items.append(
+            item.model_copy(update={"process_evidence": process_evidence})
+        )
+    behavioral = behavioral.model_copy(update={"items": tuple(enriched_items)})
+
     baseline_tunable = _canonical_tunable(initial_tunable, bounds)
     if callable(canonicalize):
         baseline_tunable = canonicalize(baseline_tunable)
@@ -637,6 +676,7 @@ def run(workspace: Path) -> dict:
         "direction_verification_evidence_ids": list(direction_verification_evidence_ids),
         "direction_probe": direction_probe_payload,
         "direction_probe_model_evaluations": direction_probe_model_evaluations,
+        "behavioral_candidates": behavioral.model_dump(mode="json"),
         "evaluation_budget": evaluation_budget,
         "screening_model_evaluations": screening_model_evaluations,
         "optimizer_budget": optimizer_budget,
@@ -677,6 +717,7 @@ def run(workspace: Path) -> dict:
         "direction_verification_evidence_ids": list(direction_verification_evidence_ids),
         "direction_probe": direction_probe_payload,
         "direction_probe_model_evaluations": direction_probe_model_evaluations,
+        "behavioral_candidates": behavioral.model_dump(mode="json"),
         "objective_value": float(best_score),
         "candidate_parameters": best_parameters,
         "optimization_trace": trace,
