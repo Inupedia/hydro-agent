@@ -277,6 +277,7 @@ def test_model_plan_persists_spatial_profile_and_unit_candidates_before_review(p
     assert (root / "spatial-profile.json").is_file()
     assert (root / "unit-candidates.json").is_file()
     assert (root / "unit-candidate-layers.json").is_file()
+    assert (root / "unit-recommendation.json").is_file()
     saved = plans.get(plan_id)
     assert saved["unit_candidates"]
     assert saved["spatial_profile_status"] == "partial"
@@ -284,6 +285,10 @@ def test_model_plan_persists_spatial_profile_and_unit_candidates_before_review(p
     assert saved["spatial_profile"]["precipitation"]["status"] == "unknown"
     assert saved["spatial_profile"]["land_cover"]["status"] == "unknown"
     assert saved["spatial_profile"]["soil"]["status"] == "unknown"
+    assert saved["unit_recommendation"]["candidate_id"] in {
+        item["candidate_id"] for item in saved["unit_candidates"]
+    }
+    assert saved["unit_recommendation"]["source"] == "deterministic_fallback"
     assert result["spatial_profile_status"] == "partial"
     artifact = json.loads((root / "unit-candidates.json").read_text(encoding="utf-8"))
     assert artifact["items"] == saved["unit_candidates"]
