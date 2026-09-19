@@ -484,6 +484,20 @@ class ModelPlanService:
         if missing:
             raise ValueError('空间画像缺少 M02 可信产物：' + ', '.join(missing))
 
+        candidate_units_path = units_path
+        candidate_topology_path = topology_path
+        topology_geometry_source = 'units.geojson'
+        archived = gis / 'original_subbasins'
+        archived_sources = (
+            archived / 'units.csv',
+            archived / 'unit_topology.json',
+            archived / 'units.geojson',
+        )
+        if all(path.is_file() for path in archived_sources):
+            candidate_units_path = archived / 'units.csv'
+            candidate_topology_path = archived / 'unit_topology.json'
+            topology_geometry_source = 'original_subbasins/units.geojson'
+
         with rasterio.open(dem_path) as src:
             dem = src.read(1).astype(float)
             transform = src.transform
@@ -511,11 +525,11 @@ class ModelPlanService:
         slope_mask = valid & np.isfinite(slope_grid)
         slope = slope_grid[slope_mask].astype(float).tolist()
 
-        with units_path.open(encoding='utf-8', newline='') as handle:
+        with candidate_units_path.open(encoding='utf-8', newline='') as handle:
             unit_rows = list(csv.DictReader(handle))
         if not unit_rows:
             raise ValueError('空间画像未找到计算单元')
-        topology_rows = json.loads(topology_path.read_text(encoding='utf-8'))
+        topology_rows = json.loads(candidate_topology_path.read_text(encoding='utf-8'))
         if not isinstance(topology_rows, list):
             raise ValueError('unit_topology.json 必须为列表')
         topology_by_id = {
@@ -592,7 +606,10 @@ class ModelPlanService:
 
         profile_payload = profile.model_dump(mode='json')
         candidate_payload = [item.model_dump(mode='json') for item in candidates]
-        layer_payload = build_unit_candidate_review_payload(candidate_payload)
+        layer_payload = build_unit_candidate_review_payload(
+            candidate_payload,
+            topology_geometry_source=topology_geometry_source,
+        )
         recommendation_error = None
         if self.unit_recommender is not None:
             try:
