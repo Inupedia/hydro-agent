@@ -16,6 +16,7 @@ from typing import Any, Literal
 from pydantic import Field
 
 from hydro_agent.execution.contracts import FrozenModel
+from hydro_agent.optimization.contracts import DirectionalProbeResult
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 from hydro_agent.skills.expert import ExpertPriorEngine
 from hydro_agent.skills.governance import KnowledgeQueryContext
@@ -44,6 +45,17 @@ OptimizerName = Literal["dds", "sce-ua", "random-search", "manual"]
 SearchScope = Literal["global", "local"]
 SearchAdjustment = Literal["keep", "broaden_within_absolute_bounds", "hold_absolute_bounds"]
 HypothesisStatus = Literal["supported", "refuted", "inconclusive", "adopted_unqualified"]
+AdjustmentDirection = Literal[
+    "increase_water_loss",
+    "decrease_water_loss",
+    "increase_runoff_response",
+    "decrease_runoff_response",
+    "accelerate_routing",
+    "delay_routing",
+    "increase_fast_component",
+    "increase_slow_component",
+    "unknown",
+]
 
 
 class EvidenceInterpretation(FrozenModel):
@@ -68,6 +80,11 @@ class DiagnosisHypothesis(FrozenModel):
     supporting_evidence_ids: tuple[str, ...] = ()
     contradictory_evidence_ids: tuple[str, ...] = ()
     falsification_conditions: tuple[str, ...] = ()
+    diagnostic_signature: tuple[str, ...] = ()
+    direction: AdjustmentDirection = "unknown"
+    direction_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    direction_evidence_ids: tuple[str, ...] = ()
+    verification_required: bool = True
     recommended_strategy_id: str | None = None
     recommended_objective: ObjectiveName | None = None
 
@@ -112,6 +129,11 @@ class CalibrationPlan(FrozenModel):
     # Source-addressable upstream contracts for audit / Skill invocation ledger.
     evidence_interpretation: EvidenceInterpretation | None = None
     diagnosis_hypothesis: DiagnosisHypothesis | None = None
+    direction_verification_status: Literal[
+        "not_required", "supported", "refuted", "inconclusive"
+    ] = "not_required"
+    direction_evidence_ids: tuple[str, ...] = ()
+    next_step: Literal["optimize", "re-diagnose"] = "optimize"
 
     @property
     def tunes_raw_parameter_vector(self) -> bool:
@@ -310,6 +332,98 @@ def interpret_evidence(diagnosis: dict[str, Any] | Any) -> EvidenceInterpretatio
     )
 
 
+def _packet_direction(
+    evidence: Any,
+    *,
+    groups: tuple[str, ...],
+    confidence: float,
+) -> tuple[
+    tuple[str, ...],
+    AdjustmentDirection,
+    float,
+    tuple[str, ...],
+    tuple[str, ...],
+]:
+    """Infer process-level adjustment direction from deterministic P0 evidence.
+
+    This function never proposes raw parameter values. It only recognizes
+    repeated process signatures that must be verified by deterministic probes
+    before numerical search can use them.
+    """
+
+    events = tuple(
+        event
+        for event in getattr(evidence, "flood_events", ())
+        if getattr(event, "status", None) in {None, "available"}
+    )
+    signature: list[str] = []
+    supporting: list[str] = []
+    contradictory: list[str] = []
+    direction: AdjustmentDirection = "unknown"
+    agreement = 0.0
+
+    comparable = [
+        event
+        for event in events
+        if event.timing_lag_steps is not None and event.volume_relative_error is not None
+    ]
+    neutral = [
+        event for event in comparable if abs(float(event.volume_relative_error)) <= 0.05
+    ]
+    late = [event for event in neutral if float(event.timing_lag_steps) >= 1.0]
+    early = [event for event in neutral if float(event.timing_lag_steps) <= -1.0]
+
+    if "routing" in groups and len(late) >= 2:
+        direction = "accelerate_routing"
+        supporting = [event.event_id for event in late if event.event_id]
+        contradictory = [event.event_id for event in early if event.event_id]
+        agreement = len(late) / max(1, len(neutral))
+        signature.extend(("water_balance_near_neutral", "repeated_late_peaks"))
+    elif "routing" in groups and len(early) >= 2:
+        direction = "delay_routing"
+        supporting = [event.event_id for event in early if event.event_id]
+        contradictory = [event.event_id for event in late if event.event_id]
+        agreement = len(early) / max(1, len(neutral))
+        signature.extend(("water_balance_near_neutral", "repeated_early_peaks"))
+
+    pbias = getattr(getattr(evidence, "water_balance", None), "pbias_percent", None)
+    if pbias is None:
+        pbias = getattr(getattr(evidence, "overall", None), "pbias_percent", None)
+    timing_values = [
+        abs(float(event.timing_lag_steps))
+        for event in events
+        if event.timing_lag_steps is not None
+    ]
+    timing_acceptable = bool(timing_values) and max(timing_values) < 1.0
+
+    if direction == "unknown" and pbias is not None and abs(float(pbias)) >= 10.0:
+        if timing_acceptable or not timing_values:
+            if any(group in groups for group in ("evap", "runoff", "production")):
+                direction = (
+                    "increase_water_loss" if float(pbias) > 0.0 else "decrease_water_loss"
+                )
+                signature.append("water_balance_bias_dominant")
+                supporting = [
+                    event.event_id
+                    for event in events
+                    if event.event_id and event.volume_relative_error is not None
+                ]
+                agreement = 1.0
+
+    direction_confidence = (
+        max(0.0, min(1.0, confidence * agreement))
+        if direction != "unknown"
+        else 0.0
+    )
+    return (
+        tuple(dict.fromkeys(signature)),
+        direction,
+        direction_confidence,
+        tuple(dict.fromkeys(supporting)),
+        tuple(dict.fromkeys(contradictory)),
+    )
+
+
 def form_diagnosis_hypothesis(
     interpretation: EvidenceInterpretation,
     diagnosis: dict[str, Any] | Any,
@@ -367,6 +481,34 @@ def form_diagnosis_hypothesis(
         else None
     )
 
+    (
+        diagnostic_signature,
+        direction,
+        direction_confidence,
+        direction_evidence_ids,
+        direction_contradictions,
+    ) = _packet_direction(evidence, groups=groups, confidence=confidence)
+    contradictory_ids = tuple(
+        dict.fromkeys(
+            (
+                *interpretation.contradictory_evidence_ids,
+                *direction_contradictions,
+            )
+        )
+    )
+    if direction == "accelerate_routing":
+        falsification.append(
+            "若 routing 局部扰动不能缩短峰现滞后且保持洪量，则 accelerate_routing 假设不成立"
+        )
+    elif direction == "delay_routing":
+        falsification.append(
+            "若 routing 局部扰动不能减小提前峰现且保持洪量，则 delay_routing 假设不成立"
+        )
+    elif direction in {"increase_water_loss", "decrease_water_loss"}:
+        falsification.append(
+            "若水量相关参数局部扰动不能减小系统水量偏差，则当前水量方向假设不成立"
+        )
+
     return DiagnosisHypothesis(
         hypothesis_id=primary_id,
         confidence=confidence,
@@ -374,8 +516,13 @@ def form_diagnosis_hypothesis(
         process_layer=layer,
         parameter_groups=groups,  # type: ignore[arg-type]
         supporting_evidence_ids=interpretation.supporting_evidence_ids,
-        contradictory_evidence_ids=interpretation.contradictory_evidence_ids,
-        falsification_conditions=tuple(falsification),
+        contradictory_evidence_ids=contradictory_ids,
+        falsification_conditions=tuple(dict.fromkeys(falsification)),
+        diagnostic_signature=diagnostic_signature,
+        direction=direction,
+        direction_confidence=direction_confidence,
+        direction_evidence_ids=direction_evidence_ids,
+        verification_required=True,
         recommended_strategy_id=strategy_id,
         recommended_objective=objective,
     )
@@ -390,6 +537,7 @@ def plan_from_hypothesis(
     expert_priors: ExpertPriorEngine | None = None,
     campaign_objective: ObjectiveName | None = None,
     knowledge_context: KnowledgeQueryContext | None = None,
+    direction_verification: DirectionalProbeResult | None = None,
 ) -> CalibrationPlan:
     """Compile a legal ``CalibrationPlan`` from a typed diagnosis hypothesis."""
 
@@ -470,6 +618,19 @@ def plan_from_hypothesis(
         }
     )
     reading = interpretation or interpret_evidence(diagnosis)
+    verification_status: Literal[
+        "not_required", "supported", "refuted", "inconclusive"
+    ] = "not_required"
+    direction_evidence_ids: tuple[str, ...] = ()
+    next_step: Literal["optimize", "re-diagnose"] = "optimize"
+    if direction_verification is not None:
+        if direction_verification.requested_direction != refined.direction:
+            raise ValueError("direction verification does not match hypothesis direction")
+        verification_status = direction_verification.status
+        direction_evidence_ids = tuple(direction_verification.evidence_ids)
+        if direction_verification.status in {"refuted", "inconclusive"}:
+            next_step = "re-diagnose"
+
     return CalibrationPlan(
         hypothesis=refined.as_calibration_hypothesis(),
         strategy_id=strategy_id,
@@ -491,6 +652,9 @@ def plan_from_hypothesis(
         ),
         evidence_interpretation=reading,
         diagnosis_hypothesis=refined,
+        direction_verification_status=verification_status,
+        direction_evidence_ids=direction_evidence_ids,
+        next_step=next_step,
     )
 
 

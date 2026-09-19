@@ -107,6 +107,13 @@ def test_dds_calibration_is_deterministic(calibration_workspace):
     assert first["objective_value"] == second["objective_value"]
     assert first["model_version"] == "teacher-xaj-v6-20260908"
     assert first["optimization_trace"]
+    behavioral = first["behavioral_candidates"]
+    assert behavioral["objective_name"] == "nse"
+    assert 1 <= len(behavioral["items"]) <= 8
+    assert behavioral["items"][0]["objective_value"] == pytest.approx(first["objective_value"])
+    assert behavioral["items"][0]["process_evidence"]["window"] == "calibration"
+    assert "flood_events" in behavioral["items"][0]["process_evidence"]
+    assert behavioral == second["behavioral_candidates"]
     csv_path = calibration_workspace.parent / "a" / "output" / "calibration-comparison.csv"
     assert csv_path.is_file()
     header = csv_path.read_text(encoding="utf-8").splitlines()[0]
@@ -132,3 +139,24 @@ def test_runtime_respects_remaining_campaign_evaluation_budget(calibration_works
     assert result["evaluation_budget"] == 34
     assert result["requested_candidates"] == 34
     assert 0 < result["model_evaluations"] <= 34
+
+
+
+def test_xaj_runtime_verifies_requested_direction_before_optimizer(calibration_workspace):
+    manifest = calibration_workspace / "execution-manifest.json"
+    request = json.loads(manifest.read_text(encoding="utf-8"))
+    request["parameters"]["adjustment_direction"] = "accelerate_routing"
+    request["parameters"]["direction_evidence_ids"] = ["event-001", "event-002"]
+    request["parameters"]["direction_verification_required"] = True
+    manifest.write_text(json.dumps(request), encoding="utf-8")
+
+    result = run_calibration_copy(calibration_workspace, "direction-gate")
+
+    assert result["direction_verification_status"] in {
+        "supported",
+        "refuted",
+        "inconclusive",
+    }
+    assert result["direction_probe"]["requested_direction"] == "accelerate_routing"
+    if result["direction_verification_status"] != "supported":
+        assert result["optimizer_calls"] == 0

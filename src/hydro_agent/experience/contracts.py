@@ -19,6 +19,21 @@ ExperienceEvolutionEventType = Literal[
 ]
 ExperiencePattern: TypeAlias = dict[str, JsonValue]
 ExperienceDecision: TypeAlias = dict[str, JsonValue]
+HypothesisOutcomeStatus = Literal["supported", "refuted", "inconclusive"]
+DirectionVerificationStatus = Literal["not_required", "supported", "refuted", "inconclusive"]
+
+
+class HypothesisOutcomeCase(FrozenModel):
+    """One persisted calibration-hypothesis outcome, not yet a reusable rule."""
+
+    task_id: str
+    hypothesis_id: str = Field(min_length=1)
+    hypothesis_status: HypothesisOutcomeStatus
+    diagnostic_signature: tuple[str, ...] = ()
+    direction: str = "unknown"
+    direction_verification_status: DirectionVerificationStatus = "not_required"
+    evidence_refs: tuple[str, ...] = ()
+    maturity: Literal["case"] = "case"
 
 
 class ExperienceScope(FrozenModel):

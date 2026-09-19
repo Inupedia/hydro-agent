@@ -44,19 +44,37 @@ class EvidenceExperienceReflectionProvider:
         resolve = _latest_action(reflection_input.evidence, "A07_RESOLVE")
         optimize = _latest_decision(reflection_input.decisions, "A05_OPTIMIZE")
         optimize_evidence = _latest_action(reflection_input.evidence, "A05_OPTIMIZE")
-        if diagnosis is None or resolve is None:
+        p1_case = (
+            reflection_input.hypothesis_cases[-1]
+            if reflection_input.hypothesis_cases
+            else None
+        )
+        if diagnosis is None or (resolve is None and p1_case is None):
             return ()
 
-        outcome = str(resolve.get("status") or "").upper()
-        if outcome == "ACCEPT":
-            positive = True
-        elif outcome in {"KEEP", "ROLLBACK", "FAILED", "BLOCKED"}:
-            positive = False
+        if p1_case is not None:
+            outcome = p1_case.hypothesis_status.upper()
+            if p1_case.hypothesis_status == "supported":
+                positive = True
+            elif p1_case.hypothesis_status == "refuted":
+                positive = False
+            else:
+                return ()
         else:
-            return ()
+            outcome = str(resolve.get("status") or "").upper()
+            if outcome == "ACCEPT":
+                positive = True
+            elif outcome in {"KEEP", "ROLLBACK", "FAILED", "BLOCKED"}:
+                positive = False
+            else:
+                return ()
 
         gates = dict(diagnosis.get("gates") or {})
-        hypothesis = str(gates.get("hypothesis") or "UNKNOWN").strip() or "UNKNOWN"
+        hypothesis = (
+            p1_case.hypothesis_id
+            if p1_case is not None
+            else (str(gates.get("hypothesis") or "UNKNOWN").strip() or "UNKNOWN")
+        )
         optimize_gates = dict((optimize_evidence or {}).get("gates") or {})
         strategy_id = str(
             optimize_gates.get("strategy_id")
@@ -114,7 +132,7 @@ class EvidenceExperienceReflectionProvider:
                     ),
                 )
             )
-        else:
+        elif p1_case is None:
             decision = (
                 {
                     "prefer_strategy_id": strategy_id,

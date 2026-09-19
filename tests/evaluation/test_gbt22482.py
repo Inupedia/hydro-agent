@@ -9,6 +9,7 @@ from hydro_agent.evaluation.gbt22482 import (
     grade_meets_min,
     peak_flow_permitted,
     resolve_basin_class,
+    to_standard_evaluation,
 )
 from hydro_agent.graphs.gbt_accuracy import build_gbt_accuracy_graph, run_gbt_accuracy
 from hydro_agent.optimization.contracts import EvaluationBundle, GatePolicy, LeadMetrics
@@ -159,3 +160,15 @@ def test_high_nse_can_be_adopted_without_bypassing_standard_qualification():
     assert decision.qualification_status == "NOT_EVALUATED"
     assert decision.scheme_grade is None
     assert "missing_standard_evaluation" in decision.reasons
+
+
+
+def test_gbt_report_adapts_to_independent_standard_profile():
+    report = build_gbt_accuracy_report(_good_series(), _cfg())
+    standard = to_standard_evaluation(report)
+
+    assert standard.profile_id == "operational_gbt"
+    assert standard.standard_id == "GB/T 22482"
+    assert standard.status == "evaluated"
+    assert standard.grade == report.scheme_grade
+    assert standard.summary == report.summary

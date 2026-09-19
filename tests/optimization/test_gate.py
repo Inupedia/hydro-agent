@@ -4,7 +4,7 @@ from hydro_agent.optimization.contracts import (
     GatePolicy,
     LeadMetrics,
 )
-from hydro_agent.optimization.gate import GateEvaluator
+from hydro_agent.optimization.gate import GateEvaluator, ResearchGateEvaluator
 
 
 def test_calibration_strategy_has_hard_budget_and_seed():
@@ -106,3 +106,57 @@ def test_large_relative_gain_can_be_adopted_while_still_unqualified():
     assert decision.adoption_status == "ADOPT"
     assert decision.qualification_status == "UNQUALIFIED"
     assert "insufficient_absolute_skill" in decision.qualification_reasons
+
+
+
+def test_missing_standard_evaluation_does_not_block_research_adoption():
+    base = _bundle("scheme-base", [0.30, 0.30, 0.30], [1.0, 1.0, 1.0])
+    candidate = _bundle("scheme-cand", [0.60, 0.60, 0.60], [0.9, 0.9, 0.9])
+    policy = GatePolicy(
+        min_primary_delta=0.01,
+        max_single_lead_drop=0.02,
+        max_high_flow_mae_relative_increase=0.05,
+        min_candidate_primary=0.0,
+    )
+
+    decision = ResearchGateEvaluator().evaluate(base, candidate, policy=policy)
+
+    assert decision.adoption_status == "ADOPT"
+    assert decision.research_qualification == "QUALIFIED"
+    assert "missing_standard_evaluation" not in decision.reasons
+
+
+def test_research_gate_reports_event_guardrails_without_composite_score():
+    base = _bundle("scheme-base", [0.40, 0.40, 0.40], [1.0, 1.0, 1.0])
+    candidate = _bundle("scheme-cand", [0.60, 0.60, 0.60], [1.0, 1.0, 1.0])
+    policy = GatePolicy(
+        min_primary_delta=0.01,
+        max_single_lead_drop=0.02,
+        max_high_flow_mae_relative_increase=0.05,
+        min_candidate_primary=0.0,
+        max_event_peak_error_increase=0.05,
+        max_event_timing_error_increase=1.0,
+        max_event_volume_error_increase=0.05,
+        max_materially_worsened_event_fraction=0.40,
+    )
+    comparison = {
+        "base": [
+            {"event_id": "e1", "peak_relative_error": 0.10, "timing_lag_steps": 1.0, "volume_relative_error": 0.02},
+            {"event_id": "e2", "peak_relative_error": -0.10, "timing_lag_steps": 1.0, "volume_relative_error": -0.02},
+        ],
+        "candidate": [
+            {"event_id": "e1", "peak_relative_error": 0.25, "timing_lag_steps": 3.0, "volume_relative_error": 0.12},
+            {"event_id": "e2", "peak_relative_error": -0.22, "timing_lag_steps": 3.0, "volume_relative_error": -0.11},
+        ],
+    }
+
+    decision = ResearchGateEvaluator().evaluate(
+        base, candidate, policy=policy, event_comparison=comparison
+    )
+
+    assert decision.status == "ROLLBACK"
+    assert "event_peak_guardrail" in decision.event_guardrail_reasons
+    assert "event_timing_guardrail" in decision.event_guardrail_reasons
+    assert "event_volume_guardrail" in decision.event_guardrail_reasons
+    assert "materially_worsened_event_fraction_guardrail" in decision.event_guardrail_reasons
+    assert not hasattr(decision, "composite_score")

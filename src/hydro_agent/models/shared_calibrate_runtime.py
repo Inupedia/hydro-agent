@@ -7,6 +7,7 @@ import csv
 import json
 from datetime import date
 from pathlib import Path
+from statistics import median
 
 from hydro_agent.evaluation.hydrograph import build_comparison, write_bundle
 from hydro_agent.evaluation.metrics import kge, nse
@@ -23,10 +24,16 @@ from hydro_agent.models.calibration_state import (
 )
 from hydro_agent.models.registry import default_model_registry
 from hydro_agent.models.workspace_io import load_workspace_forcing
+from hydro_agent.optimization.candidates import (
+    BehavioralCandidate,
+    select_behavioral_candidates,
+)
 from hydro_agent.optimization.dds import optimize_dds
+from hydro_agent.optimization.directional_probe import run_directional_probe
 from hydro_agent.optimization.morris import screen_morris
 from hydro_agent.optimization.sceua import optimize_sceua
 from hydro_agent.optimization.search_evidence import analyze_search_boundaries
+from hydro_agent.services.continuous_simulation import ContinuousSimulationEvidenceService
 
 
 def _load_streamflow(workspace: Path) -> dict[date, float]:
@@ -256,6 +263,72 @@ def run(workspace: Path) -> dict:
         model_evaluations = len(cache)
         return persisted_score
 
+    def evaluate_process(values: dict[str, float]) -> dict[str, object]:
+        score = evaluate(values)
+        tuned = _canonical_tunable(values, bounds)
+        canonicalize = getattr(plugin, "canonicalize_parameters", None)
+        if callable(canonicalize):
+            tuned = canonicalize(tuned)
+        merged = dict(base_parameters)
+        merged.update(tuned)
+        if callable(canonicalize):
+            merged = canonicalize(merged)
+        key = tuple((name, float(merged[name])) for name in all_names)
+        cached = cache.get(key)
+        if cached is None:
+            return {"objective_value": score}
+        _cached_score, full_values, _parameters = cached
+        observed = [streamflow.get(day) for day in dates]
+        rain = [precipitation.get(day) for day in dates] if precipitation is not None else None
+        try:
+            process = ContinuousSimulationEvidenceService().evaluate(
+                window="calibration",
+                dates=dates,
+                observed=observed,
+                simulated=full_values,
+                precipitation=rain,
+                discard_prefix_days=warmup_days,
+            )
+        except ValueError:
+            return {"objective_value": score}
+        packet = process.diagnosis_packet
+        events = tuple(packet.flood_events) if packet is not None else ()
+
+        def event_median(metric: str) -> float | None:
+            values = [
+                float(event.metrics[metric])
+                for event in events
+                if metric in event.metrics
+            ]
+            return float(median(values)) if values else None
+
+        return {
+            "objective_value": score,
+            "window": "calibration",
+            "peak_timing_lag_steps": (
+                event_median("peak_timing_lag_steps")
+                if events
+                else float(process.peak_timing_lag_steps)
+            ),
+            "volume_relative_error": (
+                event_median("volume_relative_error")
+                if events
+                else float(process.pbias_percent) / 100.0
+            ),
+            "peak_relative_error": (
+                event_median("peak_relative_error")
+                if events
+                else float(process.peak_ratio) - 1.0
+            ),
+            "rising_limb_mae": event_median("rising_limb_mae"),
+            "recession_mae": event_median("recession_mae"),
+            "high_flow_mae": float(process.high_flow_mae),
+            "evidence_ids": tuple(event.event_id for event in events),
+            "diagnosis_packet": (
+                packet.model_dump(mode="json") if packet is not None else None
+            ),
+        }
+
     initial_tunable = {name: base_parameters[name] for name in tunable_names}
     evaluate(initial_tunable)
     active_names = tunable_names
@@ -321,7 +394,115 @@ def run(workspace: Path) -> dict:
 
     active_bounds = {name: bounds[name] for name in active_names}
     initial_active = {name: base_parameters[name] for name in active_names}
-    optimizer_budget = evaluation_budget - screening_model_evaluations
+
+    requested_direction = str(request.parameters.get("adjustment_direction") or "unknown")
+    verification_required = bool(request.parameters.get("direction_verification_required"))
+    direction_verification_status = "not_required"
+    direction_verification_evidence_ids = tuple(
+        str(item) for item in request.parameters.get("direction_evidence_ids") or ()
+    )
+    direction_probe_payload: dict[str, object] | None = None
+    direction_probe_model_evaluations = 0
+    if verification_required and requested_direction != "unknown":
+        before_probe = len(cache)
+        direction_probe = run_directional_probe(
+            baseline=initial_active,
+            bounds=active_bounds,
+            parameters=active_names,
+            relative_step=0.10,
+            evaluate=evaluate_process,
+            requested_direction=requested_direction,
+        )
+        direction_probe_model_evaluations = max(0, len(cache) - before_probe)
+        direction_verification_status = direction_probe.status
+        if direction_probe.evidence_ids:
+            direction_verification_evidence_ids = direction_probe.evidence_ids
+        direction_probe_payload = direction_probe.model_dump(mode="json")
+        raw_sensitivities = sensitivity_evidence.get("sensitivities")
+        if isinstance(raw_sensitivities, list):
+            sensitivity_evidence["direction_parameter_evidence"] = [
+                {
+                    "parameter": str(item.get("name") or ""),
+                    "mu_star": item.get("mu_star"),
+                    "sigma": item.get("sigma"),
+                    "effects_count": int(item.get("valid_effects") or 0),
+                    "direction_probe_status": direction_probe.status,
+                }
+                for item in raw_sensitivities
+                if isinstance(item, dict)
+            ]
+
+        if direction_probe.status in {"refuted", "inconclusive"}:
+            baseline_score = evaluate(initial_active)
+            result = {
+                "model_id": request.model_id,
+                "scheme_id": request.scheme_id,
+                "data_snapshot_id": request.data_snapshot_id,
+                "strategy_id": strategy.strategy_id,
+                "optimizer": strategy.optimizer,
+                "evaluation_budget": evaluation_budget,
+                "optimizer_budget": 0,
+                "optimizer_calls": 0,
+                "screening_score_calls": screening_score_calls,
+                "screening_model_evaluations": screening_model_evaluations,
+                "direction_probe_model_evaluations": direction_probe_model_evaluations,
+                "model_evaluations": len(cache),
+                "restored_model_evaluations": restored_model_evaluations,
+                "objective": objective,
+                "objective_metric": "kge" if objective == "composite" else objective,
+                "param_groups": list(groups),
+                "parameter_universe": list(tunable_names),
+                "active_parameters": list(active_names),
+                "screened_out_parameters": [
+                    name for name in tunable_names if name not in set(active_names)
+                ],
+                "sensitivity_method": strategy.sensitivity_method,
+                "sensitivity_evidence": sensitivity_evidence,
+                "direction_verification_status": direction_probe.status,
+                "direction_verification_evidence_ids": list(direction_verification_evidence_ids),
+                "direction_probe": direction_probe_payload,
+                "objective_value": float(baseline_score) if baseline_score is not None else -1e308,
+                "candidate_parameters": dict(base_parameters),
+                "optimization_trace": [],
+                "search_bounds": {name: list(bound) for name, bound in active_bounds.items()},
+                "screening_bounds": {name: list(bound) for name, bound in bounds.items()},
+                "absolute_bounds": {
+                    name: list(tuple(float(v) for v in ranges[name])) for name in active_names
+                },
+                "search_boundary_evidence": {
+                    "local_hits": [],
+                    "absolute_hits": [],
+                },
+                "calibrated": False,
+            }
+            candidate_payload = {
+                "model_id": request.model_id,
+                "warmup_days": warmup_days,
+                "parameters": dict(base_parameters),
+                "model_version": model_version,
+                "base_scheme_id": request.scheme_id,
+                "strategy_id": strategy.strategy_id,
+                "optimizer": strategy.optimizer,
+                "objective": objective,
+                "param_groups": list(groups),
+                "direction_verification_status": direction_probe.status,
+            }
+            output_dir = workspace / "output"
+            (output_dir / "candidate-scheme.json").write_text(
+                json.dumps(candidate_payload, sort_keys=True, allow_nan=False),
+                encoding="utf-8",
+            )
+            (output_dir / "result.json").write_text(
+                json.dumps(result, sort_keys=True, allow_nan=False), encoding="utf-8"
+            )
+            (output_dir / "calibration-result.json").write_text(
+                json.dumps(result, sort_keys=True, allow_nan=False), encoding="utf-8"
+            )
+            return result
+
+    optimizer_budget = (
+        evaluation_budget - screening_model_evaluations - direction_probe_model_evaluations
+    )
     if optimizer_budget < 1:
         raise ValueError("sensitivity screening exhausted calibration evaluation budget")
 
@@ -402,6 +583,43 @@ def run(workspace: Path) -> dict:
         raise ValueError("best calibration candidate has non-finite objective")
     best_score = float(cached_best_score)
 
+    behavioral_raw: list[dict[str, object]] = []
+    for _key, (cached_score, _full_values, cached_parameters) in cache.items():
+        if cached_score is None or not np.isfinite(float(cached_score)):
+            continue
+        behavioral_raw.append(
+            {
+                "objective_value": float(cached_score),
+                "parameters": dict(cached_parameters),
+            }
+        )
+    behavioral = select_behavioral_candidates(
+        candidates=behavioral_raw,
+        objective_name="kge" if objective == "composite" else objective,
+        parameter_bounds={name: tuple(float(v) for v in ranges[name]) for name in all_names},
+        max_candidates=8,
+        objective_tolerance=0.02,
+        min_parameter_distance=0.05,
+    )
+    enriched_items: list[BehavioralCandidate] = []
+    for item in behavioral.items:
+        tunable = {name: item.parameters[name] for name in tunable_names}
+        process = evaluate_process(tunable)
+        packet_evidence = process.get("diagnosis_packet")
+        process_evidence = (
+            dict(packet_evidence)
+            if isinstance(packet_evidence, dict)
+            else {
+                key: value
+                for key, value in process.items()
+                if key not in {"objective_value", "diagnosis_packet"}
+            }
+        )
+        enriched_items.append(
+            item.model_copy(update={"process_evidence": process_evidence})
+        )
+    behavioral = behavioral.model_copy(update={"items": tuple(enriched_items)})
+
     baseline_tunable = _canonical_tunable(initial_tunable, bounds)
     if callable(canonicalize):
         baseline_tunable = canonicalize(baseline_tunable)
@@ -460,6 +678,11 @@ def run(workspace: Path) -> dict:
         "screened_out_parameters": list(screened_out),
         "sensitivity_method": strategy.sensitivity_method,
         "sensitivity_evidence": sensitivity_evidence,
+        "direction_verification_status": direction_verification_status,
+        "direction_verification_evidence_ids": list(direction_verification_evidence_ids),
+        "direction_probe": direction_probe_payload,
+        "direction_probe_model_evaluations": direction_probe_model_evaluations,
+        "behavioral_candidates": behavioral.model_dump(mode="json"),
         "evaluation_budget": evaluation_budget,
         "screening_model_evaluations": screening_model_evaluations,
         "optimizer_budget": optimizer_budget,
@@ -496,6 +719,11 @@ def run(workspace: Path) -> dict:
         "screened_out_parameters": list(screened_out),
         "sensitivity_method": strategy.sensitivity_method,
         "sensitivity_evidence": sensitivity_evidence,
+        "direction_verification_status": direction_verification_status,
+        "direction_verification_evidence_ids": list(direction_verification_evidence_ids),
+        "direction_probe": direction_probe_payload,
+        "direction_probe_model_evaluations": direction_probe_model_evaluations,
+        "behavioral_candidates": behavioral.model_dump(mode="json"),
         "objective_value": float(best_score),
         "candidate_parameters": best_parameters,
         "optimization_trace": trace,

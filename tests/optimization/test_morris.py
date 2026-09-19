@@ -2,7 +2,11 @@ import json
 
 import pytest
 
-from hydro_agent.optimization.morris import MorrisCheckpoint, screen_morris
+from hydro_agent.optimization.morris import (
+    MorrisCheckpoint,
+    morris_direction_evidence,
+    screen_morris,
+)
 
 
 def test_morris_ranks_normalized_elementary_effects_and_builds_active_set():
@@ -167,3 +171,21 @@ def test_morris_rejects_checkpoint_from_different_screening_contract():
             min_active_parameters=1,
             resume_from=checkpoint,
         )
+
+
+
+def test_morris_direction_adapter_preserves_importance_and_probe_status():
+    screening = screen_morris(
+        bounds={"L": (0.0, 10.0), "K": (0.0, 1.0)},
+        score_fn=lambda p: 2.0 * p["L"] + 0.1 * p["K"],
+        trajectories=4,
+        levels=6,
+        random_seed=7,
+        min_active_parameters=1,
+    )
+    evidence = morris_direction_evidence(screening, direction_probe_status="supported")
+    by_name = {item["parameter"]: item for item in evidence}
+
+    assert by_name["L"]["mu_star"] is not None
+    assert by_name["L"]["effects_count"] >= 1
+    assert by_name["L"]["direction_probe_status"] == "supported"

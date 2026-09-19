@@ -466,6 +466,12 @@ class OptimizeHandler:
         self.policy = policy
 
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
+        hypothesis_id = str(decision.calibration_hypothesis_id or "")
+        signature_json = json.dumps(
+            list(decision.diagnostic_signature), ensure_ascii=False, sort_keys=True
+        )
+        decision_direction = str(decision.adjustment_direction or "unknown")
+        decision_direction_ids = tuple(str(item) for item in decision.direction_evidence_ids)
         if decision.strategy_id == "xaj-hydrologist-manual-v1":
             observations = (
                 "hydrologist_manual_required",
@@ -534,6 +540,9 @@ class OptimizeHandler:
                 policy=self.policy,
                 param_groups=decision.param_groups,
                 objective=decision.objective,
+                adjustment_direction=decision.adjustment_direction,
+                direction_evidence_ids=decision.direction_evidence_ids,
+                direction_verification_required=decision.direction_verification_required,
                 evaluation_budget_override=remaining_budget,
             )
         except CalibrationExecutionFailed as exc:
@@ -570,6 +579,15 @@ class OptimizeHandler:
                 "param_groups": groups_text,
                 "reason": "calibration_execution_failed",
                 "error_code": str(exc.error_code or ""),
+                "calibration_hypothesis_id": hypothesis_id,
+                "diagnostic_signature_json": signature_json,
+                "adjustment_direction": decision_direction,
+                "direction_verification_status": (
+                    "inconclusive" if decision.direction_verification_required else "not_required"
+                ),
+                "direction_evidence_ids_json": json.dumps(
+                    list(decision_direction_ids), ensure_ascii=False, sort_keys=True
+                ),
             }
             return EvidencePacket(
                 evidence_id=_evidence_id(),
@@ -601,6 +619,52 @@ class OptimizeHandler:
         }
         groups_text = ",".join(outcome.param_groups)
         payload = dict(outcome.result_payload or {})
+        direction_status = str(payload.get("direction_verification_status") or "not_required")
+        if direction_status in {"refuted", "inconclusive"}:
+            evidence_ids = tuple(
+                str(item) for item in payload.get("direction_verification_evidence_ids") or ()
+            ) or decision_direction_ids
+            observations = (
+                f"strategy_id={outcome.strategy_id}",
+                f"direction={decision.adjustment_direction or 'unknown'}",
+                f"direction_verification_status={direction_status}",
+                "optimizer_started=false",
+                "candidate_registered=false",
+                *tuple(f"direction_evidence={item}" for item in evidence_ids),
+            )
+            metrics = {
+                "model_evaluations": float(payload.get("model_evaluations") or 0),
+                "optimizer_calls": float(payload.get("optimizer_calls") or 0),
+            }
+            gates = {
+                "strategy_id": str(outcome.strategy_id),
+                "direction_verification_status": direction_status,
+                "reason": f"direction_{direction_status}",
+                "candidate_scheme_id": "",
+                "calibration_hypothesis_id": hypothesis_id,
+                "diagnostic_signature_json": signature_json,
+                "adjustment_direction": decision_direction,
+                "direction_evidence_ids_json": json.dumps(
+                    list(evidence_ids), ensure_ascii=False, sort_keys=True
+                ),
+            }
+            return EvidencePacket(
+                evidence_id=_evidence_id(),
+                task_id=task_id,
+                action_run_id=outcome.action_run_id,
+                action=ActionCode.A05_OPTIMIZE,
+                status="blocked",
+                observations=observations,
+                metrics=metrics,
+                gates=gates,
+                artifact_ids=tuple(outcome.artifact_ids),
+                new_information_hash=information_hash(
+                    action=ActionCode.A05_OPTIMIZE,
+                    status="blocked",
+                    observations=observations,
+                    metrics=metrics,
+                ),
+            )
         boundary = payload.get("search_boundary_evidence")
         boundary = boundary if isinstance(boundary, dict) else {}
         local_hits = tuple(str(item) for item in boundary.get("local_hits") or ())
@@ -634,11 +698,36 @@ class OptimizeHandler:
                 "resumed_from_workspace": resumed_from_workspace,
                 "param_groups": list(outcome.param_groups),
                 "search_boundary_evidence": boundary,
+                "behavioral_candidates": payload.get("behavioral_candidates"),
             },
         )
+        behavioral_scheme_ids = (candidate_id,)
+        register_behavioral = getattr(
+            self.candidate_service, "register_behavioral_candidates", None
+        )
+        if callable(register_behavioral):
+            behavioral_scheme_ids = tuple(
+                register_behavioral(
+                    base_scheme_id=outcome.base_scheme_id,
+                    action_run_id=outcome.action_run_id,
+                    calibration_payload={
+                        "candidate_parameters": outcome.candidate_parameters,
+                        "strategy_id": outcome.strategy_id,
+                        "objective": outcome.objective,
+                        "objective_metric": objective_metric,
+                        "optimizer": optimizer,
+                        "evaluation_budget": evaluation_budget,
+                        "param_groups": list(outcome.param_groups),
+                        "search_boundary_evidence": boundary,
+                        "behavioral_candidates": payload.get("behavioral_candidates"),
+                    },
+                    primary_scheme_id=candidate_id,
+                )
+            )
         observations = (
             f"candidate_scheme_id={candidate_id}",
             f"base_scheme_id={outcome.base_scheme_id}",
+            f"behavioral_candidate_count={len(behavioral_scheme_ids)}",
             f"strategy_id={outcome.strategy_id}",
             f"optimizer={optimizer or '-'}",
             f"evaluation_budget={evaluation_budget}",
@@ -672,9 +761,15 @@ class OptimizeHandler:
                     raw = blob.get(key)
                     if isinstance(raw, (int, float)):
                         metrics[f"{prefix}_{key}"] = float(raw)
+        resolved_direction_ids = tuple(
+            str(item) for item in payload.get("direction_verification_evidence_ids") or ()
+        ) or decision_direction_ids
         gates = {
             "candidate_scheme_id": candidate_id,
             "base_scheme_id": outcome.base_scheme_id,
+            "behavioral_candidate_scheme_ids_json": json.dumps(
+                list(behavioral_scheme_ids), ensure_ascii=False, sort_keys=True
+            ),
             "strategy_id": str(outcome.strategy_id),
             "optimizer": optimizer,
             "evaluation_budget": str(evaluation_budget),
@@ -690,6 +785,13 @@ class OptimizeHandler:
             "local_boundary_hits": local_hits_text,
             "absolute_boundary_hits": absolute_hits_text,
             "search_boundary_evidence_json": boundary_json,
+            "calibration_hypothesis_id": hypothesis_id,
+            "diagnostic_signature_json": signature_json,
+            "adjustment_direction": decision_direction,
+            "direction_verification_status": direction_status,
+            "direction_evidence_ids_json": json.dumps(
+                list(resolved_direction_ids), ensure_ascii=False, sort_keys=True
+            ),
         }
         return EvidencePacket(
             evidence_id=_evidence_id(),
@@ -729,7 +831,14 @@ class GateHandler:
     def execute(self, task_id: str, decision: AgentDecision) -> EvidencePacket:
         provided = self.bundle_provider(task_id)
         gbt_report = None
-        if isinstance(provided, tuple) and len(provided) == 3:
+        event_comparison = None
+        if isinstance(provided, tuple) and len(provided) == 4:
+            base, candidate, hydro_series, event_comparison = provided
+            if hydro_series is not None and self.gbt_config_provider is not None:
+                from hydro_agent.graphs.gbt_accuracy import run_gbt_accuracy
+
+                gbt_report = run_gbt_accuracy(hydro_series, self.gbt_config_provider(task_id))
+        elif isinstance(provided, tuple) and len(provided) == 3:
             base, candidate, hydro_series = provided
             if hydro_series is not None and self.gbt_config_provider is not None:
                 from hydro_agent.graphs.gbt_accuracy import run_gbt_accuracy
@@ -737,11 +846,35 @@ class GateHandler:
                 gbt_report = run_gbt_accuracy(hydro_series, self.gbt_config_provider(task_id))
         else:
             base, candidate = provided
-        result = self.gate_evaluator.evaluate(base, candidate, self.policy, gbt_report=gbt_report)
+        if event_comparison is None:
+            result = self.gate_evaluator.evaluate(
+                base, candidate, self.policy, gbt_report=gbt_report
+            )
+        else:
+            result = self.gate_evaluator.evaluate(
+                base,
+                candidate,
+                self.policy,
+                gbt_report=gbt_report,
+                event_comparison=event_comparison,
+            )
+        from hydro_agent.evaluation.gbt22482 import to_standard_evaluation
+        from hydro_agent.evaluation.standard_profile import not_evaluated_standard
+
+        standard_profile = (
+            to_standard_evaluation(gbt_report)
+            if gbt_report is not None
+            else not_evaluated_standard(
+                profile_id="operational_gbt",
+                standard_id="GB/T 22482",
+            )
+        )
         observations = (
             f"gate_status={result.status}",
             f"adoption_status={result.adoption_status}",
+            f"research_qualification={result.research_qualification}",
             f"qualification_status={result.qualification_status}",
+            f"standard_status={standard_profile.status}",
             f"base_scheme_id={result.base_scheme_id}",
             f"candidate_scheme_id={result.candidate_scheme_id}",
             f"base_primary={base.primary_score:.4f}",
@@ -766,13 +899,22 @@ class GateHandler:
         gates = {
             "status": result.status,
             "adoption_status": result.adoption_status,
+            "research_qualification": result.research_qualification,
             "qualification_status": result.qualification_status,
+            "standard_profile_json": json.dumps(
+                standard_profile.model_dump(mode="json"), ensure_ascii=False, sort_keys=True
+            ),
             "base_scheme_id": result.base_scheme_id,
             "candidate_scheme_id": result.candidate_scheme_id,
             "reasons": ",".join(result.reasons),
             "qualification_reasons": ",".join(result.qualification_reasons),
             "scheme_grade": result.scheme_grade or "",
             "gbt_summary": result.gbt_summary or "",
+            "event_comparison_json": json.dumps(
+                event_comparison or {"base": [], "candidate": []},
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
         }
         if gbt_report is not None:
             gates["gbt_report_json"] = json.dumps(
@@ -806,12 +948,16 @@ class ResolveHandler:
         )
         gate_status = "KEEP"
         adoption_status = "KEEP"
+        research_qualification = "NOT_EVALUATED"
         qualification_status = "NOT_EVALUATED"
         candidate_id = ""
         candidate_adopted = False
         if gate is not None:
             gate_status = str(gate.gates_json.get("status", gate.status))
             adoption_status = str(gate.gates_json.get("adoption_status") or "KEEP")
+            research_qualification = str(
+                gate.gates_json.get("research_qualification") or "NOT_EVALUATED"
+            )
             qualification_status = str(
                 gate.gates_json.get("qualification_status") or "NOT_EVALUATED"
             )
@@ -827,7 +973,7 @@ class ResolveHandler:
 
         # A07 records the Gate transaction only. Qualification can produce ACCEPT,
         # but A08 research closeout is separately governed by Campaign stop state.
-        if candidate_adopted and qualification_status == "QUALIFIED":
+        if candidate_adopted and research_qualification == "QUALIFIED":
             resolve_status = "ACCEPT"
         elif gate_status == "ROLLBACK":
             resolve_status = "ROLLBACK"
@@ -838,6 +984,7 @@ class ResolveHandler:
             f"resolve_status={resolve_status}",
             f"gate_status={gate_status}",
             f"adoption_status={adoption_status}",
+            f"research_qualification={research_qualification}",
             f"qualification_status={qualification_status}",
             f"candidate_adopted={'true' if candidate_adopted else 'false'}",
             *((f"current_scheme_id={candidate_id}",) if candidate_adopted else ()),
@@ -847,6 +994,7 @@ class ResolveHandler:
             "status": resolve_status,
             "gate_status": gate_status,
             "adoption_status": adoption_status,
+            "research_qualification": research_qualification,
             "qualification_status": qualification_status,
             "candidate_adopted": "true" if candidate_adopted else "false",
             "candidate_scheme_id": candidate_id,

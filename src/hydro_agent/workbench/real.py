@@ -131,6 +131,7 @@ class RealWorkbenchKernel:
             source=self.source,
             policy=POLICY,
             task_configs=self._task_configs,
+            research_policy=self.gate_policy,
         )
 
     def scheme_config(self) -> dict:
@@ -215,7 +216,7 @@ class RealWorkbenchKernel:
                 self.repository,
                 gate_evaluator=self.gate,
                 policy=self.gate_policy,
-                bundle_provider=self.validation_gate.bundles,
+                bundle_provider=self.validation_gate.bundles_with_events,
                 gbt_config_provider=lambda _task_id: self.skills.gbt_accuracy_config(),
             ),
         )
@@ -436,6 +437,11 @@ class _TaskAwareOptimizeHandler:
             strategy_id=strategy_id,
             param_groups=param_groups,  # type: ignore[arg-type]
             objective=objective,  # type: ignore[arg-type]
+            calibration_hypothesis_id=decision.calibration_hypothesis_id,
+            diagnostic_signature=decision.diagnostic_signature,
+            adjustment_direction=decision.adjustment_direction,
+            direction_evidence_ids=decision.direction_evidence_ids,
+            direction_verification_required=decision.direction_verification_required,
             rationale_summary=decision.rationale_summary,
         )
         packet = handler.execute(task_id, decision)

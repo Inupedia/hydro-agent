@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from hydro_agent.agent.contracts import ActionCode
+from hydro_agent.evaluation.evidence import HydrologicEvidenceBuilder
 from hydro_agent.evaluation.metrics import build_evaluation_bundle
 from hydro_agent.execution.contracts import ExecutionPolicy
 
@@ -181,6 +183,87 @@ def resolve_gate_scheme_ids(repository, task_id: str) -> tuple[str, str]:
     return base_scheme_id, candidate_scheme_id
 
 
+def behavioral_candidate_scheme_ids(
+    repository,
+    task_id: str,
+    *,
+    primary_candidate_id: str,
+) -> tuple[str, ...]:
+    """Return candidate schemes materialized by the latest A05 experiment."""
+
+    values: list[str] = [str(primary_candidate_id)]
+    for row in reversed(repository.list_evidence(task_id)):
+        if row.action != ActionCode.A05_OPTIMIZE.value:
+            continue
+        gates = dict(row.gates_json or {})
+        raw = gates.get("behavioral_candidate_scheme_ids_json")
+        parsed: object = ()
+        if isinstance(raw, str) and raw.strip():
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                parsed = tuple(item.strip() for item in raw.split(",") if item.strip())
+        elif isinstance(raw, (list, tuple)):
+            parsed = raw
+        if isinstance(parsed, (list, tuple)):
+            values.extend(str(item) for item in parsed if str(item))
+        break
+    return tuple(dict.fromkeys(values))
+
+
+def _development_event_rows(
+    series: dict[int, tuple[list[float], list[float]]],
+    *,
+    window: ValidationWindow,
+) -> list[dict[str, float | str]]:
+    observed, simulated = series.get(1, ([], []))
+    if len(observed) < 2 or len(observed) != len(simulated):
+        return []
+    dates = tuple(window.start + timedelta(days=index) for index in range(len(observed)))
+    try:
+        evidence = HydrologicEvidenceBuilder(
+            min_overall_samples=2,
+            min_slice_samples=2,
+            min_year_samples=2,
+            min_fdc_samples=2,
+            min_event_samples=2,
+        ).build(
+            window="development",
+            dates=dates,
+            observed=observed,
+            simulated=simulated,
+        )
+    except ValueError:
+        return []
+
+    rows: list[dict[str, float | str]] = []
+    for event in evidence.flood_events:
+        metrics = event.metrics
+        row: dict[str, float | str] = {"event_id": event.event_id}
+        for source_key, output_key in (
+            ("peak_relative_error", "peak_relative_error"),
+            ("peak_timing_lag_steps", "timing_lag_steps"),
+            ("volume_relative_error", "volume_relative_error"),
+        ):
+            value = metrics.get(source_key)
+            if isinstance(value, (int, float)):
+                row[output_key] = float(value)
+        rows.append(row)
+    return rows
+
+
+def development_event_comparison(
+    base_series: dict[int, tuple[list[float], list[float]]],
+    candidate_series: dict[int, tuple[list[float], list[float]]],
+    *,
+    window: ValidationWindow,
+) -> dict[str, object]:
+    return {
+        "base": _development_event_rows(base_series, window=window),
+        "candidate": _development_event_rows(candidate_series, window=window),
+    }
+
+
 def latest_candidate_scheme_id(repository, task_id: str) -> str | None:
     for row in reversed(repository.list_evidence(task_id)):
         if row.action != ActionCode.A05_OPTIMIZE.value:
@@ -206,12 +289,14 @@ class RealValidationGate:
         source,
         policy: ExecutionPolicy,
         task_configs: dict,
+        research_policy=None,
     ):
         self.repository = repository
         self.forecast = forecast_service
         self.source = source
         self.policy = policy
         self.task_configs = task_configs
+        self.research_policy = research_policy
 
     def window_for(self, task_id: str) -> ValidationWindow:
         cfg = self.task_configs.get(task_id) or {}
@@ -237,28 +322,101 @@ class RealValidationGate:
             )
 
     def bundles(self, task_id: str):
-        base_scheme_id, candidate_scheme_id = resolve_gate_scheme_ids(self.repository, task_id)
+        base, candidate, hydro, _event_comparison = self.bundles_with_events(task_id)
+        return base, candidate, hydro
+
+    def bundles_with_events(self, task_id: str):
+        base_scheme_id, primary_candidate_id = resolve_gate_scheme_ids(
+            self.repository, task_id
+        )
+        candidate_ids = behavioral_candidate_scheme_ids(
+            self.repository,
+            task_id,
+            primary_candidate_id=primary_candidate_id,
+        )
         window = self.window_for(task_id)
         self.ensure_forecasts(task_id, base_scheme_id, window)
-        self.ensure_forecasts(task_id, candidate_scheme_id, window)
+        for candidate_id in candidate_ids:
+            self.ensure_forecasts(task_id, candidate_id, window)
+
         truth = truth_from_source(self.source.flow_rows)
         forecasts = self.repository.list_forecasts(task_id)
-        base_series, cand_series = collect_aligned_lead_series(
-            forecasts=forecasts,
-            base_scheme_id=base_scheme_id,
-            candidate_scheme_id=candidate_scheme_id,
-            truth=truth,
-            window=window,
-        )
-        base_available = require_enough_pairs(base_series)
-        cand_available = require_enough_pairs(cand_series)
-        if base_available != cand_available:
-            raise RuntimeError("development Gate base/candidate availability mismatch")
+        comparisons: list[tuple[object, object, dict[int, tuple[list[float], list[float]]], dict[int, tuple[list[float], list[float]]], dict[str, object]]] = []
+        for candidate_id in candidate_ids:
+            base_series, cand_series = collect_aligned_lead_series(
+                forecasts=forecasts,
+                base_scheme_id=base_scheme_id,
+                candidate_scheme_id=candidate_id,
+                truth=truth,
+                window=window,
+            )
+            base_available = require_enough_pairs(base_series)
+            cand_available = require_enough_pairs(cand_series)
+            if base_available != cand_available:
+                raise RuntimeError(
+                    "development Gate base/candidate availability mismatch"
+                )
+            base_bundle = build_evaluation_bundle(base_scheme_id, base_series)
+            candidate_bundle = build_evaluation_bundle(candidate_id, cand_series)
+            event_comparison = development_event_comparison(
+                base_series,
+                cand_series,
+                window=window,
+            )
+            comparisons.append(
+                (
+                    base_bundle,
+                    candidate_bundle,
+                    base_series,
+                    cand_series,
+                    event_comparison,
+                )
+            )
+
+        if not comparisons:
+            raise RuntimeError("development Gate has no behavioral candidate evidence")
+
+        selected = None
+        if self.research_policy is not None:
+            from hydro_agent.optimization.gate import ResearchGateEvaluator
+
+            accepted = []
+            for item in comparisons:
+                research = ResearchGateEvaluator().evaluate(
+                    item[0],
+                    item[1],
+                    self.research_policy,
+                    event_comparison=item[4],
+                )
+                if (
+                    research.adoption_status == "ADOPT"
+                    and research.research_qualification == "QUALIFIED"
+                ):
+                    accepted.append(item)
+            if accepted:
+                selected = max(
+                    accepted,
+                    key=lambda item: (
+                        float(item[1].primary_score),
+                        str(item[1].scheme_id),
+                    ),
+                )
+
+        if selected is None:
+            selected = max(
+                comparisons,
+                key=lambda item: (
+                    float(item[1].primary_score),
+                    str(item[1].scheme_id),
+                ),
+            )
+
+        base_bundle, candidate_bundle, _base_series, cand_series, event_comparison = selected
 
         from hydro_agent.evaluation.gbt22482 import series_from_lead_lists
 
         area = None
-        scheme = self.repository.get_scheme(candidate_scheme_id)
+        scheme = self.repository.get_scheme(candidate_bundle.scheme_id)
         cfg = dict(scheme.config_json or {})
         for key in ("area_km2", "basin_area_km2"):
             if cfg.get(key) is not None:
@@ -268,7 +426,8 @@ class RealValidationGate:
                     pass
         hydro = series_from_lead_lists(cand_series, area_km2=area)
         return (
-            build_evaluation_bundle(base_scheme_id, base_series),
-            build_evaluation_bundle(candidate_scheme_id, cand_series),
+            base_bundle,
+            candidate_bundle,
             hydro,
+            event_comparison,
         )

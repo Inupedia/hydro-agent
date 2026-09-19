@@ -7,7 +7,9 @@ from hydro_agent.agent.contracts import ActionCode, AgentDecision, EvidencePacke
 from hydro_agent.agent.tools import (
     DependencyToolTraceRecorder,
     ForecastHandler,
+    GateHandler,
     OptimizeHandler,
+    ResolveHandler,
     ToolExecutionContext,
     ToolRouter,
     ToolUnavailable,
@@ -354,3 +356,151 @@ def test_failed_optimize_records_spent_budget_without_registering_candidate(
     assert packet.gates["candidate_scheme_id"] == ""
     assert packet.gates["reason"] == "calibration_execution_failed"
     assert candidates.payload is None
+
+
+
+def test_refuted_direction_does_not_register_candidate(repository, optimize_decision):
+    class RefutedCalibrationService(FakeCalibrationService):
+        def calibrate(self, **kwargs):
+            outcome = super().calibrate(**kwargs)
+            payload = dict(outcome.result_payload)
+            payload.update(
+                {
+                    "direction_verification_status": "refuted",
+                    "direction_verification_evidence_ids": ["event-001"],
+                    "optimizer_calls": 0,
+                }
+            )
+            return SimpleNamespace(**{**vars(outcome), "result_payload": payload})
+
+    candidates = FakeCandidateService()
+    handler = OptimizeHandler(
+        repository,
+        calibration_service=RefutedCalibrationService(),
+        candidate_service=candidates,
+        calibration_snapshot_id="snap-cal",
+        validation_snapshot_id=None,
+        policy=object(),
+    )
+
+    packet = handler.execute("task-1", optimize_decision)
+
+    assert packet.status == "blocked"
+    assert packet.gates["reason"] == "direction_refuted"
+    assert packet.gates["direction_verification_status"] == "refuted"
+    assert candidates.payload is None
+
+
+
+def test_gate_handler_forwards_development_event_comparison(repository):
+    from hydro_agent.optimization.contracts import (
+        EvaluationBundle,
+        GatePolicy,
+        LeadMetrics,
+    )
+
+    def bundle(scheme_id, score):
+        return EvaluationBundle(
+            scheme_id=scheme_id,
+            leads=(
+                LeadMetrics(lead=1, nse=score, mae=1.0, bias=0.0, high_flow_mae=1.0),
+            ),
+            primary_score=score,
+        )
+
+    event_comparison = {
+        "base": [{"event_id": "event-001", "peak_relative_error": 0.1}],
+        "candidate": [{"event_id": "event-001", "peak_relative_error": 0.05}],
+    }
+
+    class CapturingGate:
+        def __init__(self):
+            self.event_comparison = None
+
+        def evaluate(self, base, candidate, policy, *, gbt_report=None, event_comparison=None):
+            self.event_comparison = event_comparison
+            return SimpleNamespace(
+                status="ACCEPT",
+                adoption_status="ADOPT",
+                research_qualification="QUALIFIED",
+                qualification_status="NOT_EVALUATED",
+                base_scheme_id=base.scheme_id,
+                candidate_scheme_id=candidate.scheme_id,
+                reasons=("meaningful_primary_improvement",),
+                qualification_reasons=("missing_standard_evaluation",),
+                primary_delta=candidate.primary_score - base.primary_score,
+                scheme_grade=None,
+                gbt_summary=None,
+            )
+
+    gate = CapturingGate()
+    handler = GateHandler(
+        repository,
+        gate_evaluator=gate,
+        policy=GatePolicy(
+            min_primary_delta=0.01,
+            max_single_lead_drop=0.02,
+            max_high_flow_mae_relative_increase=0.05,
+        ),
+        bundle_provider=lambda _task_id: (
+            bundle("scheme-base", 0.3),
+            bundle("scheme-candidate", 0.6),
+            None,
+            event_comparison,
+        ),
+    )
+    decision = AgentDecision(
+        action=ActionCode.A06_GATE,
+        hypothesis=ProblemHypothesis.MODEL,
+        rationale_summary="Compare development evidence.",
+    )
+
+    packet = handler.execute("task-1", decision)
+
+    assert packet.status == "ACCEPT"
+    assert gate.event_comparison == event_comparison
+    assert "event_comparison_json" in packet.gates
+
+
+
+def test_resolve_accepts_research_adoption_without_standard_qualification(repository):
+    repository.create_scheme(
+        scheme_id="scheme-research-adopted",
+        task_id="task-1",
+        model_id="xaj",
+        status="candidate",
+        config={"parameters": {"K": 0.8}},
+        content_hash="research-adopted",
+    )
+    repository.add_evidence(
+        EvidencePacket(
+            evidence_id="ev-research-gate",
+            task_id="task-1",
+            action=ActionCode.A06_GATE,
+            status="ACCEPT",
+            observations=(),
+            metrics={},
+            gates={
+                "status": "ACCEPT",
+                "adoption_status": "ADOPT",
+                "research_qualification": "QUALIFIED",
+                "qualification_status": "NOT_EVALUATED",
+                "candidate_scheme_id": "scheme-research-adopted",
+            },
+            new_information_hash="research-gate-hash",
+        )
+    )
+    handler = ResolveHandler(repository)
+    decision = AgentDecision(
+        action=ActionCode.A07_RESOLVE,
+        hypothesis=ProblemHypothesis.MODEL,
+        rationale_summary="Apply the research adoption transaction.",
+    )
+
+    packet = handler.execute("task-1", decision)
+
+    assert packet.status == "ACCEPT"
+    assert packet.gates["research_qualification"] == "QUALIFIED"
+    assert packet.gates["qualification_status"] == "NOT_EVALUATED"
+    assert packet.gates["candidate_adopted"] == "true"
+    assert repository.get_task_state("task-1").current_scheme_id == "scheme-research-adopted"

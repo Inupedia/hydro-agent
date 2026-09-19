@@ -527,3 +527,108 @@ def _tiny_source(tmp_path):
     (root / "forcing.jsonl").write_text("\n".join(forcing_lines) + "\n", encoding="utf-8")
     (root / "flow.jsonl").write_text("\n".join(flow_lines) + "\n", encoding="utf-8")
     return root
+
+
+
+def test_development_gate_selects_best_behavioral_candidate_without_new_search(repository):
+    _seed_task(repository, current="scheme-base")
+    for scheme_id, k in (("cand-cal-best", 0.8), ("cand-behavior-alt", 1.05)):
+        repository.create_scheme(
+            scheme_id=scheme_id,
+            task_id="task-1",
+            model_id="xaj",
+            status="candidate",
+            config={
+                "parameters": {"K": k},
+                "provenance": {"base_scheme_id": "scheme-base"},
+            },
+            content_hash=f"h-{scheme_id}",
+        )
+    repository.add_evidence(
+        EvidencePacket(
+            evidence_id="ev-behavioral-opt",
+            task_id="task-1",
+            action=ActionCode.A05_OPTIMIZE,
+            status="succeeded",
+            observations=("candidate_scheme_id=cand-cal-best",),
+            metrics={},
+            gates={
+                "candidate_scheme_id": "cand-cal-best",
+                "base_scheme_id": "scheme-base",
+                "behavioral_candidate_scheme_ids_json": '["cand-cal-best","cand-behavior-alt"]',
+            },
+            new_information_hash="beh-opt",
+        )
+    )
+    snap = "snap-dev"
+    repository.create_snapshot(
+        snapshot_id=snap,
+        task_id="task-1",
+        source="fixture",
+        available_at=datetime(2021, 6, 10, tzinfo=timezone.utc),
+        manifest={"files": []},
+        content_hash="snap-dev-hash",
+    )
+    truth = {
+        date(2021, 6, 2): 100.0,
+        date(2021, 6, 3): 120.0,
+        date(2021, 6, 4): 90.0,
+    }
+    rows = {
+        "scheme-base": [70.0, 90.0],
+        "cand-cal-best": [80.0, 100.0],
+        "cand-behavior-alt": [100.0, 120.0],
+    }
+    for scheme_id, lead1_values in rows.items():
+        for offset, value in enumerate(lead1_values):
+            issue = date(2021, 6, 1) + timedelta(days=offset)
+            run_id = f"run-{scheme_id}-{offset}"
+            repository.create_action_run(
+                task_id="task-1",
+                action_run_id=run_id,
+                model_id="xaj",
+                capability="forecast",
+                data_snapshot_id=snap,
+                scheme_id=scheme_id,
+                issue_time=f"{issue.isoformat()}T00:00:00Z",
+            )
+            repository.create_forecast(
+                forecast_id=f"fc-{scheme_id}-{offset}",
+                task_id="task-1",
+                action_run_id=run_id,
+                scheme_id=scheme_id,
+                data_snapshot_id=snap,
+                issue_time=f"{issue.isoformat()}T00:00:00Z",
+                lead_values={1: value, 2: value, 3: value},
+                unit="m3/s",
+                artifact_ids=(),
+            )
+
+    class FakeSource:
+        flow_rows = [
+            SimpleNamespace(valid_date=day, discharge_m3s=value, eligible_for_scoring=True)
+            for day, value in truth.items()
+        ]
+
+    class NoopForecast:
+        def forecast(self, **kwargs):
+            return None
+
+    gate = RealValidationGate(
+        repository=repository,
+        forecast_service=NoopForecast(),
+        source=FakeSource(),
+        policy=POLICY,
+        task_configs={
+            "task-1": {"start_date": "2021-06-01", "end_date": "2021-06-03"},
+        },
+    )
+
+    base_bundle, candidate_bundle, _hydro, event_comparison = gate.bundles_with_events(
+        "task-1"
+    )
+
+    assert base_bundle.scheme_id == "scheme-base"
+    assert candidate_bundle.scheme_id == "cand-behavior-alt"
+    assert candidate_bundle.primary_score > base_bundle.primary_score
+    assert set(event_comparison) == {"base", "candidate"}
