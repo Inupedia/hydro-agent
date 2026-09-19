@@ -701,9 +701,33 @@ class OptimizeHandler:
                 "behavioral_candidates": payload.get("behavioral_candidates"),
             },
         )
+        behavioral_scheme_ids = (candidate_id,)
+        register_behavioral = getattr(
+            self.candidate_service, "register_behavioral_candidates", None
+        )
+        if callable(register_behavioral):
+            behavioral_scheme_ids = tuple(
+                register_behavioral(
+                    base_scheme_id=outcome.base_scheme_id,
+                    action_run_id=outcome.action_run_id,
+                    calibration_payload={
+                        "candidate_parameters": outcome.candidate_parameters,
+                        "strategy_id": outcome.strategy_id,
+                        "objective": outcome.objective,
+                        "objective_metric": objective_metric,
+                        "optimizer": optimizer,
+                        "evaluation_budget": evaluation_budget,
+                        "param_groups": list(outcome.param_groups),
+                        "search_boundary_evidence": boundary,
+                        "behavioral_candidates": payload.get("behavioral_candidates"),
+                    },
+                    primary_scheme_id=candidate_id,
+                )
+            )
         observations = (
             f"candidate_scheme_id={candidate_id}",
             f"base_scheme_id={outcome.base_scheme_id}",
+            f"behavioral_candidate_count={len(behavioral_scheme_ids)}",
             f"strategy_id={outcome.strategy_id}",
             f"optimizer={optimizer or '-'}",
             f"evaluation_budget={evaluation_budget}",
@@ -743,6 +767,9 @@ class OptimizeHandler:
         gates = {
             "candidate_scheme_id": candidate_id,
             "base_scheme_id": outcome.base_scheme_id,
+            "behavioral_candidate_scheme_ids_json": json.dumps(
+                list(behavioral_scheme_ids), ensure_ascii=False, sort_keys=True
+            ),
             "strategy_id": str(outcome.strategy_id),
             "optimizer": optimizer,
             "evaluation_budget": str(evaluation_budget),
