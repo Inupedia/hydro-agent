@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import json
 from typing import Protocol
 
 from hydro_agent.execution.contracts import FrozenModel
-from hydro_agent.experience.contracts import ExperienceEntry, ExperienceEvidenceRef
+from hydro_agent.experience.contracts import (
+    ExperienceEntry,
+    ExperienceEvidenceRef,
+    HypothesisOutcomeCase,
+)
 from hydro_agent.experience.diff import ExperienceDiff, is_structural_change
 
 
@@ -15,6 +20,108 @@ class ExperienceReflectionInput(FrozenModel):
     decisions: tuple[dict[str, object], ...] = ()
     evidence: tuple[dict[str, object], ...] = ()
     experiment_history: tuple[dict[str, object], ...] = ()
+    hypothesis_cases: tuple[HypothesisOutcomeCase, ...] = ()
+
+
+def _string_tuple_json(raw: object) -> tuple[str, ...]:
+    if isinstance(raw, (list, tuple)):
+        return tuple(str(item) for item in raw if str(item))
+    if not isinstance(raw, str) or not raw.strip():
+        return ()
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return tuple(item.strip() for item in raw.split(",") if item.strip())
+    if isinstance(parsed, list):
+        return tuple(str(item) for item in parsed if str(item))
+    return ()
+
+
+def build_hypothesis_outcome_cases(
+    task_id: str,
+    evidence: tuple[dict[str, object], ...] | list[dict[str, object]],
+) -> tuple[HypothesisOutcomeCase, ...]:
+    """Rebuild P1 cases from persisted A05/A07 evidence.
+
+    Cases remain distinct from active Experience rules. A single successful
+    experiment therefore cannot automatically become compiled Skill knowledge.
+    """
+
+    cases: list[HypothesisOutcomeCase] = []
+    pending: dict[str, object] | None = None
+
+    def base_case(item: dict[str, object]) -> dict[str, object] | None:
+        gates = dict(item.get("gates") or {})
+        hypothesis_id = str(gates.get("calibration_hypothesis_id") or "").strip()
+        if not hypothesis_id:
+            return None
+        event_refs = _string_tuple_json(gates.get("direction_evidence_ids_json"))
+        evidence_id = str(item.get("evidence_id") or "").strip()
+        refs = tuple(dict.fromkeys((*event_refs, *((evidence_id,) if evidence_id else ()))))
+        verification = str(gates.get("direction_verification_status") or "not_required")
+        if verification not in {"not_required", "supported", "refuted", "inconclusive"}:
+            verification = "not_required"
+        return {
+            "task_id": task_id,
+            "hypothesis_id": hypothesis_id,
+            "diagnostic_signature": _string_tuple_json(
+                gates.get("diagnostic_signature_json")
+            ),
+            "direction": str(gates.get("adjustment_direction") or "unknown"),
+            "direction_verification_status": verification,
+            "evidence_refs": refs,
+        }
+
+    for item in evidence:
+        action = str(item.get("action") or "")
+        status = str(item.get("status") or "")
+        if action == "A05_OPTIMIZE":
+            base = base_case(item)
+            if base is None:
+                continue
+            verification = str(base["direction_verification_status"])
+            if status.lower() == "blocked":
+                hypothesis_status = (
+                    "refuted" if verification == "refuted" else "inconclusive"
+                )
+                cases.append(
+                    HypothesisOutcomeCase(
+                        **base, hypothesis_status=hypothesis_status  # type: ignore[arg-type]
+                    )
+                )
+                pending = None
+            elif status.lower() == "failed":
+                cases.append(
+                    HypothesisOutcomeCase(
+                        **base, hypothesis_status="inconclusive"  # type: ignore[arg-type]
+                    )
+                )
+                pending = None
+            elif status.lower() == "succeeded":
+                pending = base
+        elif action == "A07_RESOLVE" and pending is not None:
+            gates = dict(item.get("gates") or {})
+            resolved = status.upper()
+            adopted = str(gates.get("candidate_adopted") or "").lower() == "true"
+            if resolved == "ACCEPT" or adopted:
+                hypothesis_status = "supported"
+            elif resolved == "ROLLBACK":
+                hypothesis_status = "refuted"
+            else:
+                hypothesis_status = "inconclusive"
+            resolve_id = str(item.get("evidence_id") or "").strip()
+            refs = tuple(pending.get("evidence_refs") or ())
+            if resolve_id:
+                refs = tuple(dict.fromkeys((*refs, resolve_id)))
+            cases.append(
+                HypothesisOutcomeCase(
+                    **{**pending, "evidence_refs": refs},
+                    hypothesis_status=hypothesis_status,  # type: ignore[arg-type]
+                )
+            )
+            pending = None
+
+    return tuple(cases)
 
 
 class ExperienceReflectionProvider(Protocol):
@@ -94,6 +201,7 @@ class ExperienceReflectionEngine:
             decisions=decisions,
             evidence=evidence,
             experiment_history=experiment_history,
+            hypothesis_cases=build_hypothesis_outcome_cases(task_id, evidence),
         )
 
     def _resolve_model_id(self, task_id: str) -> str | None:
