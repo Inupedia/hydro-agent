@@ -407,6 +407,52 @@ class ModelPlanService:
             review['case/dem_config.json'] = digest(dem_config)
         return review
 
+    def _station_precipitation_spatial_values(self) -> list[float] | None:
+        """Return deterministic long-term mean daily rain for each known station."""
+
+        import math
+
+        daily_dir = self.academy / 'examples/data/日数据'
+        files = sorted(daily_dir.glob('*.csv')) if daily_dir.is_dir() else []
+        if not files:
+            return None
+
+        reserved = {'时间', '蒸发', '流量'}
+        totals: dict[str, float] = {}
+        counts: dict[str, int] = {}
+        for path in files:
+            with path.open(encoding='utf-8-sig', newline='') as handle:
+                reader = csv.DictReader(handle)
+                station_names = sorted(
+                    name.strip()
+                    for name in (reader.fieldnames or [])
+                    if name and name.strip() not in reserved
+                )
+                for row in reader:
+                    for station in station_names:
+                        raw = row.get(station)
+                        if raw is None or not str(raw).strip():
+                            continue
+                        try:
+                            value = float(raw)
+                        except (TypeError, ValueError) as exc:
+                            raise ValueError(
+                                f'雨量站 {station} 存在非数值降雨：{path.name}'
+                            ) from exc
+                        if not math.isfinite(value) or value < 0:
+                            raise ValueError(
+                                f'雨量站 {station} 存在无效降雨：{path.name}'
+                            )
+                        totals[station] = totals.get(station, 0.0) + value
+                        counts[station] = counts.get(station, 0) + 1
+
+        means = [
+            totals[station] / counts[station]
+            for station in sorted(counts)
+            if counts[station] > 0
+        ]
+        return means or None
+
     def _persist_spatial_evidence(self, plan_id: str, *, max_units: int = 8) -> dict:
         """Derive P2 facts from trusted M02 artifacts without changing GIS geometry."""
 
@@ -519,7 +565,7 @@ class ModelPlanService:
         profile = derive_basin_spatial_profile(
             elevation_m=elevation,
             slope_deg=slope,
-            precipitation_mm=None,
+            precipitation_mm=self._station_precipitation_spatial_values(),
             land_cover=None,
             soil=None,
             drainage={
