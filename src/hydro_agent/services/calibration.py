@@ -106,6 +106,9 @@ class CalibrationService:
         policy,
         param_groups: tuple[str, ...] | None = None,
         objective: str | None = None,
+        adjustment_direction: str | None = None,
+        direction_evidence_ids: tuple[str, ...] = (),
+        direction_verification_required: bool = False,
         evaluation_budget_override: int | None = None,
     ) -> CalibrationOutcome:
         """Search parameters using calibration data only.
@@ -167,6 +170,9 @@ class CalibrationService:
                 "strategy_id": strategy.strategy_id,
                 "param_groups": list(resolved_groups),
                 "objective": resolved_objective,
+                "adjustment_direction": adjustment_direction,
+                "direction_evidence_ids": list(direction_evidence_ids),
+                "direction_verification_required": bool(direction_verification_required),
                 "evaluation_budget": evaluation_budget,
             },
             policy,
