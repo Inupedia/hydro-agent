@@ -196,22 +196,23 @@ def build_unit_scheme_candidates(
         )
     ]
 
-    topology_refs = ["topology.unit_ids", "topology.area_distribution_km2"]
-    if any(row[2] is not None for row in units):
-        topology_refs.append("topology.downstream_unit_id")
-    candidates.append(
-        _make_candidate(
-            kind="topology_subbasin",
-            unit_ids=unit_ids,
-            areas=areas,
-            evidence_refs=tuple(topology_refs),
-            preserved_contrasts=("drainage_topology",),
-            complexity_notes=(
-                "uses deterministic GIS sub-basin polygons unchanged",
-                f"{len(unit_ids)} existing topology units",
-            ),
+    if len(unit_ids) <= max_units:
+        topology_refs = ["topology.unit_ids", "topology.area_distribution_km2"]
+        if any(row[2] is not None for row in units):
+            topology_refs.append("topology.downstream_unit_id")
+        candidates.append(
+            _make_candidate(
+                kind="topology_subbasin",
+                unit_ids=unit_ids,
+                areas=areas,
+                evidence_refs=tuple(topology_refs),
+                preserved_contrasts=("drainage_topology",),
+                complexity_notes=(
+                    "uses deterministic GIS sub-basin polygons unchanged",
+                    f"{len(unit_ids)} existing topology units",
+                ),
+            )
         )
-    )
 
     if contrasts and 1 < len(unit_ids) <= max_units:
         candidates.append(
