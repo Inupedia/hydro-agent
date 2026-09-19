@@ -290,6 +290,18 @@ def test_model_plan_persists_spatial_profile_and_unit_candidates_before_review(p
     }
     assert saved["unit_recommendation"]["source"] == "deterministic_fallback"
     assert result["spatial_profile_status"] == "partial"
+    assert saved["spatial_evidence_files"]["spatial-profile.json"] == digest(
+        root / "spatial-profile.json"
+    )
+    assert saved["spatial_evidence_files"]["unit-candidates.json"] == digest(
+        root / "unit-candidates.json"
+    )
+    assert saved["spatial_evidence_files"]["unit-candidate-layers.json"] == digest(
+        root / "unit-candidate-layers.json"
+    )
+    assert saved["spatial_evidence_files"]["unit-recommendation.json"] == digest(
+        root / "unit-recommendation.json"
+    )
     artifact = json.loads((root / "unit-candidates.json").read_text(encoding="utf-8"))
     assert artifact["items"] == saved["unit_candidates"]
 
@@ -404,3 +416,40 @@ def test_spatial_profile_uses_available_station_precipitation_without_guessing_o
     assert profile["precipitation"]["cv"] > 0
     assert profile["land_cover"]["status"] == "unknown"
     assert profile["soil"]["status"] == "unknown"
+
+
+
+def test_confirm_rejects_tampered_spatial_evidence(plans, monkeypatch):
+    plan_id = "plan-cafe1234abcd"
+    root = plans.directory(plan_id)
+    root.mkdir()
+    profile = root / "spatial-profile.json"
+    write_json(profile, {"elevation": {"status": "available"}})
+    write_json(
+        root / "plan.json",
+        {
+            "plan_id": plan_id,
+            "basin_id": "yaogu",
+            "status": "awaiting_review",
+            "boundary_hash": "current",
+            "review_files": {},
+            "spatial_evidence_files": {
+                "spatial-profile.json": digest(profile),
+            },
+            "material_files": {},
+            "config": {},
+            "stages": [
+                {
+                    "code": "M03_REVIEW_BOUNDARY",
+                    "label": "复核出口与流域边界",
+                    "status": "awaiting_review",
+                    "detail": "",
+                }
+            ],
+        },
+    )
+    profile.write_text('{"tampered": true}\n', encoding="utf-8")
+    monkeypatch.setattr(plans.pool, "submit", lambda *args, **kwargs: None)
+
+    with pytest.raises(ValueError, match="方案文件已变化"):
+        plans.confirm(plan_id, "current")
