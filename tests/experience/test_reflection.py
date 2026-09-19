@@ -7,7 +7,11 @@ from hydro_agent.experience.contracts import (
     ExperienceScope,
 )
 from hydro_agent.experience.diff import ExperienceDiff, is_structural_change
-from hydro_agent.experience.reflection import ExperienceDiffApplier, ExperienceReflectionEngine
+from hydro_agent.experience.reflection import (
+    ExperienceDiffApplier,
+    ExperienceReflectionEngine,
+    build_hypothesis_outcome_cases,
+)
 from hydro_agent.persistence.database import Database
 from hydro_agent.persistence.repository import HydroRepository
 
@@ -198,3 +202,127 @@ def test_applier_rejects_missing_target_without_mutating_state(repository):
     assert result.structural_change is False
     assert result.rejected and result.rejected[0].startswith("WEAKEN:")
     assert repository.list_experience_evolution_events() == []
+
+
+
+def test_hypothesis_outcome_case_preserves_supported_direction_evidence():
+    cases = build_hypothesis_outcome_cases(
+        "task-1",
+        (
+            {
+                "evidence_id": "opt-1",
+                "action": "A05_OPTIMIZE",
+                "status": "succeeded",
+                "gates": {
+                    "calibration_hypothesis_id": "routing-too-slow",
+                    "diagnostic_signature_json": '["water_balance_near_neutral","repeated_late_peaks"]',
+                    "adjustment_direction": "accelerate_routing",
+                    "direction_verification_status": "supported",
+                    "direction_evidence_ids_json": '["event-001","event-004"]',
+                },
+            },
+            {
+                "evidence_id": "resolve-1",
+                "action": "A07_RESOLVE",
+                "status": "ACCEPT",
+                "gates": {"candidate_adopted": "true"},
+            },
+        ),
+    )
+
+    assert len(cases) == 1
+    case = cases[0]
+    assert case.hypothesis_id == "routing-too-slow"
+    assert case.hypothesis_status == "supported"
+    assert case.direction == "accelerate_routing"
+    assert case.direction_verification_status == "supported"
+    assert "event-001" in case.evidence_refs
+    assert case.maturity == "case"
+
+
+def test_refuted_and_inconclusive_direction_cases_are_not_discarded():
+    refuted = build_hypothesis_outcome_cases(
+        "task-1",
+        (
+            {
+                "evidence_id": "opt-r",
+                "action": "A05_OPTIMIZE",
+                "status": "blocked",
+                "gates": {
+                    "calibration_hypothesis_id": "routing-too-slow",
+                    "diagnostic_signature_json": '["repeated_late_peaks"]',
+                    "adjustment_direction": "accelerate_routing",
+                    "direction_verification_status": "refuted",
+                    "direction_evidence_ids_json": '["event-001"]',
+                },
+            },
+        ),
+    )
+    inconclusive = build_hypothesis_outcome_cases(
+        "task-2",
+        (
+            {
+                "evidence_id": "opt-i",
+                "action": "A05_OPTIMIZE",
+                "status": "blocked",
+                "gates": {
+                    "calibration_hypothesis_id": "routing-too-slow",
+                    "diagnostic_signature_json": '["repeated_late_peaks"]',
+                    "adjustment_direction": "accelerate_routing",
+                    "direction_verification_status": "inconclusive",
+                    "direction_evidence_ids_json": '["event-002"]',
+                },
+            },
+        ),
+    )
+
+    assert refuted[0].hypothesis_status == "refuted"
+    assert inconclusive[0].hypothesis_status == "inconclusive"
+    assert refuted[0].maturity == inconclusive[0].maturity == "case"
+
+
+def test_reflection_engine_exposes_persisted_hypothesis_case_without_promoting_rule(repository):
+    from hydro_agent.agent.contracts import ActionCode, EvidencePacket
+
+    repository.create_task(
+        task_id="task-case",
+        basin_id="basin-a",
+        phase="B",
+        forcing_mode="R",
+        workflow_id="test",
+        workflow_version="1",
+        workflow_hash="hash",
+    )
+    repository.create_scheme(
+        scheme_id="scheme-case",
+        task_id="task-case",
+        model_id="xaj",
+        status="base",
+        config={},
+        content_hash="scheme-hash",
+    )
+    repository.add_evidence(
+        EvidencePacket(
+            evidence_id="opt-case",
+            task_id="task-case",
+            action=ActionCode.A05_OPTIMIZE,
+            status="blocked",
+            observations=(),
+            metrics={},
+            gates={
+                "calibration_hypothesis_id": "routing-too-slow",
+                "diagnostic_signature_json": '["repeated_late_peaks"]',
+                "adjustment_direction": "accelerate_routing",
+                "direction_verification_status": "refuted",
+                "direction_evidence_ids_json": '["event-001"]',
+            },
+            new_information_hash="case-hash",
+        )
+    )
+
+    provider = ScriptedReflectionProvider(())
+    ExperienceReflectionEngine(repository, provider=provider).reflect("task-case")
+
+    assert provider.received.hypothesis_cases[0].hypothesis_status == "refuted"
+    assert provider.received.hypothesis_cases[0].evidence_refs == ("event-001", "opt-case")
+    assert provider.received.active_experiences == ()
