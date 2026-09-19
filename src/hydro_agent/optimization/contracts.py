@@ -85,6 +85,22 @@ class GatePolicy(FrozenModel):
     accept_primary_floor: float = 0.5
     min_scheme_grade: SchemeGrade = "丙"
     require_gbt_grade: bool = True
+    max_event_peak_error_increase: float = Field(default=0.05, ge=0)
+    max_event_timing_error_increase: float = Field(default=1.0, ge=0)
+    max_event_volume_error_increase: float = Field(default=0.05, ge=0)
+    max_materially_worsened_event_fraction: float = Field(default=0.5, ge=0.0, le=1.0)
+    min_event_guardrail_count: int = Field(default=2, ge=1)
+
+
+class ResearchGateDecision(FrozenModel):
+    status: GateStatus
+    base_scheme_id: Identifier
+    candidate_scheme_id: Identifier
+    adoption_status: AdoptionStatus
+    research_qualification: QualificationStatus
+    primary_delta: float
+    reasons: tuple[str, ...]
+    event_guardrail_reasons: tuple[str, ...] = ()
 
 
 class GateDecision(FrozenModel):
@@ -94,6 +110,7 @@ class GateDecision(FrozenModel):
     reasons: tuple[str, ...]
     primary_delta: float
     adoption_status: AdoptionStatus = "KEEP"
+    research_qualification: QualificationStatus = "NOT_EVALUATED"
     qualification_status: QualificationStatus = "NOT_EVALUATED"
     qualification_reasons: tuple[str, ...] = ()
     scheme_grade: SchemeGrade | None = None
