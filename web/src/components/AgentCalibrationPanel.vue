@@ -4,7 +4,11 @@ import FloodEventMatrix from './FloodEventMatrix.vue'
 import HydrographComparisonChart from './HydrographComparisonChart.vue'
 import ReportSectionHead from './ReportSectionHead.vue'
 import { api } from '../api/client'
-import type { FloodEventDiagnosis, HydrographComparison } from '../types/api'
+import type {
+  FloodEventDiagnosis,
+  HydrographComparison,
+  HydrographDiagnosisPacket,
+} from '../types/api'
 import type { ResearchExperimentPlan, ResearchTrial } from '../types/research'
 
 const props = defineProps<{
@@ -45,10 +49,20 @@ const GATE_LABEL: Record<string, string> = {
 
 const candidateDiagnosis = computed(() => props.comparison?.candidate_diagnosis || null)
 
+function agentDiagnosisPacket(): HydrographDiagnosisPacket | null {
+  const raw = props.diagnosis?.diagnosis_packet
+  if (!raw || typeof raw !== 'object') return null
+  const packet = raw as Partial<HydrographDiagnosisPacket>
+  if (typeof packet.window !== 'string' || !Array.isArray(packet.flood_events)) return null
+  return packet as HydrographDiagnosisPacket
+}
+
+const processDiagnosis = computed(() => agentDiagnosisPacket() || candidateDiagnosis.value)
+
 const visible = computed(
   () =>
     !!props.comparison?.series?.length ||
-    !!candidateDiagnosis.value?.flood_events?.length ||
+    !!processDiagnosis.value?.flood_events?.length ||
     trials.value.length > 0 ||
     loading.value ||
     !!error.value,
@@ -60,11 +74,11 @@ function eventMetric(event: FloodEventDiagnosis, key: string) {
 }
 
 const eventIds = computed(() =>
-  (candidateDiagnosis.value?.flood_events || []).map((event) => event.event_id),
+  (processDiagnosis.value?.flood_events || []).map((event) => event.event_id),
 )
 
 const agentObservations = computed(() => {
-  const events = candidateDiagnosis.value?.flood_events || []
+  const events = processDiagnosis.value?.flood_events || []
   if (!events.length) return []
 
   const observations: string[] = []
@@ -220,7 +234,7 @@ watch(() => props.taskId, load)
       <HydrographComparisonChart :comparison="comparison" />
     </template>
 
-    <div v-if="candidateDiagnosis?.flood_events?.length" class="process-diagnosis" data-test="process-diagnosis">
+    <div v-if="processDiagnosis?.flood_events?.length" class="process-diagnosis" data-test="process-diagnosis">
       <div class="diagnosis-grid">
         <article class="diagnosis-block" data-test="agent-observations">
           <small>Agent 观察</small>
@@ -258,7 +272,7 @@ watch(() => props.taskId, load)
           <h3>次洪矩阵</h3>
           <span>全部指标均来自确定性后端 Evidence，不在前端重新计算</span>
         </div>
-        <FloodEventMatrix :events="candidateDiagnosis.flood_events" />
+        <FloodEventMatrix :events="processDiagnosis.flood_events" />
       </div>
     </div>
 

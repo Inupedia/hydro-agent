@@ -171,6 +171,29 @@ describe('AgentCalibrationPanel', () => {
     expect(wrapper.text()).not.toContain('AI 综合评分')
   })
 
+  it('shows agent diagnosis packet even when no candidate comparison exists', async () => {
+    vi.mocked(api.getResearch).mockResolvedValueOnce({ ...summary, trials: [] } as never)
+    const packet = comparison.candidate_diagnosis
+    const wrapper = mount(AgentCalibrationPanel, {
+      props: {
+        taskId: 'task-1',
+        comparison: null,
+        diagnosis: {
+          phenomenon: '当前方案多场次洪表现出一致的过程误差。',
+          recommended_param_groups: ['routing'],
+          diagnosis_packet: packet,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="agent-calibration-panel"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="process-diagnosis"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('event-001')
+    expect(wrapper.text()).toContain('event-002')
+    expect(wrapper.text()).toContain('当前方案多场次洪表现出一致的过程误差')
+  })
+
   it('stays hidden when there is no search process to report', async () => {
     vi.mocked(api.getResearch).mockResolvedValueOnce({ ...summary, trials: [] } as never)
     const wrapper = mount(AgentCalibrationPanel, { props: { taskId: 'task-1', comparison: null } })
