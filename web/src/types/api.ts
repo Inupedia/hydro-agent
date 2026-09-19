@@ -255,6 +255,63 @@ export type ResultSummary = {
   status_zh?: string
 }
 
+export type SpatialNumericSummary = {
+  status: 'available' | 'unknown'
+  count?: number
+  minimum?: number | null
+  maximum?: number | null
+  mean?: number | null
+  std?: number | null
+  cv?: number | null
+  q25?: number | null
+  q50?: number | null
+  q75?: number | null
+}
+
+export type SpatialCategoricalSummary = {
+  status: 'available' | 'unknown'
+  fractions?: Record<string, number>
+  dominant_class?: string | null
+}
+
+export type SpatialDrainageSummary = {
+  status: 'available' | 'unknown'
+  area_km2?: number | null
+  stream_density_km_per_km2?: number | null
+  main_channel_length_km?: number | null
+}
+
+export type BasinSpatialProfile = {
+  elevation: SpatialNumericSummary
+  slope: SpatialNumericSummary
+  precipitation: SpatialNumericSummary
+  land_cover: SpatialCategoricalSummary
+  soil: SpatialCategoricalSummary
+  drainage: SpatialDrainageSummary
+  evidence_quality?: string[]
+}
+
+export type UnitSchemeCandidate = {
+  candidate_id: string
+  kind: 'lumped' | 'topology_subbasin' | 'heterogeneity_aware'
+  unit_ids: string[]
+  unit_count: number
+  area_distribution_km2: number[]
+  evidence_refs: string[]
+  preserved_contrasts?: string[]
+  lost_contrasts?: string[]
+  complexity_notes?: string[]
+}
+
+export type UnitSchemeRecommendation = {
+  candidate_id: string
+  confidence: number
+  rationale: string
+  evidence_refs: string[]
+  uncertainties: string[]
+  source: 'agent' | 'deterministic_fallback'
+}
+
 export type ModelPlan = {
   plan_id: string
   basin_id: string
@@ -267,6 +324,18 @@ export type ModelPlan = {
   boundary?: {dem_area_km2:number;[key:string]:unknown}
   unit_count?: number
   area_km2?: number
+  spatial_profile_status?: 'available' | 'partial' | 'unknown'
+  spatial_profile?: BasinSpatialProfile
+  unit_candidates?: UnitSchemeCandidate[]
+  unit_candidate_layers?: Array<{
+    candidate_id: string
+    kind: UnitSchemeCandidate['kind']
+    unit_ids: string[]
+    unit_count: number
+    evidence_refs: string[]
+    geometry_source: 'boundary.geojson' | 'units.geojson'
+  }>
+  unit_recommendation?: UnitSchemeRecommendation
   suggested_start?: string
   suggested_end?: string
   data_start?: string
