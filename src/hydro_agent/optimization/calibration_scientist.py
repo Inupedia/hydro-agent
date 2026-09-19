@@ -16,6 +16,7 @@ from typing import Any, Literal
 from pydantic import Field
 
 from hydro_agent.execution.contracts import FrozenModel
+from hydro_agent.optimization.contracts import DirectionalProbeResult
 from hydro_agent.optimization.strategies import CalibrationStrategyRegistry
 from hydro_agent.skills.expert import ExpertPriorEngine
 from hydro_agent.skills.governance import KnowledgeQueryContext
@@ -128,6 +129,11 @@ class CalibrationPlan(FrozenModel):
     # Source-addressable upstream contracts for audit / Skill invocation ledger.
     evidence_interpretation: EvidenceInterpretation | None = None
     diagnosis_hypothesis: DiagnosisHypothesis | None = None
+    direction_verification_status: Literal[
+        "not_required", "supported", "refuted", "inconclusive"
+    ] = "not_required"
+    direction_evidence_ids: tuple[str, ...] = ()
+    next_step: Literal["optimize", "re-diagnose"] = "optimize"
 
     @property
     def tunes_raw_parameter_vector(self) -> bool:
@@ -531,6 +537,7 @@ def plan_from_hypothesis(
     expert_priors: ExpertPriorEngine | None = None,
     campaign_objective: ObjectiveName | None = None,
     knowledge_context: KnowledgeQueryContext | None = None,
+    direction_verification: DirectionalProbeResult | None = None,
 ) -> CalibrationPlan:
     """Compile a legal ``CalibrationPlan`` from a typed diagnosis hypothesis."""
 
@@ -611,6 +618,19 @@ def plan_from_hypothesis(
         }
     )
     reading = interpretation or interpret_evidence(diagnosis)
+    verification_status: Literal[
+        "not_required", "supported", "refuted", "inconclusive"
+    ] = "not_required"
+    direction_evidence_ids: tuple[str, ...] = ()
+    next_step: Literal["optimize", "re-diagnose"] = "optimize"
+    if direction_verification is not None:
+        if direction_verification.requested_direction != refined.direction:
+            raise ValueError("direction verification does not match hypothesis direction")
+        verification_status = direction_verification.status
+        direction_evidence_ids = tuple(direction_verification.evidence_ids)
+        if direction_verification.status in {"refuted", "inconclusive"}:
+            next_step = "re-diagnose"
+
     return CalibrationPlan(
         hypothesis=refined.as_calibration_hypothesis(),
         strategy_id=strategy_id,
@@ -632,6 +652,9 @@ def plan_from_hypothesis(
         ),
         evidence_interpretation=reading,
         diagnosis_hypothesis=refined,
+        direction_verification_status=verification_status,
+        direction_evidence_ids=direction_evidence_ids,
+        next_step=next_step,
     )
 
 
