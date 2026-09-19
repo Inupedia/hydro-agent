@@ -20,6 +20,11 @@ class BasinModelPlanService:
         self.yaogu = ModelPlanService(self.root, academy)
         self.usgs = UsModelPlanService(self.root, catalog)
 
+    def set_unit_recommender(self, recommender) -> None:
+        """Configure Yaogu spatial-candidate Agent selection."""
+
+        self.yaogu.set_unit_recommender(recommender)
+
     def _plan(self, plan_id: str) -> dict:
         if not re.fullmatch(r"plan-[a-f0-9]{12}", plan_id):
             raise ValueError("invalid model plan id")

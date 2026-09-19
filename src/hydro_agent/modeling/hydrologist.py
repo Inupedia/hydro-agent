@@ -8,12 +8,209 @@ import sys
 import threading
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from hydro_agent.agent.contracts import ActionCode, EvidencePacket, ProblemHypothesis
 from hydro_agent.agent.tools import information_hash
+from hydro_agent.execution.contracts import FrozenModel
 from hydro_agent.execution.hashing import sha256_bytes
 from hydro_agent.optimization.candidates import CandidateSchemeService
+
+
+class UnitSchemeRecommendation(FrozenModel):
+    candidate_id: str
+    confidence: float
+    rationale: str
+    evidence_refs: tuple[str, ...] = ()
+    uncertainties: tuple[str, ...] = ()
+    source: Literal["agent", "deterministic_fallback"]
+
+
+def _candidate_payload(candidate: object) -> dict[str, Any]:
+    if hasattr(candidate, "model_dump"):
+        return dict(candidate.model_dump(mode="json"))
+    if isinstance(candidate, dict):
+        return dict(candidate)
+    raise ValueError("unit candidate must be a mapping/model")
+
+
+def _unknown_spatial_dimensions(spatial_profile: dict[str, Any]) -> tuple[str, ...]:
+    dimensions = ("elevation", "slope", "precipitation", "land_cover", "soil", "drainage")
+    unknown = []
+    for name in dimensions:
+        raw = spatial_profile.get(name)
+        status = raw.get("status") if isinstance(raw, dict) else None
+        if status != "available":
+            unknown.append(name)
+    return tuple(unknown)
+
+
+def recommend_unit_scheme(
+    *,
+    candidates,
+    spatial_profile: dict[str, Any],
+    proposed: dict[str, Any] | None = None,
+) -> UnitSchemeRecommendation:
+    """Validate an Agent choice or return a conservative deterministic fallback."""
+
+    rows = tuple(_candidate_payload(item) for item in candidates)
+    if not rows:
+        raise ValueError("unit recommendation requires at least one candidate")
+    by_id = {str(row.get("candidate_id") or ""): row for row in rows}
+    if "" in by_id or len(by_id) != len(rows):
+        raise ValueError("unit candidates require unique candidate_id values")
+
+    unknown = _unknown_spatial_dimensions(dict(spatial_profile or {}))
+    if proposed is not None:
+        allowed_fields = {
+            "candidate_id",
+            "confidence",
+            "rationale",
+            "evidence_refs",
+            "uncertainties",
+        }
+        unsupported = sorted(set(proposed) - allowed_fields)
+        if unsupported:
+            raise ValueError(
+                "unsupported Agent recommendation fields: " + ", ".join(unsupported)
+            )
+
+        candidate_id = str(proposed.get("candidate_id") or "")
+        selected = by_id.get(candidate_id)
+        if selected is None:
+            raise ValueError(f"unknown candidate_id: {candidate_id}")
+
+        raw_refs = proposed.get("evidence_refs") or ()
+        if not isinstance(raw_refs, (list, tuple)):
+            raise ValueError("evidence_refs must be a list/tuple")
+        evidence_refs = tuple(dict.fromkeys(str(item) for item in raw_refs if str(item)))
+        allowed_refs = {str(item) for item in selected.get("evidence_refs") or ()}
+        invented = tuple(ref for ref in evidence_refs if ref not in allowed_refs)
+        if invented:
+            raise ValueError("unknown evidence refs: " + ", ".join(invented))
+
+        confidence = float(proposed.get("confidence", 0.5))
+        if not 0.0 <= confidence <= 1.0:
+            raise ValueError("recommendation confidence must be in [0,1]")
+        rationale = str(proposed.get("rationale") or "").strip()
+        if not rationale:
+            raise ValueError("recommendation rationale is required")
+        proposed_uncertainties = proposed.get("uncertainties") or ()
+        if not isinstance(proposed_uncertainties, (list, tuple)):
+            raise ValueError("uncertainties must be a list/tuple")
+        uncertainties = tuple(
+            dict.fromkeys(
+                (
+                    *(str(item) for item in proposed_uncertainties if str(item)),
+                    *unknown,
+                )
+            )
+        )
+        return UnitSchemeRecommendation(
+            candidate_id=candidate_id,
+            confidence=confidence,
+            rationale=rationale,
+            evidence_refs=evidence_refs,
+            uncertainties=uncertainties,
+            source="agent",
+        )
+
+    topology = next(
+        (row for row in rows if row.get("kind") == "topology_subbasin"),
+        None,
+    )
+    selected = topology or next(
+        (row for row in rows if row.get("kind") == "lumped"),
+        rows[0],
+    )
+    candidate_id = str(selected["candidate_id"])
+    kind = str(selected.get("kind") or "")
+    return UnitSchemeRecommendation(
+        candidate_id=candidate_id,
+        confidence=0.45 if kind == "topology_subbasin" else 0.35,
+        rationale=(
+            "未获得可验证的 Agent 候选选择；保守复用已有确定性拓扑单元。"
+            if kind == "topology_subbasin"
+            else "未获得可验证的 Agent 候选选择；回退为全流域单元。"
+        ),
+        evidence_refs=tuple(str(item) for item in selected.get("evidence_refs") or ()),
+        uncertainties=unknown,
+        source="deterministic_fallback",
+    )
+
+
+def propose_unit_scheme_with_llm(
+    *,
+    client,
+    candidates,
+    spatial_profile: dict[str, Any],
+) -> UnitSchemeRecommendation:
+    """Ask the configured Agent to select one registered unit candidate.
+
+    The model sees only structured spatial evidence and registered candidates.
+    Its response is always passed through recommend_unit_scheme validation.
+    """
+
+    rows = tuple(_candidate_payload(item) for item in candidates)
+    if not rows:
+        raise ValueError("unit recommendation requires at least one candidate")
+
+    safe_candidates = [
+        {
+            "candidate_id": str(row.get("candidate_id") or ""),
+            "kind": row.get("kind"),
+            "unit_count": row.get("unit_count"),
+            "unit_ids": list(row.get("unit_ids") or ()),
+            "evidence_refs": list(row.get("evidence_refs") or ()),
+            "preserved_contrasts": list(row.get("preserved_contrasts") or ()),
+            "lost_contrasts": list(row.get("lost_contrasts") or ()),
+            "complexity_notes": list(row.get("complexity_notes") or ()),
+        }
+        for row in rows
+    ]
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "你是水文建模方案智能体。只能从给定 candidate_id 中选择一个计算单元方案；"
+                "不得创建 polygon、坐标、新 unit_id 或修改候选。"
+                "只返回 JSON 对象，字段限于 candidate_id、confidence、rationale、"
+                "evidence_refs、uncertainties。evidence_refs 必须来自所选候选。"
+                "资料为 unknown 时必须在 uncertainties 中说明。"
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(
+                {
+                    "spatial_profile": spatial_profile,
+                    "candidates": safe_candidates,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+        },
+    ]
+    completion = client.complete(messages, max_tokens=900)
+    content = str(completion.content).strip()
+    if content.startswith("```"):
+        lines = content.splitlines()
+        if lines and lines[0].lstrip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        content = "\n".join(lines).strip()
+    try:
+        proposed = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Agent unit recommendation must be valid JSON") from exc
+    if not isinstance(proposed, dict):
+        raise ValueError("Agent unit recommendation must be a JSON object")
+    return recommend_unit_scheme(
+        candidates=rows,
+        spatial_profile=spatial_profile,
+        proposed=proposed,
+    )
 
 VENDOR = Path(__file__).resolve().parents[1] / "models" / "xaj" / "vendor"
 

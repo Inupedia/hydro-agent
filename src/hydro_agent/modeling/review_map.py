@@ -154,6 +154,47 @@ def write_units_geojson(
     return out
 
 
+
+
+def build_unit_candidate_review_payload(
+    candidates,
+    *,
+    topology_geometry_source: str = "units.geojson",
+) -> list[dict[str, Any]]:
+    """Describe candidate layers by reference to existing reviewed geometry.
+
+    This payload is metadata only. It intentionally contains no geometry and never
+    mutates the source boundary/unit files.
+    """
+
+    if not topology_geometry_source or topology_geometry_source.startswith(("/", "..")):
+        raise ValueError("invalid topology geometry source")
+
+    payload: list[dict[str, Any]] = []
+    for candidate in candidates:
+        raw = (
+            candidate.model_dump(mode="json")
+            if hasattr(candidate, "model_dump")
+            else dict(candidate)
+        )
+        kind = str(raw.get("kind") or "")
+        if kind not in {"lumped", "topology_subbasin", "heterogeneity_aware"}:
+            raise ValueError(f"unsupported unit candidate kind: {kind}")
+        geometry_source = (
+            "boundary.geojson" if kind == "lumped" else topology_geometry_source
+        )
+        payload.append(
+            {
+                "candidate_id": str(raw.get("candidate_id") or ""),
+                "kind": kind,
+                "unit_ids": [str(item) for item in raw.get("unit_ids") or ()],
+                "unit_count": int(raw.get("unit_count") or 0),
+                "evidence_refs": [str(item) for item in raw.get("evidence_refs") or ()],
+                "geometry_source": geometry_source,
+            }
+        )
+    return payload
+
 def render_basin_review_map(gis_dir: Path, *, title: str = "Basin review") -> Path:
     """Write ``units_map.svg`` with boundary, unit wedges, rivers, and outlet."""
     gis_dir = Path(gis_dir)

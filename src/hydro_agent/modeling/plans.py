@@ -130,8 +130,9 @@ class ModelPlanService:
     from a configured local academy dataset, never arbitrary submitted scripts.
     """
 
-    def __init__(self, root: Path, academy: Path):
+    def __init__(self, root: Path, academy: Path, unit_recommender=None):
         self.root, self.academy = Path(root).resolve(), Path(academy).resolve()
+        self.unit_recommender = unit_recommender
         self.root.mkdir(parents=True, exist_ok=True)
         self.pool = ThreadPoolExecutor(max_workers=1)
         self.lock = threading.RLock()
@@ -154,6 +155,11 @@ class ModelPlanService:
                 if date.fromisoformat(p.get('suggested_start') or p['data_start']) < start:
                     p.update(suggested_start=str(start), suggested_end=str(end))
                     write_json(path, p)
+
+    def set_unit_recommender(self, recommender) -> None:
+        """Install an optional Agent selector; None keeps deterministic fallback."""
+
+        self.unit_recommender = recommender
 
     def directory(self, plan_id: str) -> Path:
         if not re.fullmatch(r'plan-[a-f0-9]{12}', plan_id):
@@ -230,6 +236,7 @@ class ModelPlanService:
             if boundary_hash != p['boundary_hash']:
                 raise ValueError('边界版本已变化，请重新查看地图')
             self._verify_files(plan_id, p['review_files'])
+            self._verify_files(plan_id, p.get('spatial_evidence_files') or {})
             self._stage(plan_id, 'M03_REVIEW_BOUNDARY', 'completed', '已确认当前出口、边界及面积')
             self._update(plan_id, status='queued', boundary_reviewed=True)
             self.pool.submit(self._build, plan_id, True)
@@ -286,9 +293,11 @@ class ModelPlanService:
                 if not boundary['accepted']:
                     raise ValueError('边界未通过数值检查')
                 dem_config = json.loads((root/'case/dem_config.json').read_text(encoding='utf-8'))
-                review = {str(f.relative_to(root)): digest(f) for f in (root/'case/gis').rglob('*') if f.is_file()}
-                review['case/dem_config.json'] = digest(root/'case/dem_config.json')
-                boundary_hash = hashlib.sha256(json.dumps(review, sort_keys=True).encode()).hexdigest()
+                self._persist_spatial_evidence(plan_id, max_units=8)
+                review = self._boundary_review_manifest(plan_id)
+                boundary_hash = hashlib.sha256(
+                    json.dumps(review, sort_keys=True).encode()
+                ).hexdigest()
                 self._stage(plan_id, 'M02_DELINEATE', 'completed')
                 self._stage(plan_id, 'M03_REVIEW_BOUNDARY', 'awaiting_review', '请核对地图上的出口、边界与面积')
                 self._update(plan_id, status='awaiting_review', boundary=boundary,
@@ -311,6 +320,7 @@ class ModelPlanService:
             files = {str(f.relative_to(root)): digest(f) for folder in ('case', 'normalized')
                      for f in (root/folder).rglob('*') if f.is_file()}
             files['scheme.json'] = digest(root/'scheme.json')
+            files.update(p.get('spatial_evidence_files') or {})
             content_hash = hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
             self._stage(plan_id, 'M05_VALIDATE_PLAN', 'completed')
             self._update(plan_id, status='ready', files=files, content_hash=content_hash)
@@ -389,6 +399,287 @@ class ModelPlanService:
                      data_start=str(dates[0]), data_end=str(dates[-1]),
                      suggested_start=str(sug_start), suggested_end=str(sug_end),
                      history_days=history_days)
+
+    def _boundary_review_manifest(self, plan_id: str) -> dict[str, str]:
+        """Hash only the authoritative GIS/boundary sources used by M03."""
+
+        root = self.directory(plan_id)
+        gis = root / 'case/gis'
+        review = {
+            str(path.relative_to(root)): digest(path)
+            for path in gis.rglob('*')
+            if path.is_file()
+        } if gis.is_dir() else {}
+        dem_config = root / 'case/dem_config.json'
+        if dem_config.is_file():
+            review['case/dem_config.json'] = digest(dem_config)
+        return review
+
+    def _station_precipitation_spatial_values(self) -> list[float] | None:
+        """Return deterministic long-term mean daily rain for each known station."""
+
+        import math
+
+        daily_dir = self.academy / 'examples/data/日数据'
+        files = sorted(daily_dir.glob('*.csv')) if daily_dir.is_dir() else []
+        if not files:
+            return None
+
+        reserved = {'时间', '蒸发', '流量'}
+        totals: dict[str, float] = {}
+        counts: dict[str, int] = {}
+        for path in files:
+            with path.open(encoding='utf-8-sig', newline='') as handle:
+                reader = csv.DictReader(handle)
+                station_names = sorted(
+                    name.strip()
+                    for name in (reader.fieldnames or [])
+                    if name and name.strip() not in reserved
+                )
+                for row in reader:
+                    for station in station_names:
+                        raw = row.get(station)
+                        if raw is None or not str(raw).strip():
+                            continue
+                        try:
+                            value = float(raw)
+                        except (TypeError, ValueError) as exc:
+                            raise ValueError(
+                                f'雨量站 {station} 存在非数值降雨：{path.name}'
+                            ) from exc
+                        if not math.isfinite(value) or value < 0:
+                            raise ValueError(
+                                f'雨量站 {station} 存在无效降雨：{path.name}'
+                            )
+                        totals[station] = totals.get(station, 0.0) + value
+                        counts[station] = counts.get(station, 0) + 1
+
+        means = [
+            totals[station] / counts[station]
+            for station in sorted(counts)
+            if counts[station] > 0
+        ]
+        return means or None
+
+    def _persist_spatial_evidence(self, plan_id: str, *, max_units: int = 8) -> dict:
+        """Derive P2 facts from trusted M02 artifacts without changing GIS geometry."""
+
+        import numpy as np
+        import rasterio
+        from pyproj import Geod
+
+        from hydro_agent.hydrology.spatial_profile import derive_basin_spatial_profile
+        from hydro_agent.modeling.hydrologist import recommend_unit_scheme
+        from hydro_agent.modeling.review_map import build_unit_candidate_review_payload
+        from hydro_agent.modeling.unit_candidates import build_unit_scheme_candidates
+
+        root = self.directory(plan_id)
+        gis = root / 'case/gis'
+        dem_path = gis / 'dem_projected.tif'
+        catchment_path = gis / 'catchment.tif'
+        units_path = gis / 'units.csv'
+        topology_path = gis / 'unit_topology.json'
+        required = (dem_path, catchment_path, units_path, topology_path)
+        missing = [path.name for path in required if not path.is_file()]
+        if missing:
+            raise ValueError('空间画像缺少 M02 可信产物：' + ', '.join(missing))
+
+        candidate_units_path = units_path
+        candidate_topology_path = topology_path
+        topology_geometry_source = 'units.geojson'
+        archived = gis / 'original_subbasins'
+        archived_sources = (
+            archived / 'units.csv',
+            archived / 'unit_topology.json',
+            archived / 'units.geojson',
+        )
+        if all(path.is_file() for path in archived_sources):
+            candidate_units_path = archived / 'units.csv'
+            candidate_topology_path = archived / 'unit_topology.json'
+            topology_geometry_source = 'original_subbasins/units.geojson'
+
+        with rasterio.open(dem_path) as src:
+            dem = src.read(1).astype(float)
+            transform = src.transform
+            nodata = src.nodata
+        with rasterio.open(catchment_path) as src:
+            catchment = src.read(1) > 0
+        if dem.shape != catchment.shape:
+            raise ValueError('DEM 与流域栅格尺寸不一致')
+
+        valid = catchment & np.isfinite(dem)
+        if nodata is not None and np.isfinite(float(nodata)):
+            valid &= dem != float(nodata)
+        if not np.any(valid):
+            raise ValueError('流域内没有有效 DEM 像元')
+
+        elevation = dem[valid].astype(float).tolist()
+        xres = abs(float(transform.a))
+        yres = abs(float(transform.e))
+        if xres <= 0 or yres <= 0:
+            raise ValueError('DEM 分辨率无效')
+        dem_for_slope = dem.copy()
+        dem_for_slope[~valid] = np.nan
+        grad_y, grad_x = np.gradient(dem_for_slope, yres, xres)
+        slope_grid = np.degrees(np.arctan(np.hypot(grad_x, grad_y)))
+        slope_mask = valid & np.isfinite(slope_grid)
+        slope = slope_grid[slope_mask].astype(float).tolist()
+
+        with candidate_units_path.open(encoding='utf-8', newline='') as handle:
+            unit_rows = list(csv.DictReader(handle))
+        if not unit_rows:
+            raise ValueError('空间画像未找到计算单元')
+        topology_rows = json.loads(candidate_topology_path.read_text(encoding='utf-8'))
+        if not isinstance(topology_rows, list):
+            raise ValueError('unit_topology.json 必须为列表')
+        topology_by_id = {
+            str(row.get('unit_id')): row
+            for row in topology_rows
+            if isinstance(row, dict) and row.get('unit_id') is not None
+        }
+        topology_units = []
+        for row in unit_rows:
+            unit_id = str(int(float(row['unit_id'])))
+            topology = topology_by_id.get(unit_id, {})
+            topology_units.append({
+                'unit_id': unit_id,
+                'area_km2': float(row['area_km2']),
+                'mean_elevation_m': (
+                    float(row['mean_elevation_m'])
+                    if row.get('mean_elevation_m') not in {None, ''}
+                    else None
+                ),
+                'downstream_unit_id': topology.get('downstream_unit_id'),
+            })
+
+        stream_length_km = None
+        main_channel_length_km = None
+        streams_path = gis / 'streams.geojson'
+        if streams_path.is_file():
+            payload = json.loads(streams_path.read_text(encoding='utf-8'))
+            geod = Geod(ellps='WGS84')
+            lengths: list[float] = []
+
+            def line_length_km(coords) -> float:
+                points = [(float(x), float(y)) for x, y in coords]
+                if len(points) < 2:
+                    return 0.0
+                lons = [point[0] for point in points]
+                lats = [point[1] for point in points]
+                return abs(float(geod.line_length(lons, lats))) / 1000.0
+
+            for feature in payload.get('features') or []:
+                geometry = (feature or {}).get('geometry') or {}
+                kind = geometry.get('type')
+                coordinates = geometry.get('coordinates') or []
+                if kind == 'LineString':
+                    length = line_length_km(coordinates)
+                    if length > 0:
+                        lengths.append(length)
+                elif kind == 'MultiLineString':
+                    for line in coordinates:
+                        length = line_length_km(line)
+                        if length > 0:
+                            lengths.append(length)
+            if lengths:
+                stream_length_km = float(sum(lengths))
+                main_channel_length_km = float(max(lengths))
+
+        area_km2 = float(sum(float(row['area_km2']) for row in unit_rows))
+        profile = derive_basin_spatial_profile(
+            elevation_m=elevation,
+            slope_deg=slope,
+            precipitation_mm=self._station_precipitation_spatial_values(),
+            land_cover=None,
+            soil=None,
+            drainage={
+                'area_km2': area_km2,
+                'stream_length_km': stream_length_km,
+                'main_channel_length_km': main_channel_length_km,
+            },
+        )
+        candidates = build_unit_scheme_candidates(
+            spatial_profile=profile,
+            topology_units=topology_units,
+            max_units=max_units,
+        )
+
+        profile_payload = profile.model_dump(mode='json')
+        candidate_payload = [item.model_dump(mode='json') for item in candidates]
+        layer_payload = build_unit_candidate_review_payload(
+            candidate_payload,
+            topology_geometry_source=topology_geometry_source,
+        )
+        recommendation_error = None
+        if self.unit_recommender is not None:
+            try:
+                raw_recommendation = self.unit_recommender(
+                    spatial_profile=profile_payload,
+                    candidates=candidate_payload,
+                )
+                proposed = (
+                    raw_recommendation.model_dump(mode='json')
+                    if hasattr(raw_recommendation, 'model_dump')
+                    else dict(raw_recommendation)
+                )
+                proposed.pop('source', None)
+                recommendation = recommend_unit_scheme(
+                    candidates=candidate_payload,
+                    spatial_profile=profile_payload,
+                    proposed=proposed,
+                )
+            except Exception as exc:  # Agent failure must not block deterministic planning.
+                recommendation_error = str(exc)[:500]
+                recommendation = recommend_unit_scheme(
+                    candidates=candidate_payload,
+                    spatial_profile=profile_payload,
+                    proposed=None,
+                )
+        else:
+            recommendation = recommend_unit_scheme(
+                candidates=candidate_payload,
+                spatial_profile=profile_payload,
+                proposed=None,
+            )
+        recommendation_payload = recommendation.model_dump(mode='json')
+        statuses = (
+            profile.elevation.status,
+            profile.slope.status,
+            profile.precipitation.status,
+            profile.land_cover.status,
+            profile.soil.status,
+            profile.drainage.status,
+        )
+        available_count = sum(status == 'available' for status in statuses)
+        spatial_status = (
+            'available'
+            if available_count == len(statuses)
+            else ('partial' if available_count else 'unknown')
+        )
+
+        write_json(root / 'spatial-profile.json', profile_payload)
+        write_json(root / 'unit-candidates.json', {'items': candidate_payload})
+        write_json(root / 'unit-candidate-layers.json', {'items': layer_payload})
+        write_json(root / 'unit-recommendation.json', recommendation_payload)
+        spatial_evidence_files = {
+            name: digest(root / name)
+            for name in (
+                'spatial-profile.json',
+                'unit-candidates.json',
+                'unit-candidate-layers.json',
+                'unit-recommendation.json',
+            )
+        }
+        return self._update(
+            plan_id,
+            spatial_profile_status=spatial_status,
+            spatial_profile=profile_payload,
+            unit_candidates=candidate_payload,
+            unit_candidate_layers=layer_payload,
+            unit_recommendation=recommendation_payload,
+            unit_recommendation_error=recommendation_error,
+            spatial_evidence_files=spatial_evidence_files,
+        )
 
     def _verify_files(self, plan_id, files):
         root = self.directory(plan_id)

@@ -220,7 +220,9 @@ def _build_real(
     report_root: Path,
 ) -> str:
     from hydro_agent.agent.providers.siliconflow import SiliconFlowDecisionProvider
+    from hydro_agent.llm.client import SiliconFlowClient
     from hydro_agent.llm.settings import LLMSettings
+    from hydro_agent.modeling.hydrologist import propose_unit_scheme_with_llm
     from hydro_agent.workbench.real import RealWorkbenchKernel
 
     env_file = Path(os.getenv("HYDRO_AGENT_ENV_FILE", ".env"))
@@ -230,6 +232,15 @@ def _build_real(
         if deps.runtime_llm_settings is not None:
             return deps.runtime_llm_settings
         return settings
+
+    if deps.model_plans is not None and hasattr(deps.model_plans, "set_unit_recommender"):
+        deps.model_plans.set_unit_recommender(
+            lambda *, spatial_profile, candidates: propose_unit_scheme_with_llm(
+                client=SiliconFlowClient(current_runtime_llm_settings()),
+                spatial_profile=spatial_profile,
+                candidates=candidates,
+            )
+        )
 
     class TracingProvider:
         def __init__(self, provider_factory):

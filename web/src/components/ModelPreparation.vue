@@ -4,6 +4,7 @@ import { api, type BasinInfo, type ModelPlan } from '../api/client'
 import GlassSelect from './GlassSelect.vue'
 import GlassDialog from './GlassDialog.vue'
 import RenameDialog from './RenameDialog.vue'
+import SpatialHeterogeneityPanel from './SpatialHeterogeneityPanel.vue'
 import { BorderBeam, NumberTicker, RippleButton } from './ui'
 
 const props = defineProps<{
@@ -576,10 +577,19 @@ onUnmounted(() => {
                   {{ current.unit_count || 1 }} 套 XAJ · {{ current.model_mode }}
                 </p>
                 <p v-if="current.boundary.note" class="basin-caption">{{ String(current.boundary.note) }}</p>
-                <label v-if="current.status === 'awaiting_review'" class="review-check">
-                  <input v-model="reviewed" type="checkbox" data-test="review-check" />我已确认出口位置、面积与单元划分
-                </label>
               </div>
+
+              <SpatialHeterogeneityPanel
+                v-if="current?.spatial_profile || current?.unit_candidates?.length || current?.unit_recommendation"
+                :profile="current.spatial_profile"
+                :profile-status="current.spatial_profile_status"
+                :candidates="current.unit_candidates || []"
+                :recommendation="current.unit_recommendation"
+              />
+
+              <label v-if="current.status === 'awaiting_review'" class="review-check">
+                <input v-model="reviewed" type="checkbox" data-test="review-check" />我已确认出口位置、面积与单元划分
+              </label>
             </div>
           </li>
         </ol>
@@ -1023,7 +1033,8 @@ onUnmounted(() => {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.boundary-review .review-check {
+.boundary-review .review-check,
+.step-body > .review-check {
   display: flex;
   align-items: center;
   gap: 8px;
