@@ -287,3 +287,49 @@ def test_pending_candidate_uses_next_task_as_holdout_before_reflection(
         "task-a",
         "task-b",
     }
+
+
+
+def test_single_p1_hypothesis_case_does_not_auto_create_validated_rule(
+    repository,
+    tmp_path,
+):
+    store = ExperienceSkillVersionStore(
+        tmp_path / "experience-store-p1-case",
+        repository=repository,
+    )
+    service = ExperienceEvolutionService(
+        repository,
+        version_store=store,
+        promotion_service=AlwaysPromote(store),
+    )
+    service.ensure_baseline()
+    seed_completed_task(repository, "task-p1")
+    repository.add_evidence(
+        EvidencePacket(
+            evidence_id="task-p1-optimize",
+            task_id="task-p1",
+            action=ActionCode.A05_OPTIMIZE,
+            status="succeeded",
+            observations=(),
+            metrics={"model_evaluations": 32.0},
+            gates={
+                "calibration_hypothesis_id": "routing-too-slow",
+                "diagnostic_signature_json": '["repeated_late_peaks"]',
+                "adjustment_direction": "accelerate_routing",
+                "direction_verification_status": "supported",
+                "direction_evidence_ids_json": '["event-001","event-004"]',
+                "strategy_id": "xaj-bounded-v1",
+                "param_groups": "routing",
+                "objective": "nse",
+            },
+            new_information_hash="task-p1-optimize-hash",
+        )
+    )
+
+    outcome = service.process_completed_task("task-p1")
+
+    assert outcome.structural_change is False
+    assert outcome.candidate_version is None
+    assert repository.list_active_experiences() == []
+    assert repository.get_current_experience_skill_version().version == 1
