@@ -106,7 +106,7 @@ def test_heterogeneity_candidate_is_not_invented_when_spatial_sources_are_unknow
     assert result[0].lost_contrasts == ()
 
 
-def test_candidate_builder_never_exceeds_heterogeneity_max_units():
+def test_candidate_builder_never_exceeds_max_units():
     units = [
         {"unit_id": idx, "area_km2": 10.0, "downstream_unit_id": 0}
         for idx in range(1, 13)
@@ -118,5 +118,5 @@ def test_candidate_builder_never_exceeds_heterogeneity_max_units():
         max_units=8,
     )
 
-    heterogeneity = [item for item in result if item.kind == "heterogeneity_aware"]
-    assert heterogeneity == []
+    assert all(item.unit_count <= 8 for item in result)
+    assert [item.kind for item in result] == ["lumped"]
