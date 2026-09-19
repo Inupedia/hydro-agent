@@ -453,3 +453,91 @@ def test_confirm_rejects_tampered_spatial_evidence(plans, monkeypatch):
 
     with pytest.raises(ValueError, match="方案文件已变化"):
         plans.confirm(plan_id, "current")
+
+
+
+def test_lumped_plan_reuses_archived_subbasins_for_spatial_candidates(plans):
+    import csv
+    import json
+
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+
+    plan_id = "plan-acde1234beef"
+    root = plans.directory(plan_id)
+    gis = root / "case" / "gis"
+    archived = gis / "original_subbasins"
+    archived.mkdir(parents=True)
+    write_json(
+        root / "plan.json",
+        {
+            "plan_id": plan_id,
+            "basin_id": "yaogu",
+            "status": "running",
+            "config": {"model_mode": "lumped"},
+            "stages": [],
+        },
+    )
+
+    transform = from_origin(0.0, 2000.0, 1000.0, 1000.0)
+    dem = np.asarray([[100.0, 200.0], [300.0, 400.0]], dtype="float32")
+    catchment = np.ones((2, 2), dtype="uint8")
+    for name, data, dtype, nodata in (
+        ("dem_projected.tif", dem, "float32", None),
+        ("catchment.tif", catchment, "uint8", 0),
+    ):
+        with rasterio.open(
+            gis / name,
+            "w",
+            driver="GTiff",
+            width=2,
+            height=2,
+            count=1,
+            dtype=dtype,
+            crs="EPSG:3857",
+            transform=transform,
+            nodata=nodata,
+        ) as dst:
+            dst.write(data, 1)
+
+    with (gis / "units.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["unit_id", "area_km2", "mean_elevation_m"])
+        writer.writeheader()
+        writer.writerow({"unit_id": 1, "area_km2": 12.0, "mean_elevation_m": 250.0})
+    write_json(gis / "unit_topology.json", [{"unit_id": 1, "downstream_unit_id": 0}])
+
+    with (archived / "units.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["unit_id", "area_km2", "mean_elevation_m"])
+        writer.writeheader()
+        writer.writerows(
+            [
+                {"unit_id": 1, "area_km2": 3.0, "mean_elevation_m": 120.0},
+                {"unit_id": 2, "area_km2": 4.0, "mean_elevation_m": 240.0},
+                {"unit_id": 3, "area_km2": 5.0, "mean_elevation_m": 360.0},
+            ]
+        )
+    write_json(
+        archived / "unit_topology.json",
+        [
+            {"unit_id": 1, "downstream_unit_id": 3},
+            {"unit_id": 2, "downstream_unit_id": 3},
+            {"unit_id": 3, "downstream_unit_id": 0},
+        ],
+    )
+    write_json(
+        archived / "units.geojson",
+        {"type": "FeatureCollection", "features": []},
+    )
+
+    plans._persist_spatial_evidence(plan_id, max_units=8)
+
+    saved = plans.get(plan_id)
+    topology = next(item for item in saved["unit_candidates"] if item["kind"] == "topology_subbasin")
+    assert topology["unit_count"] == 3
+    layer = next(
+        item for item in saved["unit_candidate_layers"]
+        if item["candidate_id"] == topology["candidate_id"]
+    )
+    assert layer["geometry_source"] == "original_subbasins/units.geojson"
+    assert json.loads((root / "unit-candidates.json").read_text(encoding="utf-8"))["items"]
