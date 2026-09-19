@@ -17,7 +17,6 @@ from hydro_agent.execution.hashing import sha256_bytes
 from hydro_agent.optimization.candidates import CandidateSchemeService
 
 
-
 class UnitSchemeRecommendation(FrozenModel):
     candidate_id: str
     confidence: float
