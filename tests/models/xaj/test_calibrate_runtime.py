@@ -107,6 +107,13 @@ def test_dds_calibration_is_deterministic(calibration_workspace):
     assert first["objective_value"] == second["objective_value"]
     assert first["model_version"] == "teacher-xaj-v6-20260908"
     assert first["optimization_trace"]
+    behavioral = first["behavioral_candidates"]
+    assert behavioral["objective_name"] == "nse"
+    assert 1 <= len(behavioral["items"]) <= 8
+    assert behavioral["items"][0]["objective_value"] == pytest.approx(first["objective_value"])
+    assert behavioral["items"][0]["process_evidence"]["window"] == "calibration"
+    assert "flood_events" in behavioral["items"][0]["process_evidence"]
+    assert behavioral == second["behavioral_candidates"]
     csv_path = calibration_workspace.parent / "a" / "output" / "calibration-comparison.csv"
     assert csv_path.is_file()
     header = csv_path.read_text(encoding="utf-8").splitlines()[0]
