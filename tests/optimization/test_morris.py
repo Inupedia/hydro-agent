@@ -2,7 +2,11 @@ import json
 
 import pytest
 
-from hydro_agent.optimization.morris import MorrisCheckpoint, morris_direction_evidence, screen_morris
+from hydro_agent.optimization.morris import (
+    MorrisCheckpoint,
+    morris_direction_evidence,
+    screen_morris,
+)
 
 
 def test_morris_ranks_normalized_elementary_effects_and_builds_active_set():
