@@ -310,3 +310,85 @@ def test_provider_applies_experience_before_experiment_guardrail():
     assert decision.experience_refs == ("EXP-XAJ-ROUTING",)
     assert decision.experience_mode == "exploitation"
     assert any("EXP-XAJ-ROUTING:prefer=routing" in item for item in decision.experience_influence)
+
+
+
+def test_provider_audit_exposes_packet_driven_direction_without_parameter_values():
+    packet = {
+        "window": "calibration",
+        "overall": {
+            "status": "available",
+            "sample_count": 20,
+            "metrics": {"nse": 0.4, "pbias_percent": 1.0},
+            "notes": [],
+        },
+        "water_balance": {
+            "status": "available",
+            "sample_count": 20,
+            "metrics": {"pbias_percent": 1.0},
+            "notes": [],
+        },
+        "flow_regimes": {},
+        "fdc": {"status": "available", "sample_count": 20, "metrics": {}, "notes": []},
+        "seasons": {},
+        "years": {},
+        "flood_events": [
+            {
+                "event_id": "event-001",
+                "start": "2026-06-01",
+                "end": "2026-06-05",
+                "basis": "rainfall_runoff",
+                "status": "available",
+                "sample_count": 5,
+                "metrics": {
+                    "peak_timing_lag_steps": 1.0,
+                    "volume_relative_error": 0.02,
+                    "peak_relative_error": -0.1,
+                },
+                "notes": [],
+            },
+            {
+                "event_id": "event-002",
+                "start": "2026-06-10",
+                "end": "2026-06-14",
+                "basis": "rainfall_runoff",
+                "status": "available",
+                "sample_count": 5,
+                "metrics": {
+                    "peak_timing_lag_steps": 1.0,
+                    "volume_relative_error": -0.01,
+                    "peak_relative_error": -0.08,
+                },
+                "notes": [],
+            },
+        ],
+        "data_quality": {
+            "total_count": 20,
+            "valid_count": 20,
+            "dropped_count": 0,
+            "coverage": 1.0,
+            "dropped_by_reason": {},
+        },
+        "basin_attributes": {},
+    }
+    hydro = HydroContext(
+        diagnosis={
+            "hypothesis": "TIMING",
+            "phenomenon": "峰现持续偏晚，洪量接近无偏",
+            "recommended_action": "A05_OPTIMIZE",
+            "recommended_strategy_id": "xaj-local-refine-v1",
+            "recommended_param_groups": "routing",
+            "recommended_objective": "nse",
+            "hypotheses": [{"id": "TIMING", "strength": 0.82}],
+            "diagnosis_packet": packet,
+        }
+    )
+
+    decision = CalibrationScientistDecisionProvider().decide(
+        _view(latest_action=ActionCode.A04_DIAGNOSE, latest_status="succeeded", hydro=hydro)
+    )
+
+    hypothesis_output = decision.activated_skills_audit[1]["output"]
+    assert hypothesis_output["direction"] == "accelerate_routing"
+    assert hypothesis_output["direction_evidence_ids"] == ["event-001", "event-002"]
+    assert "parameter_values" not in hypothesis_output
