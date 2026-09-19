@@ -130,8 +130,9 @@ class ModelPlanService:
     from a configured local academy dataset, never arbitrary submitted scripts.
     """
 
-    def __init__(self, root: Path, academy: Path):
+    def __init__(self, root: Path, academy: Path, unit_recommender=None):
         self.root, self.academy = Path(root).resolve(), Path(academy).resolve()
+        self.unit_recommender = unit_recommender
         self.root.mkdir(parents=True, exist_ok=True)
         self.pool = ThreadPoolExecutor(max_workers=1)
         self.lock = threading.RLock()
@@ -154,6 +155,11 @@ class ModelPlanService:
                 if date.fromisoformat(p.get('suggested_start') or p['data_start']) < start:
                     p.update(suggested_start=str(start), suggested_end=str(end))
                     write_json(path, p)
+
+    def set_unit_recommender(self, recommender) -> None:
+        """Install an optional Agent selector; None keeps deterministic fallback."""
+
+        self.unit_recommender = recommender
 
     def directory(self, plan_id: str) -> Path:
         if not re.fullmatch(r'plan-[a-f0-9]{12}', plan_id):
@@ -583,11 +589,36 @@ class ModelPlanService:
         profile_payload = profile.model_dump(mode='json')
         candidate_payload = [item.model_dump(mode='json') for item in candidates]
         layer_payload = build_unit_candidate_review_payload(candidate_payload)
-        recommendation = recommend_unit_scheme(
-            candidates=candidate_payload,
-            spatial_profile=profile_payload,
-            proposed=None,
-        )
+        recommendation_error = None
+        if self.unit_recommender is not None:
+            try:
+                raw_recommendation = self.unit_recommender(
+                    spatial_profile=profile_payload,
+                    candidates=candidate_payload,
+                )
+                proposed = (
+                    raw_recommendation.model_dump(mode='json')
+                    if hasattr(raw_recommendation, 'model_dump')
+                    else dict(raw_recommendation)
+                )
+                recommendation = recommend_unit_scheme(
+                    candidates=candidate_payload,
+                    spatial_profile=profile_payload,
+                    proposed=proposed,
+                )
+            except Exception as exc:  # Agent failure must not block deterministic planning.
+                recommendation_error = str(exc)[:500]
+                recommendation = recommend_unit_scheme(
+                    candidates=candidate_payload,
+                    spatial_profile=profile_payload,
+                    proposed=None,
+                )
+        else:
+            recommendation = recommend_unit_scheme(
+                candidates=candidate_payload,
+                spatial_profile=profile_payload,
+                proposed=None,
+            )
         recommendation_payload = recommendation.model_dump(mode='json')
         statuses = (
             profile.elevation.status,
@@ -615,6 +646,7 @@ class ModelPlanService:
             unit_candidates=candidate_payload,
             unit_candidate_layers=layer_payload,
             unit_recommendation=recommendation_payload,
+            unit_recommendation_error=recommendation_error,
         )
 
     def _verify_files(self, plan_id, files):
