@@ -1,6 +1,6 @@
 import pytest
 
-from hydro_agent.optimization.candidates import CandidateSchemeService
+from hydro_agent.optimization.candidates import CandidateSchemeService, select_behavioral_candidates
 from hydro_agent.persistence.database import Database
 from hydro_agent.persistence.repository import HydroRepository
 
@@ -68,3 +68,25 @@ def test_candidate_registration_never_changes_base_scheme(
     assert candidate.status == "candidate"
     assert candidate.scheme_id != "scheme-base"
     assert candidate.config_json["parameters"]["K"] == 0.8
+
+
+
+def test_behavioral_set_keeps_near_optimal_parameter_distinct_candidates():
+    result = select_behavioral_candidates(
+        candidates=[
+            {"candidate_id": "a", "objective_value": 0.86, "parameters": {"K": 0.8, "L": 2.0}},
+            {"candidate_id": "b", "objective_value": 0.85, "parameters": {"K": 1.1, "L": 1.0}},
+            {"candidate_id": "near-a", "objective_value": 0.855, "parameters": {"K": 0.801, "L": 2.001}},
+            {"candidate_id": "c", "objective_value": 0.70, "parameters": {"K": 0.2, "L": 8.0}},
+        ],
+        objective_name="nse",
+        parameter_bounds={"K": (0.0, 2.0), "L": (0.0, 10.0)},
+        max_candidates=8,
+        objective_tolerance=0.02,
+        min_parameter_distance=0.05,
+    )
+
+    assert [item.candidate_id for item in result.items] == ["a", "b"]
+    assert result.objective_best == pytest.approx(0.86)
+    assert result.items[0].parameter_distance_from_best == pytest.approx(0.0)
+    assert result.items[1].parameter_distance_from_best > 0.05
