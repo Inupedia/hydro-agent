@@ -782,10 +782,23 @@ class GateHandler:
         else:
             base, candidate = provided
         result = self.gate_evaluator.evaluate(base, candidate, self.policy, gbt_report=gbt_report)
+        from hydro_agent.evaluation.gbt22482 import to_standard_evaluation
+        from hydro_agent.evaluation.standard_profile import not_evaluated_standard
+
+        standard_profile = (
+            to_standard_evaluation(gbt_report)
+            if gbt_report is not None
+            else not_evaluated_standard(
+                profile_id="operational_gbt",
+                standard_id="GB/T 22482",
+            )
+        )
         observations = (
             f"gate_status={result.status}",
             f"adoption_status={result.adoption_status}",
+            f"research_qualification={result.research_qualification}",
             f"qualification_status={result.qualification_status}",
+            f"standard_status={standard_profile.status}",
             f"base_scheme_id={result.base_scheme_id}",
             f"candidate_scheme_id={result.candidate_scheme_id}",
             f"base_primary={base.primary_score:.4f}",
@@ -810,7 +823,11 @@ class GateHandler:
         gates = {
             "status": result.status,
             "adoption_status": result.adoption_status,
+            "research_qualification": result.research_qualification,
             "qualification_status": result.qualification_status,
+            "standard_profile_json": json.dumps(
+                standard_profile.model_dump(mode="json"), ensure_ascii=False, sort_keys=True
+            ),
             "base_scheme_id": result.base_scheme_id,
             "candidate_scheme_id": result.candidate_scheme_id,
             "reasons": ",".join(result.reasons),
