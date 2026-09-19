@@ -599,7 +599,7 @@ def test_development_gate_selects_best_behavioral_candidate_without_new_search(r
                 scheme_id=scheme_id,
                 data_snapshot_id=snap,
                 issue_time=f"{issue.isoformat()}T00:00:00Z",
-                lead_values={1: value},
+                lead_values={1: value, 2: value, 3: value},
                 unit="m3/s",
                 artifact_ids=(),
             )
@@ -624,7 +624,9 @@ def test_development_gate_selects_best_behavioral_candidate_without_new_search(r
         },
     )
 
-    base_bundle, candidate_bundle, _hydro, event_comparison = gate.bundles("task-1")
+    base_bundle, candidate_bundle, _hydro, event_comparison = gate.bundles_with_events(
+        "task-1"
+    )
 
     assert base_bundle.scheme_id == "scheme-base"
     assert candidate_bundle.scheme_id == "cand-behavior-alt"
