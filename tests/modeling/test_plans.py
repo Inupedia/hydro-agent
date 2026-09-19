@@ -315,3 +315,92 @@ def test_spatial_evidence_artifacts_do_not_enter_boundary_review_hash(plans):
 
     assert "spatial-profile.json" not in review
     assert "unit-candidates.json" not in review
+
+
+
+def test_spatial_profile_uses_available_station_precipitation_without_guessing_other_sources(plans):
+    import csv
+    import json
+
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+
+    daily = plans.academy / "examples" / "data" / "日数据"
+    daily.mkdir(parents=True)
+    for year, rows in {
+        2000: [
+            ["#2000-01-01 08:00:00#", 1.0, 3.0, 2.0, 10.0],
+            ["#2000-01-02 08:00:00#", 2.0, 4.0, 1.0, 11.0],
+        ],
+        2001: [
+            ["#2001-01-01 08:00:00#", 3.0, 6.0, 2.0, 12.0],
+        ],
+    }.items():
+        with (daily / f"{year}.csv").open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["时间", "站A", "站B", "蒸发", "流量"])
+            writer.writerows(rows)
+
+    plan_id = "plan-precip123456"
+    root = plans.directory(plan_id)
+    gis = root / "case" / "gis"
+    gis.mkdir(parents=True)
+    write_json(
+        root / "plan.json",
+        {
+            "plan_id": plan_id,
+            "basin_id": "yaogu",
+            "status": "running",
+            "config": {},
+            "stages": [],
+        },
+    )
+
+    transform = from_origin(0.0, 2000.0, 1000.0, 1000.0)
+    dem = np.asarray([[100.0, 200.0], [300.0, 400.0]], dtype="float32")
+    catchment = np.ones((2, 2), dtype="uint8")
+    for name, data, dtype, nodata in (
+        ("dem_projected.tif", dem, "float32", None),
+        ("catchment.tif", catchment, "uint8", 0),
+    ):
+        with rasterio.open(
+            gis / name,
+            "w",
+            driver="GTiff",
+            width=2,
+            height=2,
+            count=1,
+            dtype=dtype,
+            crs="EPSG:3857",
+            transform=transform,
+            nodata=nodata,
+        ) as dst:
+            dst.write(data, 1)
+
+    with (gis / "units.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["unit_id", "area_km2", "mean_elevation_m"])
+        writer.writeheader()
+        writer.writerows(
+            [
+                {"unit_id": 1, "area_km2": 2.0, "mean_elevation_m": 150.0},
+                {"unit_id": 2, "area_km2": 2.0, "mean_elevation_m": 350.0},
+            ]
+        )
+    write_json(
+        gis / "unit_topology.json",
+        [
+            {"unit_id": 1, "downstream_unit_id": 2},
+            {"unit_id": 2, "downstream_unit_id": 0},
+        ],
+    )
+
+    plans._persist_spatial_evidence(plan_id, max_units=8)
+
+    profile = json.loads((root / "spatial-profile.json").read_text(encoding="utf-8"))
+    assert profile["precipitation"]["status"] == "available"
+    assert profile["precipitation"]["count"] == 2
+    assert profile["precipitation"]["mean"] == pytest.approx(19.0 / 6.0)
+    assert profile["precipitation"]["cv"] > 0
+    assert profile["land_cover"]["status"] == "unknown"
+    assert profile["soil"]["status"] == "unknown"
